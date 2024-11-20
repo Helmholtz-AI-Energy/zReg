@@ -16,3 +16,4 @@ finally:
     del version, PackageNotFoundError
 
 from . import dataset as dataset
+from . import transforms as transforms

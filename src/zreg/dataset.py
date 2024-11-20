@@ -2,12 +2,25 @@ import pandas as pd
 import scipy.io as sio
 import numpy as np
 
+try:
+    import torch
+
+    has_torch = True
+except ImportError:
+    has_torch = False
+
+
 __all__ = [
     "load_data_from_tracklets",
 ]
 
 
-def load_data_from_tracklets(filepath: str, return_pandas: bool = False) -> tuple:
+def load_data_from_tracklets(
+    filepath: str,
+    return_pandas: bool = False,
+    return_torch: bool = True,
+    device: str = "cpu",
+) -> tuple:
     """Load data from tracklets.
 
     Loads data from a MATLAB file containing tracklet data and returns a tuple containing
@@ -19,14 +32,18 @@ def load_data_from_tracklets(filepath: str, return_pandas: bool = False) -> tupl
         Path to the MATLAB file containing tracklet data.
     return_pandas : bool, optional
         Whether to return point clouds as pandas DataFrames, by default False.
+    return_torch : bool, optional
+        Whether to return point clouds as PyTorch tensors, by default True.
+    device : str, optional
+        Device to place PyTorch tensors on, by default 'cpu'.
 
     Returns
     -------
     tuple
         A tuple containing:
             - A dictionary where keys are time points and values are point clouds at each
-              time point. Point clouds are either NumPy arrays or pandas DataFrames
-              depending on the `return_pandas` parameter.
+              time point. Point clouds can be NumPy arrays, pandas DataFrames, or PyTorch
+              tensors depending on the `return_pandas` and `return_torch` parameters.
             - The raw tracklet data as loaded from the MATLAB file.
 
     Raises
@@ -34,7 +51,8 @@ def load_data_from_tracklets(filepath: str, return_pandas: bool = False) -> tupl
     FileNotFoundError
         If the specified file path does not exist.
     ValueError
-        If the file does not contain valid tracklet data.
+        If the file does not contain valid tracklet data or if both `return_pandas`
+        and `return_torch` are True.
 
     Notes
     -----
@@ -59,7 +77,15 @@ def load_data_from_tracklets(filepath: str, return_pandas: bool = False) -> tupl
             0    1    2
     1  1.0  2.0  3.0
     2  4.0  5.0  6.0
+    >>> pc, tracklets = load_data_from_tracklets('tracklets.mat', return_torch=True, device='cuda')
+    >>> pc[0]  # Get the point cloud at the first time point as a PyTorch tensor on the GPU
+    tensor([[1.0, 2.0, 3.0, 1],
+            [4.0, 5.0, 6.0, 2]], device='cuda:0')
     """
+    if return_torch and not has_torch:
+        raise RuntimeError("torch is not available. install it to use torch/gpus")
+    if return_pandas and return_torch:
+        raise ValueError("Cannot return both pandas DataFrames and PyTorch tensors.")
 
     data = sio.loadmat(filepath, simplify_cells=True, squeeze_me=True)
     pc = {i: [] for i in range(len(data["trackletsPerTimePoint"]))}
@@ -79,6 +105,8 @@ def load_data_from_tracklets(filepath: str, return_pandas: bool = False) -> tupl
     for i in pc:
         if return_pandas:
             pc[i] = pd.DataFrame(np.array(pc[i])[:, :3], index=np.array(pc[i])[:, 3])
+        elif return_torch:
+            pc[i] = torch.tensor(pc[i], device=device)
         else:
             pc[i] = np.array(pc[i])
     return pc, data["tracklets"]

@@ -1,4 +1,11 @@
 import sys
+import logging
+from .setup_log import setup_logger
+
+setup_logger(logging.INFO)  # TODO: add a basic flag to overwrite this?
+
+from . import dataset as dataset  # noqa: E402
+from . import transforms as transforms  # noqa: E402
 
 if sys.version_info[:2] >= (3, 8):
     # TODO: Import directly (no need for conditional) when `python_requires = >= 3.8`
@@ -14,6 +21,3 @@ except PackageNotFoundError:  # pragma: no cover
     __version__ = "unknown"
 finally:
     del version, PackageNotFoundError
-
-from . import dataset as dataset
-from . import transforms as transforms

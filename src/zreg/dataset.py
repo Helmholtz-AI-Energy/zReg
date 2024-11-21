@@ -1,6 +1,8 @@
 import pandas as pd
 import scipy.io as sio
 import numpy as np
+import logging
+import time
 
 try:
     import torch
@@ -8,6 +10,9 @@ try:
     has_torch = True
 except ImportError:
     has_torch = False
+
+
+log = logging.getLogger(__name__)
 
 
 __all__ = [
@@ -87,6 +92,9 @@ def load_data_from_tracklets(
     if return_pandas and return_torch:
         raise ValueError("Cannot return both pandas DataFrames and PyTorch tensors.")
 
+    log.info(f"Loading data from {filepath}")
+    t0 = time.perf_counter()
+
     data = sio.loadmat(filepath, simplify_cells=True, squeeze_me=True)
     pc = {i: [] for i in range(len(data["trackletsPerTimePoint"]))}
     # timestep, positions (x, y, z, tracklet_num)
@@ -109,4 +117,7 @@ def load_data_from_tracklets(
             pc[i] = torch.tensor(pc[i], device=device)
         else:
             pc[i] = np.array(pc[i])
+
+    t1 = time.perf_counter() - t0
+    log.debug(f"Finished loading. Time required: {t1}")
     return pc, data["tracklets"]

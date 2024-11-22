@@ -48,7 +48,6 @@ class DeformableRegistration(ExpMaxRegistration):
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
-        fact = {"dtype": self.target.dtype, "device": self.target.device}
         if alpha is not None and alpha <= 0:
             raise ValueError(
                 "Expected a positive value for regularization parameter alpha. Instead got: {}".format(
@@ -65,12 +64,12 @@ class DeformableRegistration(ExpMaxRegistration):
 
         self.alpha = 2 if alpha is None else alpha
         self.beta = 2 if beta is None else beta
-        self.W = torch.zeros((self.num_src_pts, self.dimensionality), **fact)
-        self.G = gaussian_kernel(self.Y, self.beta)
+        self.W = torch.zeros((self.num_src_pts, self.dimensionality), **self.fact)
+        self.gauss = gaussian_kernel(self.source, self.beta)
         self.low_rank = low_rank
         self.num_eig = num_eig
         if self.low_rank is True:
-            self.Q, self.S = low_rank_eigen(self.G, self.num_eig)
+            self.Q, self.S = low_rank_eigen(self.gauss, self.num_eig)
             self.inv_S = torch.diag(1.0 / self.S)
             self.S = torch.diag(self.S)
             self.E = 0.0
@@ -97,7 +96,9 @@ class DeformableRegistration(ExpMaxRegistration):
             self.e_alpha = 1e-8 if e_alpha is None else e_alpha
             self.source_id = source_id
             self.target_id = target_id
-            self.P_tilde = torch.zeros((self.num_src_pts, self.num_targ_pts), **fact)
+            self.P_tilde = torch.zeros(
+                (self.num_src_pts, self.num_targ_pts), **self.fact
+            )
             self.P_tilde[self.source_id, self.target_id] = 1
             self.sum_probs_source_tilde = torch.sum(self.P_tilde, dim=1)
             self.PX_tilde = torch.dot(self.P_tilde, self.target)
@@ -108,76 +109,48 @@ class DeformableRegistration(ExpMaxRegistration):
         See Eq. 22 of https://arxiv.org/pdf/0905.2635.pdf.
         """
         if not self.low_rank:
-            A = np.dot(
-                self.sum_probs_source.diag(), self.G
-            ) + self.alpha * self.sigma2 * torch.eye(
-                self.num_src_pts
-            )  # TODO: dot or matmul?
-            B = self.probs_targets - np.dot(torch.diag(self.sum_probs_source), self.Y)
+            A = (
+                self.sum_probs_source.diag() @ self.gauss
+            ) + self.alpha * self.sigma2 * torch.eye(self.num_src_pts, self.fact)  # dot
+            B = self.probs_targets - (self.sum_probs_source.diag() @ self.source)  # dot
 
             if self.constrained:
-                A += (
-                    self.sigma2
-                    * (1 / self.e_alpha)
-                    * np.dot(torch.diag(self.sum_probs_source_tilde), self.G)
-                )
-                B += (
-                    self.sigma2
-                    * (1 / self.e_alpha)
-                    * (
-                        self.PX_tilde
-                        - np.dot(torch.diag(self.sum_probs_source_tilde), self.Y)
-                    )
-                )
+                A += self.sigma2 * (1 / self.e_alpha)
+                A *= torch.dot(
+                    torch.diag(self.sum_probs_source_tilde), self.gauss
+                )  # dot
+
+                B += self.sigma2 * (1 / self.e_alpha)
+                B *= self.PX_tilde - torch.dot(
+                    torch.diag(self.sum_probs_source_tilde), self.source
+                )  # dot
 
             self.W = torch.linalg.solve(A, B)
 
         else:
             dP = torch.diag(self.sum_probs_source)
             if self.constrained:
-                dP += (
-                    self.sigma2
-                    * (1 / self.e_alpha)
-                    * torch.diag(self.sum_probs_source_tilde)
-                )
+                dP += self.sigma2 * (1 / self.e_alpha)
+                dP *= torch.diag(self.sum_probs_source_tilde)
 
             dPQ = torch.matmul(dP, self.Q)
-            F = (
-                self.probs_targets - torch.matmul(dP, self.Y)
-            )  # in original code, disagreement between two methods: alternative is probs_targets - np.dot(np.diag(self.sum_probs_source), self.Y)
+            F = self.probs_targets - torch.matmul(dP, self.source)
+            # in original code, disagreement between two methods: alternative is probs_targets - np.dot(np.diag(self.sum_probs_source), self.source)
             if self.constrained:
-                F += (
-                    self.sigma2
-                    * (1 / self.e_alpha)
-                    * (
-                        self.PX_tilde
-                        - np.dot(torch.diag(self.sum_probs_source_tilde), self.Y)
-                    )
-                )
+                F += self.sigma2 * (1 / self.e_alpha)
+                F *= self.PX_tilde - torch.dot(
+                    self.sum_probs_source_tilde.diag(), self.source
+                )  # dot
 
-            self.W = (
-                1
-                / (self.alpha * self.sigma2)
-                * (
-                    F
-                    - torch.matmul(
-                        dPQ,
-                        (
-                            torch.linalg.solve(
-                                (
-                                    self.alpha * self.sigma2 * self.inv_S
-                                    + torch.matmul(self.Q.T, dPQ)
-                                ),
-                                (torch.matmul(self.Q.T, F)),
-                            )
-                        ),
-                    )
-                )
+            self.W = 1 / (self.alpha * self.sigma2)
+            hold = torch.linalg.solve(
+                self.alpha * self.sigma2 * self.inv_S + (self.Q.T @ dPQ),
+                self.Q.T @ F,
             )
+            self.W *= F - (dPQ @ hold)
+
             QtW = torch.matmul(self.Q.T, self.W)
-            self.E = self.E + self.alpha / 2 * torch.trace(
-                torch.matmul(QtW.T, torch.matmul(self.S, QtW))
-            )
+            self.E = self.E + self.alpha / 2 * torch.trace(QtW.T @ (self.S @ QtW))
 
     def transform_point_cloud(self, Y=None):
         """
@@ -188,7 +161,7 @@ class DeformableRegistration(ExpMaxRegistration):
         Y: numpy array, optional
             Array of points to transform - use to predict on new set of points.
             Best for predicting on new points not used to run initial registration.
-                If None, self.Y used.
+                If None, self.source used.
 
         Returns
         -------
@@ -198,17 +171,15 @@ class DeformableRegistration(ExpMaxRegistration):
 
         """
         if Y is not None:
-            G = gaussian_kernel(target=Y, beta=self.beta, Y=self.Y)
-            return Y + np.dot(G, self.W)
+            G = gaussian_kernel(target=Y, beta=self.beta, Y=self.source)
+            return Y + torch.dot(G, self.W)  # dot
         else:
-            if self.low_rank is False:
-                self.transformed_source = self.Y + np.dot(self.G, self.W)
-
-            elif self.low_rank is True:
-                self.transformed_source = self.Y + torch.matmul(
-                    self.Q, torch.matmul(self.S, torch.matmul(self.Q.T, self.W))
+            if not self.low_rank:
+                self.transformed_source = self.source + torch.dot(self.gauss, self.W)
+            else:
+                self.transformed_source = self.source + (
+                    self.Q @ (self.S @ (self.Q.T @ self.W))
                 )
-                return
 
     def update_variance(self):
         """
@@ -221,14 +192,14 @@ class DeformableRegistration(ExpMaxRegistration):
         # The original CPD paper does not explicitly calculate the objective functional.
         # This functional will include terms from both the negative log-likelihood and
         # the Gaussian kernel used for regularization.
-        self.q = np.inf
+        # self.q = torch.inf
 
-        xPx = np.dot(
-            torch.transpose(self.sum_probs_target),
+        xPx = torch.dot(
+            self.sum_probs_target.T,
             torch.sum(torch.multiply(self.target, self.target), axis=1),
         )
-        yPy = np.dot(
-            torch.transpose(self.sum_probs_source),
+        yPy = torch.dot(
+            self.sum_probs_source.T,
             torch.sum(
                 torch.multiply(self.transformed_source, self.transformed_source), axis=1
             ),
@@ -251,13 +222,13 @@ class DeformableRegistration(ExpMaxRegistration):
 
         Returns
         -------
-        self.G: numpy array
+        self.gauss: numpy array
             Gaussian kernel matrix.
 
         self.W: numpy array
             Deformable transformation matrix.
         """
-        return self.G, self.W
+        return self.gauss, self.W
 
 
 def gaussian_kernel(target, beta, Y=None):

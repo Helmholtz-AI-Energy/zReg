@@ -9,14 +9,14 @@ class RigidRegistration(ExpMaxRegistration):
 
     Attributes
     ----------
-    R: numpy array (semi-positive definite)
+    rotm: numpy array (semi-positive definite)
         DxD rotation matrix. Any well behaved matrix will do,
         since the next estimate is a rotation matrix.
 
-    t: numpy array
+    translationv: numpy array
         1xD initial translation vector.
 
-    s: float (positive)
+    scale: float (positive)
         scaling parameter.
 
     A: numpy array
@@ -34,10 +34,9 @@ class RigidRegistration(ExpMaxRegistration):
     #     Centered target point cloud.
     #     Defined in Fig. 2 of https://arxiv.org/pdf/0905.2635.pdf.
 
-    def __init__(self, R=None, t=None, s=None, scale=True, *args, **kwargs):
+    def __init__(self, rotm=None, translationv=None, scale=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        fact = {"dtype": self.target.dtype, "device": self.target.device}
         if self.dimensionality != 2 and self.dimensionality != 3:
             raise ValueError(
                 "Rigid registration only supports 2D or 3D point clouds. Instead got {}.".format(
@@ -45,40 +44,45 @@ class RigidRegistration(ExpMaxRegistration):
                 )
             )
 
-        if R is not None and (
-            (R.ndim != 2)
-            or (R.shape[0] != self.dimensionality)
-            or (R.shape[1] != self.dimensionality)
-            or not is_positive_semi_definite(R)
+        if rotm is not None and (
+            (rotm.ndim != 2)
+            or (rotm.shape[0] != self.dimensionality)
+            or (rotm.shape[1] != self.dimensionality)
+            or not is_positive_semi_definite(rotm)
         ):
             raise ValueError(
                 "The rotation matrix can only be initialized to {}x{} positive semi definite matrices. Instead got: {}.".format(
-                    self.dimensionality, self.dimensionality, R
+                    self.dimensionality, self.dimensionality, rotm
                 )
             )
 
-        if t is not None and (
-            (t.ndim != 2) or (t.shape[0] != 1) or (t.shape[1] != self.dimensionality)
+        if translationv is not None and (
+            (translationv.ndim != 2)
+            or (translationv.shape[0] != 1)
+            or (translationv.shape[1] != self.dimensionality)
         ):
             raise ValueError(
                 "The translation vector can only be initialized to 1x{} positive semi definite matrices. Instead got: {}.".format(
-                    self.dimensionality, t
+                    self.dimensionality, translationv
                 )
             )
 
-        if s is not None and (not isinstance(s, numbers.Number) or s <= 0):
+        if scale is not None and scale <= 0:
             raise ValueError(
-                "The scale factor must be a positive number. Instead got: {}.".format(s)
+                "The scale factor must be a positive number. Instead got: {}.".format(
+                    scale
+                )
             )
 
-        self.R = torch.eye(self.dimensionality, **fact) if R is None else R
-        self.t = (
-            torch.atleast_2d(torch.zeros((1, self.dimensionality)), **fact)
-            if t is None
-            else t
+        self.rotm = (
+            torch.eye(self.dimensionality, **self.fact) if rotm is None else rotm
         )
-        self.s = 1 if s is None else s
-        self.scale = scale
+        self.translationv = (
+            torch.atleast_2d(torch.zeros((1, self.dimensionality)), **self.fact)
+            if translationv is None
+            else translationv
+        )
+        self.scale = 1.0 if scale is None else scale
 
     def update_transform(self):
         """
@@ -89,40 +93,35 @@ class RigidRegistration(ExpMaxRegistration):
         # target point cloud mean
         mu_target = torch.divide(torch.sum(self.probs_targets, axis=0), self.sum_probs)
         # source point cloud mean
-        muY = torch.divide(
-            torch.sum(np.dot(torch.transpose(self.P), self.source), axis=0),
-            self.sum_probs,
-        )
+        mu_source = torch.divide(
+            torch.sum((self.probs.T @ self.source), axis=0), self.sum_probs
+        )  # dot
 
         self.target_hat = self.target - torch.tile(mu_target, (self.num_targ_pts, 1))
-        # centered source point cloud
-        Y_hat = self.source - torch.tile(muY, (self.num_src_pts, 1))
-        self.YPY = np.dot(
-            torch.transpose(self.sum_probs_source),
+        # centered source point cloud (Y)
+        Y_hat = self.source - torch.tile(mu_source, (self.num_src_pts, 1))
+        self.YPY = torch.dot(
+            self.sum_probs_source.T,
             torch.sum(torch.multiply(Y_hat, Y_hat), axis=1),
-        )
+        )  # dot
 
-        self.A = np.dot(torch.transpose(self.target_hat), torch.transpose(self.P))
-        self.A = np.dot(self.A, Y_hat)
+        self.A = self.target_hat.T @ self.probs.T  # dot
+        self.A = torch.dot(self.A, Y_hat)  # dot
 
         # Singular value decomposition as per lemma 1 of https://arxiv.org/pdf/0905.2635.pdf.
-        U, _, V = torch.linalg.svd(self.A, full_matrices=True)
-        C = torch.ones((self.dimensionality,))
-        C[self.dimensionality - 1] = torch.linalg.det(np.dot(U, V))
+        u, _, vh = torch.linalg.svd(self.A, full_matrices=True)
+        c = torch.ones((self.dimensionality,), self.fact)
+        c[self.dimensionality - 1] = torch.linalg.det(u @ vh)  # dot
 
         # Calculate the rotation matrix using Eq. 9 of https://arxiv.org/pdf/0905.2635.pdf.
-        self.R = torch.transpose(np.dot(np.dot(U, torch.diag(C)), V))
+        self.rotm = (u @ torch.diag(c) @ vh).T  # dot
         # Update scale and translation using Fig. 2 of https://arxiv.org/pdf/0905.2635.pdf.
-        if self.scale is True:
-            self.s = (
-                torch.trace(np.dot(torch.transpose(self.A), torch.transpose(self.R)))
-                / self.YPY
-            )
-        else:
-            pass
-        self.t = torch.transpose(mu_target) - self.s * np.dot(
-            torch.transpose(self.R), torch.transpose(muY)
-        )
+        if self.scale != 1.0:
+            self.scale = torch.trace(torch.dot(self.A.T, self.rotm.T)) / self.YPY  # dot
+
+        self.translationv = mu_target.T - self.scale * torch.dot(
+            self.rotm.T, mu_source.T
+        )  # dot
 
     def transform_point_cloud(self, source=None):
         """
@@ -142,10 +141,12 @@ class RigidRegistration(ExpMaxRegistration):
         Otherwise, returns the transformed source.
         """
         if source is None:
-            self.transformed_source = self.s * np.dot(self.source, self.R) + self.t
+            self.transformed_source = (
+                self.scale * (self.source @ self.rotm) + self.translationv
+            )  # dot
             return
         else:
-            return self.s * np.dot(source, self.R) + self.t
+            return self.scale * (source @ self.rotm) + self.translationv  # dot
 
     def update_variance(self):
         """
@@ -155,16 +156,16 @@ class RigidRegistration(ExpMaxRegistration):
         """
         qprev = self.q
 
-        trAR = torch.trace(np.dot(self.A, self.R))
-        xPx = np.dot(
-            torch.transpose(self.Pt1),
+        trAR = torch.trace(self.A @ self.rotm)
+        xPx = torch.dot(
+            self.Pt1.T,
             torch.sum(torch.multiply(self.target_hat, self.target_hat), axis=1),
-        )
-        self.q = (xPx - 2 * self.s * trAR + self.s * self.s * self.YPY) / (
+        )  # dot
+        self.q = (xPx - 2 * self.scale * trAR + self.scale * self.scale * self.YPY) / (
             2 * self.sigma2
         ) + self.dimensionality * self.sum_probs / 2 * torch.log(self.sigma2)
         self.diff = torch.abs(self.q - qprev)
-        self.sigma2 = (xPx - self.s * trAR) / (self.sum_probs * self.dimensionality)
+        self.sigma2 = (xPx - self.scale * trAR) / (self.sum_probs * self.dimensionality)
         if self.sigma2 <= 0:
             self.sigma2 = self.tolerance / 10
 
@@ -174,17 +175,17 @@ class RigidRegistration(ExpMaxRegistration):
 
         Returns
         -------
-        self.s: float
+        self.scale: float
             Current estimate of the scale factor.
 
-        self.R: numpy array
+        self.rotm: numpy array
             Current estimate of the rotation matrix.
 
-        self.t: numpy array
+        self.translationv: numpy array
             Current estimate of the translation vector.
         """
-        return self.s, self.R, self.t
+        return self.scale, self.rotm, self.translationv
 
 
-def is_positive_semi_definite(R):
-    return torch.all(torch.linalg.eigvals(R) > 0)
+def is_positive_semi_definite(rotm):
+    return torch.all(torch.linalg.eigvals(rotm) > 0)

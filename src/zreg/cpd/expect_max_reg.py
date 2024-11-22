@@ -11,9 +11,9 @@ class ExpMaxRegistration(object):
 
     Parameters
     ----------
-    target : torch.Tensor
+    target : torch.Tensor  (X)
         NxD array of target points.
-    source : torch.Tensor
+    source : torch.Tensor  (Y)
         MxD array of source points. (TODO: these will be registered to the targets?)
     sigma2 : float, optional
         Initial variance of the Gaussian mixture model.
@@ -109,7 +109,7 @@ class ExpMaxRegistration(object):
             )
 
         self.target = target
-        fact = {"dtype": target.dtype, "device": target.device}
+        self.fact = {"dtype": target.dtype, "device": target.device}
         self.source = source
         self.transformed_source = source.clone()
         self.sigma2 = (
@@ -123,11 +123,11 @@ class ExpMaxRegistration(object):
         self.iteration = 0
         self.diff = float("inf")
         self.q = float("inf")
-        self.probs = torch.zeros((self.num_src_pts, self.num_targ_pts), **fact)
-        self.sum_probs_target = torch.zeros((self.num_targ_pts,), **fact)
-        self.sum_probs_source = torch.zeros((self.num_src_pts,), **fact)
+        self.probs = torch.zeros((self.num_src_pts, self.num_targ_pts), **self.fact)
+        self.sum_probs_target = torch.zeros((self.num_targ_pts,), **self.fact)
+        self.sum_probs_source = torch.zeros((self.num_src_pts,), **self.fact)
         self.probs_targets = torch.zeros(
-            (self.num_src_pts, self.dimensionality), **fact
+            (self.num_src_pts, self.dimensionality), **self.fact
         )
         self.sum_probs = 0
 
@@ -243,7 +243,7 @@ class ExpMaxRegistration(object):
         )
 
         den = torch.sum(probs, axis=0, keepdims=True)  # (1, num_targ_pts)
-        den = torch.clip(den, np.finfo(self.target.dtype).eps, None) + c
+        den = torch.clip(den, torch.finfo(self.target.dtype).eps, None) + c
 
         self.probs = torch.divide(probs, den)
         self.sum_probs_target = torch.sum(self.probs, axis=0)

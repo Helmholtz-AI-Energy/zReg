@@ -163,7 +163,8 @@ class RigidRegistration(ExpMaxRegistration):
         )  # dot
         self.q = (xPx - 2 * self.scale * trAR + self.scale * self.scale * self.YPY) / (
             2 * self.sigma2
-        ) + self.dimensionality * self.sum_probs / 2 * torch.log(self.sigma2)
+        )
+        self.q += self.dimensionality * self.sum_probs / 2 * torch.log(self.sigma2)
         self.diff = torch.abs(self.q - qprev)
         self.sigma2 = (xPx - self.scale * trAR) / (self.sum_probs * self.dimensionality)
         if self.sigma2 <= 0:

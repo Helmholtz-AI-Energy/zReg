@@ -1,31 +1,25 @@
-import pandas as pd
 import scipy.io as sio
 import numpy as np
 import logging
 import time
+from typing import Dict, Tuple
 
-try:
-    import torch
+import open3d.t.geometry as o3dtgeo
 
-    has_torch = True
-except ImportError:
-    has_torch = False
+import torch
 
 
 log = logging.getLogger(__name__)
 
 
-__all__ = [
-    "load_data_from_tracklets",
-]
+__all__ = ["load_data_from_tracklets", "open3d_to_torch", "torch_to_open3d"]
 
 
 def load_data_from_tracklets(
     filepath: str,
-    return_pandas: bool = False,
     return_torch: bool = True,
     device: str = "cpu",
-) -> tuple:
+) -> Tuple[Dict[int, torch.Tensor], Dict[int, Dict]]:
     """Load data from tracklets.
 
     Loads data from a MATLAB file containing tracklet data and returns a tuple containing
@@ -35,8 +29,6 @@ def load_data_from_tracklets(
     ----------
     filepath : str
         Path to the MATLAB file containing tracklet data.
-    return_pandas : bool, optional
-        Whether to return point clouds as pandas DataFrames, by default False.
     return_torch : bool, optional
         Whether to return point clouds as PyTorch tensors, by default True.
     device : str, optional
@@ -47,8 +39,12 @@ def load_data_from_tracklets(
     tuple
         A tuple containing:
             - A dictionary where keys are time points and values are point clouds at each
-              time point. Point clouds can be NumPy arrays, pandas DataFrames, or PyTorch
-              tensors depending on the `return_pandas` and `return_torch` parameters.
+              time point. Point clouds can be NumPy arrays or PyTorch tensors depending on
+              the `return_torch` parameter.
+              Dictionary structure:
+                  pc[i]['pos'] -> x, y, z position
+                  pc[i]['color'] -> color
+                  pc[i]['id'] -> cell id
             - The raw tracklet data as loaded from the MATLAB file.
 
     Raises
@@ -56,8 +52,7 @@ def load_data_from_tracklets(
     FileNotFoundError
         If the specified file path does not exist.
     ValueError
-        If the file does not contain valid tracklet data or if both `return_pandas`
-        and `return_torch` are True.
+        If the file does not contain valid tracklet data
 
     Notes
     -----
@@ -87,37 +82,153 @@ def load_data_from_tracklets(
     tensor([[1.0, 2.0, 3.0, 1],
             [4.0, 5.0, 6.0, 2]], device='cuda:0')
     """
-    if return_torch and not has_torch:
-        raise RuntimeError("torch is not available. install it to use torch/gpus")
-    if return_pandas and return_torch:
-        raise ValueError("Cannot return both pandas DataFrames and PyTorch tensors.")
+    if device is not None and device != "cpu" and not torch.cuda.is_available():
+        log.info("CUDA/GPUs not available, defaulting to cpu loading")
+        device = "cpu"
 
     log.info(f"Loading data from {filepath}")
     t0 = time.perf_counter()
 
     data = sio.loadmat(filepath, simplify_cells=True, squeeze_me=True)
-    pc = {i: [] for i in range(len(data["trackletsPerTimePoint"]))}
+    pc = {
+        i: {"pos": [], "color": [], "id": []}
+        for i in range(len(data["trackletsPerTimePoint"]))
+    }
     # timestep, positions (x, y, z, tracklet_num)
 
     for idx in range(len(data["tracklets"])):
         tracklet = data["tracklets"][idx]
+        col = tracklet["color"].tolist()
+        cellid = tracklet["id"]
 
         # add tracklet to all point cloud entries
         for c, j in enumerate(range(tracklet["startTime"] - 1, tracklet["endTime"])):
             # off by one makes this from -1 -> normal (its included in the endTime number but that is 1 too high)
             # append a list to create a list of lists (extend() extends the list)
-            pos_id = tracklet["pos"][c].tolist()
-            pos_id.append(tracklet["id"])
-            pc[j].append(pos_id)
+            # print()
+            pos = tracklet["pos"][c].tolist()
+            pc[j]["pos"].append(pos)
+            pc[j]["color"].append(col)
+            pc[j]["id"].append(cellid)
 
     for i in pc:
-        if return_pandas:
-            pc[i] = pd.DataFrame(np.array(pc[i])[:, :3], index=np.array(pc[i])[:, 3])
-        elif return_torch:
-            pc[i] = torch.tensor(pc[i], device=device)
+        if return_torch:
+            pc[i]["pos"] = torch.tensor(pc[i]["pos"], device=device)
+            pc[i]["color"] = torch.tensor(pc[i]["color"], device=device)
+            pc[i]["id"] = torch.tensor(pc[i]["id"], device=device)
         else:
-            pc[i] = np.array(pc[i])
+            pc[i]["pos"] = np.array(pc[i]["pos"])
+            pc[i]["color"] = np.array(pc[i]["color"])
+            pc[i]["id"] = np.array(pc[i]["id"])
 
     t1 = time.perf_counter() - t0
-    log.debug(f"Finished loading. Time required: {t1}")
+    log.info(f"Finished loading. Time required: {t1}")
     return pc, data["tracklets"]
+
+
+def torch_to_open3d(pc: Dict[str, torch.Tensor]) -> o3dtgeo.PointCloud:
+    """Converts a point cloud from a PyTorch dictionary to an Open3D point cloud.
+
+    This function takes a dictionary representing a point cloud, where the keys are
+    'pos', 'color', and 'id', and the values are either PyTorch tensors or Open3D
+    tensors. It converts the dictionary to an Open3D point cloud object.
+
+    Args:
+        pc: A dictionary representing the point cloud. The keys should be 'pos',
+            'color', and 'id', and the values should be either PyTorch tensors or
+            Open3D tensors.
+
+    Returns:
+        An Open3D point cloud object.
+
+    Raises:
+        KeyError: If the input dictionary does not contain the keys 'pos', 'color',
+                  and 'id'.
+    """
+
+    # Check if the input is a PyTorch tensor
+    from_torch = isinstance(pc["pos"], torch.Tensor)
+
+    # Create a dictionary to store the Open3D tensors
+    map_to_tensors = {}
+
+    # Convert the tensors to Open3D tensors
+    if from_torch:
+        map_to_tensors["positions"] = o3dtgeo.Tensor.from_dlpack(
+            torch.utils.dlpack.to_dlpack(pc["pos"])
+        )
+        map_to_tensors["colors"] = o3dtgeo.Tensor.from_dlpack(
+            torch.utils.dlpack.to_dlpack(pc["color"])
+        )
+        map_to_tensors["labels"] = o3dtgeo.Tensor.from_dlpack(
+            torch.utils.dlpack.to_dlpack(pc["id"])
+        )
+    else:
+        # If the input is already an Open3D tensor, no conversion is needed
+        map_to_tensors["positions"] = pc["pos"]
+        map_to_tensors["colors"] = pc["color"]
+        map_to_tensors["labels"] = pc["id"]
+
+    # Create and return the Open3D point cloud
+    return o3dtgeo.PointCloud(map_to_tensors)
+
+
+def open3d_to_torch(
+    pc: o3dtgeo.PointCloud, device: torch.device = None, to_torch: bool = True
+) -> Dict[str, torch.Tensor]:
+    """Converts an Open3D point cloud to a dictionary of Torch tensors or NumPy arrays.
+
+    This function extracts the positions, colors, and labels from an Open3D
+    point cloud and returns them as a dictionary. The values in the dictionary
+    can be either Torch tensors (if `to_torch` is True) or NumPy arrays
+    (if `to_torch` is False).
+
+    Parameters
+    ----------
+    pc : open3d.t.geometry.PointCloud
+        The Open3D point cloud to convert.
+    device : torch.device, optional
+        The device to which the Torch tensors should be moved.
+        If None, the tensors will be created on the CPU.
+    to_torch : bool, optional
+        Whether to convert the data to Torch tensors.
+        If False, the data will be returned as NumPy arrays.
+
+    Returns
+    -------
+    dict
+        A dictionary containing the point cloud data. The keys are
+        "pos", "color", and "id", and the values are either Torch tensors
+        or NumPy arrays.
+
+    Examples
+    --------
+    >>> import open3d as o3d
+    >>> import torch
+    >>> pc = o3d.t.geometry.PointCloud()
+    >>> # ... populate the point cloud ...
+    >>> data = open3d_to_torch(pc, device=torch.device('cuda:0'))
+    >>> print(data['pos'].device)
+    cuda:0
+    >>> data = open3d_to_torch(pc, to_torch=False)
+    >>> print(type(data['pos']))
+    <class 'numpy.ndarray'>
+    """
+
+    # Extract positions, colors, and labels as NumPy arrays
+    pos = pc.positions.numpy()
+    col = pc.colors.numpy()
+    ids = pc.labels.numpy()
+
+    ret = {}
+    if to_torch:
+        # Convert to PyTorch tensors and move to the specified device
+        ret["pos"] = torch.tensor(pos, device=device)
+        ret["color"] = torch.tensor(col, device=device)
+        ret["id"] = torch.tensor(ids, device=device)
+    else:
+        # Return NumPy arrays
+        ret["pos"] = pos
+        ret["color"] = col
+        ret["id"] = ids
+    return ret

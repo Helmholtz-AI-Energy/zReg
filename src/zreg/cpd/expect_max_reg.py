@@ -183,6 +183,7 @@ class ExpMaxRegistration(object):
                     "source": self.transformed_source,
                 }
                 callback(**kwargs)
+            print(f"diff = {self.diff}")
 
         return self.transformed_source, self.get_registration_parameters()
 

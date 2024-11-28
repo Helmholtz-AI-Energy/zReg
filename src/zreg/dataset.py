@@ -5,6 +5,7 @@ import time
 from typing import Dict, Tuple
 
 import open3d.t.geometry as o3dtgeo
+import open3d.core as o3c
 
 import torch
 
@@ -154,13 +155,13 @@ def torch_to_open3d(pc: Dict[str, torch.Tensor]) -> o3dtgeo.PointCloud:
 
     # Convert the tensors to Open3D tensors
     if from_torch:
-        map_to_tensors["positions"] = o3dtgeo.Tensor.from_dlpack(
+        map_to_tensors["positions"] = o3c.Tensor.from_dlpack(
             torch.utils.dlpack.to_dlpack(pc["pos"])
         )
-        map_to_tensors["colors"] = o3dtgeo.Tensor.from_dlpack(
+        map_to_tensors["colors"] = o3c.Tensor.from_dlpack(
             torch.utils.dlpack.to_dlpack(pc["color"])
         )
-        map_to_tensors["labels"] = o3dtgeo.Tensor.from_dlpack(
+        map_to_tensors["labels"] = o3c.Tensor.from_dlpack(
             torch.utils.dlpack.to_dlpack(pc["id"])
         )
     else:

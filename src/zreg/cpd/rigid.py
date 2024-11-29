@@ -2,6 +2,10 @@ import torch
 
 from .expect_max_reg import ExpMaxRegistration
 
+__all__ = [
+    "RigidRegistration",
+]
+
 
 class RigidRegistration(ExpMaxRegistration):
     """
@@ -34,21 +38,39 @@ class RigidRegistration(ExpMaxRegistration):
     #     Centered target point cloud.
     #     Defined in Fig. 2 of https://arxiv.org/pdf/0905.2635.pdf.
 
-    def __init__(self, rotm=None, translationv=None, scale=None, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(
+        self,
+        target,
+        source,
+        sigma2=None,
+        max_iterations=None,
+        tolerance=None,
+        w=None,
+        rotm=None,
+        translationv=None,
+        scale=None,
+        *args,
+        **kwargs,
+    ):
+        super().__init__(
+            x=target,
+            y=source,
+            sigma2=sigma2,
+            max_iterations=max_iterations,
+            tolerance=tolerance,
+            w=w,
+            *args,
+            **kwargs,
+        )
 
         if self.dimensionality != 2 and self.dimensionality != 3:
             raise ValueError(
-                "Rigid registration only supports 2D or 3D point clouds. Instead got {}.".format(
-                    self.dimensionality
-                )
+                "Rigid registration only supports 2D or 3D point clouds. Instead got {}.".format(self.dimensionality)
             )
 
         if rotm is not None and (
-            (rotm.ndim != 2)
-            or (rotm.shape[0] != self.dimensionality)
-            or (rotm.shape[1] != self.dimensionality)
-            or not is_positive_semi_definite(rotm)
+            (rotm.ndim != 2) or (rotm.shape[0] != self.dimensionality) or (rotm.shape[1] != self.dimensionality)
+            # or not is_positive_semi_definite(torch.tensor(rotm, **self.fact))
         ):
             raise ValueError(
                 "The rotation matrix can only be initialized to {}x{} positive semi definite matrices. Instead got: {}.".format(
@@ -57,9 +79,7 @@ class RigidRegistration(ExpMaxRegistration):
             )
 
         if translationv is not None and (
-            (translationv.ndim != 2)
-            or (translationv.shape[0] != 1)
-            or (translationv.shape[1] != self.dimensionality)
+            (translationv.ndim != 2) or (translationv.shape[0] != 1) or (translationv.shape[1] != self.dimensionality)
         ):
             raise ValueError(
                 "The translation vector can only be initialized to 1x{} positive semi definite matrices. Instead got: {}.".format(
@@ -68,20 +88,10 @@ class RigidRegistration(ExpMaxRegistration):
             )
 
         if scale is not None and scale <= 0:
-            raise ValueError(
-                "The scale factor must be a positive number. Instead got: {}.".format(
-                    scale
-                )
-            )
+            raise ValueError("The scale factor must be a positive number. Instead got: {}.".format(scale))
 
-        self.rotm = (
-            torch.eye(self.dimensionality, **self.fact) if rotm is None else rotm
-        )
-        self.translationv = (
-            torch.atleast_2d(torch.zeros((1, self.dimensionality)), **self.fact)
-            if translationv is None
-            else translationv
-        )
+        self.rotm = torch.eye(self.dimensionality, **self.fact) if rotm is None else torch.tensor(rotm, **self.fact)
+        self.translationv = torch.zeros(self.dimensionality, **self.fact) if translationv is None else translationv
         self.scale = 1.0 if scale is None else scale
 
     def update_transform(self):
@@ -91,37 +101,41 @@ class RigidRegistration(ExpMaxRegistration):
         """
 
         # target point cloud mean
-        mu_target = torch.divide(torch.sum(self.probs_targets, axis=0), self.sum_probs)
+        mu_x = torch.divide(torch.sum(self.probs_x, dim=0), self.sum_probs)
         # source point cloud mean
-        mu_source = torch.divide(
-            torch.sum((self.probs.T @ self.source), axis=0), self.sum_probs
-        )  # dot
+        mu_y = torch.divide(torch.sum((self.probs.T @ self.y), axis=0), self.sum_probs)  # dot
 
-        self.target_hat = self.target - torch.tile(mu_target, (self.num_targ_pts, 1))
+        self.target_hat = self.x - torch.tile(mu_x, (self.num_targ_pts, 1))
         # centered source point cloud (Y)
-        Y_hat = self.source - torch.tile(mu_source, (self.num_src_pts, 1))
+        Y_hat = self.y - torch.tile(mu_y, (self.num_src_pts, 1))
         self.YPY = torch.dot(
-            self.sum_probs_source.T,
+            self.sum_probs_y,
             torch.sum(torch.multiply(Y_hat, Y_hat), axis=1),
         )  # dot
 
         self.A = self.target_hat.T @ self.probs.T  # dot
-        self.A = torch.dot(self.A, Y_hat)  # dot
+        self.A = torch.matmul(self.A, Y_hat)  # dot
 
         # Singular value decomposition as per lemma 1 of https://arxiv.org/pdf/0905.2635.pdf.
+        # print(self.A)
+        if torch.any(self.A.isnan()):
+            print(self.A)
+            print(Y_hat)
+            print(self.probs)
+            raise RuntimeError("NaN in self.A")
         u, _, vh = torch.linalg.svd(self.A, full_matrices=True)
-        c = torch.ones((self.dimensionality,), self.fact)
+        c = torch.ones((self.dimensionality,), **self.fact)
         c[self.dimensionality - 1] = torch.linalg.det(u @ vh)  # dot
 
         # Calculate the rotation matrix using Eq. 9 of https://arxiv.org/pdf/0905.2635.pdf.
         self.rotm = (u @ torch.diag(c) @ vh).T  # dot
+
         # Update scale and translation using Fig. 2 of https://arxiv.org/pdf/0905.2635.pdf.
         if self.scale != 1.0:
-            self.scale = torch.trace(torch.dot(self.A.T, self.rotm.T)) / self.YPY  # dot
+            self.scale = torch.trace(torch.matmul(self.A.T, self.rotm.T)) / self.YPY  # dot
 
-        self.translationv = mu_target.T - self.scale * torch.dot(
-            self.rotm.T, mu_source.T
-        )  # dot
+        self.translationv = mu_x.T - self.scale * torch.matmul(self.rotm.T, mu_y.unsqueeze(1)).squeeze()  # dot
+        # print(f"{self.rotm}\n{self.translationv}")
 
     def transform_point_cloud(self, source=None):
         """
@@ -141,9 +155,7 @@ class RigidRegistration(ExpMaxRegistration):
         Otherwise, returns the transformed source.
         """
         if source is None:
-            self.transformed_source = (
-                self.scale * (self.source @ self.rotm) + self.translationv
-            )  # dot
+            self.transformed_y = self.scale * (self.y @ self.rotm) + self.translationv  # dot
             return
         else:
             return self.scale * (source @ self.rotm) + self.translationv  # dot
@@ -158,12 +170,10 @@ class RigidRegistration(ExpMaxRegistration):
 
         trAR = torch.trace(self.A @ self.rotm)
         xPx = torch.dot(
-            self.Pt1.T,
+            self.sum_probs_x.T,
             torch.sum(torch.multiply(self.target_hat, self.target_hat), axis=1),
         )  # dot
-        self.q = (xPx - 2 * self.scale * trAR + self.scale * self.scale * self.YPY) / (
-            2 * self.sigma2
-        )
+        self.q = (xPx - 2 * self.scale * trAR + self.scale * self.scale * self.YPY) / (2 * self.sigma2)
         self.q += self.dimensionality * self.sum_probs / 2 * torch.log(self.sigma2)
         self.diff = torch.abs(self.q - qprev)
         self.sigma2 = (xPx - self.scale * trAR) / (self.sum_probs * self.dimensionality)
@@ -188,5 +198,5 @@ class RigidRegistration(ExpMaxRegistration):
         return self.scale, self.rotm, self.translationv
 
 
-def is_positive_semi_definite(rotm):
-    return torch.all(torch.linalg.eigvals(rotm) > 0)
+# def is_positive_semi_definite(rotm):
+#     return torch.all(torch.linalg.eigvals(rotm) > 0)

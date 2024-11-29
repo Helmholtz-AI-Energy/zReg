@@ -1,5 +1,4 @@
 import scipy.io as sio
-import numpy as np
 import logging
 import time
 from typing import Dict, Tuple
@@ -91,10 +90,7 @@ def load_data_from_tracklets(
     t0 = time.perf_counter()
 
     data = sio.loadmat(filepath, simplify_cells=True, squeeze_me=True)
-    pc = {
-        i: {"pos": [], "color": [], "id": []}
-        for i in range(len(data["trackletsPerTimePoint"]))
-    }
+    pc = {i: {"pos": [], "color": [], "id": []} for i in range(len(data["trackletsPerTimePoint"]))}
     # timestep, positions (x, y, z, tracklet_num)
 
     for idx in range(len(data["tracklets"])):
@@ -113,14 +109,9 @@ def load_data_from_tracklets(
             pc[j]["id"].append(cellid)
 
     for i in pc:
-        if return_torch:
-            pc[i]["pos"] = torch.tensor(pc[i]["pos"], device=device)
-            pc[i]["color"] = torch.tensor(pc[i]["color"], device=device)
-            pc[i]["id"] = torch.tensor(pc[i]["id"], device=device)
-        else:
-            pc[i]["pos"] = np.array(pc[i]["pos"])
-            pc[i]["color"] = np.array(pc[i]["color"])
-            pc[i]["id"] = np.array(pc[i]["id"])
+        pc[i]["pos"] = torch.tensor(pc[i]["pos"], device=device)
+        pc[i]["color"] = torch.tensor(pc[i]["color"], device=device)
+        pc[i]["id"] = torch.tensor(pc[i]["id"], device=device)
 
     t1 = time.perf_counter() - t0
     log.info(f"Finished loading. Time required: {t1}")
@@ -155,15 +146,9 @@ def torch_to_open3d(pc: Dict[str, torch.Tensor]) -> o3dtgeo.PointCloud:
 
     # Convert the tensors to Open3D tensors
     if from_torch:
-        map_to_tensors["positions"] = o3c.Tensor.from_dlpack(
-            torch.utils.dlpack.to_dlpack(pc["pos"])
-        )
-        map_to_tensors["colors"] = o3c.Tensor.from_dlpack(
-            torch.utils.dlpack.to_dlpack(pc["color"])
-        )
-        map_to_tensors["labels"] = o3c.Tensor.from_dlpack(
-            torch.utils.dlpack.to_dlpack(pc["id"])
-        )
+        map_to_tensors["positions"] = o3c.Tensor.from_dlpack(torch.utils.dlpack.to_dlpack(pc["pos"]))
+        map_to_tensors["colors"] = o3c.Tensor.from_dlpack(torch.utils.dlpack.to_dlpack(pc["color"]))
+        map_to_tensors["labels"] = o3c.Tensor.from_dlpack(torch.utils.dlpack.to_dlpack(pc["id"]))
     else:
         # If the input is already an Open3D tensor, no conversion is needed
         map_to_tensors["positions"] = pc["pos"]
@@ -217,9 +202,14 @@ def open3d_to_torch(
     """
 
     # Extract positions, colors, and labels as NumPy arrays
-    pos = pc.positions.numpy()
-    col = pc.colors.numpy()
-    ids = pc.labels.numpy()
+    if isinstance(pc, o3dtgeo.PointCloud):
+        pos = pc.point.positions.cpu().numpy()
+        col = pc.point.colors.cpu().numpy()
+        ids = pc.point.labels.cpu().numpy()
+    else:
+        pos = pc.positions.cpu().numpy()
+        col = pc.colors.cpu().numpy()
+        ids = pc.labels.cpu().numpy()
 
     ret = {}
     if to_torch:

@@ -1,71 +1,84 @@
 import numpy as np
 import torch
 from typing import Union
+import open3d as o3d
+
+from .dataset import open3d_to_torch, torch_to_open3d
 
 
 __all__ = [
-    "rigid_transform",
+    "transform_points",
 ]
 
 
-def rigid_transform(
-    point_cloud: Union[np.ndarray, torch.Tensor],
-    rotation_matrix: Union[np.ndarray, torch.Tensor],
-    translation_vector: Union[np.ndarray, torch.Tensor] = None,
-) -> Union[np.ndarray, torch.Tensor]:
-    """Applies a rigid transformation to a point cloud.
+def transform_points(
+    points: Union[dict, o3d.t.geometry.PointCloud],
+    transform_matrix: Union[torch.Tensor, np.ndarray],
+    return_o3d: bool = False,
+):
+    """Transforms a set of 3D points using a 4x4 transformation matrix.
 
-    This function takes a point cloud, a rotation matrix, and a translation
-    vector, and applies the rigid transformation to the point cloud. The function
-    can handle both NumPy arrays and PyTorch tensors.
+    This function handles point data in two formats:
+        - A dictionary with a 'pos' key containing a torch.Tensor of shape (n, 3).
+        - An Open3D PointCloud object.
+
+    The transformation is applied using homogeneous coordinates.
 
     Parameters
     ----------
-    point_cloud : np.ndarray or torch.Tensor
-        The point cloud to transform, with shape (n, 3).
-    rotation_matrix : np.ndarray or torch.Tensor
-        The rotation matrix, with shape (3, 3).
-    translation_vector : np.ndarray or torch.Tensor
-        The translation vector, with shape (3,).
+    points : dict or o3d.t.geometry.PointCloud
+        The 3D points to transform.
+    transform_matrix : torch.Tensor or np.ndarray
+        The 4x4 transformation matrix.
+    return_o3d : bool, optional
+        If True, returns an Open3D PointCloud.
+        If False (default), returns a dictionary with the transformed points.
 
     Returns
     -------
-    np.ndarray or torch.Tensor
-        The transformed point cloud, with the same type and shape as the input
-        point cloud.
+    dict or o3d.t.geometry.PointCloud
+        The transformed 3D points in the specified format.
 
     Raises
     ------
-    ValueError
-        If the input point cloud does not have shape (n, 3).
+    TypeError
+        If `points` is a torch.Tensor and not a dictionary or Open3D PointCloud.
 
     Examples
     --------
-    >>> point_cloud = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
-    >>> rotation_matrix = np.array([[0, -1, 0], [1, 0, 0], [0, 0, 1]])
-    >>> translation_vector = np.array([10, 20, 30])
-    >>> transformed_pc = rigid_transform(
-    ...     point_cloud, rotation_matrix, translation_vector
-    ... )
-    >>> print(transformed_pc)
-    [[-12.  11.  33.]
-    [-17.  14.  36.]
-    [-22.  17.  39.]]
+    >>> points = {'pos': torch.tensor([[1, 2, 3], [4, 5, 6]])}
+    >>> transform_matrix = np.eye(4)  # Identity matrix
+    >>> transformed_points = transform_points(points, transform_matrix)
+    >>> print(transformed_points)
     """
+    if isinstance(points, dict):
+        pos = points["pos"]
 
-    # Validate the input point cloud shape.
-    if point_cloud.shape[1] != 3:
-        raise ValueError("Point cloud must have shape (n, 3)")
+        # Add a homogeneous coordinate (w=1) to each point
+        homogeneous_points = torch.hstack((pos, torch.ones((pos.shape[0], 1), dtype=pos.dtype, device=pos.device)))
 
-    # Apply rotation.
-    rotated_point_cloud = (
-        point_cloud @ rotation_matrix.T
-        if isinstance(point_cloud, np.ndarray)
-        else point_cloud @ rotation_matrix.t()
-    )
+        # Apply the transformation
+        transformed_points = homogeneous_points @ torch.tensor(transform_matrix, dtype=pos.dtype, device=pos.device).T
 
-    # Apply translation.
-    if translation_vector is not None:
-        rotated_point_cloud += translation_vector
+        # Divide by the homogeneous coordinate to get back to 3D
+        transformed_points = transformed_points[:, :3] / transformed_points[:, 3:]
+        points["pos"] = transformed_points
 
-    return rotated_point_cloud
+    elif isinstance(points, o3d.t.geometry.PointCloud):
+        # Use Open3D's built-in transform method
+        transformed_points = points.transform(transform_matrix)
+
+    elif isinstance(points, torch.Tensor):
+        raise TypeError("points given are torch tensor, pass whole Dict or the o3d PointCloud class!")
+
+    else:
+        raise TypeError("Unsupported point type. Expected dict or o3d.t.geometry.PointCloud.")
+
+    if return_o3d:
+        if isinstance(points, dict):
+            return torch_to_open3d(points)  # Assuming you have a function for this conversion
+        return transformed_points
+    else:
+        if isinstance(points, o3d.t.geometry.PointCloud):
+            return open3d_to_torch(transformed_points)  # Assuming you have a function for this conversion
+        return points

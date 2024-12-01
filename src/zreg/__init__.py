@@ -23,3 +23,4 @@ from . import dataset as dataset  # noqa: E402
 from . import transforms as transforms  # noqa: E402
 from . import downsampling as downsampling  # noqa: E402
 from . import cpd as cpd  # noqa: E402
+from . import utils as utils

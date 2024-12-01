@@ -29,9 +29,7 @@ def setup_logger(
     """
     # Get base logger for NYC Taxis.
     base_logger = logging.getLogger("zreg")
-    simple_formatter = logging.Formatter(
-        "[%(asctime)s][%(name)s][%(levelname)s] - %(message)s"
-    )
+    simple_formatter = logging.Formatter("[%(asctime)s][%(name)s][%(levelname)s] - %(message)s")
     if colors:
         formatter = colorlog.ColoredFormatter(
             fmt="[%(cyan)s%(asctime)s%(reset)s][%(blue)s%(name)s%(reset)s]"

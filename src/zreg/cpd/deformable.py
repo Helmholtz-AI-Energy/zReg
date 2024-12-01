@@ -3,6 +3,11 @@ import torch
 from .expect_max_reg import ExpMaxRegistration
 
 
+__all__ = [
+    "DeformableRegistration",
+]
+
+
 class DeformableRegistration(ExpMaxRegistration):
     """
     Deformable registration.
@@ -50,22 +55,18 @@ class DeformableRegistration(ExpMaxRegistration):
         super().__init__(*args, **kwargs)
         if alpha is not None and alpha <= 0:
             raise ValueError(
-                "Expected a positive value for regularization parameter alpha. Instead got: {}".format(
-                    alpha
-                )
+                "Expected a positive value for regularization parameter alpha. Instead got: {}".format(alpha)
             )
 
         if beta is not None and beta <= 0:
             raise ValueError(
-                "Expected a positive value for the width of the coherent Gaussian kerenl. Instead got: {}".format(
-                    beta
-                )
+                "Expected a positive value for the width of the coherent Gaussian kerenl. Instead got: {}".format(beta)
             )
 
         self.alpha = 2 if alpha is None else alpha
         self.beta = 2 if beta is None else beta
         self.W = torch.zeros((self.num_src_pts, self.dimensionality), **self.fact)
-        self.gauss = gaussian_kernel(self.source, self.beta)
+        self.gauss = gaussian_kernel(self.y, self.beta)
         self.low_rank = low_rank
         self.num_eig = num_eig
         if self.low_rank is True:
@@ -78,30 +79,22 @@ class DeformableRegistration(ExpMaxRegistration):
         if self.constrained:
             if e_alpha is not None and e_alpha <= 0:
                 raise ValueError(
-                    "Expected a positive value for regularization parameter e_alpha. Instead got: {}".format(
-                        e_alpha
-                    )
+                    "Expected a positive value for regularization parameter e_alpha. Instead got: {}".format(e_alpha)
                 )
 
             if source_id.ndim != 1:
-                raise ValueError(
-                    "The source ids (source_id) must be a 1D array of ints."
-                )
+                raise ValueError("The source ids (source_id) must be a 1D array of ints.")
 
             if target_id.ndim != 1:
-                raise ValueError(
-                    "The target ids (target_id) must be a 1D array of ints."
-                )
+                raise ValueError("The target ids (target_id) must be a 1D array of ints.")
 
             self.e_alpha = 1e-8 if e_alpha is None else e_alpha
             self.source_id = source_id
             self.target_id = target_id
-            self.P_tilde = torch.zeros(
-                (self.num_src_pts, self.num_targ_pts), **self.fact
-            )
+            self.P_tilde = torch.zeros((self.num_src_pts, self.num_targ_pts), **self.fact)
             self.P_tilde[self.source_id, self.target_id] = 1
             self.sum_probs_source_tilde = torch.sum(self.P_tilde, dim=1)
-            self.PX_tilde = torch.dot(self.P_tilde, self.target)
+            self.PX_tilde = torch.dot(self.P_tilde, self.x)
 
     def update_transform(self):
         """
@@ -109,21 +102,17 @@ class DeformableRegistration(ExpMaxRegistration):
         See Eq. 22 of https://arxiv.org/pdf/0905.2635.pdf.
         """
         if not self.low_rank:
-            A = (
-                self.sum_probs_source.diag() @ self.gauss
-            ) + self.alpha * self.sigma2 * torch.eye(self.num_src_pts, self.fact)  # dot
-            B = self.probs_targets - (self.sum_probs_source.diag() @ self.source)  # dot
+            A = (self.sum_probs_source.diag() @ self.gauss) + self.alpha * self.sigma2 * torch.eye(
+                self.num_src_pts, self.fact
+            )  # dot
+            B = self.probs_targets - (self.sum_probs_source.diag() @ self.y)  # dot
 
             if self.constrained:
                 A += self.sigma2 * (1 / self.e_alpha)
-                A *= torch.dot(
-                    torch.diag(self.sum_probs_source_tilde), self.gauss
-                )  # dot
+                A *= torch.dot(torch.diag(self.sum_probs_source_tilde), self.gauss)  # dot
 
                 B += self.sigma2 * (1 / self.e_alpha)
-                B *= self.PX_tilde - torch.dot(
-                    torch.diag(self.sum_probs_source_tilde), self.source
-                )  # dot
+                B *= self.PX_tilde - torch.dot(torch.diag(self.sum_probs_source_tilde), self.y)  # dot
 
             self.W = torch.linalg.solve(A, B)
 
@@ -134,13 +123,11 @@ class DeformableRegistration(ExpMaxRegistration):
                 dP *= torch.diag(self.sum_probs_source_tilde)
 
             dPQ = torch.matmul(dP, self.Q)
-            F = self.probs_targets - torch.matmul(dP, self.source)
+            F = self.probs_targets - torch.matmul(dP, self.y)
             # in original code, disagreement between two methods: alternative is probs_targets - np.dot(np.diag(self.sum_probs_source), self.source)
             if self.constrained:
                 F += self.sigma2 * (1 / self.e_alpha)
-                F *= self.PX_tilde - torch.dot(
-                    self.sum_probs_source_tilde.diag(), self.source
-                )  # dot
+                F *= self.PX_tilde - torch.dot(self.sum_probs_source_tilde.diag(), self.y)  # dot
 
             self.W = 1 / (self.alpha * self.sigma2)
             hold = torch.linalg.solve(
@@ -171,15 +158,13 @@ class DeformableRegistration(ExpMaxRegistration):
 
         """
         if Y is not None:
-            G = gaussian_kernel(target=Y, beta=self.beta, Y=self.source)
+            G = gaussian_kernel(target=Y, beta=self.beta, Y=self.y)
             return Y + torch.dot(G, self.W)  # dot
         else:
             if not self.low_rank:
-                self.transformed_source = self.source + torch.dot(self.gauss, self.W)
+                self.transformed_source = self.y + torch.dot(self.gauss, self.W)
             else:
-                self.transformed_source = self.source + (
-                    self.Q @ (self.S @ (self.Q.T @ self.W))
-                )
+                self.transformed_source = self.y + (self.Q @ (self.S @ (self.Q.T @ self.W)))
 
     def update_variance(self):
         """
@@ -196,13 +181,11 @@ class DeformableRegistration(ExpMaxRegistration):
 
         xPx = torch.dot(
             self.sum_probs_target.T,
-            torch.sum(torch.multiply(self.target, self.target), axis=1),
+            torch.sum(torch.multiply(self.x, self.x), axis=1),
         )
         yPy = torch.dot(
             self.sum_probs_source.T,
-            torch.sum(
-                torch.multiply(self.transformed_source, self.transformed_source), axis=1
-            ),
+            torch.sum(torch.multiply(self.transformed_source, self.transformed_source), axis=1),
         )
         trPXY = torch.sum(torch.multiply(self.transformed_source, self.probs_targets))
 

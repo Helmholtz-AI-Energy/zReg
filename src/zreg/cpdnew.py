@@ -10,6 +10,8 @@ import open3d as o3d
 
 # from . import math_utils as mu
 from . import transforms as tf
+from . import dataset
+from .utils import squared_kernel_sum
 import logging
 
 log = logging.getLogger(__name__)
@@ -56,19 +58,8 @@ class CoherentPointDrift:
         self._tf_type = None
         self._callbacks = []
         self._use_color = use_color
-        if use_cuda:
-            import cupy as cp
-
-            from . import cupy_utils
-
-            self.xp = cp
-            self.distance_module = DistModule(cp)
-            self.cupy_utils = cupy_utils
-            self._squared_kernel_sum = cupy_utils.squared_kernel_sum
-        else:
-            self.xp = np
-            self.distance_module = scipy_distance
-            self._squared_kernel_sum = mu.squared_kernel_sum
+        # self.xp = np
+        # self.distance_module = scipy_distance
 
     def set_source(self, source: torch.Tensor) -> None:
         self._source = source
@@ -81,7 +72,7 @@ class CoherentPointDrift:
 
     def _compute_pmat_numerator(self, t_source: torch.Tensor, target: torch.Tensor, sigma2: float) -> torch.Tensor:
         pmat = torch.cdist(t_source, target, p=2).pow(2)  # "sqeuclidean")
-        pmat = self.xp.exp(-pmat / (2.0 * sigma2))
+        pmat = torch.exp(-pmat / (2.0 * sigma2))
         return pmat
 
     def expectation_step(
@@ -98,27 +89,25 @@ class CoherentPointDrift:
 
         c = (2.0 * np.pi * sigma2) ** (self._N_DIM * 0.5)
         c *= w / (1.0 - w) * t_source.shape[0] / target.shape[0]
-        den = self.xp.sum(pmat, axis=0)
-        den[den == 0] = self.xp.finfo(np.float32).eps
+        den = torch.sum(pmat, dim=0)
+        den[den == 0] = torch.finfo(np.float32).eps
         if self._use_color:
             pmat_c = self._compute_pmat_numerator(t_source[:, self._N_DIM :], target[:, self._N_DIM :], sigma2_c)
-            den_c = self.xp.sum(pmat_c, axis=0)
-            den_c[den_c == 0] = self.xp.finfo(np.float32).eps
-            den = np.multiply(den, den_c)
-            o_c = t_source.shape[0] * (2 * np.pi * sigma2_c) ** (0.5 * (self._N_DIM + self._N_COLOR - 1))
-            o_c *= self.xp.exp(
-                -1.0 / t_source.shape[0] * self.xp.square(self.xp.sum(pmat_c, axis=0)) / (2.0 * sigma2_c)
-            )
+            den_c = torch.sum(pmat_c, dim=0)
+            den_c[den_c == 0] = torch.finfo(pmat_c.dtype).eps
+            den = torch.multiply(den, den_c)
+            o_c = t_source.shape[0] * (2 * torch.pi * sigma2_c) ** (0.5 * (self._N_DIM + self._N_COLOR - 1))
+            o_c *= torch.exp(-1.0 / t_source.shape[0] * torch.square(torch.sum(pmat_c, dim=0)) / (2.0 * sigma2_c))
             den += o_c
-            c *= (2.0 * np.pi * sigma2_c) ** (self._N_COLOR * 0.5)
-            pmat = self.xp.multiply(pmat, pmat_c)
+            c *= (2.0 * torch.pi * sigma2_c) ** (self._N_COLOR * 0.5)
+            pmat = torch.multiply(pmat, pmat_c)
         den += c
 
-        pmat = self.xp.divide(pmat, den)
-        pt1 = self.xp.sum(pmat, axis=0)
-        p1 = self.xp.sum(pmat, axis=1)
-        px = self.xp.dot(pmat, target[:, : self._N_DIM])
-        return EstepResult(pt1, p1, px, np.sum(p1))
+        pmat = torch.divide(pmat, den)
+        pt1 = torch.sum(pmat, dim=0)
+        p1 = torch.sum(pmat, dim=1)
+        px = torch.dot(pmat, target[:, : self._N_DIM])
+        return EstepResult(pt1, p1, px, torch.sum(p1))
 
     def maximization_step(
         self, target: torch.Tensor, estep_res: EstepResult, sigma2_p: Optional[float] = None
@@ -128,7 +117,6 @@ class CoherentPointDrift:
         )
 
     @staticmethod
-    @abc.abstractmethod
     def _maximization_step(
         source: torch.Tensor,
         target: torch.Tensor,
@@ -143,7 +131,7 @@ class CoherentPointDrift:
         res = self._initialize(target[:, : self._N_DIM])
         sigma2_c = 0.0
         if self._use_color:
-            sigma2_c = self._squared_kernel_sum(self._source[:, self._N_DIM :], target[:, self._N_DIM :])
+            sigma2_c = squared_kernel_sum(self._source[:, self._N_DIM :], target[:, self._N_DIM :])
         q = res.q
         for i in range(maxiter):
             t_source = res.transformation.transform(self._source)
@@ -184,12 +172,8 @@ class RigidCPD(CoherentPointDrift):
 
     def _initialize(self, target: torch.Tensor) -> MstepResult:
         dim = self._N_DIM
-        sigma2 = self._squared_kernel_sum(self._source, target)
-        q = 1.0 + target.shape[0] * dim * 0.5 * np.log(sigma2)
-        if len(self._tf_init_params) == 0:
-            self._tf_init_params = {"rot": self.xp.identity(dim), "t": self.xp.zeros(dim)}
-        if "xp" not in self._tf_init_params:
-            self._tf_init_params["xp"] = self.xp
+        sigma2 = squared_kernel_sum(self._source, target)
+        q = 1.0 + target.shape[0] * dim * 0.5 * torch.log(sigma2)
         return MstepResult(self._tf_type(**self._tf_init_params), sigma2, q)
 
     def maximization_step(
@@ -206,32 +190,31 @@ class RigidCPD(CoherentPointDrift):
         estep_res: EstepResult,
         sigma2_p: Optional[float] = None,
         update_scale: bool = True,
-        xp: ModuleType = np,
     ) -> MstepResult:
         pt1, p1, px, n_p = estep_res
         dim = CoherentPointDrift._N_DIM
-        mu_x = xp.sum(px, axis=0) / n_p
-        mu_y = xp.dot(source.T, p1) / n_p
+        mu_x = torch.sum(px, axis=0) / n_p
+        mu_y = torch.matmul(source.T, p1) / n_p  # .dot
         target_hat = target - mu_x
         source_hat = source - mu_y
-        a = xp.dot(px.T, source_hat) - xp.outer(mu_x, xp.dot(p1.T, source_hat))
-        u, _, vh = np.linalg.svd(a, full_matrices=True)
-        c = xp.ones(dim)
-        c[-1] = xp.linalg.det(xp.dot(u, vh))
-        rot = xp.dot(u * c, vh)
-        tr_atr = np.trace(xp.dot(a.T, rot))
-        tr_yp1y = np.trace(xp.dot(source_hat.T * p1, source_hat))
+        a = torch.matmul(px.T, source_hat) - torch.outer(mu_x, torch.dot(p1.T, source_hat))  # .dot / .outer
+        u, _, vh = torch.linalg.svd(a, full_matrices=True)
+        c = torch.ones(dim, dtype=a.dtype, device=a.device)
+        c[-1] = torch.linalg.det(torch.matmul(u, vh))  # .dot
+        rot = torch.matmul(u * c, vh)  # .dot
+        tr_atr = torch.trace(torch.matmul(a.T, rot))  # .dot
+        tr_yp1y = torch.trace(torch.matmul(source_hat.T * p1, source_hat))  # .dot
         scale = tr_atr / tr_yp1y if update_scale else 1.0
-        t = mu_x - scale * xp.dot(rot, mu_y)
-        tr_xp1x = xp.trace(xp.dot(target_hat.T * pt1, target_hat))
+        t = mu_x - scale * torch.matmul(rot, mu_y)  # .dot
+        tr_xp1x = torch.trace(torch.matmul(target_hat.T * pt1, target_hat))  # .dot
         if update_scale:
             sigma2 = (tr_xp1x - scale * tr_atr) / (n_p * dim)
         else:
             sigma2 = (tr_xp1x + tr_yp1y - scale * tr_atr) / (n_p * dim)
-        sigma2 = max(sigma2, np.finfo(np.float32).eps)
+        sigma2 = max(sigma2, torch.finfo(a.dtype).eps)
         q = (tr_xp1x - 2.0 * scale * tr_atr + (scale**2) * tr_yp1y) / (2.0 * sigma2)
-        q += dim * n_p * 0.5 * np.log(sigma2)
-        return MstepResult(tf.RigidTransformation(rot, t, scale, xp=xp), sigma2, q)
+        q += dim * n_p * 0.5 * torch.log(sigma2)
+        return MstepResult(tf.RigidTransformation(rot, t, scale), sigma2, q)
 
 
 class AffineCPD(CoherentPointDrift):
@@ -257,12 +240,8 @@ class AffineCPD(CoherentPointDrift):
 
     def _initialize(self, target: torch.Tensor) -> MstepResult:
         dim = self._N_DIM
-        sigma2 = self._squared_kernel_sum(self._source, target)
+        sigma2 = squared_kernel_sum(self._source, target)
         q = 1.0 + target.shape[0] * dim * 0.5 * np.log(sigma2)
-        if len(self._tf_init_params) == 0:
-            self._tf_init_params = {"b": self.xp.identity(dim), "t": self.xp.zeros(dim)}
-        if "xp" not in self._tf_init_params:
-            self._tf_init_params["xp"] = self.xp
         return MstepResult(self._tf_type(**self._tf_init_params), sigma2, q)
 
     @staticmethod
@@ -271,26 +250,25 @@ class AffineCPD(CoherentPointDrift):
         target: torch.Tensor,
         estep_res: EstepResult,
         sigma2_p: Optional[float] = None,
-        xp: ModuleType = np,
     ) -> MstepResult:
         pt1, p1, px, n_p = estep_res
         dim = CoherentPointDrift._N_DIM
-        mu_x = xp.sum(px, axis=0) / n_p
-        mu_y = xp.dot(source.T, p1) / n_p
+        mu_x = torch.sum(px, dim=0) / n_p
+        mu_y = torch.matmul(source.T, p1) / n_p  # .dot
         target_hat = target - mu_x
         source_hat = source - mu_y
-        a = xp.dot(px.T, source_hat) - xp.outer(mu_x, xp.dot(p1.T, source_hat))
-        yp1y = xp.dot(source_hat.T * p1, source_hat)
-        b = xp.linalg.solve(yp1y.T, a.T).T
-        t = mu_x - xp.dot(b, mu_y)
-        tr_xp1x = xp.trace(xp.dot(target_hat.T * pt1, target_hat))
-        tr_xpyb = xp.trace(xp.dot(a, b.T))
+        a = torch.matmul(px.T, source_hat) - torch.outer(mu_x, torch.dot(p1.T, source_hat))  # .dot  # .dot
+        yp1y = torch.matmul(source_hat.T * p1, source_hat)  # .dot
+        b = torch.linalg.solve(yp1y.T, a.T).T
+        t = mu_x - torch.matmul(b, mu_y)  # .dot
+        tr_xp1x = torch.trace(torch.matmul(target_hat.T * pt1, target_hat))  # .dot
+        tr_xpyb = torch.trace(torch.matmul(a, b.T))  # .dot
         sigma2 = (tr_xp1x - tr_xpyb) / (n_p * dim)
-        tr_ab = xp.trace(xp.dot(a, b.T))
-        sigma2 = max(sigma2, np.finfo(np.float32).eps)
+        tr_ab = torch.trace(torch.matmul(a, b.T))  # .dot
+        sigma2 = max(sigma2, torch.finfo(a.dtype).eps)
         q = (tr_xp1x - 2 * tr_ab + tr_xpyb) / (2.0 * sigma2)
-        q += dim * n_p * 0.5 * np.log(sigma2)
-        return MstepResult(tf.AffineTransformation(b, t, xp=xp), sigma2, q)
+        q += dim * n_p * 0.5 * torch.log(sigma2)
+        return MstepResult(tf.AffineTransformation(b, t), sigma2, q)
 
 
 class NonRigidCPD(CoherentPointDrift):
@@ -339,9 +317,9 @@ class NonRigidCPD(CoherentPointDrift):
 
     def _initialize(self, target: torch.Tensor) -> MstepResult:
         dim = self._N_DIM
-        sigma2 = self._squared_kernel_sum(self._source, target)
-        q = 1.0 + target.shape[0] * dim * 0.5 * np.log(sigma2)
-        self._tf_obj.w = self.xp.zeros_like(self._source)
+        sigma2 = squared_kernel_sum(self._source, target)
+        q = 1.0 + target.shape[0] * dim * 0.5 * torch.log(sigma2)
+        self._tf_obj.w = torch.zeros_like(self._source)
         return MstepResult(self._tf_obj, sigma2, q)
 
     @staticmethod
@@ -352,15 +330,17 @@ class NonRigidCPD(CoherentPointDrift):
         sigma2_p: float,
         tf_obj: tf.NonRigidTransformation,
         lmd: float,
-        xp: ModuleType = np,
     ) -> MstepResult:
         pt1, p1, px, n_p = estep_res
         dim = CoherentPointDrift._N_DIM
-        w = xp.linalg.solve((p1 * tf_obj.g).T + lmd * sigma2_p * xp.identity(source.shape[0]), px - (source.T * p1).T)
-        t = source + xp.dot(tf_obj.g, w)
-        tr_xp1x = xp.trace(xp.dot(target.T * pt1, target))
-        tr_pxt = xp.trace(xp.dot(px.T, t))
-        tr_tpt = xp.trace(xp.dot(t.T * p1, t))
+        w = torch.linalg.solve(
+            (p1 * tf_obj.g).T + lmd * sigma2_p * torch.eye(source.shape[0], dtype=source.dtype, device=source.device),
+            px - (source.T * p1).T,
+        )
+        t = source + torch.matmul(tf_obj.g, w)  # .dot
+        tr_xp1x = torch.trace(torch.matmul(target.T * pt1, target))  # .dot
+        tr_pxt = torch.trace(torch.matmul(px.T, t))  # .dot
+        tr_tpt = torch.trace(torch.matmul(t.T * p1, t))  # .dot
         sigma2 = (tr_xp1x - 2.0 * tr_pxt + tr_tpt) / (n_p * dim)
         tf_obj.w = w
         return MstepResult(tf_obj, sigma2, sigma2)
@@ -405,7 +385,7 @@ class ConstrainedNonRigidCPD(CoherentPointDrift):
         self._tf_obj = None
         self.idx_source, self.idx_target = idx_source, idx_target
         if self._source is not None:
-            self._tf_obj = self._tf_type(None, self._source, self._beta, self.xp)
+            self._tf_obj = self._tf_type(None, self._source, self._beta)
 
     def set_source(self, source: torch.Tensor) -> None:
         self._source = source
@@ -424,19 +404,18 @@ class ConstrainedNonRigidCPD(CoherentPointDrift):
             self.alpha,
             self.p1_tilde,
             self.px_tilde,
-            self.xp,
         )
 
     def _initialize(self, target: torch.Tensor) -> MstepResult:
         dim = self._N_DIM
-        sigma2 = self._squared_kernel_sum(self._source, target)
+        sigma2 = squared_kernel_sum(self._source, target)
         q = 1.0 + target.shape[0] * dim * 0.5 * np.log(sigma2)
-        self._tf_obj.w = self.xp.zeros_like(self._source)
-        self.p_tilde = self.xp.zeros((self._source.shape[0], target.shape[0]))
+        self._tf_obj.w = torch.zeros_like(self._source)
+        self.p_tilde = torch.zeros((self._source.shape[0], target.shape[0]), dtype=target.dtype, device=target.device)
         if self.idx_source is not None and self.idx_target is not None:
             self.p_tilde[self.idx_source, self.idx_target] = 1
-        self.p1_tilde = self.xp.sum(self.p_tilde, axis=1)
-        self.px_tilde = self.xp.dot(self.p_tilde, target)
+        self.p1_tilde = torch.sum(self.p_tilde, dim=1)
+        self.px_tilde = torch.matmul(self.p_tilde, target)  # .dot
         return MstepResult(self._tf_obj, sigma2, q)
 
     @staticmethod
@@ -450,20 +429,19 @@ class ConstrainedNonRigidCPD(CoherentPointDrift):
         alpha: float,
         p1_tilde: float,
         px_tilde: float,
-        xp: ModuleType = np,
     ) -> MstepResult:
         pt1, p1, px, n_p = estep_res
         dim = CoherentPointDrift._N_DIM
-        w = xp.linalg.solve(
+        w = torch.linalg.solve(
             (p1 * tf_obj.g).T
             + sigma2_p / alpha * (p1_tilde * tf_obj.g).T
-            + lmd * sigma2_p * xp.identity(source.shape[0]),
+            + lmd * sigma2_p * torch.eye(source.shape[0], dtype=source.dtype, device=source.device),
             px - (source.T * p1).T + sigma2_p / alpha * (px_tilde - (source.T * p1_tilde).T),
         )
-        t = source + xp.dot(tf_obj.g, w)
-        tr_xp1x = xp.trace(xp.dot(target.T * pt1, target))
-        tr_pxt = xp.trace(xp.dot(px.T, t))
-        tr_tpt = xp.trace(xp.dot(t.T * p1, t))
+        t = source + torch.matmul(tf_obj.g, w)  # .dot
+        tr_xp1x = torch.trace(torch.matmul(target.T * pt1, target))  # .dot
+        tr_pxt = torch.trace(torch.matmul(px.T, t))  # .dot
+        tr_tpt = torch.trace(torch.matmul(t.T * p1, t))  # .dot
         sigma2 = (tr_xp1x - 2.0 * tr_pxt + tr_tpt) / (n_p * dim)
         tf_obj.w = w
         return MstepResult(tf_obj, sigma2, sigma2)
@@ -478,7 +456,6 @@ def registration_cpd(
     tol: float = 0.001,
     callbacks: List[Callable] = [],
     use_color: bool = False,
-    use_cuda: bool = False,
     **kwargs: Any,
 ) -> MstepResult:
     """CPD Registraion.
@@ -493,7 +470,6 @@ def registration_cpd(
         callback (:obj:`list` of :obj:`function`, optional): Called after each iteration.
             `callback(probreg.Transformation)`
         use_color (bool, optional): Use color information (if available).
-        use_cuda (bool, optional): Use CUDA.
 
     Keyword Args:
         update_scale (bool, optional): If this flag is true and tf_type is rigid transformation,
@@ -503,30 +479,27 @@ def registration_cpd(
     Returns:
         MstepResult: Result of the registration (transformation, sigma2, q)
     """
-    xp = np
-    if use_cuda:
-        import cupy as cp
+    # convert from o3d to dict structure
+    if isinstance(source, o3d.t.geometry.PointCloud):
+        source = dataset.open3d_to_torch(source)
+    if isinstance(target, o3d.t.geometry.PointCloud):
+        target = dataset.open3d_to_torch(target)
 
-        xp = cp
     if use_color:
-        cv = (
-            lambda x: xp.c_[xp.asarray(x.points), xp.asarray(x.colors)]
-            if isinstance(x, o3.geometry.PointCloud)
-            else xp.asanyarray(x)[:, :6]
-        )
+        sourcei = torch.cat([source["pos"], source["color"]], dim=1)
+        targeti = torch.cat([target["pos"], target["color"]], dim=1)
     else:
-        cv = lambda x: xp.asarray(x.points if isinstance(x, o3.geometry.PointCloud) else x)[
-            :, : CoherentPointDrift._N_DIM
-        ]
+        sourcei = source["pos"]
+        targeti = target["pos"]
     if tf_type_name == "rigid":
-        cpd = RigidCPD(cv(source), use_color=use_color, use_cuda=use_cuda, **kwargs)
+        cpd = RigidCPD(sourcei, use_color=use_color, **kwargs)
     elif tf_type_name == "affine":
-        cpd = AffineCPD(cv(source), use_color=use_color, use_cuda=use_cuda, **kwargs)
+        cpd = AffineCPD(sourcei, use_color=use_color, **kwargs)
     elif tf_type_name == "nonrigid":
-        cpd = NonRigidCPD(cv(source), use_color=use_color, use_cuda=use_cuda, **kwargs)
+        cpd = NonRigidCPD(sourcei, use_color=use_color, **kwargs)
     elif tf_type_name == "nonrigid_constrained":
-        cpd = ConstrainedNonRigidCPD(cv(source), use_color=use_color, use_cuda=use_cuda, **kwargs)
+        cpd = ConstrainedNonRigidCPD(sourcei, use_color=use_color, **kwargs)
     else:
         raise ValueError("Unknown transformation type %s" % tf_type_name)
     cpd.set_callbacks(callbacks)
-    return cpd.registration(cv(target), w, maxiter, tol)
+    return cpd.registration(targeti, w, maxiter, tol)

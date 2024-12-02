@@ -1,3 +1,7 @@
+# This file takes insperation from https://github.com/neka-nat/probreg/
+# Some algorithms are the same, but the implementations make use of
+# pytorch as well as some efficiency changes
+
 import torch
 from typing import Union
 import open3d as o3d
@@ -12,7 +16,7 @@ from . import utils
 
 
 __all__ = [
-    "transform_points_homogenious",
+    "transform_points_homogeneous",
     "RigidTransformation",
     "AffineTransformation",
     "NonRigidTransformation",
@@ -21,7 +25,7 @@ __all__ = [
 ]
 
 
-def transform_points_homogenious(
+def transform_points_homogeneous(
     points: Union[dict, o3d.t.geometry.PointCloud],
     transform_matrix: torch.Tensor,
     return_o3d: bool = False,
@@ -99,7 +103,22 @@ def transform_points_homogenious(
         return points
 
 
-class RigidTransformation(object):
+class TransformBase(object):
+    def __init__(self) -> None:
+        pass
+
+    def _transform(points): ...
+
+    def transform(self, points):
+        if points.shape[1] <= 3:
+            return self._transform(points)
+        # else
+        ret = points.clone()
+        ret[:, :3] = self._transform(ret[:, :3])
+        return ret
+
+
+class RigidTransformation(TransformBase):
     """Rigid Transformation
 
     Args:
@@ -109,6 +128,7 @@ class RigidTransformation(object):
     """
 
     def __init__(self, rot=None, t=None, scale=1.0, device=None, dtype=None):
+        super(RigidTransformation, self).__init__()
         if rot is None:
             rot = torch.eye(3, dtype=dtype, device=device)
         if t is None:
@@ -117,7 +137,7 @@ class RigidTransformation(object):
         self.t = t
         self.scale = scale
 
-    def transform(self, points):
+    def _transform(self, points):
         return self.scale * torch.matmul(points, self.rot.T) + self.t  # dot
 
     def inverse(self):
@@ -132,7 +152,7 @@ class RigidTransformation(object):
         )
 
 
-class AffineTransformation(object):
+class AffineTransformation(TransformBase):
     """Affine Transformation
 
     Args:
@@ -142,6 +162,7 @@ class AffineTransformation(object):
     """
 
     def __init__(self, b=None, t=None, device=None, dtype=None):
+        super(AffineTransformation, self).__init__()
         if b is None:
             b = torch.eye(3, dtype=dtype, device=device)
         if t is None:
@@ -149,11 +170,11 @@ class AffineTransformation(object):
         self.b = b
         self.t = t
 
-    def transform(self, points):
+    def _transform(self, points):
         return torch.matmul(points, self.b.T) + self.t
 
 
-class NonRigidTransformation(object):
+class NonRigidTransformation(TransformBase):
     """Nonrigid Transformation
 
     Args:
@@ -164,14 +185,15 @@ class NonRigidTransformation(object):
     """
 
     def __init__(self, w, points, beta=2.0):
+        super(NonRigidTransformation, self).__init__()
         self.g = utils.rbf_kernel(points, points, beta)
         self.w = w
 
-    def transform(self, points):
+    def _transform(self, points):
         return points + torch.matmul(self.g, self.w)  # dot, maybe need squeeze
 
 
-class CombinedTransformation(object):
+class CombinedTransformation(TransformBase):
     """Combined Transformation
 
     Args:
@@ -182,14 +204,15 @@ class CombinedTransformation(object):
     """
 
     def __init__(self, rot=None, t=None, scale=1.0, v=0.0):
+        super(CombinedTransformation, self).__init__()
         self.rigid_trans = RigidTransformation(rot, t, scale)
         self.v = v
 
-    def transform(self, points):
+    def _transform(self, points):
         return self.rigid_trans.transform(points + self.v)
 
 
-class TPSTransformation(object):
+class TPSTransformation(TransformBase):
     """Thin Plate Spline transformaion.
 
     Args:
@@ -200,6 +223,7 @@ class TPSTransformation(object):
     """
 
     def __init__(self, a, v, control_pts, kernel=utils.tps_kernel):
+        super(TPSTransformation, self).__init__()
         self.a = a
         self.v = v
         self.control_pts = control_pts
@@ -225,7 +249,7 @@ class TPSTransformation(object):
     def transform_basis(self, basis):
         return torch.matmul(basis, torch.cat((self.a, self.v), dim=0))  # dot
 
-    def transform(self, points):
+    def _transform(self, points):
         basis, _ = self.prepare(points)
         return self.transform_basis(basis)
 

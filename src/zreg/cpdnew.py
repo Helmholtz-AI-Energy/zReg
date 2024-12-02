@@ -1,10 +1,13 @@
+# This file takes insperation from https://github.com/neka-nat/probreg/
+# The core algorithms are the same, but the implementation now makes use of pytorch
+
 from collections import namedtuple
-from types import ModuleType
 from typing import Any, Callable, Dict, List, Optional, Union
 import torch
 
 import numpy as np
 import open3d as o3d
+import time
 # import six
 # from scipy.spatial import distance as scipy_distance
 
@@ -13,6 +16,8 @@ from . import transforms as tf
 from . import dataset
 from .utils import squared_kernel_sum
 import logging
+
+from rich.progress import Progress, BarColumn, TimeRemainingColumn, TextColumn, TimeElapsedColumn
 
 log = logging.getLogger(__name__)
 
@@ -87,17 +92,18 @@ class CoherentPointDrift:
         assert t_source.ndim == 2 and target.ndim == 2, "source and target must have 2 dimensions."
         pmat = self._compute_pmat_numerator(t_source[:, : self._N_DIM], target[:, : self._N_DIM], sigma2)
 
-        c = (2.0 * np.pi * sigma2) ** (self._N_DIM * 0.5)
+        c = (2.0 * torch.pi * sigma2) ** (self._N_DIM * 0.5)
         c *= w / (1.0 - w) * t_source.shape[0] / target.shape[0]
         den = torch.sum(pmat, dim=0)
-        den[den == 0] = torch.finfo(np.float32).eps
+        den[den == 0] = torch.finfo(target.dtype).eps
         if self._use_color:
             pmat_c = self._compute_pmat_numerator(t_source[:, self._N_DIM :], target[:, self._N_DIM :], sigma2_c)
             den_c = torch.sum(pmat_c, dim=0)
             den_c[den_c == 0] = torch.finfo(pmat_c.dtype).eps
             den = torch.multiply(den, den_c)
             o_c = t_source.shape[0] * (2 * torch.pi * sigma2_c) ** (0.5 * (self._N_DIM + self._N_COLOR - 1))
-            o_c *= torch.exp(-1.0 / t_source.shape[0] * torch.square(torch.sum(pmat_c, dim=0)) / (2.0 * sigma2_c))
+            # print(o_c.shape, pmat_c.shape)
+            o_c = o_c * torch.exp(-1.0 / t_source.shape[0] * torch.square(torch.sum(pmat_c, dim=0)) / (2.0 * sigma2_c))
             den += o_c
             c *= (2.0 * torch.pi * sigma2_c) ** (self._N_COLOR * 0.5)
             pmat = torch.multiply(pmat, pmat_c)
@@ -106,15 +112,13 @@ class CoherentPointDrift:
         pmat = torch.divide(pmat, den)
         pt1 = torch.sum(pmat, dim=0)
         p1 = torch.sum(pmat, dim=1)
-        px = torch.dot(pmat, target[:, : self._N_DIM])
+        px = torch.matmul(pmat, target[:, : self._N_DIM])  # .dot
         return EstepResult(pt1, p1, px, torch.sum(p1))
 
     def maximization_step(
         self, target: torch.Tensor, estep_res: EstepResult, sigma2_p: Optional[float] = None
     ) -> Optional[MstepResult]:
-        return self._maximization_step(
-            self._source[:, : self._N_DIM], target[:, : self._N_DIM], estep_res, sigma2_p, xp=self.xp
-        )
+        return self._maximization_step(self._source[:, : self._N_DIM], target[:, : self._N_DIM], estep_res, sigma2_p)
 
     @staticmethod
     def _maximization_step(
@@ -122,7 +126,6 @@ class CoherentPointDrift:
         target: torch.Tensor,
         estep_res: EstepResult,
         sigma2_p: Optional[float] = None,
-        xp: ModuleType = np,
     ) -> Optional[MstepResult]:
         return None
 
@@ -133,21 +136,53 @@ class CoherentPointDrift:
         if self._use_color:
             sigma2_c = squared_kernel_sum(self._source[:, self._N_DIM :], target[:, self._N_DIM :])
         q = res.q
-        for i in range(maxiter):
-            t_source = res.transformation.transform(self._source)
-            estep_res = self.expectation_step(t_source, target, res.sigma2, sigma2_c, w)
-            res = self.maximization_step(target, estep_res, res.sigma2)
-            for c in self._callbacks:
-                c(res.transformation)
-            log.debug("Iteration: {}, Criteria: {}".format(i, res.q))
-            if abs(res.q - q) < tol:
-                break
-            q = res.q
+
+        with Progress(
+            "[progress.description]{task.description}",
+            BarColumn(),
+            TextColumn("[progress.percentage]{task.completed}/{task.total}"),
+            TimeElapsedColumn(),
+            TextColumn("[progress.percentage]{task.fields[iter_time]}"),
+            TimeRemainingColumn(),
+            TextColumn("[progress.percentage]{task.fields[criteria]}"),
+        ) as progress:
+            task = progress.add_task("[cyan]Registering...", total=maxiter, criteria="", iter_time="")
+            start_time = time.perf_counter()
+            for i in range(maxiter):
+                iter_start_time = time.perf_counter()
+                t_source = res.transformation.transform(self._source)
+                estep_res = self.expectation_step(t_source, target, res.sigma2, sigma2_c, w)
+                res = self.maximization_step(target, estep_res, res.sigma2)
+                for c in self._callbacks:
+                    c(res.transformation)
+
+                iter_end_time = time.perf_counter()
+                iter_time = iter_end_time - iter_start_time
+
+                elapsed_time = time.perf_counter() - start_time
+                avg_iter_time = elapsed_time / (i + 1)
+
+                progress.update(
+                    task,
+                    advance=1,
+                    criteria=f"Criteria: {res.q:.4f}",
+                    iter_time=f"Avg: {avg_iter_time:.2f}s, Iter: {iter_time:.2f}s",
+                )
+                log.debug(f"Registering: iteration {i}/{maxiter}, criteria: {res.q:.4f}")
+
+                if abs(res.q - q) < tol:
+                    log.info(f"Hit tolerance in iteration {i} (criteria: {res.q:.4f}), exiting")
+                    break
+                q = res.q
+
         return res
 
 
 class RigidCPD(CoherentPointDrift):
     """Coherent Point Drift for rigid transformation.
+
+    Note: this will rotate the source to the target
+        i.e. target = transform(source)
 
     Args:
         source (torch.Tensor, optional): Source point cloud data.
@@ -172,7 +207,7 @@ class RigidCPD(CoherentPointDrift):
 
     def _initialize(self, target: torch.Tensor) -> MstepResult:
         dim = self._N_DIM
-        sigma2 = squared_kernel_sum(self._source, target)
+        sigma2 = squared_kernel_sum(self._source[:, :dim], target[:, :dim])
         q = 1.0 + target.shape[0] * dim * 0.5 * torch.log(sigma2)
         return MstepResult(self._tf_type(**self._tf_init_params), sigma2, q)
 
@@ -180,7 +215,7 @@ class RigidCPD(CoherentPointDrift):
         self, target: torch.Tensor, estep_res: EstepResult, sigma2_p: Optional[float] = None
     ) -> MstepResult:
         return self._maximization_step(
-            self._source[:, : self._N_DIM], target[:, : self._N_DIM], estep_res, sigma2_p, self._update_scale, self.xp
+            self._source[:, : self._N_DIM], target[:, : self._N_DIM], estep_res, sigma2_p, self._update_scale
         )
 
     @staticmethod
@@ -194,10 +229,12 @@ class RigidCPD(CoherentPointDrift):
         pt1, p1, px, n_p = estep_res
         dim = CoherentPointDrift._N_DIM
         mu_x = torch.sum(px, axis=0) / n_p
-        mu_y = torch.matmul(source.T, p1) / n_p  # .dot
+        mu_y = (source.T @ p1.unsqueeze(1)).squeeze() / n_p  # .dot
         target_hat = target - mu_x
         source_hat = source - mu_y
-        a = torch.matmul(px.T, source_hat) - torch.outer(mu_x, torch.dot(p1.T, source_hat))  # .dot / .outer
+        a = torch.matmul(px.T, source_hat) - torch.outer(
+            mu_x, (p1.unsqueeze(0) @ source_hat).squeeze()
+        )  # .dot / .outer
         u, _, vh = torch.linalg.svd(a, full_matrices=True)
         c = torch.ones(dim, dtype=a.dtype, device=a.device)
         c[-1] = torch.linalg.det(torch.matmul(u, vh))  # .dot
@@ -213,7 +250,7 @@ class RigidCPD(CoherentPointDrift):
             sigma2 = (tr_xp1x + tr_yp1y - scale * tr_atr) / (n_p * dim)
         sigma2 = max(sigma2, torch.finfo(a.dtype).eps)
         q = (tr_xp1x - 2.0 * scale * tr_atr + (scale**2) * tr_yp1y) / (2.0 * sigma2)
-        q += dim * n_p * 0.5 * torch.log(sigma2)
+        q += dim * n_p * 0.5 * np.log(sigma2).item()
         return MstepResult(tf.RigidTransformation(rot, t, scale), sigma2, q)
 
 
@@ -240,8 +277,8 @@ class AffineCPD(CoherentPointDrift):
 
     def _initialize(self, target: torch.Tensor) -> MstepResult:
         dim = self._N_DIM
-        sigma2 = squared_kernel_sum(self._source, target)
-        q = 1.0 + target.shape[0] * dim * 0.5 * np.log(sigma2)
+        sigma2 = squared_kernel_sum(self._source[:, :dim], target[:, :dim])
+        q = 1.0 + target.shape[0] * dim * 0.5 * torch.log(sigma2)
         return MstepResult(self._tf_type(**self._tf_init_params), sigma2, q)
 
     @staticmethod
@@ -296,11 +333,11 @@ class NonRigidCPD(CoherentPointDrift):
         self._lmd = lmd
         self._tf_obj = None
         if self._source is not None:
-            self._tf_obj = self._tf_type(None, self._source, self._beta, self.xp)
+            self._tf_obj = self._tf_type(None, self._source, self._beta)
 
     def set_source(self, source: torch.Tensor) -> None:
         self._source = source
-        self._tf_obj = self._tf_type(None, self._source, self._beta, xp=self.xp)
+        self._tf_obj = self._tf_type(None, self._source, self._beta)
 
     def maximization_step(
         self, target: torch.Tensor, estep_res: EstepResult, sigma2_p: Optional[float] = None
@@ -312,12 +349,11 @@ class NonRigidCPD(CoherentPointDrift):
             sigma2_p,
             self._tf_obj,
             self._lmd,
-            self.xp,
         )
 
     def _initialize(self, target: torch.Tensor) -> MstepResult:
         dim = self._N_DIM
-        sigma2 = squared_kernel_sum(self._source, target)
+        sigma2 = squared_kernel_sum(self._source[:, :dim], target[:, :dim])
         q = 1.0 + target.shape[0] * dim * 0.5 * torch.log(sigma2)
         self._tf_obj.w = torch.zeros_like(self._source)
         return MstepResult(self._tf_obj, sigma2, q)
@@ -408,8 +444,8 @@ class ConstrainedNonRigidCPD(CoherentPointDrift):
 
     def _initialize(self, target: torch.Tensor) -> MstepResult:
         dim = self._N_DIM
-        sigma2 = squared_kernel_sum(self._source, target)
-        q = 1.0 + target.shape[0] * dim * 0.5 * np.log(sigma2)
+        sigma2 = squared_kernel_sum(self._source[:, :dim], target[:, :dim])
+        q = 1.0 + target.shape[0] * dim * 0.5 * torch.log(sigma2)
         self._tf_obj.w = torch.zeros_like(self._source)
         self.p_tilde = torch.zeros((self._source.shape[0], target.shape[0]), dtype=target.dtype, device=target.device)
         if self.idx_source is not None and self.idx_target is not None:

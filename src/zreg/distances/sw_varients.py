@@ -1,13 +1,23 @@
+# much of these functions stem from: https://github.com/VinAIResearch/PointSWD/
+# minor changes made in most functions for usability and for the target use-case
+
 import torch
 import torch.nn as nn
 from torch.autograd import Variable
 
+__all__ = [
+    "SlicedWassersteinDistance",
+    "MaxSlicedWassersteinDistance",
+    "ProjectedWassersteinDistance",
+    "ApaptiveSlicedWassersteinDistance",
+    "OrthogonalSlicedWassersteinDistance",
+    "GeneralisedSlicedWassersteinDistance",
+]
+
 
 def minibatch_rand_projections(batchsize, dim, num_projections=1000, **kwargs):
     projections = torch.randn((batchsize, num_projections, dim))
-    projections = projections / torch.sqrt(
-        torch.sum(projections**2, dim=2, keepdim=True)
-    )
+    projections = projections / torch.sqrt(torch.sum(projections**2, dim=2, keepdim=True))
     return projections
 
 
@@ -21,36 +31,27 @@ def proj_onto_unit_sphere(vectors):
 def _sample_minibatch_orthogonal_projections(batch_size, dim, num_projections):
     projections = torch.zeros((batch_size, num_projections, dim))
     projections = torch.stack(
-        [
-            torch.nn.init.orthogonal_(projections[i])
-            for i in range(projections.shape[0])
-        ],
+        [torch.nn.init.orthogonal_(projections[i]) for i in range(projections.shape[0])],
         dim=0,
     )
     return projections
 
 
-def compute_practical_moments_sw(
-    x, y, num_projections=30, device="cuda", degree=2.0, **kwargs
-):
+def compute_practical_moments_sw(x, y, num_projections=30, degree=2.0, **kwargs):
     """
     x, y: [batch_size, num_points, dim=3]
     num_projections: integer number
     """
     dim = x.size(2)
     batch_size = x.size(0)
-    projections = minibatch_rand_projections(batch_size, dim, num_projections).to(
-        device
-    )
+    projections = minibatch_rand_projections(batch_size, dim, num_projections)
     # projs.shape: [batchsize, num_projs, dim]
 
-    xproj = x.bmm(projections.transpose(1, 2)).to(device)
+    xproj = x.bmm(projections.transpose(1, 2))
 
-    yproj = y.bmm(projections.transpose(1, 2)).to(device)
+    yproj = y.bmm(projections.transpose(1, 2))
 
-    _sort = (
-        torch.sort(xproj.transpose(1, 2))[0] - torch.sort(yproj.transpose(1, 2))[0]
-    ).to(device)
+    _sort = torch.sort(xproj.transpose(1, 2))[0] - torch.sort(yproj.transpose(1, 2))[0]
 
     _sort_pow_p_get_sum = torch.sum(torch.pow(torch.abs(_sort), degree), dim=2)
 
@@ -60,20 +61,16 @@ def compute_practical_moments_sw(
     return first_moment, second_moment
 
 
-def compute_practical_moments_sw_with_predefined_projections(
-    x, y, projections, device="cuda", degree=2.0, **kwargs
-):
+def compute_practical_moments_sw_with_predefined_projections(x, y, projections, degree=2.0, **kwargs):
     """
     x, y: [batch size, num points, dim]
     projections: [batch size, num projs, dim]
     """
-    xproj = x.bmm(projections.transpose(1, 2)).to(device)
+    xproj = x.bmm(projections.transpose(1, 2))
 
-    yproj = y.bmm(projections.transpose(1, 2)).to(device)
+    yproj = y.bmm(projections.transpose(1, 2))
 
-    _sort = (
-        torch.sort(xproj.transpose(1, 2))[0] - torch.sort(yproj.transpose(1, 2))[0]
-    ).to(device)
+    _sort = torch.sort(xproj.transpose(1, 2))[0] - torch.sort(yproj.transpose(1, 2))[0]
 
     _sort_pow_p_get_sum = torch.sum(torch.pow(torch.abs(_sort), degree), dim=2)
 
@@ -83,12 +80,8 @@ def compute_practical_moments_sw_with_predefined_projections(
     return first_moment, second_moment
 
 
-def _compute_practical_moments_sw_with_projected_data(
-    xproj, yproj, device="cuda", degree=2.0, **kwargs
-):
-    _sort = (
-        torch.sort(xproj.transpose(1, 2))[0] - torch.sort(yproj.transpose(1, 2))[0]
-    ).to(device)
+def _compute_practical_moments_sw_with_projected_data(xproj, yproj, degree=2.0, **kwargs):
+    _sort = torch.sort(xproj.transpose(1, 2))[0] - torch.sort(yproj.transpose(1, 2))[0]
 
     _sort_pow_p_get_sum = torch.sum(torch.pow(torch.abs(_sort), degree), dim=2)
 
@@ -119,34 +112,56 @@ def _linear(x, theta):
     return xproj
 
 
-class SWD(nn.Module):
+class BaseWD(nn.Module):
+    def __init__(self, nobatchdim, device):
+        super().__init__()
+        if device is None:
+            device = 0 if torch.cuda.is_available() else "cpu"
+            # double check for if needed to be 'cuda:0'
+        torch.set_default_device(device)
+        self.device = device
+        self.nobatchdim = nobatchdim
+
+    def forward(self, x, y, *args, **kwargs):
+        xsqueeze = False
+        if x.ndim < 3 or self.nobatchdim:
+            x = x.unsqueeze(0)
+            xsqueeze = True
+        ysqueeze = False
+        if y.ndim < 3 or self.nobatchdim:
+            y = y.unsqueeze(0)
+            ysqueeze = True
+
+        loss = self._forward(x, y, *args, **kwargs)
+        if xsqueeze:
+            x = x.squeeze()
+        if ysqueeze:
+            y = y.squeeze()
+        return loss
+
+    def _forward(self, x, y, *args, **kwargs): ...
+
+
+class SlicedWassersteinDistance(BaseWD):
     """
     Estimate SWD with fixed number of projections
     """
 
-    def __init__(self, num_projs, device="cuda", nobatchdim=True, **kwargs):
-        super().__init__()
+    def __init__(self, num_projs, device=None, nobatchdim=True, **kwargs):
+        super().__init__(nobatchdim=nobatchdim, device=device)
         self.num_projs = num_projs
-        self.device = device
         self.nobatchdim = nobatchdim
 
-    def forward(self, x, y, **kwargs):
+    def _forward(self, x, y, *args, **kwargs):
         """
         x, y have the same shape of [batch_size, num_points_in_point_cloud, dim_of_1_point]
         """
-        if self.nobatchdim:
-            x = x.unsqueeze(0)
-            y = y.unsqueeze(0)
-        squared_sw_2, _ = compute_practical_moments_sw(
-            x, y, num_projections=self.num_projs, device=self.device
-        )
+        squared_sw_2, _ = compute_practical_moments_sw(x, y, num_projections=self.num_projs)
         squared_sw_2 = squared_sw_2.mean(dim=0)
-        if self.nobatchdim:
-            squared_sw_2 = squared_sw_2.unsqueeze(0)
         return squared_sw_2
 
 
-class ASW(nn.Module):
+class ApaptiveSlicedWassersteinDistance(BaseWD):
     """
     Adaptive sliced wasserstein algorithm for estimating SWD
     """
@@ -159,148 +174,128 @@ class ASW(nn.Module):
         loop_rate_thresh=0.05,
         projs_history="projs_history.txt",
         max_slices=500,
+        nobatchdim=True,
+        epsilon=0.5,
+        degree=2.0,
+        device=None,
         **kwargs,
     ):
-        super().__init__()
+        super().__init__(nobatchdim=nobatchdim, device=device)
         self.init_projs = init_projs
         self.step_projs = step_projs
         self.k = k
         self.loop_rate_thresh = loop_rate_thresh
         self.projs_history = projs_history
         self.max_slices = max_slices
-        if "device" in kwargs.keys():
-            self.device = kwargs["device"]
-        else:
-            self.device = "cuda"
+        self.epsilon = epsilon
+        self.degree = degree
 
-    def forward(self, x, y, **kwargs):
+    def _forward(self, x, y, *args, **kwargs):
         """
         x, y: [batch size, num points in point cloud, 3]
         """
         # allow to adjust epsilon
-        if "epsilon" in kwargs.keys():
-            epsilon = kwargs["epsilon"]
-        else:
-            raise ValueError("Epsilon not found.")
+        eps = self.epsilon if "epsilon" not in kwargs else kwargs["epsilon"]
+        degree = self.degree if "degree" not in kwargs else kwargs["degree"]
 
         n = self.init_projs
         max_slices = self.max_slices
         step_projs = self.step_projs
 
-        first_moment_sw_p_pow_p, second_moment_sw_p_pow_p = (
-            compute_practical_moments_sw(
-                x, y, num_projections=n, device=self.device, degree=kwargs["degree"]
-            )
+        first_moment_sw_p_pow_p, second_moment_sw_p_pow_p = compute_practical_moments_sw(
+            x, y, num_projections=n, degree=kwargs["degree"]
         )
 
-        loop_conditions = (
-            self.k**2 * (second_moment_sw_p_pow_p - first_moment_sw_p_pow_p**2)
-        ) > ((n - 1) * epsilon**2)  # check ASW condition
-        loop_rate = (
-            loop_conditions.sum(dim=0) * 1.0 / loop_conditions.shape[0]
-        )  # the ratio of point clouds in the batch satifying the ASW condition.
+        # check ASW condition
+        loop_conditions = (self.k**2 * (second_moment_sw_p_pow_p - first_moment_sw_p_pow_p**2)) > ((n - 1) * eps**2)
+        # the ratio of point clouds in the batch satifying the ASW condition.
+        loop_rate = loop_conditions.sum(dim=0) * 1.0 / loop_conditions.shape[0]
 
         while (loop_rate > self.loop_rate_thresh) and ((n + step_projs) <= max_slices):
+            # sample next s projections
             first_moment_s_sw, second_moment_s_sw = compute_practical_moments_sw(
                 x,
                 y,
                 num_projections=step_projs,
-                device=self.device,
-                degree=kwargs["degree"],
-            )  # sample next s projections
-
-            first_moment_sw_p_pow_p = (
-                n * first_moment_sw_p_pow_p + step_projs * first_moment_s_sw
-            ) / (n + step_projs)  # update first and second moments
-            second_moment_sw_p_pow_p = (
-                n * second_moment_sw_p_pow_p + step_projs * second_moment_s_sw
-            ) / (n + step_projs)
+                degree=degree,
+            )
+            # update first and second moments
+            first_moment_sw_p_pow_p = (n * first_moment_sw_p_pow_p + step_projs * first_moment_s_sw) / (n + step_projs)
+            second_moment_sw_p_pow_p = (n * second_moment_sw_p_pow_p + step_projs * second_moment_s_sw) / (
+                n + step_projs
+            )
             n = n + step_projs
-            loop_conditions = (
-                self.k**2 * (second_moment_sw_p_pow_p - first_moment_sw_p_pow_p**2)
-            ) > ((n - 1) * epsilon**2)
+            loop_conditions = (self.k**2 * (second_moment_sw_p_pow_p - first_moment_sw_p_pow_p**2)) > ((n - 1) * eps**2)
             loop_rate = loop_conditions.sum(dim=0) * 1.0 / loop_conditions.shape[0]
 
-        with open(
-            self.projs_history, "a"
-        ) as fp:  # jot down number of sampled projections
+        with open(self.projs_history, "a") as fp:  # jot down number of sampled projections
             fp.write(str(n) + "\n")
-        return {"loss": first_moment_sw_p_pow_p.mean(dim=0), "num_slices": n}
+        return first_moment_sw_p_pow_p.mean(dim=0)
 
 
-class MaxSW(nn.Module):
+class MaxSlicedWassersteinDistance(BaseWD):
+    # TODO: BROKEN IN BACKWARDS!!
     """
     Max-SW distance was proposed in paper "Max-Sliced Wasserstein Distance and its use for GANs" - CVPR'19
     The way to estimate it was proposed in paper "Generalized Sliced Wasserstein Distance" - NeurIPS'19
     """
 
-    def __init__(self, device="cuda", **kwargs):
-        super().__init__()
-        self.device = device
+    def __init__(self, device=None, nobatchdim=True, **kwargs):
+        super().__init__(nobatchdim=nobatchdim, device=device)
 
-    def forward(self, x, y, *args, **kwargs):
+    def _forward(self, x, y, *args, **kwargs):
         """
         x, y have the same shape of [batch_size, num_points_in_point_cloud, dim_of_1_point]
         """
         dim = x.size(2)
         projections = Variable(
-            minibatch_rand_projections(
-                batchsize=x.size(0), dim=dim, num_projections=1
-            ).to(self.device),
+            minibatch_rand_projections(batchsize=x.size(0), dim=dim, num_projections=1),
             requires_grad=True,
         )
         # projs.shape: [batchsize, num_projs, dim]
 
-        num_iter = (
-            kwargs.get("max_sw_num_iters")
-            if "max_sw_num_iters" in kwargs.keys()
-            else 50
-        )
+        num_iter = kwargs.get("max_sw_num_iters") if "max_sw_num_iters" in kwargs.keys() else 50
         lr = kwargs.get("max_sw_lr") if "max_sw_lr" in kwargs else 1e-4
         optimizer = torch.optim.Adam([projections], lr=lr)
 
-        for _ in range(num_iter):
+        for i in range(num_iter):
+            print(i)
             # compute loss
-            xproj = x.bmm(projections.transpose(1, 2)).to(self.device)
+            xproj = x.bmm(projections.transpose(1, 2))
 
-            yproj = y.bmm(projections.transpose(1, 2)).to(self.device)
+            yproj = y.bmm(projections.transpose(1, 2))
 
-            _sort = (
-                torch.sort(xproj.transpose(1, 2))[0]
-                - torch.sort(yproj.transpose(1, 2))[0]
-            ).to(self.device)
+            _sort = torch.sort(xproj.transpose(1, 2))[0] - torch.sort(yproj.transpose(1, 2))[0]
 
             _sort_pow_2_get_sum = torch.sum(torch.pow(_sort, 2), dim=2)
 
-            negative_first_moment = -_sort_pow_2_get_sum.mean(dim=1)
+            negative_first_moment = -(_sort_pow_2_get_sum.mean(dim=1))
 
             # perform optimization
             optimizer.zero_grad()
-            negative_first_moment.mean().backward(retain_graph=True)
+            hold = negative_first_moment.mean()
+            hold.backward(retain_graph=True)
             optimizer.step()
             # project onto unit sphere
             projections = proj_onto_unit_sphere(projections)
+            print(optimizer.param_groups[0])
 
         projections_no_grad = projections.detach()
-        loss, _ = compute_practical_moments_sw_with_predefined_projections(
-            x, y, projections_no_grad, self.device
-        )
-        loss = loss.mean(dim=0)
+        loss, _ = compute_practical_moments_sw_with_predefined_projections(x, y, projections_no_grad)
 
-        return {"loss": loss}
+        return loss.mean(dim=0)
 
 
-class OrtSW(nn.Module):
+class OrthogonalSlicedWassersteinDistance(BaseWD):
     """
     Orthogonal estimation for SWD was proposed in paper "Orthogonal estimation of Wasserstein Distance - AISTATS'19"
     """
 
-    def __init__(self, num_projs, device="cuda", **kwargs):
-        super().__init__()
+    def __init__(self, num_projs, device=None, nobatchdim=True, **kwargs):
+        super().__init__(nobatchdim=nobatchdim, device=device)
         self.num_projs = num_projs
-        self.device = device
 
-    def forward(self, x, y, **kwargs):
+    def _forward(self, x, y, *args, **kwargs):
         """
         x, y have the same shape of [batch_size, num_points_in_point_cloud, dim_of_1_point]
         """
@@ -312,40 +307,34 @@ class OrtSW(nn.Module):
         )
 
         projections = torch.stack(
-            [
-                torch.nn.init.orthogonal_(projections[i])
-                for i in range(projections.shape[0])
-            ],
+            [torch.nn.init.orthogonal_(projections[i]) for i in range(projections.shape[0])],
             dim=0,
         )
 
-        loss, _ = compute_practical_moments_sw_with_predefined_projections(
-            x, y, projections, device=self.device
-        )
+        loss, _ = compute_practical_moments_sw_with_predefined_projections(x, y, projections)
 
-        return {"loss": loss.mean(dim=0)}
+        return loss.mean(dim=0)
 
 
-class GenSW(nn.Module):
+class GeneralisedSlicedWassersteinDistance(BaseWD):
+    # TODO: update forward to have degree as default somewhere
     """
     Generalized SW distance was proposed in paper "Generalized Sliced Wasserstein Distance" - NeurIPS'19
     """
 
-    def __init__(self, num_projs, g_type="circular", device="cuda", **kwargs):
-        super().__init__()
+    def __init__(self, num_projs, degree=2.0, g_type="circular", device=None, nobatchdim=True, **kwargs):
+        super().__init__(nobatchdim=nobatchdim, device=device)
         self.num_projs = num_projs
-        self.device = device
         self.g_type = g_type
+        self.degree = degree
 
-    def forward(self, x, y, **kwargs):
+    def _forward(self, x, y, *args, **kwargs):
         """
         x, y have the same shape of [batch_size, num_points_in_point_cloud, dim_of_1_point]
         """
         dim = x.size(2)
         batch_size = x.size(0)
-        projections = minibatch_rand_projections(batch_size, dim, self.num_projs).to(
-            self.device
-        )
+        projections = minibatch_rand_projections(batch_size, dim, self.num_projs)
 
         if self.g_type == "circular":
             xproj = _circular(x, projections)
@@ -356,25 +345,24 @@ class GenSW(nn.Module):
         else:
             raise NotImplementedError
 
-        loss, _ = _compute_practical_moments_sw_with_projected_data(
-            xproj, yproj, self.device, kwargs["degree"]
-        )
+        deg = self.degree if "degree" not in kwargs else kwargs["degree"]
 
-        return {"loss": loss.mean(dim=0)}
+        loss, _ = _compute_practical_moments_sw_with_projected_data(xproj, yproj, deg)
+
+        return loss.mean(dim=0)
 
 
-class PW(nn.Module):
+class ProjectedWassersteinDistance(BaseWD):
     """
     Projected Wasserstein distance was proposed in paper "Orthogonal estimation of Wasserstein Distance - AISTATS'19"
     """
 
-    def __init__(self, num_projs, device="cuda", orthogonal=False, **kwargs):
-        super().__init__()
+    def __init__(self, num_projs, device=None, orthogonal=False, nobatchdim=True, **kwargs):
+        super().__init__(nobatchdim=nobatchdim, device=device)
         self.num_projs = num_projs
-        self.device = device
         self.orthogonal = orthogonal
 
-    def forward(self, x, y, **kwargs):
+    def _forward(self, x, y, *args, **kwargs):
         """
         x, y have the same shape of [batch_size, num_points_in_point_cloud, dim_of_1_point]
         """
@@ -382,13 +370,9 @@ class PW(nn.Module):
         dim = x.size(2)
         batch_size = x.size(0)
         if self.orthogonal:
-            projections = _sample_minibatch_orthogonal_projections(
-                batch_size, dim, self.num_projs
-            ).to(self.device)
+            projections = _sample_minibatch_orthogonal_projections(batch_size, dim, self.num_projs)
         else:
-            projections = minibatch_rand_projections(
-                batch_size, dim, self.num_projs
-            ).to(self.device)
+            projections = minibatch_rand_projections(batch_size, dim, self.num_projs)
         # print(projections)
         xproj = _linear(x, projections).transpose(1, 2)  # [bs, num_slices, num_points]
         yproj = _linear(y, projections).transpose(1, 2)  # [bs, num_slices, num_points]
@@ -396,12 +380,8 @@ class PW(nn.Module):
         xproj_argsort = torch.argsort(xproj, dim=2)
         yproj_argsort = torch.argsort(yproj, dim=2)
 
-        _sorted_x = torch.stack(
-            [x[i][xproj_argsort[i]] for i in range(x.shape[0])], dim=0
-        )
-        _sorted_y = torch.stack(
-            [y[i][yproj_argsort[i]] for i in range(y.shape[0])], dim=0
-        )
+        _sorted_x = torch.stack([x[i][xproj_argsort[i]] for i in range(x.shape[0])], dim=0)
+        _sorted_y = torch.stack([y[i][yproj_argsort[i]] for i in range(y.shape[0])], dim=0)
 
         loss = torch.mean((_sorted_x - _sorted_y) ** 2)
-        return {"loss": loss}
+        return loss

@@ -43,28 +43,39 @@ MstepResult.__doc__ = """Result of Maximization step.
 
 class CoherentPointDrift:
     """Coherent Point Drift algorithm.
-    This is an abstract class.
-    Based on this class, it is inherited by rigid, affine, nonrigid classes
-    according to the type of transformation.
-    In this class, Estimation step in EM algorithm is implemented and
-    Maximazation step is implemented in the inherited classes.
 
-    Args:
-        source (torch.Tensor, optional): Source point cloud data.
-        use_color (bool, optional): Use color information (if available).
-        use_cuda (bool, optional): Use CUDA.
+    This is an abstract class for the Coherent Point Drift (CPD) algorithm.
+    It provides a common framework for different types of transformations
+    (rigid, affine, nonrigid) which are implemented in inherited classes.
+    This class implements the Expectation step of the Expectation-Maximization (EM) algorithm.
+    The Maximization step is implemented in the inherited classes.
+
+    Parameters
+    ----------
+    source : torch.Tensor, optional
+        Source point cloud data.
+    use_color : bool, optional
+        Use color information (if available) in the registration process. Default: False.
+    use_cuda : bool, optional
+        Use CUDA for computations. Default: False.
+
+    Attributes
+    ----------
+    _N_DIM : int
+        Number of dimensions for point cloud data (default: 3).
+    _N_COLOR : int
+        Number of color channels (default: 3).
     """
 
     _N_DIM = 3
     _N_COLOR = 3
 
     def __init__(self, source: Optional[torch.Tensor] = None, use_color: bool = False, use_cuda: bool = False) -> None:
+        """Initialize CPD object."""
         self._source = source
-        self._tf_type = None
-        self._callbacks = []
+        self._tf_type = None  # Transformation type (set in inherited classes)
+        self._callbacks = []  # List of callbacks to be called during registration
         self._use_color = use_color
-        # self.xp = np
-        # self.distance_module = scipy_distance
 
     def set_source(self, source: torch.Tensor) -> None:
         self._source = source
@@ -73,11 +84,46 @@ class CoherentPointDrift:
         self._callbacks.extend(callbacks)
 
     def _initialize(self, target: torch.Tensor) -> MstepResult:
+        """Initialize parameters for the registration process.
+
+        This method is called at the beginning of the registration process.
+        It should be implemented in inherited classes to initialize
+        transformation-specific parameters.
+
+        Parameters
+        ----------
+        target : torch.Tensor
+            Target point cloud data.
+
+        Returns
+        -------
+        MstepResult
+            Result object containing initial parameters.
+        """
         return MstepResult(None, None, None)
 
     def _compute_pmat_numerator(self, t_source: torch.Tensor, target: torch.Tensor, sigma2: float) -> torch.Tensor:
-        pmat = torch.cdist(t_source, target, p=2).pow(2)  # "sqeuclidean")
-        pmat = torch.exp(-pmat / (2.0 * sigma2))
+        """Compute the numerator of the probability matrix.
+
+        This method calculates the Gaussian kernel density estimate between
+        transformed source points and target points.
+
+        Parameters
+        ----------
+        t_source : torch.Tensor
+            Transformed source point cloud data.
+        target : torch.Tensor
+            Target point cloud data.
+        sigma2 : float
+            Variance of the Gaussian kernel.
+
+        Returns
+        -------
+        torch.Tensor
+            Numerator of the probability matrix.
+        """
+        pmat = torch.cdist(t_source, target, p=2).pow(2)  # Pairwise Euclidean distance squared
+        pmat = torch.exp(-pmat / (2.0 * sigma2))  # Gaussian kernel
         return pmat
 
     def expectation_step(
@@ -88,7 +134,30 @@ class CoherentPointDrift:
         sigma2_c: float,
         w: float = 0.0,
     ) -> EstepResult:
-        """Expectation step for CPD"""
+        """Perform the Expectation step of the EM algorithm.
+
+        This method calculates the posterior probabilities of the
+        correspondence between transformed source points and target points.
+
+        Parameters
+        ----------
+        t_source : torch.Tensor
+            Transformed source point cloud data.
+        target : torch.Tensor
+            Target point cloud data.
+        sigma2 : float
+            Variance of the Gaussian kernel for point coordinates.
+        sigma2_c : float
+            Variance of the Gaussian kernel for color information.
+        w : float, optional
+            Weight of the uniform distribution (for outlier handling). Default: 0.0.
+
+        Returns
+        -------
+        EstepResult
+            Result object containing the posterior probabilities and other
+            intermediate results of the E-step.
+        """
         assert t_source.ndim == 2 and target.ndim == 2, "source and target must have 2 dimensions."
         pmat = self._compute_pmat_numerator(t_source[:, : self._N_DIM], target[:, : self._N_DIM], sigma2)
 
@@ -96,20 +165,24 @@ class CoherentPointDrift:
         c *= w / (1.0 - w) * t_source.shape[0] / target.shape[0]
         den = torch.sum(pmat, dim=0)
         den[den == 0] = torch.finfo(target.dtype).eps
+
         if self._use_color:
             pmat_c = self._compute_pmat_numerator(t_source[:, self._N_DIM :], target[:, self._N_DIM :], sigma2_c)
             den_c = torch.sum(pmat_c, dim=0)
             den_c[den_c == 0] = torch.finfo(pmat_c.dtype).eps
             den = torch.multiply(den, den_c)
+
+            # Calculate the contribution of color information to the denominator
             o_c = t_source.shape[0] * (2 * torch.pi * sigma2_c) ** (0.5 * (self._N_DIM + self._N_COLOR - 1))
             # print(o_c.shape, pmat_c.shape)
             o_c = o_c * torch.exp(-1.0 / t_source.shape[0] * torch.square(torch.sum(pmat_c, dim=0)) / (2.0 * sigma2_c))
             den += o_c
             c *= (2.0 * torch.pi * sigma2_c) ** (self._N_COLOR * 0.5)
-            pmat = torch.multiply(pmat, pmat_c)
-        den += c
+            pmat = torch.multiply(pmat, pmat_c)  # Combine color and spatial probabilities
 
-        pmat = torch.divide(pmat, den)
+        den += c
+        pmat = torch.divide(pmat, den)  # Normalize the probabilities
+
         pt1 = torch.sum(pmat, dim=0)
         p1 = torch.sum(pmat, dim=1)
         px = torch.matmul(pmat, target[:, : self._N_DIM])  # .dot
@@ -117,7 +190,29 @@ class CoherentPointDrift:
 
     def maximization_step(
         self, target: torch.Tensor, estep_res: EstepResult, sigma2_p: Optional[float] = None
-    ) -> Optional[MstepResult]:
+    ) -> MstepResult:
+        """Perform the Maximization step of the EM algorithm.
+
+        This method updates the transformation parameters based on the
+        posterior probabilities calculated in the E-step.
+        It should be implemented in the inherited classes for specific
+        transformation types.
+
+        Parameters
+        ----------
+        target : torch.Tensor
+            Target point cloud data.
+        estep_res : EstepResult
+            Result object from the Expectation step.
+        sigma2_p : float, optional
+            Previous variance of the Gaussian kernel.
+
+        Returns
+        -------
+        MstepResult
+            Result object containing updated transformation parameters and
+            other relevant information.
+        """
         return self._maximization_step(self._source[:, : self._N_DIM], target[:, : self._N_DIM], estep_res, sigma2_p)
 
     @staticmethod
@@ -126,16 +221,61 @@ class CoherentPointDrift:
         target: torch.Tensor,
         estep_res: EstepResult,
         sigma2_p: Optional[float] = None,
-    ) -> Optional[MstepResult]:
+    ) -> MstepResult:
+        """Internal method for the Maximization step.
+
+        This method is called by the `maximization_step` method and can be
+        overridden in inherited classes to provide specific implementations
+        for different transformation types.
+
+        Parameters
+        ----------
+        source : torch.Tensor
+            Source point cloud data.
+        target : torch.Tensor
+            Target point cloud data.
+        estep_res : EstepResult
+            Result object from the Expectation step.
+        sigma2_p : float, optional
+            Previous variance of the Gaussian kernel.
+
+        Returns
+        -------
+        Optional[MstepResult]
+            Result object containing updated transformation parameters and
+            other relevant information.
+        """
         return None
 
     def registration(self, target: torch.Tensor, w: float = 0.0, maxiter: int = 50, tol: float = 0.001) -> MstepResult:
+        """Perform the CPD registration process.
+
+        This method iteratively executes the E-step and M-step of the EM
+        algorithm until convergence or the maximum number of iterations is reached.
+
+        Parameters
+        ----------
+        target : torch.Tensor
+            Target point cloud data.
+        w : float, optional
+            Weight of the uniform distribution (for outlier handling). Default: 0.0.
+        maxiter : int, optional
+            Maximum number of iterations. Default: 50.
+        tol : float, optional
+            Tolerance for convergence. Default: 0.001.
+
+        Returns
+        -------
+        MstepResult
+            Result object containing the final transformation parameters and
+            other registration information.
+        """
         assert self._tf_type is not None, "transformation type is None."
         res = self._initialize(target[:, : self._N_DIM])
         sigma2_c = 0.0
         if self._use_color:
             sigma2_c = squared_kernel_sum(self._source[:, self._N_DIM :], target[:, self._N_DIM :])
-        q = res.q
+        q = res.q  # Initial value of the objective function
 
         with Progress(
             "[progress.description]{task.description}",
@@ -153,12 +293,12 @@ class CoherentPointDrift:
                 t_source = res.transformation.transform(self._source)
                 estep_res = self.expectation_step(t_source, target, res.sigma2, sigma2_c, w)
                 res = self.maximization_step(target, estep_res, res.sigma2)
+
                 for c in self._callbacks:
                     c(res.transformation)
 
                 iter_end_time = time.perf_counter()
                 iter_time = iter_end_time - iter_start_time
-
                 elapsed_time = time.perf_counter() - start_time
                 avg_iter_time = elapsed_time / (i + 1)
 
@@ -192,6 +332,41 @@ class RigidCPD(CoherentPointDrift):
         use_cuda (bool, optional): Use CUDA.
     """
 
+    """
+    Coherent Point Drift for rigid transformation.
+
+    This class implements the Coherent Point Drift (CPD) algorithm for aligning two point clouds
+    using a rigid transformation (rotation, translation, and optional scaling). The algorithm
+    rotates and translates the source point cloud to align with the target point cloud.
+
+    Parameters
+    ----------
+    source : torch.Tensor, optional
+        Source point cloud data. Shape: (n_points, n_dims), where n_dims >= 2.
+    update_scale : bool, optional
+        If True, the scale parameter is optimized during registration. Default: True.
+    tf_init_params : dict, optional
+        Parameters to initialize the rigid transformation. Default: {}.
+    use_color : bool, optional
+        If True, use color information (if available) for registration. Default: False.
+    use_cuda : bool, optional
+        If True, use CUDA for computations. Default: False.
+
+
+    Notes
+    -----
+    This implementation assumes that the target point cloud is fixed and the source point cloud
+    is transformed to align with the target.
+
+    Examples
+    --------
+    >>> source = torch.randn(100, 3)
+    >>> target = torch.randn(100, 3)
+    >>> cpd = RigidCPD(source, update_scale=True)
+    >>> tf_param, sigma2, q = cpd.registration(target)
+    >>> transformed_source = tf_param.transform(source)
+    """
+
     def __init__(
         self,
         source: Optional[torch.Tensor] = None,
@@ -206,14 +381,53 @@ class RigidCPD(CoherentPointDrift):
         self._tf_init_params = tf_init_params
 
     def _initialize(self, target: torch.Tensor) -> MstepResult:
+        """
+        Initialize the registration parameters.
+
+        Parameters
+        ----------
+        target : torch.Tensor
+            Target point cloud data. Shape: (n_points, n_dims).
+
+        Returns
+        -------
+        MstepResult
+            Initialization result containing the initial transformation,
+            initial variance, and initial objective function value.
+        """
         dim = self._N_DIM
         sigma2 = squared_kernel_sum(self._source[:, :dim], target[:, :dim])
+        # Initialize Q with a reasonable value based on the initial variance
         q = 1.0 + target.shape[0] * dim * 0.5 * torch.log(sigma2)
         return MstepResult(self._tf_type(**self._tf_init_params), sigma2, q)
 
     def maximization_step(
         self, target: torch.Tensor, estep_res: EstepResult, sigma2_p: Optional[float] = None
     ) -> MstepResult:
+        """
+        Perform the maximization step of the CPD algorithm.
+
+        This method updates the transformation parameters by maximizing the
+        likelihood function given the current correspondences between the
+        source and target points.
+
+        Parameters
+        ----------
+        target : torch.Tensor
+            Target point cloud data. Shape: (n_points, n_dims).
+        estep_res : EstepResult
+            Result of the expectation step, containing the correspondences
+            between the source and target points.
+        sigma2_p : float, optional
+            Previous variance. Default: None.
+
+        Returns
+        -------
+        MstepResult
+            Result of the maximization step, containing the updated
+            transformation, updated variance, and updated objective
+            function value.
+        """
         return self._maximization_step(
             self._source[:, : self._N_DIM], target[:, : self._N_DIM], estep_res, sigma2_p, self._update_scale
         )
@@ -226,42 +440,97 @@ class RigidCPD(CoherentPointDrift):
         sigma2_p: Optional[float] = None,
         update_scale: bool = True,
     ) -> MstepResult:
+        """
+        Static method for the maximization step.
+
+        This method performs the actual computation for the maximization step.
+        It is defined as a static method to allow for easier testing and
+        reuse.
+
+        Parameters
+        ----------
+        source : torch.Tensor
+            Source point cloud data. Shape: (n_points, n_dims).
+        target : torch.Tensor
+            Target point cloud data. Shape: (n_points, n_dims).
+        estep_res : EstepResult
+            Result of the expectation step.
+        sigma2_p : float, optional
+            Previous variance. Default: None.
+        update_scale : bool, optional
+            If True, update the scale parameter. Default: True.
+
+        Returns
+        -------
+        MstepResult
+            Result of the maximization step.
+        """
         pt1, p1, px, n_p = estep_res
         dim = CoherentPointDrift._N_DIM
+        # Calculate means of source and target points
         mu_x = torch.sum(px, axis=0) / n_p
         mu_y = (source.T @ p1.unsqueeze(1)).squeeze() / n_p  # .dot
+
+        # Center the point clouds
         target_hat = target - mu_x
         source_hat = source - mu_y
-        a = torch.matmul(px.T, source_hat) - torch.outer(
-            mu_x, (p1.unsqueeze(0) @ source_hat).squeeze()
-        )  # .dot / .outer
+
+        # Compute the cross-covariance matrix
+        a = torch.matmul(px.T, source_hat) - torch.outer(mu_x, (p1.unsqueeze(0) @ source_hat).squeeze())
+        # .dot / .outer
+        # Compute the optimal rotation using SVD
         u, _, vh = torch.linalg.svd(a, full_matrices=True)
         c = torch.ones(dim, dtype=a.dtype, device=a.device)
         c[-1] = torch.linalg.det(torch.matmul(u, vh))  # .dot
         rot = torch.matmul(u * c, vh)  # .dot
+
+        # Compute the optimal scale (if enabled)
         tr_atr = torch.trace(torch.matmul(a.T, rot))  # .dot
         tr_yp1y = torch.trace(torch.matmul(source_hat.T * p1, source_hat))  # .dot
         scale = tr_atr / tr_yp1y if update_scale else 1.0
+
+        # Compute the optimal translation
         t = mu_x - scale * torch.matmul(rot, mu_y)  # .dot
         tr_xp1x = torch.trace(torch.matmul(target_hat.T * pt1, target_hat))  # .dot
+
+        # Update the variance
         if update_scale:
             sigma2 = (tr_xp1x - scale * tr_atr) / (n_p * dim)
         else:
             sigma2 = (tr_xp1x + tr_yp1y - scale * tr_atr) / (n_p * dim)
-        sigma2 = max(sigma2, torch.finfo(a.dtype).eps)
+        sigma2 = max(sigma2, torch.finfo(a.dtype).eps)  # Ensure sigma2 is not too small
+
+        # Update the objective function value
         q = (tr_xp1x - 2.0 * scale * tr_atr + (scale**2) * tr_yp1y) / (2.0 * sigma2)
         q += dim * n_p * 0.5 * np.log(sigma2).item()
         return MstepResult(tf.RigidTransformation(rot, t, scale), sigma2, q)
 
 
 class AffineCPD(CoherentPointDrift):
-    """Coherent Point Drift for affine transformation.
+    """
+    Coherent Point Drift for affine transformation.
 
-    Args:
-        source (torch.Tensor, optional): Source point cloud data.
-        tf_init_params (dict, optional): Parameters to initialize transformation.
-        use_color (bool, optional): Use color information (if available).
-        use_cuda (bool, optional): Use CUDA.
+    This class implements the Coherent Point Drift (CPD) algorithm for aligning
+    two point clouds using an affine transformation. It inherits from the
+    `CoherentPointDrift` base class and specializes it for affine transformations.
+
+    Parameters
+    ----------
+    source : torch.Tensor, optional
+        Source point cloud data.
+    tf_init_params : dict, optional
+        Parameters to initialize the affine transformation.
+    use_color : bool, optional
+        Use color information (if available) for registration.
+    use_cuda : bool, optional
+        Use CUDA for accelerated computation.
+
+    Attributes
+    ----------
+    _tf_type : type
+        Type of transformation object to use (affine in this case).
+    _tf_init_params : dict
+        Parameters to initialize the transformation.
     """
 
     def __init__(
@@ -276,8 +545,23 @@ class AffineCPD(CoherentPointDrift):
         self._tf_init_params = tf_init_params
 
     def _initialize(self, target: torch.Tensor) -> MstepResult:
+        """
+        Initialize the registration parameters.
+
+        Parameters
+        ----------
+        target : torch.Tensor
+            Target point cloud data.
+
+        Returns
+        -------
+        MstepResult
+            Result of the maximization step, containing the initial
+            transformation, sigma2, and q.
+        """
         dim = self._N_DIM
         sigma2 = squared_kernel_sum(self._source[:, :dim], target[:, :dim])
+        # Initialize q (negative log-likelihood)
         q = 1.0 + target.shape[0] * dim * 0.5 * torch.log(sigma2)
         return MstepResult(self._tf_type(**self._tf_init_params), sigma2, q)
 
@@ -288,35 +572,96 @@ class AffineCPD(CoherentPointDrift):
         estep_res: EstepResult,
         sigma2_p: Optional[float] = None,
     ) -> MstepResult:
+        """
+        Perform the maximization step of the CPD algorithm.
+
+        This step updates the transformation parameters (affine in this case)
+        by maximizing the expectation of the complete data log-likelihood.
+
+        Parameters
+        ----------
+        source : torch.Tensor
+            Source point cloud data.
+        target : torch.Tensor
+            Target point cloud data.
+        estep_res : EstepResult
+            Result of the expectation step.
+        sigma2_p : float, optional
+            Previous value of sigma2.
+
+        Returns
+        -------
+        MstepResult
+            Result of the maximization step, containing the updated
+            transformation, sigma2, and q.
+        """
         pt1, p1, px, n_p = estep_res
         dim = CoherentPointDrift._N_DIM
+
+        # get means
         mu_x = torch.sum(px, dim=0) / n_p
         mu_y = torch.matmul(source.T, p1) / n_p  # .dot
+
+        # center point clouds
         target_hat = target - mu_x
         source_hat = source - mu_y
+
+        # compute affine transformations parameters
         a = torch.matmul(px.T, source_hat) - torch.outer(mu_x, torch.dot(p1.T, source_hat))  # .dot  # .dot
         yp1y = torch.matmul(source_hat.T * p1, source_hat)  # .dot
-        b = torch.linalg.solve(yp1y.T, a.T).T
-        t = mu_x - torch.matmul(b, mu_y)  # .dot
+        b = torch.linalg.solve(yp1y.T, a.T).T  # solve for rotation and scaling matrix
+        t = mu_x - torch.matmul(b, mu_y)  # .dot  - solver for translation vector
+
+        # update sigma2
         tr_xp1x = torch.trace(torch.matmul(target_hat.T * pt1, target_hat))  # .dot
         tr_xpyb = torch.trace(torch.matmul(a, b.T))  # .dot
         sigma2 = (tr_xp1x - tr_xpyb) / (n_p * dim)
-        tr_ab = torch.trace(torch.matmul(a, b.T))  # .dot
         sigma2 = max(sigma2, torch.finfo(a.dtype).eps)
+
+        # update q (negative log-likelihood)
+        tr_ab = torch.trace(torch.matmul(a, b.T))  # .dot
         q = (tr_xp1x - 2 * tr_ab + tr_xpyb) / (2.0 * sigma2)
         q += dim * n_p * 0.5 * torch.log(sigma2)
+
         return MstepResult(tf.AffineTransformation(b, t), sigma2, q)
 
 
 class NonRigidCPD(CoherentPointDrift):
-    """Coherent Point Drift for nonrigid transformation.
+    """
+    Coherent Point Drift for non-rigid transformation.
 
-    Args:
-        source (torch.Tensor, optional): Source point cloud data.
-        beta (float, optional): Parameter of RBF kernel.
-        lmd (float, optional): Parameter for regularization term.
-        use_color (bool, optional): Use color information (if available).
-        use_cuda (bool, optional): Use CUDA.
+    This class implements the Coherent Point Drift (CPD) algorithm for
+    non-rigid registration of two point clouds. It uses a Gaussian
+    radial basis function (RBF) kernel to model the non-rigid deformation.
+
+    Parameters
+    ----------
+    source : torch.Tensor, optional
+        Source point cloud data. Shape: (n_points, n_dimensions),
+        where n_dimensions is typically 2 or 3.
+    beta : float, optional
+        Parameter of the RBF kernel. Controls the width of the Gaussian kernel.
+        Default: 2.0
+    lmd : float, optional
+        Regularization parameter. Controls the smoothness of the deformation.
+        Default: 2.0
+    use_color : bool, optional
+        Use color information (if available) in the registration process.
+        Default: False
+    use_cuda : bool, optional
+        Use CUDA for GPU acceleration. Default: False
+
+    Attributes
+    ----------
+    _tf_type : type
+        Type of transformation object to use. Set to `NonRigidTransformation`.
+    _beta : float
+        Parameter of the RBF kernel.
+    _lmd : float
+        Regularization parameter.
+    _tf_obj : NonRigidTransformation
+        Instance of the `NonRigidTransformation` class.
+
     """
 
     def __init__(
@@ -342,6 +687,26 @@ class NonRigidCPD(CoherentPointDrift):
     def maximization_step(
         self, target: torch.Tensor, estep_res: EstepResult, sigma2_p: Optional[float] = None
     ) -> MstepResult:
+        """
+        Perform the maximization step of the EM algorithm.
+
+        This step updates the transformation parameters based on the current
+        correspondences between the source and target point clouds.
+
+        Parameters
+        ----------
+        target : torch.Tensor
+            Target point cloud data. Shape: (n_points, n_dimensions)
+        estep_res : EstepResult
+            Result of the expectation step.
+        sigma2_p : float, optional
+            Previous variance.
+
+        Returns
+        -------
+        MstepResult
+            Result of the maximization step.
+        """
         return self._maximization_step(
             self._source[:, : self._N_DIM],
             target[:, : self._N_DIM],
@@ -367,12 +732,42 @@ class NonRigidCPD(CoherentPointDrift):
         tf_obj: tf.NonRigidTransformation,
         lmd: float,
     ) -> MstepResult:
+        """
+        Helper function for the maximization step.
+
+        This function performs the actual computation for updating the
+        transformation parameters.
+
+        Parameters
+        ----------
+        source : torch.Tensor
+            Source point cloud data.
+        target : torch.Tensor
+            Target point cloud data.
+        estep_res : EstepResult
+            Result of the expectation step.
+        sigma2_p : float
+            Previous variance.
+        tf_obj : NonRigidTransformation
+            Transformation object.
+        lmd : float
+            Regularization parameter.
+
+        Returns
+        -------
+        MstepResult
+            Result of the maximization step.
+        """
         pt1, p1, px, n_p = estep_res
         dim = CoherentPointDrift._N_DIM
+
+        # Solve for the deformation parameters (w)
         w = torch.linalg.solve(
             (p1 * tf_obj.g).T + lmd * sigma2_p * torch.eye(source.shape[0], dtype=source.dtype, device=source.device),
             px - (source.T * p1).T,
         )
+
+        # Update the transformed source points (t)
         t = source + torch.matmul(tf_obj.g, w)  # .dot
         tr_xp1x = torch.trace(torch.matmul(target.T * pt1, target))  # .dot
         tr_pxt = torch.trace(torch.matmul(px.T, t))  # .dot
@@ -384,22 +779,34 @@ class NonRigidCPD(CoherentPointDrift):
 
 class ConstrainedNonRigidCPD(CoherentPointDrift):
     """
-       Extended Coherent Point Drift for nonrigid transformation.
-       Like CoherentPointDrift, but allows to add point correspondance constraints
-       See: https://people.mpi-inf.mpg.de/~golyanik/04_DRAFTS/ECPD2016.pdf
+    Extended Coherent Point Drift for nonrigid transformation with constraints.
 
-    Args:
-        source (torch.Tensor, optional): Source point cloud data.
-        beta (float, optional): Parameter of RBF kernel.
-        lmd (float, optional): Parameter for regularization term.
-        alpha (float): Degree of reliability of priors.
-            Approximately between 1e-8 (highly reliable) and 1 (highly unreliable)
-        use_cuda (bool, optional): Use CUDA.
-        use_color (bool, optional): Use color information (if available).
-        idx_source (torch.Tensor of ints, optional): Indices in source matrix
-            for which a correspondance is known
-        idx_target (torch.Tensor of ints, optional): Indices in target matrix
-            for which a correspondance is known
+    This class extends the Coherent Point Drift (CPD) algorithm to handle
+    nonrigid transformations with the addition of point correspondence constraints.
+    It allows for incorporating prior knowledge about the correspondence between
+    specific points in the source and target point clouds.
+
+    See: https://people.mpi-inf.mpg.de/~golyanik/04_DRAFTS/ECPD2016.pdf
+
+    Parameters
+    ----------
+    source : torch.Tensor, optional
+        Source point cloud data.
+    beta : float, optional
+        Parameter of RBF kernel. Default: 2.0.
+    lmd : float, optional
+        Parameter for regularization term. Default: 2.0.
+    alpha : float, optional
+        Degree of reliability of priors. Approximately between 1e-8
+        (highly reliable) and 1 (highly unreliable). Default: 1e-8.
+    use_cuda : bool, optional
+        Use CUDA. Default: False.
+    use_color : bool, optional
+        Use color information (if available). Default: False.
+    idx_source : torch.Tensor of ints, optional
+        Indices in source matrix for which a correspondence is known.
+    idx_target : torch.Tensor of ints, optional
+        Indices in target matrix for which a correspondence is known.
     """
 
     def __init__(
@@ -430,6 +837,23 @@ class ConstrainedNonRigidCPD(CoherentPointDrift):
     def maximization_step(
         self, target: torch.Tensor, estep_res: EstepResult, sigma2_p: Optional[float] = None
     ) -> MstepResult:
+        """
+        Perform the maximization step of the EM algorithm.
+
+        Parameters
+        ----------
+        target : torch.Tensor
+            Target point cloud data.
+        estep_res : EstepResult
+            Result of the expectation step.
+        sigma2_p : float, optional
+            Initial variance.
+
+        Returns
+        -------
+        MstepResult
+            Result of the maximization step.
+        """
         return self._maximization_step(
             self._source[:, : self._N_DIM],
             target[:, : self._N_DIM],
@@ -466,8 +890,39 @@ class ConstrainedNonRigidCPD(CoherentPointDrift):
         p1_tilde: float,
         px_tilde: float,
     ) -> MstepResult:
+        """
+        Perform the maximization step of the EM algorithm (static method).
+
+        Parameters
+        ----------
+        source : torch.Tensor
+            Source point cloud data.
+        target : torch.Tensor
+            Target point cloud data.
+        estep_res : EstepResult
+            Result of the expectation step.
+        sigma2_p : float
+            Initial variance.
+        tf_obj : tf.NonRigidTransformation
+            Non-rigid transformation object.
+        lmd : float
+            Regularization parameter.
+        alpha : float
+            Degree of reliability of priors.
+        p1_tilde : float
+            Sum of probabilities for constrained correspondences.
+        px_tilde : float
+            Weighted sum of target points for constrained correspondences.
+
+        Returns
+        -------
+        MstepResult
+            Result of the maximization step.
+        """
         pt1, p1, px, n_p = estep_res
         dim = CoherentPointDrift._N_DIM
+
+        # Solve for the transformation parameters (w)
         w = torch.linalg.solve(
             (p1 * tf_obj.g).T
             + sigma2_p / alpha * (p1_tilde * tf_obj.g).T
@@ -494,39 +949,62 @@ def registration_cpd(
     use_color: bool = False,
     **kwargs: Any,
 ) -> MstepResult:
-    """CPD Registraion.
-
-    Args:
-        source (torch.Tensor): Source point cloud data.
-        target (torch.Tensor): Target point cloud data.
-        tf_type_name (str, optional): Transformation type('rigid', 'affine', 'nonrigid', 'nonrigid_constrained')
-        w (float, optional): Weight of the uniform distribution, 0 < `w` < 1.
-        maxitr (int, optional): Maximum number of iterations to EM algorithm.
-        tol (float, optional): Tolerance for termination.
-        callback (:obj:`list` of :obj:`function`, optional): Called after each iteration.
-            `callback(probreg.Transformation)`
-        use_color (bool, optional): Use color information (if available).
-
-    Keyword Args:
-        update_scale (bool, optional): If this flag is true and tf_type is rigid transformation,
-            then the scale is treated. The default is true.
-        tf_init_params (dict, optional): Parameters to initialize transformation (for rigid or affine).
-
-    Returns:
-        MstepResult: Result of the registration (transformation, sigma2, q)
     """
-    # convert from o3d to dict structure
+    CPD Registration function.
+
+    This function performs point cloud registration using the Coherent Point Drift
+    (CPD) algorithm. It supports different transformation types and allows for
+    custom callbacks during the registration process.
+
+    Parameters
+    ----------
+    source : torch.Tensor or o3d.t.geometry.PointCloud
+        Source point cloud data.
+    target : torch.Tensor or o3d.t.geometry.PointCloud
+        Target point cloud data.
+    tf_type_name : str, optional
+        Transformation type ('rigid', 'affine', 'nonrigid', 'nonrigid_constrained').
+        Default: 'rigid'.
+    w : float, optional
+        Weight of the uniform distribution, 0 < `w` < 1. Default: 0.0.
+    maxiter : int, optional
+        Maximum number of iterations for the EM algorithm. Default: 50.
+    tol : float, optional
+        Tolerance for termination. Default: 0.001.
+    callbacks : list of callable, optional
+        Called after each iteration. `callback(probreg.Transformation)`.
+        Default: [].
+    use_color : bool, optional
+        Use color information (if available). Default: False.
+
+    Keyword Args
+    ------------
+    update_scale : bool, optional
+        If True and `tf_type` is 'rigid', then the scale is treated.
+        Default: True.
+    tf_init_params : dict, optional
+        Parameters to initialize transformation (for 'rigid' or 'affine').
+
+    Returns
+    -------
+    MstepResult
+        Result of the registration (transformation, sigma2, q).
+    """
+    # Convert from Open3D to torch.Tensor if necessary
     if isinstance(source, o3d.t.geometry.PointCloud):
         source = dataset.open3d_to_torch(source)
     if isinstance(target, o3d.t.geometry.PointCloud):
         target = dataset.open3d_to_torch(target)
 
+    # Concatenate color information if use_color is True
     if use_color:
         sourcei = torch.cat([source["pos"], source["color"]], dim=1)
         targeti = torch.cat([target["pos"], target["color"]], dim=1)
     else:
         sourcei = source["pos"]
         targeti = target["pos"]
+
+    # Instantiate the appropriate CPD object based on tf_type_name
     if tf_type_name == "rigid":
         cpd = RigidCPD(sourcei, use_color=use_color, **kwargs)
     elif tf_type_name == "affine":
@@ -537,5 +1015,6 @@ def registration_cpd(
         cpd = ConstrainedNonRigidCPD(sourcei, use_color=use_color, **kwargs)
     else:
         raise ValueError("Unknown transformation type %s" % tf_type_name)
+
     cpd.set_callbacks(callbacks)
     return cpd.registration(targeti, w, maxiter, tol)

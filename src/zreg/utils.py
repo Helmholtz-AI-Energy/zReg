@@ -1,43 +1,151 @@
 import torch
 
+__all__ = [
+    "squared_kernel",
+    "squared_kernel_sum",
+    "rbf_kernel",
+    "tps_kernel",
+    "inverse_multiquadric_kernel",
+    "normalize_point_cloud",
+]
 
-def squared_kernel_sum(x: torch.Tensor, y: torch.Tensor) -> float:
+
+def squared_kernel_sum(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+    """
+    Computes the sum of the squared kernel between two tensors.
+
+    Parameters
+    ----------
+    x : torch.Tensor
+        First tensor with shape (n, d).
+    y : torch.Tensor
+        Second tensor with shape (m, d).
+
+    Returns
+    -------
+    torch.Tensor
+        The sum of the squared kernel divided by (x.shape[0] * x.shape[1] * y.shape[0])
+    """
     return squared_kernel(x, y).sum() / (x.shape[0] * x.shape[1] * y.shape[0])
 
 
-def squared_kernel(x, y):
-    # this is the l2**2 norm of the rows with respect to all the other rows
-    # NOTE: this may need to be transposed. the result will be [y.shape[0], x.shape[0]]
-    #       easy to fix, but need to check later
+def squared_kernel(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+    """
+    Computes the squared kernel between two tensors.
+
+    This function calculates the squared L2 norm between all pairs of rows in x and y.
+
+    Parameters
+    ----------
+    x : torch.Tensor
+        First tensor with shape (n, d).
+    y : torch.Tensor
+        Second tensor with shape (m, d).
+
+    Returns
+    -------
+    torch.Tensor
+        A tensor with shape (m, n) representing the squared kernel.
+        Note that this is M by N not N by M!
+    """
     return (x[None, :, :] - y[:, None, :]).pow(2).sum(dim=2)
 
 
-def rbf_kernel(x, y, beta: float):
-    # i found that this almost requires a re-scaling of the data. if the vals are too large, then it will just return an I matrix
-    x = scale_point_cloud(x)
-    y = scale_point_cloud(y)
+def rbf_kernel(x: torch.Tensor, y: torch.Tensor, beta: float) -> torch.Tensor:
+    """
+    Computes the Radial Basis Function (RBF) kernel between two tensors.
+
+    Parameters
+    ----------
+    x : torch.Tensor
+        First tensor with shape (n, d).
+    y : torch.Tensor
+        Second tensor with shape (m, d).
+    beta : float
+        Bandwidth parameter for the RBF kernel.
+
+    Returns
+    -------
+    torch.Tensor
+        A tensor with shape (m, n) representing the RBF kernel.
+    """
+    # Scale the point clouds to prevent numerical instability
+    x = normalize_point_cloud(x)
+    y = normalize_point_cloud(y)
     diff2 = squared_kernel(x, y)
-    # return torch.exp(-diff2 / (2.0 * beta))
     return torch.exp(-diff2 / (2.0 * beta))
 
 
-def tps_kernel_2d(x, y):
+def _tps_kernel_2d(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+    """
+    Computes the Thin Plate Spline (TPS) kernel in 2D between two tensors.
+
+    Parameters
+    ----------
+    x : torch.Tensor
+        First tensor with shape (n, 2).
+    y : torch.Tensor
+        Second tensor with shape (m, 2).
+
+    Returns
+    -------
+    torch.Tensor
+        A tensor with shape (m, n) representing the TPS kernel.
+    """
     eps = 1e-9
     diff2 = squared_kernel(x, y)
     return torch.where(diff2 > eps, diff2 * torch.log(torch.sqrt(diff2)), 0.0)
 
 
-def tps_kernel_3d(x, y):
+def _tps_kernel_3d(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+    """
+    Computes the Thin Plate Spline (TPS) kernel in 3D between two tensors.
+
+    Parameters
+    ----------
+    x : torch.Tensor
+        First tensor with shape (n, 3).
+    y : torch.Tensor
+        Second tensor with shape (m, 3).
+
+    Returns
+    -------
+    torch.Tensor
+        A tensor with shape (m, n) representing the TPS kernel.
+    """
     diff2 = squared_kernel(x, y)
     return -diff2.sqrt()
 
 
-def tps_kernel(x, y):
+def tps_kernel(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+    """
+    Computes the Thin Plate Spline (TPS) kernel between two tensors.
+
+    The function automatically selects the 2D or 3D version of the kernel based on the
+    dimensionality of the input tensors.
+
+    Parameters
+    ----------
+    x : torch.Tensor
+        First tensor with shape (n, d).
+    y : torch.Tensor
+        Second tensor with shape (m, d).
+
+    Returns
+    -------
+    torch.Tensor
+        A tensor with shape (m, n) representing the TPS kernel.
+
+    Raises
+    ------
+    ValueError
+        If the dimensionality of x is not 2 or 3.
+    """
     assert x.shape[1] == y.shape[1], "x and y must have same dimensions."
     if x.shape[1] == 2:
-        return tps_kernel_2d(x, y)
+        return _tps_kernel_2d(x, y)
     elif x.shape[1] == 3:
-        return tps_kernel_3d(x, y)
+        return _tps_kernel_3d(x, y)
     else:
         raise ValueError("Invalid dimension of x: %d." % x.shape[1])
 
@@ -47,22 +155,36 @@ def inverse_multiquadric_kernel(x, y, c: float):
     return 1.0 / (diff2 + c).sqrt()
 
 
-def scale_point_cloud(points):
+def normalize_point_cloud(
+    points: torch.Tensor, max_vals: torch.Tensor = None, min_vals: torch.Tensor = None
+) -> torch.Tensor:
     """
     Scales the points of a point cloud to be between -1 and 1.
 
-    Args:
-        points: A numpy array of shape (n, d) representing the point cloud,
-                where n is the number of points and d is the dimensionality.
+    Parameters
+    ----------
+    points : torch.Tensor
+        A tensor of shape (n, d) representing the point cloud,
+        where n is the number of points and d is the dimensionality.
+    max_vals : torch.Tensor, optional
+        A tensor of shape (d,) representing the maximum values along each dimension.
+        If None, the maximum values are computed from the input points.
+    min_vals : torch.Tensor, optional
+        A tensor of shape (d,) representing the minimum values along each dimension.
+        If None, the minimum values are computed from the input points.
 
-    Returns:
-        A numpy array of the same shape as points, with the points scaled
+    Returns
+    -------
+    torch.Tensor
+        A tensor of the same shape as points, with the points scaled
         to be between -1 and 1.
     """
 
-    # Find the minimum and maximum values along each dimension
-    min_vals = torch.min(points, dim=0)[0]
-    max_vals = torch.max(points, dim=0)[0]
+    # Find the minimum and maximum values along each dimension if not given
+    if max_vals is None:
+        max_vals = torch.max(points, dim=0)[0]
+    if min_vals is None:
+        min_vals = torch.min(points, dim=0)[0]
 
     # Calculate the range of each dimension
     ranges = max_vals - min_vals

@@ -73,8 +73,8 @@ def minkowski_distance(x: torch.Tensor, y: torch.Tensor, p: float = 2, normalize
     """
     # TODO: add option to pass min/max to normalization function within this function
     if normalize:
-        x = utils.normalize_point_cloud(x)
-        y = utils.normalize_point_cloud(y)
+        x, _ = utils.normalize_point_cloud(x)
+        y, _ = utils.normalize_point_cloud(y)
 
     if p == 1:
         return (x[None, :, :] - y[:, None, :]).abs().sum(dim=2)

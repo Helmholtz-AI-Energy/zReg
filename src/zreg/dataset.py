@@ -17,7 +17,6 @@ __all__ = ["load_data_from_tracklets", "open3d_to_torch", "torch_to_open3d"]
 
 def load_data_from_tracklets(
     filepath: str,
-    return_torch: bool = True,
     device: str = "cpu",
 ) -> Tuple[Dict[int, torch.Tensor], Dict[int, Dict]]:
     """Load data from tracklets.
@@ -29,8 +28,6 @@ def load_data_from_tracklets(
     ----------
     filepath : str
         Path to the MATLAB file containing tracklet data.
-    return_torch : bool, optional
-        Whether to return point clouds as PyTorch tensors, by default True.
     device : str, optional
         Device to place PyTorch tensors on, by default 'cpu'.
 
@@ -39,8 +36,7 @@ def load_data_from_tracklets(
     tuple
         A tuple containing:
             - A dictionary where keys are time points and values are point clouds at each
-              time point. Point clouds can be NumPy arrays or PyTorch tensors depending on
-              the `return_torch` parameter.
+              time point. Point clouds are PyTorch tensors.
               Dictionary structure:
                   pc[i]['pos'] -> x, y, z position
                   pc[i]['color'] -> color
@@ -205,18 +201,24 @@ def open3d_to_torch(
     if isinstance(pc, o3dtgeo.PointCloud):
         pos = pc.point.positions.cpu().numpy()
         col = pc.point.colors.cpu().numpy()
-        ids = pc.point.labels.cpu().numpy()
+        try:
+            ids = pc.point.labels.cpu().numpy()
+        except KeyError:
+            ids = None
     else:
         pos = pc.positions.cpu().numpy()
         col = pc.colors.cpu().numpy()
-        ids = pc.labels.cpu().numpy()
+        try:
+            ids = pc.labels.cpu().numpy()
+        except KeyError:
+            ids = None
 
     ret = {}
     if to_torch:
         # Convert to PyTorch tensors and move to the specified device
         ret["pos"] = torch.tensor(pos, device=device)
         ret["color"] = torch.tensor(col, device=device)
-        ret["id"] = torch.tensor(ids, device=device)
+        ret["id"] = torch.tensor(ids, device=device) if ids is not None else None
     else:
         # Return NumPy arrays
         ret["pos"] = pos

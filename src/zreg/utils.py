@@ -1,4 +1,5 @@
 import torch
+from typing import Tuple
 
 __all__ = [
     "squared_kernel",
@@ -7,6 +8,7 @@ __all__ = [
     "tps_kernel",
     "inverse_multiquadric_kernel",
     "normalize_point_cloud",
+    "normalize_to_larger_pc",
 ]
 
 
@@ -70,8 +72,8 @@ def rbf_kernel(x: torch.Tensor, y: torch.Tensor, beta: float) -> torch.Tensor:
         A tensor with shape (m, n) representing the RBF kernel.
     """
     # Scale the point clouds to prevent numerical instability
-    x = normalize_point_cloud(x)
-    y = normalize_point_cloud(y)
+    x, _ = normalize_point_cloud(x)
+    y, _ = normalize_point_cloud(y)
     diff2 = squared_kernel(x, y)
     return torch.exp(-diff2 / (2.0 * beta))
 
@@ -157,7 +159,7 @@ def inverse_multiquadric_kernel(x, y, c: float):
 
 def normalize_point_cloud(
     points: torch.Tensor, max_vals: torch.Tensor = None, min_vals: torch.Tensor = None
-) -> torch.Tensor:
+) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
     """
     Scales the points of a point cloud to be between -1 and 1.
 
@@ -192,4 +194,16 @@ def normalize_point_cloud(
     # Scale the points
     scaled_points = 2 * (points - min_vals) / ranges - 1
 
-    return scaled_points
+    return scaled_points, (min_vals, max_vals)
+
+
+def normalize_to_larger_pc(pointx, pointy) -> Tuple[torch.Tensor, torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+    # TODO: fix normalize to use the points dicts not just the torch dicts
+    if pointx.shape[0] > pointy.shape[0]:
+        xi, (minv, maxv) = normalize_point_cloud(pointx)
+        yi, _ = normalize_point_cloud(pointy, min_vals=minv, max_vals=maxv)
+    else:
+        yi, (minv, maxv) = normalize_point_cloud(pointy)
+        xi, _ = normalize_point_cloud(pointx, min_vals=minv, max_vals=maxv)
+
+    return xi, yi, (minv, maxv)

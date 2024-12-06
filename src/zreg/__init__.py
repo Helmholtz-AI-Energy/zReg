@@ -25,3 +25,4 @@ from . import downsampling as downsampling  # noqa: E402
 from . import utils as utils
 from . import cpd as cpd
 from . import distances as distances
+from . import dtw as dtw

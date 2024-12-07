@@ -6,7 +6,7 @@ import torch
 from typing import Union
 import open3d as o3d
 
-from .dataset import open3d_to_torch, torch_to_open3d
+from .dataset import open3d_to_zreg, zreg_to_open3d, zRegPointCloud
 from . import utils
 
 # try:
@@ -26,7 +26,7 @@ __all__ = [
 
 
 def transform_points_homogeneous(
-    points: Union[dict, o3d.t.geometry.PointCloud],
+    points: Union[zRegPointCloud, o3d.t.geometry.PointCloud],
     transform_matrix: torch.Tensor,
     return_o3d: bool = False,
 ):
@@ -65,7 +65,7 @@ def transform_points_homogeneous(
     >>> transformed_points = transform_points(points, transform_matrix)
     >>> print(transformed_points)
     """
-    if isinstance(points, dict):
+    if isinstance(points, zRegPointCloud):
         pos = points["pos"]
 
         # Add a homogeneous coordinate (w=1) to each point
@@ -94,12 +94,12 @@ def transform_points_homogeneous(
         raise TypeError("Unsupported point type. Expected dict or o3d.t.geometry.PointCloud.")
 
     if return_o3d:
-        if isinstance(points, dict):
-            return torch_to_open3d(points)  # Assuming you have a function for this conversion
+        if isinstance(points, zRegPointCloud):
+            return zreg_to_open3d(points)  # Assuming you have a function for this conversion
         return transformed_points
     else:
         if isinstance(points, o3d.t.geometry.PointCloud):
-            return open3d_to_torch(transformed_points)  # Assuming you have a function for this conversion
+            return open3d_to_zreg(transformed_points)  # Assuming you have a function for this conversion
         return points
 
 
@@ -136,6 +136,10 @@ class RigidTransformation(TransformBase):
         self.rot = rot
         self.t = t
         self.scale = scale
+
+    def reset(self):
+        self.rot = torch.eye(3, dtype=self.rot.dtype, device=self.rot.device)
+        self.t = torch.ones(3, dtype=self.t.dtype, device=self.t.device)
 
     def _transform(self, points):
         return self.scale * torch.matmul(points, self.rot.T) + self.t  # dot

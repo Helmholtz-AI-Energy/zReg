@@ -1,7 +1,7 @@
 from .. import utils
 import torch
 
-__all__ = ["euclidean_distance", "manhatten_distance", "minkowski_distance"]
+__all__ = ["euclidean_distance", "manhattan_distance", "minkowski_distance"]
 
 
 def euclidean_distance(x: torch.Tensor, y: torch.Tensor, normalize: bool = False) -> torch.Tensor:
@@ -25,7 +25,7 @@ def euclidean_distance(x: torch.Tensor, y: torch.Tensor, normalize: bool = False
     return minkowski_distance(x, y, p=2, normalize=normalize)
 
 
-def manhatten_distance(x: torch.Tensor, y: torch.Tensor, normalize: bool = False) -> torch.Tensor:
+def manhattan_distance(x: torch.Tensor, y: torch.Tensor, normalize: bool = False) -> torch.Tensor:
     """
     Calculate the Manhattan distance between two tensors.
 
@@ -76,10 +76,12 @@ def minkowski_distance(x: torch.Tensor, y: torch.Tensor, p: float = 2, normalize
         x, _ = utils.normalize_point_cloud(x)
         y, _ = utils.normalize_point_cloud(y)
 
-    if p == 1:
-        return (x[None, :, :] - y[:, None, :]).abs().sum(dim=2)
+    return torch.cdist(x, y, p=2)
 
-    if p // 2:  # even, no need for abs
-        return (x[None, :, :] - y[:, None, :]).pow(p).sum(dim=2).pow(1 / p)
-    # else need to have abs and pows
-    return (x[None, :, :] - y[:, None, :]).abs().pow(p).sum(dim=2).pow(1 / p)
+    # if p == 1:
+    #     return (x[None, :, :] - y[:, None, :]).abs().sum(dim=2)
+
+    # if p // 2:  # even, no need for abs
+    #     return (x[None, :, :] - y[:, None, :]).pow(p).sum(dim=2).pow(1 / float(p))
+    # # else need to have abs and pows
+    # return (x[None, :, :] - y[:, None, :]).abs().pow(p).sum(dim=2).pow(1 / float(p))

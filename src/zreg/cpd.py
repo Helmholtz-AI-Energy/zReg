@@ -5,9 +5,7 @@ from collections import namedtuple
 from typing import Any, Callable, Dict, List, Optional, Union
 import torch
 
-import numpy as np
 import open3d as o3d
-import time
 # import six
 # from scipy.spatial import distance as scipy_distance
 
@@ -17,9 +15,15 @@ from . import dataset
 from .utils import squared_kernel_sum
 import logging
 
-from rich.progress import Progress, BarColumn, TimeRemainingColumn, TextColumn, TimeElapsedColumn
 
 log = logging.getLogger(__name__)
+
+# # Enable TF32 for matrix multiplications
+# torch.backends.cuda.matmul.allow_tf32 = True
+
+# # Enable TF32 for convolutions (this is the default)
+# torch.backends.cudnn.allow_tf32 = True
+torch.set_float32_matmul_precision("high")
 
 
 EstepResult = namedtuple("EstepResult", ["pt1", "p1", "px", "n_p"])
@@ -67,18 +71,30 @@ class CoherentPointDrift:
         Number of color channels (default: 3).
     """
 
-    _N_DIM = 3
-    _N_COLOR = 3
-
-    def __init__(self, source: Optional[torch.Tensor] = None, use_color: bool = False, use_cuda: bool = False) -> None:
+    def __init__(
+        self,
+        source: Optional[torch.Tensor] = None,
+        source_colors: Optional[torch.Tensor] = None,
+        use_color: bool = False,
+        use_cuda: bool = False,
+        log_freq: bool = True,
+    ) -> None:
         """Initialize CPD object."""
         self._source = source
+        self._source_colors = None
         self._tf_type = None  # Transformation type (set in inherited classes)
         self._callbacks = []  # List of callbacks to be called during registration
         self._use_color = use_color
+        if use_color:
+            # todo: add raise if source colors not given
+            self._source_colors = source_colors
+        self.transformation = None
+        self.log_freq = log_freq
 
-    def set_source(self, source: torch.Tensor) -> None:
+    def set_source(self, source: torch.Tensor, source_colors: Optional[torch.Tensor] = None) -> None:
         self._source = source
+        if self._use_color and source_colors is not None:
+            self._source_colors = source_colors
 
     def set_callbacks(self, callbacks: List[Callable]) -> None:
         self._callbacks.extend(callbacks)
@@ -126,6 +142,7 @@ class CoherentPointDrift:
         pmat = torch.exp(-pmat / (2.0 * sigma2))  # Gaussian kernel
         return pmat
 
+    # @torch.compile
     def expectation_step(
         self,
         t_source: torch.Tensor,
@@ -133,6 +150,8 @@ class CoherentPointDrift:
         sigma2: float,
         sigma2_c: float,
         w: float = 0.0,
+        target_colors: Optional[torch.Tensor] = None,
+        source_colors: Optional[torch.Tensor] = None,
     ) -> EstepResult:
         """Perform the Expectation step of the EM algorithm.
 
@@ -158,26 +177,28 @@ class CoherentPointDrift:
             Result object containing the posterior probabilities and other
             intermediate results of the E-step.
         """
+        posdims = t_source.shape[1]
         assert t_source.ndim == 2 and target.ndim == 2, "source and target must have 2 dimensions."
-        pmat = self._compute_pmat_numerator(t_source[:, : self._N_DIM], target[:, : self._N_DIM], sigma2)
+        pmat = self._compute_pmat_numerator(t_source, target, sigma2)
 
-        c = (2.0 * torch.pi * sigma2) ** (self._N_DIM * 0.5)
+        c = (2.0 * torch.pi * sigma2) ** (posdims * 0.5)
         c *= w / (1.0 - w) * t_source.shape[0] / target.shape[0]
         den = torch.sum(pmat, dim=0)
         den[den == 0] = torch.finfo(target.dtype).eps
 
         if self._use_color:
-            pmat_c = self._compute_pmat_numerator(t_source[:, self._N_DIM :], target[:, self._N_DIM :], sigma2_c)
+            ncolors = source_colors.shape[1]
+            pmat_c = self._compute_pmat_numerator(source_colors, target_colors, sigma2_c)
             den_c = torch.sum(pmat_c, dim=0)
             den_c[den_c == 0] = torch.finfo(pmat_c.dtype).eps
             den = torch.multiply(den, den_c)
 
             # Calculate the contribution of color information to the denominator
-            o_c = t_source.shape[0] * (2 * torch.pi * sigma2_c) ** (0.5 * (self._N_DIM + self._N_COLOR - 1))
+            o_c = t_source.shape[0] * (2 * torch.pi * sigma2_c) ** (0.5 * (posdims + ncolors - 1))
             # print(o_c.shape, pmat_c.shape)
             o_c = o_c * torch.exp(-1.0 / t_source.shape[0] * torch.square(torch.sum(pmat_c, dim=0)) / (2.0 * sigma2_c))
             den += o_c
-            c *= (2.0 * torch.pi * sigma2_c) ** (self._N_COLOR * 0.5)
+            c *= (2.0 * torch.pi * sigma2_c) ** (ncolors * 0.5)
             pmat = torch.multiply(pmat, pmat_c)  # Combine color and spatial probabilities
 
         den += c
@@ -185,11 +206,17 @@ class CoherentPointDrift:
 
         pt1 = torch.sum(pmat, dim=0)
         p1 = torch.sum(pmat, dim=1)
-        px = torch.matmul(pmat, target[:, : self._N_DIM])  # .dot
+        px = torch.matmul(pmat, target)  # .dot
         return EstepResult(pt1, p1, px, torch.sum(p1))
 
+    # @torch.compile
     def maximization_step(
-        self, target: torch.Tensor, estep_res: EstepResult, sigma2_p: Optional[float] = None
+        self,
+        target: torch.Tensor,
+        estep_res: EstepResult,
+        sigma2_p: Optional[float] = None,
+        target_colors: Optional[torch.Tensor] = None,
+        source_colors: Optional[torch.Tensor] = None,
     ) -> MstepResult:
         """Perform the Maximization step of the EM algorithm.
 
@@ -213,7 +240,11 @@ class CoherentPointDrift:
             Result object containing updated transformation parameters and
             other relevant information.
         """
-        return self._maximization_step(self._source[:, : self._N_DIM], target[:, : self._N_DIM], estep_res, sigma2_p)
+        ret = self._maximization_step(
+            self._source, target, estep_res, sigma2_p, target_colors=target_colors, source_colors=source_colors
+        )
+        self.transformation = ret.transformation
+        return ret
 
     @staticmethod
     def _maximization_step(
@@ -221,6 +252,8 @@ class CoherentPointDrift:
         target: torch.Tensor,
         estep_res: EstepResult,
         sigma2_p: Optional[float] = None,
+        target_colors: Optional[torch.Tensor] = None,
+        source_colors: Optional[torch.Tensor] = None,
     ) -> MstepResult:
         """Internal method for the Maximization step.
 
@@ -247,7 +280,15 @@ class CoherentPointDrift:
         """
         return None
 
-    def registration(self, target: torch.Tensor, w: float = 0.0, maxiter: int = 50, tol: float = 0.001) -> MstepResult:
+    @torch.compile
+    def registration(
+        self,
+        target: torch.Tensor,
+        w: float = 0.0,
+        maxiter: int = 50,
+        tol: float = 0.001,
+        target_colors: Optional[torch.Tensor] = None,
+    ) -> MstepResult:
         """Perform the CPD registration process.
 
         This method iteratively executes the E-step and M-step of the EM
@@ -271,49 +312,65 @@ class CoherentPointDrift:
             other registration information.
         """
         assert self._tf_type is not None, "transformation type is None."
-        res = self._initialize(target[:, : self._N_DIM])
+        res = self._initialize(target)
         sigma2_c = 0.0
         if self._use_color:
-            sigma2_c = squared_kernel_sum(self._source[:, self._N_DIM :], target[:, self._N_DIM :])
+            sigma2_c = squared_kernel_sum(self._source_colors, target_colors)
         q = res.q  # Initial value of the objective function
 
-        with Progress(
-            "[progress.description]{task.description}",
-            BarColumn(),
-            TextColumn("[progress.percentage]{task.completed}/{task.total}"),
-            TimeElapsedColumn(),
-            TextColumn("[progress.percentage]{task.fields[iter_time]}"),
-            TimeRemainingColumn(),
-            TextColumn("[progress.percentage]{task.fields[criteria]}"),
-        ) as progress:
-            task = progress.add_task("[cyan]Registering...", total=maxiter, criteria="", iter_time="")
-            start_time = time.perf_counter()
-            for i in range(maxiter):
-                iter_start_time = time.perf_counter()
-                t_source = res.transformation.transform(self._source)
-                estep_res = self.expectation_step(t_source, target, res.sigma2, sigma2_c, w)
-                res = self.maximization_step(target, estep_res, res.sigma2)
+        # with Progress(
+        #     "[progress.description]{task.description}",
+        #     BarColumn(),
+        #     TextColumn("[progress.percentage]{task.completed}/{task.total}"),
+        #     TimeElapsedColumn(),
+        #     TextColumn("[progress.percentage]{task.fields[iter_time]}"),
+        #     TimeRemainingColumn(),
+        #     TextColumn("[progress.percentage]{task.fields[criteria]}"),
+        #     disable=not self.progress_bar,
+        # ) as progress:
+        #     if self.progress_bar:
+        #         task = progress.add_task("[cyan]Registering...", total=maxiter, criteria="", iter_time="")
+        # start_time = time.perf_counter()
+        # src = self._source.clone()
+        for i in range(maxiter):
+            # iter_start_time = time.perf_counter()
+            t_source = res.transformation.transform(self._source)
+            estep_res = self.expectation_step(
+                t_source,
+                target,
+                res.sigma2,
+                sigma2_c,
+                w,
+                target_colors=target_colors,
+                source_colors=self._source_colors,
+            )
+            res = self.maximization_step(
+                target, estep_res, res.sigma2, target_colors=target_colors, source_colors=self._source_colors
+            )
 
-                for c in self._callbacks:
-                    c(res.transformation)
+            for c in self._callbacks:
+                c(res.transformation)
 
-                iter_end_time = time.perf_counter()
-                iter_time = iter_end_time - iter_start_time
-                elapsed_time = time.perf_counter() - start_time
-                avg_iter_time = elapsed_time / (i + 1)
+            # iter_end_time = time.perf_counter()
+            # iter_time = iter_end_time - iter_start_time
+            # elapsed_time = time.perf_counter() - start_time
+            # avg_iter_time = elapsed_time / (i + 1)
+            # if self.progress_bar:
+            #     progress.update(
+            #         task,
+            #         advance=1,
+            #         criteria=f"Criteria: {res.q:.4f}",
+            #         iter_time=f"Avg: {avg_iter_time:.2f}s, Iter: {iter_time:.2f}s",
+            #     )
+            if self.log_freq > 0 and i % self.log_freq == self.log_freq - 1:
+                log.info(f"Registering: iteration {i}/{maxiter}, criteria: {res.q:.4f}")
 
-                progress.update(
-                    task,
-                    advance=1,
-                    criteria=f"Criteria: {res.q:.4f}",
-                    iter_time=f"Avg: {avg_iter_time:.2f}s, Iter: {iter_time:.2f}s",
-                )
-                log.debug(f"Registering: iteration {i}/{maxiter}, criteria: {res.q:.4f}")
-
-                if abs(res.q - q) < tol:
-                    log.info(f"Hit tolerance in iteration {i} (criteria: {res.q:.4f}), exiting")
-                    break
-                q = res.q
+            if self.log_freq > 0 and abs(res.q - q) < tol:
+                # log.info(f"Hit tolerance in iteration {i} (criteria: {res.q:.4f}), exiting.")
+                break
+            q = res.q
+        if self.log_freq > 0:
+            log.info(f"End registration at step {i} (criteria: {res.q:.5f})")
 
         return res
 
@@ -374,11 +431,19 @@ class RigidCPD(CoherentPointDrift):
         tf_init_params: Dict = {},
         use_color: bool = False,
         use_cuda: bool = False,
+        log_freq: bool = 100,
+        source_colors: Optional[torch.Tensor] = None,
     ) -> None:
-        super(RigidCPD, self).__init__(source, use_color, use_cuda)
+        super(RigidCPD, self).__init__(
+            source, use_color=use_color, use_cuda=use_cuda, log_freq=log_freq, source_colors=source_colors
+        )
+        fact = {"dtype": source.dtype, "device": source.device}
         self._tf_type = tf.RigidTransformation
         self._update_scale = update_scale
+        self.transform = None
         self._tf_init_params = tf_init_params
+        self._tf_init_params.update(fact)
+        self.log_freq = log_freq
 
     def _initialize(self, target: torch.Tensor) -> MstepResult:
         """
@@ -395,14 +460,24 @@ class RigidCPD(CoherentPointDrift):
             Initialization result containing the initial transformation,
             initial variance, and initial objective function value.
         """
-        dim = self._N_DIM
-        sigma2 = squared_kernel_sum(self._source[:, :dim], target[:, :dim])
+        sigma2 = squared_kernel_sum(self._source, target)
         # Initialize Q with a reasonable value based on the initial variance
-        q = 1.0 + target.shape[0] * dim * 0.5 * torch.log(sigma2)
-        return MstepResult(self._tf_type(**self._tf_init_params), sigma2, q)
+        q = torch.inf
+        if self.transformation is None:
+            self.transformation = self._tf_type(**self._tf_init_params)
+        return MstepResult(self.transformation, sigma2, q)
+
+    def reset_transform(self):
+        if self.transformation is not None:
+            self.transformation.reset()
 
     def maximization_step(
-        self, target: torch.Tensor, estep_res: EstepResult, sigma2_p: Optional[float] = None
+        self,
+        target: torch.Tensor,
+        estep_res: EstepResult,
+        sigma2_p: Optional[float] = None,
+        source_colors: Optional[torch.Tensor] = None,
+        target_colors: Optional[torch.Tensor] = None,
     ) -> MstepResult:
         """
         Perform the maximization step of the CPD algorithm.
@@ -428,9 +503,17 @@ class RigidCPD(CoherentPointDrift):
             transformation, updated variance, and updated objective
             function value.
         """
-        return self._maximization_step(
-            self._source[:, : self._N_DIM], target[:, : self._N_DIM], estep_res, sigma2_p, self._update_scale
+        ret = self._maximization_step(
+            self._source,
+            target,
+            estep_res,
+            sigma2_p,
+            self._update_scale,
+            target_colors=target_colors,
+            source_colors=source_colors,
         )
+        self.transformation = ret.transformation
+        return ret
 
     @staticmethod
     def _maximization_step(
@@ -439,6 +522,8 @@ class RigidCPD(CoherentPointDrift):
         estep_res: EstepResult,
         sigma2_p: Optional[float] = None,
         update_scale: bool = True,
+        target_colors: Optional[torch.Tensor] = None,
+        source_colors: Optional[torch.Tensor] = None,
     ) -> MstepResult:
         """
         Static method for the maximization step.
@@ -466,7 +551,10 @@ class RigidCPD(CoherentPointDrift):
             Result of the maximization step.
         """
         pt1, p1, px, n_p = estep_res
-        dim = CoherentPointDrift._N_DIM
+        dim = source.shape[1]
+        if source_colors is not None:
+            source = torch.cat([source, source_colors], dim=1)
+            target = torch.cat([target, target_colors], dim=1)
         # Calculate means of source and target points
         mu_x = torch.sum(px, axis=0) / n_p
         mu_y = (source.T @ p1.unsqueeze(1)).squeeze() / n_p  # .dot
@@ -478,8 +566,8 @@ class RigidCPD(CoherentPointDrift):
         # Compute the cross-covariance matrix
         a = torch.matmul(px.T, source_hat) - torch.outer(mu_x, (p1.unsqueeze(0) @ source_hat).squeeze())
         # .dot / .outer
-        # Compute the optimal rotation using SVD
-        u, _, vh = torch.linalg.svd(a, full_matrices=True)
+        # Compute the optimal rotation using SVD (TODO: does keeping this true make a difference?)
+        u, _, vh = torch.linalg.svd(a, full_matrices=False)
         c = torch.ones(dim, dtype=a.dtype, device=a.device)
         c[-1] = torch.linalg.det(torch.matmul(u, vh))  # .dot
         rot = torch.matmul(u * c, vh)  # .dot
@@ -501,8 +589,10 @@ class RigidCPD(CoherentPointDrift):
         sigma2 = max(sigma2, torch.finfo(a.dtype).eps)  # Ensure sigma2 is not too small
 
         # Update the objective function value
-        q = (tr_xp1x - 2.0 * scale * tr_atr + (scale**2) * tr_yp1y) / (2.0 * sigma2)
-        q += dim * n_p * 0.5 * np.log(sigma2).item()
+        q = (tr_xp1x - 2.0 * scale * tr_atr + (scale**2) * tr_yp1y) / (
+            2.0 * sigma2 + dim * n_p * 0.5 * torch.log(sigma2)
+        )
+        # q += dim * n_p * 0.5 * torch.log(sigma2) #.item()
         return MstepResult(tf.RigidTransformation(rot, t, scale), sigma2, q)
 
 
@@ -539,8 +629,9 @@ class AffineCPD(CoherentPointDrift):
         tf_init_params: Dict = {},
         use_color: bool = False,
         use_cuda: bool = False,
+        log_freq=100,
     ) -> None:
-        super(AffineCPD, self).__init__(source, use_color, use_cuda)
+        super(AffineCPD, self).__init__(source, use_color, use_cuda, log_freq=log_freq)
         self._tf_type = tf.AffineTransformation
         self._tf_init_params = tf_init_params
 
@@ -671,8 +762,9 @@ class NonRigidCPD(CoherentPointDrift):
         lmd: float = 2.0,
         use_color: bool = False,
         use_cuda: bool = False,
+        log_freq=100,
     ) -> None:
-        super(NonRigidCPD, self).__init__(source, use_color, use_cuda)
+        super(NonRigidCPD, self).__init__(source, use_color, use_cuda, log_freq=log_freq)
         self._tf_type = tf.NonRigidTransformation
         self._beta = beta
         self._lmd = lmd
@@ -819,8 +911,9 @@ class ConstrainedNonRigidCPD(CoherentPointDrift):
         use_cuda: bool = False,
         idx_source: Optional[torch.Tensor] = None,
         idx_target: Optional[torch.Tensor] = None,
+        log_freq=100,
     ):
-        super(ConstrainedNonRigidCPD, self).__init__(source, use_color, use_cuda)
+        super(ConstrainedNonRigidCPD, self).__init__(source, use_color, use_cuda, log_freq=log_freq)
         self._tf_type = tf.NonRigidTransformation
         self._beta = beta
         self._lmd = lmd
@@ -938,7 +1031,7 @@ class ConstrainedNonRigidCPD(CoherentPointDrift):
         return MstepResult(tf_obj, sigma2, sigma2)
 
 
-def registration_cpd(
+def cpd_registration(
     source: Union[torch.Tensor, o3d.t.geometry.PointCloud],
     target: Union[torch.Tensor, o3d.t.geometry.PointCloud],
     tf_type_name: str = "rigid",
@@ -947,6 +1040,7 @@ def registration_cpd(
     tol: float = 0.001,
     callbacks: List[Callable] = [],
     use_color: bool = False,
+    log_freq: bool = 100,
     **kwargs: Any,
 ) -> MstepResult:
     """
@@ -1006,15 +1100,67 @@ def registration_cpd(
 
     # Instantiate the appropriate CPD object based on tf_type_name
     if tf_type_name == "rigid":
-        cpd = RigidCPD(sourcei, use_color=use_color, **kwargs)
+        cpd = RigidCPD(sourcei, use_color=use_color, log_freq=log_freq, **kwargs)
     elif tf_type_name == "affine":
-        cpd = AffineCPD(sourcei, use_color=use_color, **kwargs)
+        cpd = AffineCPD(sourcei, use_color=use_color, log_freq=log_freq, **kwargs)
     elif tf_type_name == "nonrigid":
-        cpd = NonRigidCPD(sourcei, use_color=use_color, **kwargs)
+        cpd = NonRigidCPD(sourcei, use_color=use_color, log_freq=log_freq, **kwargs)
     elif tf_type_name == "nonrigid_constrained":
-        cpd = ConstrainedNonRigidCPD(sourcei, use_color=use_color, **kwargs)
+        cpd = ConstrainedNonRigidCPD(sourcei, use_color=use_color, log_freq=log_freq, **kwargs)
     else:
         raise ValueError("Unknown transformation type %s" % tf_type_name)
 
     cpd.set_callbacks(callbacks)
     return cpd.registration(targeti, w, maxiter, tol)
+
+
+def init_cpd_from_existing(
+    transform,
+    source: Union[torch.Tensor, o3d.t.geometry.PointCloud],
+    target: Union[torch.Tensor, o3d.t.geometry.PointCloud],
+    w: float = 0.0,
+    maxiter: int = 50,
+    tol: float = 0.001,
+    callbacks: List[Callable] = [],
+    use_color: bool = False,
+    log_freq: int = 100,
+):
+    # Convert from Open3D to torch.Tensor if necessary
+    if isinstance(source, o3d.t.geometry.PointCloud):
+        source = dataset.open3d_to_torch(source)
+    if isinstance(target, o3d.t.geometry.PointCloud):
+        target = dataset.open3d_to_torch(target)
+
+    # Concatenate color information if use_color is True
+    if use_color:
+        sourcei = torch.cat([source["pos"], source["color"]], dim=1)
+        # targeti = torch.cat([target["pos"], target["color"]], dim=1)
+    else:
+        sourcei = source["pos"]
+        # targeti = target["pos"]
+    if isinstance(transform, tf.RigidTransformation):
+        # rigid case
+        cpdobj = RigidCPD(
+            sourcei,
+            use_color=use_color,
+            rot=transform.rot,
+            t=transform.t,
+            scale=transform.scale,
+            device=transform.rot.device,
+            dtype=transform.rot.dtype,
+            log_freq=log_freq,
+        )
+    elif isinstance(transform, tf.AffineTransformation):
+        # rigid case
+        cpdobj = AffineCPD(
+            sourcei,
+            use_color=use_color,
+            b=transform.b,
+            t=transform.t,
+            device=transform.rot.device,
+            dtype=transform.rot.dtype,
+            log_freq=log_freq,
+        )
+    else:
+        raise TypeError(f"transform type not known/not implemented: {type(transform)}")
+    return cpdobj

@@ -50,7 +50,9 @@ def squared_kernel(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         A tensor with shape (m, n) representing the squared kernel.
         Note that this is M by N not N by M!
     """
-    return (x[None, :, :] - y[:, None, :]).pow(2).sum(dim=2)
+    dist = torch.cdist(x, y, p=2).T
+    return dist.pow(2)  # undo the square root from cdist
+    # return (x.unsqueeze(0) - y.unsqueeze(1)).pow(2).sum(dim=2)
 
 
 def rbf_kernel(x: torch.Tensor, y: torch.Tensor, beta: float) -> torch.Tensor:

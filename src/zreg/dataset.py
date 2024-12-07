@@ -6,6 +6,8 @@ from typing import Dict, Tuple
 import open3d.t.geometry as o3dtgeo
 import open3d.core as o3c
 
+# from torch_geometric.data import Data
+
 import torch
 
 
@@ -225,3 +227,18 @@ def open3d_to_torch(
         ret["color"] = col
         ret["id"] = ids
     return ret
+
+
+def to(pc, device):
+    if not isinstance(pc, dict):
+        raise NotImplementedError("FIXME")
+    else:
+        pc["pos"] = pc["pos"].to(device=device)
+        pc["color"] = pc["color"].to(device=device)
+        pc["id"] = pc["id"].to(device=device) if pc["id"] is not None else None
+        return pc
+
+
+# def to_torch_geometric(pc: Dict[str, torch.Tensor]):
+#     data = Data(pos=pc['pos'], id=pc['id'], color=pc['color'])
+#     return data

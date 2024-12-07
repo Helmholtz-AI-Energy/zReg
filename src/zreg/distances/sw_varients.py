@@ -9,7 +9,7 @@ __all__ = [
     "SlicedWassersteinDistance",
     "MaxSlicedWassersteinDistance",
     "ProjectedWassersteinDistance",
-    "ApaptiveSlicedWassersteinDistance",
+    "AdaptiveSlicedWassersteinDistance",
     "OrthogonalSlicedWassersteinDistance",
     "GeneralisedSlicedWassersteinDistance",
 ]
@@ -161,15 +161,15 @@ class SlicedWassersteinDistance(BaseWD):
         return squared_sw_2
 
 
-class ApaptiveSlicedWassersteinDistance(BaseWD):
+class AdaptiveSlicedWassersteinDistance(BaseWD):
     """
     Adaptive sliced wasserstein algorithm for estimating SWD
     """
 
     def __init__(
         self,
-        init_projs=2,
-        step_projs=1,
+        init_projs=20,
+        step_projs=10,
         k=2.0,
         loop_rate_thresh=0.05,
         projs_history="projs_history.txt",
@@ -203,7 +203,7 @@ class ApaptiveSlicedWassersteinDistance(BaseWD):
         step_projs = self.step_projs
 
         first_moment_sw_p_pow_p, second_moment_sw_p_pow_p = compute_practical_moments_sw(
-            x, y, num_projections=n, degree=kwargs["degree"]
+            x, y, num_projections=n, degree=degree
         )
 
         # check ASW condition

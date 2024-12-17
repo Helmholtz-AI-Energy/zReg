@@ -14,13 +14,29 @@ import torch
 log = logging.getLogger(__name__)
 
 
-__all__ = ["load_data_from_tracklets", "open3d_to_torch", "torch_to_open3d"]
+__all__ = ["load_data_from_tracklets", "open3d_to_zreg", "zreg_to_open3d", "zRegPointCloud"]
+
+
+class zRegPointCloud(dict):  # Dict[str, torch.Tensor]
+    def __init__(self, *args, **kwargs):
+        super(zRegPointCloud, self).__init__(*args, **kwargs)
+
+        # add default values to point cloud
+        for key in ["pos", "color", "id", "fps-idx"]:
+            self[key] = kwargs[key] if key in kwargs else None
+
+    def to(self, device):
+        self["pos"] = self["pos"].to(device=device)
+        self["color"] = self["color"].to(device=device)
+        self["id"] = self["id"].to(device=device) if self["id"] is not None else None
+        self["fps-idx"] = self["fps-idx"].to(device=device) if self["fps-idx"] is not None else None
+        return self
 
 
 def load_data_from_tracklets(
     filepath: str,
     device: str = "cpu",
-) -> Tuple[Dict[int, torch.Tensor], Dict[int, Dict]]:
+) -> Tuple[zRegPointCloud, Dict[int, Dict]]:
     """Load data from tracklets.
 
     Loads data from a MATLAB file containing tracklet data and returns a tuple containing
@@ -107,16 +123,21 @@ def load_data_from_tracklets(
             pc[j]["id"].append(cellid)
 
     for i in pc:
-        pc[i]["pos"] = torch.tensor(pc[i]["pos"], device=device)
-        pc[i]["color"] = torch.tensor(pc[i]["color"], device=device)
-        pc[i]["id"] = torch.tensor(pc[i]["id"], device=device)
+        pc[i] = zRegPointCloud(
+            pos=torch.tensor(pc[i]["pos"], device=device),
+            color=torch.tensor(pc[i]["color"], device=device),
+            id=torch.tensor(pc[i]["id"], device=device),
+        )
+        # pc[i]["pos"] =
+        # pc[i]["color"] = torch.tensor(pc[i]["color"], device=device)
+        # pc[i]["id"] = torch.tensor(pc[i]["id"], device=device)
 
     t1 = time.perf_counter() - t0
     log.info(f"Finished loading. Time required: {t1}")
     return pc, data["tracklets"]
 
 
-def torch_to_open3d(pc: Dict[str, torch.Tensor]) -> o3dtgeo.PointCloud:
+def zreg_to_open3d(pc: zRegPointCloud) -> o3dtgeo.PointCloud:
     """Converts a point cloud from a PyTorch dictionary to an Open3D point cloud.
 
     This function takes a dictionary representing a point cloud, where the keys are
@@ -147,17 +168,25 @@ def torch_to_open3d(pc: Dict[str, torch.Tensor]) -> o3dtgeo.PointCloud:
         map_to_tensors["positions"] = o3c.Tensor.from_dlpack(torch.utils.dlpack.to_dlpack(pc["pos"]))
         map_to_tensors["colors"] = o3c.Tensor.from_dlpack(torch.utils.dlpack.to_dlpack(pc["color"]))
         map_to_tensors["labels"] = o3c.Tensor.from_dlpack(torch.utils.dlpack.to_dlpack(pc["id"]))
+        if pc["fps-idx"] is not None:
+            map_to_tensors["fps_idx"] = o3c.Tensor.from_dlpack(torch.utils.dlpack.to_dlpack(pc["fps-idx"]))
+        else:
+            map_to_tensors["fps_idx"] = None
     else:
         # If the input is already an Open3D tensor, no conversion is needed
         map_to_tensors["positions"] = pc["pos"]
         map_to_tensors["colors"] = pc["color"]
         map_to_tensors["labels"] = pc["id"]
+        if pc["fps-idx"] is not None:
+            map_to_tensors["fps_idx"] = pc["fps-idx"]
+        else:
+            map_to_tensors["fps_idx"] = None
 
     # Create and return the Open3D point cloud
     return o3dtgeo.PointCloud(map_to_tensors)
 
 
-def open3d_to_torch(
+def open3d_to_zreg(
     pc: o3dtgeo.PointCloud, device: torch.device = None, to_torch: bool = True
 ) -> Dict[str, torch.Tensor]:
     """Converts an Open3D point cloud to a dictionary of Torch tensors or NumPy arrays.
@@ -207,6 +236,10 @@ def open3d_to_torch(
             ids = pc.point.labels.cpu().numpy()
         except KeyError:
             ids = None
+        try:
+            fps_idx = pc.point.fps_idx.cpu().numpy()
+        except KeyError:
+            fps_idx = None
     else:
         pos = pc.positions.cpu().numpy()
         col = pc.colors.cpu().numpy()
@@ -214,6 +247,10 @@ def open3d_to_torch(
             ids = pc.labels.cpu().numpy()
         except KeyError:
             ids = None
+        try:
+            fps_idx = pc.fps_idx.cpu().numpy()
+        except KeyError:
+            fps_idx = None
 
     ret = {}
     if to_torch:
@@ -221,24 +258,30 @@ def open3d_to_torch(
         ret["pos"] = torch.tensor(pos, device=device)
         ret["color"] = torch.tensor(col, device=device)
         ret["id"] = torch.tensor(ids, device=device) if ids is not None else None
+        ret["fps-idx"] = torch.tensor(fps_idx, device=device) if fps_idx is not None else None
     else:
         # Return NumPy arrays
         ret["pos"] = pos
         ret["color"] = col
         ret["id"] = ids
+        ret["fps-idx"] = fps_idx
     return ret
 
 
-def to(pc, device):
-    if not isinstance(pc, dict):
-        raise NotImplementedError("FIXME")
-    else:
-        pc["pos"] = pc["pos"].to(device=device)
-        pc["color"] = pc["color"].to(device=device)
-        pc["id"] = pc["id"].to(device=device) if pc["id"] is not None else None
-        return pc
+# def to(pc, device):
+#     if not isinstance(pc, zRegPointCloud):
+#         raise NotImplementedError("FIXME")
+#     else:
+#         pc["pos"] = pc["pos"].to(device=device)
+#         pc["color"] = pc["color"].to(device=device)
+#         pc["id"] = pc["id"].to(device=device) if pc["id"] is not None else None
+#         pc["fps-idx"] = pc["fps-idx"].to(device=device) if pc["fps-idx"] is not None else None
+#         return pc
 
 
 # def to_torch_geometric(pc: Dict[str, torch.Tensor]):
 #     data = Data(pos=pc['pos'], id=pc['id'], color=pc['color'])
 #     return data
+
+
+# def load_from_

@@ -18,6 +18,8 @@ dependencies:
   - matplotlib
   - ipympl  # interactive matplotlib plots
   - seaborn
+  - mpi4py
+  - pyometiff
   # - altair
   # - yellowbrick
   # ML, STATS & DEEP LEARNING

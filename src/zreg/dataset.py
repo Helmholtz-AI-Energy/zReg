@@ -1,12 +1,13 @@
 import scipy.io as sio
 import logging
 import time
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Union
+import csv
 
 import open3d.t.geometry as o3dtgeo
 import open3d.core as o3c
 
-# from torch_geometric.data import Data
+from pathlib import Path
 
 import torch
 
@@ -14,7 +15,7 @@ import torch
 log = logging.getLogger(__name__)
 
 
-__all__ = ["load_data_from_tracklets", "open3d_to_zreg", "zreg_to_open3d", "zRegPointCloud"]
+__all__ = ["load_data_from_tracklets", "open3d_to_zreg", "zreg_to_open3d", "zRegPointCloud", "load_shah_from_csv"]
 
 
 class zRegPointCloud(dict):  # Dict[str, torch.Tensor]
@@ -26,17 +27,16 @@ class zRegPointCloud(dict):  # Dict[str, torch.Tensor]
             self[key] = kwargs[key] if key in kwargs else None
 
     def to(self, device):
-        self["pos"] = self["pos"].to(device=device)
-        self["color"] = self["color"].to(device=device)
-        self["id"] = self["id"].to(device=device) if self["id"] is not None else None
-        self["fps-idx"] = self["fps-idx"].to(device=device) if self["fps-idx"] is not None else None
+        for k in self.keys():
+            if isinstance(self[k], torch.Tensor):
+                self[k] = self[k].to(device=device)
         return self
 
 
 def load_data_from_tracklets(
     filepath: str,
     device: str = "cpu",
-) -> Tuple[zRegPointCloud, Dict[int, Dict]]:
+) -> Tuple[Dict[int, zRegPointCloud], Dict[int, Dict]]:
     """Load data from tracklets.
 
     Loads data from a MATLAB file containing tracklet data and returns a tuple containing
@@ -252,7 +252,7 @@ def open3d_to_zreg(
         except KeyError:
             fps_idx = None
 
-    ret = {}
+    ret = zRegPointCloud()
     if to_torch:
         # Convert to PyTorch tensors and move to the specified device
         ret["pos"] = torch.tensor(pos, device=device)
@@ -268,20 +268,60 @@ def open3d_to_zreg(
     return ret
 
 
-# def to(pc, device):
-#     if not isinstance(pc, zRegPointCloud):
-#         raise NotImplementedError("FIXME")
-#     else:
-#         pc["pos"] = pc["pos"].to(device=device)
-#         pc["color"] = pc["color"].to(device=device)
-#         pc["id"] = pc["id"].to(device=device) if pc["id"] is not None else None
-#         pc["fps-idx"] = pc["fps-idx"].to(device=device) if pc["fps-idx"] is not None else None
-#         return pc
+def load_shah_from_csv(filename: Union[str, Path], device: Union[str, torch.device]) -> Dict[int, zRegPointCloud]:
+    """
+    Loads point cloud data from a CSV file in the format used by Shah
 
+    This function assumes the CSV file has the following columns:
 
-# def to_torch_geometric(pc: Dict[str, torch.Tensor]):
-#     data = Data(pos=pc['pos'], id=pc['id'], color=pc['color'])
-#     return data
+    - `x`, `y`, `z`: Coordinates of the point.
+    - `t`: Time index.
+    - `layer`: Layer index (used as color).
+    - `id`: Point ID.
 
+    The function reads the CSV file, extracts the data, and creates a dictionary of
+    `zRegPointCloud` objects, where the keys are the time indices and the values
+    are the corresponding point clouds.
 
-# def load_from_
+    Args:
+        filename (str or Path): The path to the CSV file.
+        device (torch.device): The device to store the point cloud data on.
+
+    Returns:
+         Dict[int, zRegPointCloud]: A dictionary of `zRegPointCloud` objects.
+    """
+    pcs = {}
+
+    with open(filename, "r") as file:
+        reader = csv.reader(file)
+        i = 0
+        for row in reader:
+            # skip header
+            if i == 0:
+                i += 1
+                continue
+
+            # Extract data
+            x, y, z, t, layer, ident = [float(x) for x in row]
+            t, layer, ident = int(t), int(layer), int(ident)
+
+            # add data to pcs dictionary
+            if t in pcs:
+                pcs[t]["pos"].append([x, y, z])
+                pcs[t]["id"].append(ident)
+                pcs[t]["labels"].append(layer)
+            else:
+                pcs[t] = {
+                    "pos": [[x, y, z]],
+                    "id": [ident],
+                    "labels": [layer],
+                }
+
+    # Convert to zRegPointCloud objects
+    for i in range(min(pcs), max(pcs) + 1):
+        pcs[i] = zRegPointCloud(
+            pos=torch.tensor(pcs[i]["pos"], device=device),
+            color=torch.tensor(pcs[i]["labels"], device=device),
+            id=torch.tensor(pcs[i]["id"], device=device),
+        )
+    return pcs

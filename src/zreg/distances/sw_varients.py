@@ -4,6 +4,8 @@
 import torch
 import torch.nn as nn
 from torch.autograd import Variable
+from pathlib import Path
+import os
 
 __all__ = [
     "SlicedWassersteinDistance",
@@ -231,6 +233,16 @@ class AdaptiveSlicedWassersteinDistance(BaseWD):
         with open(self.projs_history, "a") as fp:  # jot down number of sampled projections
             fp.write(str(n) + "\n")
         return first_moment_sw_p_pow_p.mean(dim=0)
+
+    def remove_history(self):
+        file = Path(self.projs_history)
+        if file.exists():
+            # remove the proj history...need to do this after every distance
+            try:
+                os.remove("projs_history.txt")
+            except FileNotFoundError:
+                # preventing race condition when running in parallel
+                pass
 
 
 class MaxSlicedWassersteinDistance(BaseWD):

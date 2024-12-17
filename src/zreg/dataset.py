@@ -268,7 +268,7 @@ def open3d_to_zreg(
     return ret
 
 
-def load_shah_from_csv(filename: Union[str, Path], device: Union[str, torch.device]) -> Dict[int, zRegPointCloud]:
+def load_shah_from_csv(filepath: Union[str, Path], device: Union[str, torch.device]) -> Dict[int, zRegPointCloud]:
     """
     Loads point cloud data from a CSV file in the format used by Shah
 
@@ -292,7 +292,7 @@ def load_shah_from_csv(filename: Union[str, Path], device: Union[str, torch.devi
     """
     pcs = {}
 
-    with open(filename, "r") as file:
+    with open(filepath, "r") as file:
         reader = csv.reader(file)
         i = 0
         for row in reader:
@@ -303,7 +303,7 @@ def load_shah_from_csv(filename: Union[str, Path], device: Union[str, torch.devi
 
             # Extract data
             x, y, z, t, layer, ident = [float(x) for x in row]
-            t, layer, ident = int(t), int(layer), int(ident)
+            t, layer, ident = int(t) - 1, int(layer), int(ident)
 
             # add data to pcs dictionary
             if t in pcs:

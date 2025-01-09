@@ -5,9 +5,14 @@ import logging
 import os
 import time
 
-from typing import Union
+from typing import Union, Tuple, Dict, Optional, List
 
-from mpi4py import MPI
+if "NOMPI" not in os.environ:
+    from mpi4py import MPI
+
+    hasmpi = True
+else:
+    hasmpi = False
 
 import torch
 
@@ -15,52 +20,69 @@ from . import distances
 from . import downsampling
 from . import utils
 from . import cpd
+from . import transforms
 
 
 log = logging.getLogger(__name__)
 
 
-__all__ = ["create_dtw_matrix"]
+__all__ = ["create_dtw_matrix", "create_dtw_matrix_given_rigid_rot"]
 
 
 def create_dtw_matrix(
-    x: dict,
-    y: dict,
-    window: int = None,
+    x: Dict[int, Dict],
+    y: Dict[int, Dict],
+    window: Optional[int] = None,
     normalize: bool = True,
-    distance_metric: Union[list, str] = "swd",
-    distance_kwargs: Union[list, dict] = None,
-    downsample_method: str = None,
-    cpd_type: str = None,
+    distance_metric: Union[List[str], str] = "swd",
+    distance_kwargs: Optional[Union[List[Dict], Dict]] = None,
+    downsample_method: Optional[str] = None,
+    cpd_type: Optional[str] = None,
     mpi_distribute: bool = False,
-    save_filename: str = None,
-) -> torch.Tensor:
+) -> Tuple[torch.Tensor, torch.Tensor]:
     """Create a DTW matrix using the given parameters.
 
     Parameters
     ----------
-    x : dict
-        A dictionary containing the first set of data.
-    y : dict
-        A dictionary containing the second set of data.
-    window : int, optional
-        The window size to use for the DTW calculation, by default None
+    x : Dict[int, Dict]
+        A dictionary containing the first set of point cloud data. The keys are integer indices, and the values
+        are dictionaries containing point cloud data (e.g., 'pos' for positions).
+    y : Dict[int, Dict]
+        A dictionary containing the second set of point cloud data. The keys are integer indices, and the values
+        are dictionaries containing point cloud data (e.g., 'pos' for positions).
+    window : Optional[int], optional
+        The window size to use for the DTW calculation. If None, no windowing is used (full DTW).
+        By default, None.
     normalize : bool, optional
-        Whether to normalize the data before calculating the DTW distance, by default True
-    distance_metric : str, optional
-        The distance metric to use for the DTW calculation, by default "swd"
-    distance_kwargs : dict, optional
-        A dictionary of keyword arguments to pass to the distance function, by default None
-    downsample_method : str, optional
-        The downsampling method to use, by default None
+        Whether to normalize the point clouds before calculating the DTW distance.
+        By default, True.
+    distance_metric : Union[List[str], str], optional
+        The distance metric(s) to use for the DTW calculation. Can be a single string or a list of strings.
+        Supported metrics depend on available functions (e.g., "swd" for Sliced Wasserstein Distance).
+        By default, "swd".
+    distance_kwargs : Optional[Union[List[Dict], Dict]], optional
+        Keyword arguments to pass to the distance function(s). If `distance_metric` is a list, this should be a list of
+        dictionaries of the same length.
+        By default, None.
+    downsample_method : Optional[str], optional
+        The downsampling method to use. If None, no downsampling is performed.
+        By default, None.
+    cpd_type : Optional[str], optional
+        The type of Coherent Point Drift registration to perform. If None, no CPD is used.
+        By default, None.
+    mpi_distribute : bool, optional
+        Whether to distribute the computation across multiple MPI processes. Requires `mpi4py`.
+        By default, False.
 
     Returns
     -------
-    torch.Tensor
-        The DTW matrix.
+    Tuple[torch.Tensor, torch.Tensor]
+        A tuple containing:
+            - The DTW matrix (torch.Tensor).
+            - The rotations from CPD registration (torch.Tensor), if CPD is used; otherwise, an empty tensor.
     """
     rank, size = 0, 1
-    if mpi_distribute:
+    if mpi_distribute and hasmpi:
         comm_world = MPI.COMM_WORLD
         rank, size = comm_world.rank, comm_world.size
 
@@ -74,17 +96,199 @@ def create_dtw_matrix(
     )
     # distance_fn: list  # this is a list of callables / None (for cpd)
 
-    # # Precompute the farthest point downsampling if necessary
-    # if downsample_method.startswith("farthest"):
-    #     log.debug("Starting precompute for farthest points for downsampling for all time series points")
-    #     t0 = time.perf_counter()
-    #     for k in x:
-    #         if "fps-idx" not in x[k]:
-    #             x[k] = downsampling.precompute_fps(x[k])
-    #     for k in y:
-    #         if "fps-idx" not in y[k]:
-    #             y[k] = downsampling.precompute_fps(y[k])
-    #     log.debug(f"Precomute time required: {time.perf_counter() - t0}")
+    # Get the number of samples in each set of data
+    x_samples, y_samples = max(x), max(y)
+
+    shape = (len(distance_fns), x_samples + 1, y_samples + 1)
+
+    dtw_matrix = torch.full(shape, torch.inf, dtype=x[0]["pos"].dtype, device=x[0]["pos"].device)
+
+    # Calculate the number of distance elements to compute
+    if window is not None:
+        k = 1 + 2 * window
+        n = x_samples
+        num_dist_elems = int(n * k - (k * (k - 1)) / 2)
+    else:
+        num_dist_elems = int(x_samples * y_samples)
+
+    # Set the logging frequency and intervals
+    log_freq = 0.10
+    log_intervals = torch.linspace(0, num_dist_elems, steps=int(1 / log_freq) + 1, dtype=torch.int)[1:]
+    rots = []
+
+    # Initialize the loop counter and timing dictionary
+    full_counter = 0
+    times = {
+        "copy": [],
+        "norm": [],
+        "downsample": [],
+        "cpd": [],
+        "distance": [],
+        "total": [],
+    }
+
+    for i in range(x_samples + 1):
+        # Calculate the window boundaries
+        if window is not None:
+            window_min = i - window
+            if window_min < 0:
+                window_min = 0
+            window_max = i + window
+            if window_max > y_samples + 1:
+                window_max = y_samples + 1
+        else:
+            window_min, window_max = 0, y_samples + 1
+
+        # Iterate over the samples in the second set of data within the window
+        for j in range(window_min, window_max):
+            if full_counter % size != rank and mpi_distribute:
+                dtw_matrix[:, i, j] = 0.0
+                full_counter += 1
+                continue
+            t0 = time.perf_counter()
+            # copies to avoid overwriting...
+            xi = deepcopy(x[i])
+            yj = deepcopy(y[j])
+            tc = time.perf_counter()
+            times["copy"].append(tc - t0)
+
+            # normalize the smaller point cloud to the largest
+            if normalize:
+                # source = copy.deepcopy(pcs[0])
+                downsampling.remove_outliers_knn(xi, inplace=True)
+                downsampling.remove_outliers_knn(yj, inplace=True)
+
+                # xi, yj = downsampling.random_down_sample(xi, yj)
+                xi["pos"], _ = utils.normalize_point_cloud(xi["pos"])
+                yj["pos"], _ = utils.normalize_point_cloud(yj["pos"])
+                # xi["pos"], yj["pos"], _ = utils.normalize_to_pc_w_most_points(xi["pos"], yj["pos"])
+            tn = time.perf_counter()
+            times["norm"].append(tn - tc)
+
+            # downsample the point could to be the same size
+            xi, yj = downsample_fn(xi, yj)
+            tdn = time.perf_counter()
+            times["downsample"].append(tdn - tn)
+
+            # do CPD registration to transform *yj*
+            # this means that yj is the source and xi is the target
+            cpd_metric = torch.inf
+            if cpd_type is not None:
+                cpd_obj = cpd.RigidCPD(
+                    source=xi["pos"],
+                    use_color=False,
+                    tf_init_params={"device": xi["pos"].device, "dtype": xi["pos"].dtype},
+                    log_freq=-1,
+                )
+                reg = cpd_obj.registration(yj["pos"], w=0.0, maxiter=1000, tol=1e-5)
+
+                xi["pos"] = cpd_obj.transformation.transform(xi["pos"])
+                rots.append(reg.transformation.rot.unsqueeze(0))
+                cpd_metric = reg.q
+            tcpd = time.perf_counter()
+            times["cpd"].append(tcpd - tdn)
+
+            # distance calculations
+            dists = []
+            for fn in distance_fns:
+                if fn is None:
+                    dists.append(cpd_metric)
+                    continue
+                if hasattr(fn, "projs_history"):
+                    # cleanup ASWD projection history file
+                    fn.remove_history()
+                dist = fn(xi["pos"], yj["pos"])
+                if dist.numel() > 1:
+                    dist = dist.mean()
+                dists.append(dist)
+            tdist = time.perf_counter()
+            times["distance"].append(tdist - tcpd)
+
+            for di in range(len(distance_fns)):
+                dtw_matrix[di, i, j] = dists[di]
+
+            full_counter += 1  # noqa: E741
+            tf = time.perf_counter()
+            times["total"].append(tf - t0)
+
+            if full_counter in log_intervals:
+                tc = sum(times["copy"]) / float(len(times["copy"]))
+                tn = sum(times["norm"]) / float(len(times["norm"]))
+                tdn = sum(times["downsample"]) / float(len(times["downsample"]))
+                tcpd = sum(times["cpd"]) / float(len(times["cpd"]))
+                tdi = sum(times["distance"]) / float(len(times["distance"]))
+                tt = sum(times["total"]) / float(len(times["total"]))
+                log.info(
+                    f"iteration {full_counter + 1}/{num_dist_elems + 1}: time: full: {tt:.4f}, copy: {tc:.4f}, "
+                    f"norm: {tn:.4f}, downsample: {tdn:.4f}, cpd: {tcpd:.4f}, distance: {tdi:.4f}"
+                )
+            if full_counter == 1:
+                print("end of first iteration")
+
+        # if l in log_intervals:
+        tc = sum(times["copy"]) / float(len(times["copy"]))
+        tn = sum(times["norm"]) / float(len(times["norm"]))
+        tdn = sum(times["downsample"]) / float(len(times["downsample"]))
+        tcpd = sum(times["cpd"][2:]) / float(len(times["cpd"][2:]))
+        tdi = sum(times["distance"]) / float(len(times["distance"]))
+        tt = sum(times["total"]) / float(len(times["total"]))
+
+        # logging at the end of every row, can be removed without issue
+        log.info(
+            f"iteration {i + 1}/{x_samples + 1}: time: full: {tt:.4f}, copy: {tc:.4f}, "
+            f"norm: {tn:.4f}, downsample: {tdn:.4f}, cpd: {tcpd:.4f}, distance: {tdi:.4f}"
+        )
+        # reset time counters
+        times["copy"] = []
+        times["norm"] = []
+        times["downsample"] = []
+        times["cpd"] = []
+        times["distance"] = []
+        times["total"] = []
+
+        # sync up mpi things
+        if mpi_distribute and hasmpi:
+            tcomm = time.perf_counter()
+            row = dtw_matrix[:, i].cpu().numpy()
+            row = comm_world.allreduce(row)
+            dtw_matrix[:, i] = torch.tensor(row, device=dtw_matrix.device, dtype=dtw_matrix.dtype)
+            if rank == 0:
+                print(f"Allreduce time required: {time.perf_counter() - tcomm}")
+    if len(rots) > 0:
+        rots = torch.cat(rots, dim=0)
+    return dtw_matrix, rots
+
+
+def create_dtw_matrix_given_rigid_rot(
+    x: dict,
+    y: dict,
+    rotation: torch.Tensor,
+    translation: torch.Tensor,
+    scale: float = 1.0,
+    window: int = None,
+    normalize: bool = True,
+    distance_metric: Union[list, str] = "swd",
+    distance_kwargs: Union[list, dict] = None,
+    downsample_method: str = None,
+    mpi_distribute: bool = False,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    # This function follows the normal DTW function closely, but uses a fixed rotation
+    # the other funcationality is the same.
+
+    rank, size = 0, 1
+    if mpi_distribute and hasmpi:
+        comm_world = MPI.COMM_WORLD
+        rank, size = comm_world.rank, comm_world.size
+
+    # Sanitize the inputs and get the distance and downsampling functions
+    distance_fns, downsample_method, downsample_fn = _sanitize_dtw_matrix(
+        distance_kwargs=distance_kwargs,
+        distance_metrics=distance_metric,
+        downsample_method=downsample_method,
+        x=x,
+        y=y,
+    )
+    # distance_fns: list  # this is a list of callables / None (for cpd)
 
     # Get the number of samples in each set of data
     x_samples, y_samples = max(x), max(y)
@@ -106,26 +310,19 @@ def create_dtw_matrix(
     log_intervals = torch.linspace(0, num_dist_elems, steps=int(1 / log_freq) + 1, dtype=torch.int)[1:]
 
     # Initialize the loop counter and timing dictionary
-    full_counter = 0  # noqa: E741
+    full_counter = 0
     times = {
         "copy": [],
         "norm": [],
         "downsample": [],
-        "cpd": [],
+        "rot": [],
         "distance": [],
         "total": [],
     }
-    if cpd_type is not None:
-        # set source to use for all in row here
-        cpd_obj = cpd.RigidCPD(
-            source=x[0]["pos"],
-            use_color=False,
-            # rot=None,
-            # t=None,
-            # scale=None,
-            tf_init_params={"device": x[0]["pos"].device, "dtype": x[0]["pos"].dtype},
-            log_freq=-1,
-        )
+
+    trans = transforms.RigidTransformation(
+        rot=rotation, t=translation, scale=scale, dtype=x[0]["pos"].dtype, device=x[0]["pos"].device
+    )
 
     for i in range(x_samples + 1):
         # Calculate the window boundaries
@@ -153,29 +350,28 @@ def create_dtw_matrix(
             tc = time.perf_counter()
             # normalize the smaller point cloud to the largest
             if normalize:
-                xi["pos"], yj["pos"], _ = utils.normalize_to_larger_pc(xi["pos"], yj["pos"])
+                # source = copy.deepcopy(pcs[0])
+                downsampling.remove_outliers_knn(xi, inplace=True)
+                downsampling.remove_outliers_knn(yj, inplace=True)
+
+                # xi, yj = downsampling.random_down_sample(xi, yj)
+                xi["pos"], _ = utils.normalize_point_cloud(xi["pos"])
+                yj["pos"], _ = utils.normalize_point_cloud(yj["pos"])
+                # xi["pos"], yj["pos"], _ = utils.normalize_to_pc_w_most_points(xi["pos"], yj["pos"])
             tn = time.perf_counter()
             # downsample the point could to be the same size
             xi, yj = downsample_fn(xi, yj)
             tdn = time.perf_counter()
 
-            # do CPD registration to transform *yj*
-            # this means that yj is the source and xi is the target
-            cpd_metric = torch.inf
-            if cpd_type is not None:
-                # need to set the source as the normalized xi
-                cpd_obj.set_source(xi["pos"])
-                cpd_obj.reset_transform()
-                reg = cpd_obj.registration(yj["pos"], w=0.0, maxiter=1000, tol=1e-5)
-                xi["pos"] = cpd_obj.transformation.transform(xi["pos"])
-                cpd_metric = reg.q
-            tcpd = time.perf_counter()
+            # CHANGE FROM OTHER THINGS ----------
+            # do rotation here
+            xi["pos"] = trans.transform(xi["pos"])
+            trot = time.perf_counter()
 
             # distance calculations
             dists = []
             for fn in distance_fns:
                 if fn is None:
-                    dists.append(cpd_metric)
                     continue
                 if hasattr(fn, "projs_history"):
                     # cleanup ASWD projection history file
@@ -189,54 +385,50 @@ def create_dtw_matrix(
             for di in range(len(distance_fns)):
                 dtw_matrix[di, i, j] = dists[di]
 
-            # _save_value_to_array(filename=save_filename, value=dist.item(), matrix=dtw_matrix, indexi=i, indexj=j, lock_filename=lockfile)
-
             full_counter += 1  # noqa: E741
             tf = time.perf_counter()
             times["copy"].append(tc - t0)
             times["norm"].append(tn - tc)
             times["downsample"].append(tdn - tn)
-            times["cpd"].append(tcpd - tdn)
-            times["distance"].append(tdist - tcpd)
+            times["rot"].append(trot - tdn)
+            times["distance"].append(tdist - trot)
             times["total"].append(tf - t0)
 
             if full_counter in log_intervals:
                 tc = sum(times["copy"]) / float(len(times["copy"]))
                 tn = sum(times["norm"]) / float(len(times["norm"]))
                 tdn = sum(times["downsample"]) / float(len(times["downsample"]))
-                tcpd = sum(times["cpd"]) / float(len(times["cpd"]))
+                trt = sum(times["rot"]) / float(len(times["rot"]))
                 tdi = sum(times["distance"]) / float(len(times["distance"]))
                 tt = sum(times["total"]) / float(len(times["total"]))
                 log.info(
                     f"iteration {full_counter + 1}/{num_dist_elems + 1}: time: full: {tt:.4f}, copy: {tc:.4f}, "
-                    f"norm: {tn:.4f}, downsample: {tdn:.4f}, cpd: {tcpd:.4f}, distance: {tdi:.4f}"
+                    f"norm: {tn:.4f}, downsample: {tdn:.4f}, rot: {trt:.4f}, distance: {tdi:.4f}"
                 )
+            if full_counter == 1:
+                print("end of first iteration")
 
         # if l in log_intervals:
         tc = sum(times["copy"]) / float(len(times["copy"]))
         tn = sum(times["norm"]) / float(len(times["norm"]))
         tdn = sum(times["downsample"]) / float(len(times["downsample"]))
-        tcpd = sum(times["cpd"]) / float(len(times["cpd"]))
+        trt = sum(times["rot"][2:]) / float(len(times["rot"][2:]))
         tdi = sum(times["distance"]) / float(len(times["distance"]))
         tt = sum(times["total"]) / float(len(times["total"]))
-        # log.info(
-        #     f"iteration {l + 1}/{num_dist_elems + 1}: time: full: {tt:.4f}, copy: {tc:.4f}, "
-        #     f"norm: {tn:.4f}, downsample: {tdn:.4f}, cpd: {tcpd:.4f}, distance: {tdi:.4f}"
-        # )
         log.info(
             f"iteration {i + 1}/{x_samples + 1}: time: full: {tt:.4f}, copy: {tc:.4f}, "
-            f"norm: {tn:.4f}, downsample: {tdn:.4f}, cpd: {tcpd:.4f}, distance: {tdi:.4f}"
+            f"norm: {tn:.4f}, downsample: {tdn:.4f}, rot: {trt:.4f}, distance: {tdi:.4f}"
         )
         # reset time counters
         times["copy"] = []
         times["norm"] = []
         times["downsample"] = []
-        times["cpd"] = []
+        times["rot"] = []
         times["distance"] = []
         times["total"] = []
 
         # sync up mpi things
-        if mpi_distribute:
+        if mpi_distribute and hasmpi:
             tcomm = time.perf_counter()
             row = dtw_matrix[:, i].cpu().numpy()
             row = comm_world.allreduce(row)
@@ -244,7 +436,8 @@ def create_dtw_matrix(
             if rank == 0:
                 print(f"Allreduce time required: {time.perf_counter() - tcomm}")
             # print(dtw_matrix)
-
+    # if len(rots) > 0:
+    #     rots = torch.cat(rots, dim=0)
     return dtw_matrix
 
 
@@ -252,18 +445,25 @@ def _sanitize_dtw_matrix(distance_kwargs, distance_metrics, downsample_method, x
     if not isinstance(distance_metrics, list):
         distance_metrics = [
             distance_metrics,
-        ]
+        ]  # noqa
+    else:
+        # need to copy the list to make sure we can run this iteratively without crashes
+        distance_metrics = deepcopy(distance_metrics)
     if not isinstance(distance_kwargs, list):
         distance_kwargs = [
             distance_kwargs,
-        ]
+        ]  # noqa
+    else:
+        # need to copy the list to make sure we can run this iteratively without crashes
+        distance_kwargs = deepcopy(distance_kwargs)
+
     if len(distance_kwargs) != len(distance_metrics) and distance_kwargs[0] is not None:
         raise RuntimeError(f"len distance kwargs != len distance metrics!: {distance_kwargs} v {distance_metrics}")
 
     if distance_kwargs[0] is None:
         distance_kwargs = [
             None,
-        ] * len(distance_metrics)
+        ] * len(distance_metrics)  # noqa
 
     for c, dist in enumerate(distance_metrics):
         dist_kwargs = distance_kwargs[c]

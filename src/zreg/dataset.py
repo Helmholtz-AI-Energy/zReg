@@ -32,6 +32,22 @@ class zRegPointCloud(dict):  # Dict[str, torch.Tensor]
                 self[k] = self[k].to(device=device)
         return self
 
+    def get_open3d_pc(self):
+        # Create a dictionary to store the Open3D tensors
+        map_to_tensors = {}
+
+        # Convert the tensors to Open3D tensors
+        map_to_tensors["positions"] = o3c.Tensor.from_dlpack(torch.utils.dlpack.to_dlpack(self["pos"]))
+        # map_to_tensors["colors"] = o3c.Tensor.from_dlpack(torch.utils.dlpack.to_dlpack(self["color"]))
+        # map_to_tensors["labels"] = o3c.Tensor.from_dlpack(torch.utils.dlpack.to_dlpack(self["id"]))
+        # if self["fps-idx"] is not None:
+        #     map_to_tensors["fps_idx"] = o3c.Tensor.from_dlpack(torch.utils.dlpack.to_dlpack(self["fps-idx"]))
+        # else:
+        #     map_to_tensors["fps_idx"] = None
+
+        # Create and return the Open3D point cloud
+        return o3dtgeo.PointCloud(map_to_tensors)
+
 
 def load_data_from_tracklets(
     filepath: str,

@@ -206,7 +206,7 @@ class CoherentPointDrift:
 
         pt1 = torch.sum(pmat, dim=0)
         p1 = torch.sum(pmat, dim=1)
-        px = torch.matmul(pmat, target)  # .dot
+        px = torch.matmul(pmat, target)  # previously np.dot
         return EstepResult(pt1, p1, px, torch.sum(p1))
 
     # @torch.compile
@@ -241,7 +241,12 @@ class CoherentPointDrift:
             other relevant information.
         """
         ret = self._maximization_step(
-            self._source, target, estep_res, sigma2_p, target_colors=target_colors, source_colors=source_colors
+            self._source,
+            target,
+            estep_res,
+            sigma2_p,
+            target_colors=target_colors,
+            source_colors=source_colors,
         )
         self.transformation = ret.transformation
         return ret
@@ -280,7 +285,7 @@ class CoherentPointDrift:
         """
         return None
 
-    @torch.compile
+    # @torch.compile
     def registration(
         self,
         target: torch.Tensor,
@@ -316,24 +321,9 @@ class CoherentPointDrift:
         sigma2_c = 0.0
         if self._use_color:
             sigma2_c = squared_kernel_sum(self._source_colors, target_colors)
-        q = res.q  # Initial value of the objective function
 
-        # with Progress(
-        #     "[progress.description]{task.description}",
-        #     BarColumn(),
-        #     TextColumn("[progress.percentage]{task.completed}/{task.total}"),
-        #     TimeElapsedColumn(),
-        #     TextColumn("[progress.percentage]{task.fields[iter_time]}"),
-        #     TimeRemainingColumn(),
-        #     TextColumn("[progress.percentage]{task.fields[criteria]}"),
-        #     disable=not self.progress_bar,
-        # ) as progress:
-        #     if self.progress_bar:
-        #         task = progress.add_task("[cyan]Registering...", total=maxiter, criteria="", iter_time="")
-        # start_time = time.perf_counter()
-        # src = self._source.clone()
+        running_avg = torch.arange(4, dtype=target.dtype, device=target.device)
         for i in range(maxiter):
-            # iter_start_time = time.perf_counter()
             t_source = res.transformation.transform(self._source)
             estep_res = self.expectation_step(
                 t_source,
@@ -345,30 +335,26 @@ class CoherentPointDrift:
                 source_colors=self._source_colors,
             )
             res = self.maximization_step(
-                target, estep_res, res.sigma2, target_colors=target_colors, source_colors=self._source_colors
+                target,
+                estep_res,
+                res.sigma2,
+                target_colors=target_colors,
+                source_colors=self._source_colors,
             )
 
             for c in self._callbacks:
                 c(res.transformation)
 
-            # iter_end_time = time.perf_counter()
-            # iter_time = iter_end_time - iter_start_time
-            # elapsed_time = time.perf_counter() - start_time
-            # avg_iter_time = elapsed_time / (i + 1)
-            # if self.progress_bar:
-            #     progress.update(
-            #         task,
-            #         advance=1,
-            #         criteria=f"Criteria: {res.q:.4f}",
-            #         iter_time=f"Avg: {avg_iter_time:.2f}s, Iter: {iter_time:.2f}s",
-            #     )
             if self.log_freq > 0 and i % self.log_freq == self.log_freq - 1:
                 log.info(f"Registering: iteration {i}/{maxiter}, criteria: {res.q:.4f}")
 
-            if self.log_freq > 0 and abs(res.q - q) < tol:
-                # log.info(f"Hit tolerance in iteration {i} (criteria: {res.q:.4f}), exiting.")
+            running_avg[i % running_avg.shape[0]] = res.q
+
+            if running_avg.abs().diff().mean().abs() < tol:  # abs(res.q - q) < tol:
+                if self.log_freq > 0:
+                    log.info(f"Hit tolerance in iteration {i} (criteria: {res.q:.4f}), exiting.")
                 break
-            q = res.q
+            # last = res.q
         if self.log_freq > 0:
             log.info(f"End registration at step {i} (criteria: {res.q:.5f})")
 
@@ -465,11 +451,25 @@ class RigidCPD(CoherentPointDrift):
         q = torch.inf
         if self.transformation is None:
             self.transformation = self._tf_type(**self._tf_init_params)
+            # rot = utils.generate_random_rotation_matrix().to(
+            #     device=self.transformation.rot.device, dtype=self.transformation.rot.dtype
+            # )
+            # NOTE: this rotation matrix was found to work with for Shah data to Kobiski data!
+            #       There is no other reason for this initialization!!!
+            rot = torch.tensor(
+                [[-0.0, -1.0, 0.0], [1.0, -0.0, 0.5], [0.0, 0.5, 1.0]],
+                dtype=self._source.dtype,
+                device=self._source.device,
+            )
+            self.transformation.rot = rot
         return MstepResult(self.transformation, sigma2, q)
 
     def reset_transform(self):
         if self.transformation is not None:
             self.transformation.reset()
+            # rot = utils.generate_random_rotation_matrix().to(
+            #     device=self.transformation.rot.device, dtype=self.transformation.rot.dtype
+            # )
 
     def maximization_step(
         self,
@@ -557,7 +557,7 @@ class RigidCPD(CoherentPointDrift):
             target = torch.cat([target, target_colors], dim=1)
         # Calculate means of source and target points
         mu_x = torch.sum(px, axis=0) / n_p
-        mu_y = (source.T @ p1.unsqueeze(1)).squeeze() / n_p  # .dot
+        mu_y = (source.T @ p1.unsqueeze(1)).squeeze() / n_p  # previously np.dot
 
         # Center the point clouds
         target_hat = target - mu_x
@@ -565,21 +565,26 @@ class RigidCPD(CoherentPointDrift):
 
         # Compute the cross-covariance matrix
         a = torch.matmul(px.T, source_hat) - torch.outer(mu_x, (p1.unsqueeze(0) @ source_hat).squeeze())
-        # .dot / .outer
-        # Compute the optimal rotation using SVD (TODO: does keeping this true make a difference?)
+        # previously np.dot / .outer
+        # Compute the optimal rotation using SVD
         u, _, vh = torch.linalg.svd(a, full_matrices=False)
         c = torch.ones(dim, dtype=a.dtype, device=a.device)
-        c[-1] = torch.linalg.det(torch.matmul(u, vh))  # .dot
-        rot = torch.matmul(u * c, vh)  # .dot
+        c[-1] = torch.linalg.det(torch.matmul(u, vh))  # previously np.dot
+        rot = torch.matmul(u * c, vh)  # previously np.dot
 
         # Compute the optimal scale (if enabled)
-        tr_atr = torch.trace(torch.matmul(a.T, rot))  # .dot
-        tr_yp1y = torch.trace(torch.matmul(source_hat.T * p1, source_hat))  # .dot
-        scale = tr_atr / tr_yp1y if update_scale else 1.0
+        tr_atr = torch.trace(torch.matmul(a.T, rot))  # previously np.dot
+        tr_yp1y = torch.trace(torch.matmul(source_hat.T * p1, source_hat))  # previously np.dot
+        # TODO: fix the condition below
+        if update_scale:
+            # attempt to avoide changing scale too quickly?
+            scale = tr_atr / tr_yp1y
+        else:
+            scale = 1.0
 
         # Compute the optimal translation
-        t = mu_x - scale * torch.matmul(rot, mu_y)  # .dot
-        tr_xp1x = torch.trace(torch.matmul(target_hat.T * pt1, target_hat))  # .dot
+        t = mu_x - scale * torch.matmul(rot, mu_y)  # previously np.dot
+        tr_xp1x = torch.trace(torch.matmul(target_hat.T * pt1, target_hat))  # previously np.dot
 
         # Update the variance
         if update_scale:
@@ -592,7 +597,8 @@ class RigidCPD(CoherentPointDrift):
         q = (tr_xp1x - 2.0 * scale * tr_atr + (scale**2) * tr_yp1y) / (
             2.0 * sigma2 + dim * n_p * 0.5 * torch.log(sigma2)
         )
-        # q += dim * n_p * 0.5 * torch.log(sigma2) #.item()
+        # q += dim * n_p * 0.5 * torch.log(sigma2) #.item()  removed as shown in other repo?
+
         return MstepResult(tf.RigidTransformation(rot, t, scale), sigma2, q)
 
 
@@ -691,26 +697,28 @@ class AffineCPD(CoherentPointDrift):
 
         # get means
         mu_x = torch.sum(px, dim=0) / n_p
-        mu_y = torch.matmul(source.T, p1) / n_p  # .dot
+        mu_y = torch.matmul(source.T, p1) / n_p  # previously np.dot
 
         # center point clouds
         target_hat = target - mu_x
         source_hat = source - mu_y
 
         # compute affine transformations parameters
-        a = torch.matmul(px.T, source_hat) - torch.outer(mu_x, torch.dot(p1.T, source_hat))  # .dot  # .dot
-        yp1y = torch.matmul(source_hat.T * p1, source_hat)  # .dot
+        a = torch.matmul(px.T, source_hat) - torch.outer(
+            mu_x, torch.dot(p1.T, source_hat)
+        )  # previously np.dot  # previously np.dot
+        yp1y = torch.matmul(source_hat.T * p1, source_hat)  # previously np.dot
         b = torch.linalg.solve(yp1y.T, a.T).T  # solve for rotation and scaling matrix
-        t = mu_x - torch.matmul(b, mu_y)  # .dot  - solver for translation vector
+        t = mu_x - torch.matmul(b, mu_y)  # previously np.dot  - solver for translation vector
 
         # update sigma2
-        tr_xp1x = torch.trace(torch.matmul(target_hat.T * pt1, target_hat))  # .dot
-        tr_xpyb = torch.trace(torch.matmul(a, b.T))  # .dot
+        tr_xp1x = torch.trace(torch.matmul(target_hat.T * pt1, target_hat))  # previously np.dot
+        tr_xpyb = torch.trace(torch.matmul(a, b.T))  # previously np.dot
         sigma2 = (tr_xp1x - tr_xpyb) / (n_p * dim)
         sigma2 = max(sigma2, torch.finfo(a.dtype).eps)
 
         # update q (negative log-likelihood)
-        tr_ab = torch.trace(torch.matmul(a, b.T))  # .dot
+        tr_ab = torch.trace(torch.matmul(a, b.T))  # previously np.dot
         q = (tr_xp1x - 2 * tr_ab + tr_xpyb) / (2.0 * sigma2)
         q += dim * n_p * 0.5 * torch.log(sigma2)
 
@@ -860,10 +868,10 @@ class NonRigidCPD(CoherentPointDrift):
         )
 
         # Update the transformed source points (t)
-        t = source + torch.matmul(tf_obj.g, w)  # .dot
-        tr_xp1x = torch.trace(torch.matmul(target.T * pt1, target))  # .dot
-        tr_pxt = torch.trace(torch.matmul(px.T, t))  # .dot
-        tr_tpt = torch.trace(torch.matmul(t.T * p1, t))  # .dot
+        t = source + torch.matmul(tf_obj.g, w)  # previously np.dot
+        tr_xp1x = torch.trace(torch.matmul(target.T * pt1, target))  # previously np.dot
+        tr_pxt = torch.trace(torch.matmul(px.T, t))  # previously np.dot
+        tr_tpt = torch.trace(torch.matmul(t.T * p1, t))  # previously np.dot
         sigma2 = (tr_xp1x - 2.0 * tr_pxt + tr_tpt) / (n_p * dim)
         tf_obj.w = w
         return MstepResult(tf_obj, sigma2, sigma2)
@@ -968,7 +976,7 @@ class ConstrainedNonRigidCPD(CoherentPointDrift):
         if self.idx_source is not None and self.idx_target is not None:
             self.p_tilde[self.idx_source, self.idx_target] = 1
         self.p1_tilde = torch.sum(self.p_tilde, dim=1)
-        self.px_tilde = torch.matmul(self.p_tilde, target)  # .dot
+        self.px_tilde = torch.matmul(self.p_tilde, target)  # previously np.dot
         return MstepResult(self._tf_obj, sigma2, q)
 
     @staticmethod
@@ -1022,10 +1030,10 @@ class ConstrainedNonRigidCPD(CoherentPointDrift):
             + lmd * sigma2_p * torch.eye(source.shape[0], dtype=source.dtype, device=source.device),
             px - (source.T * p1).T + sigma2_p / alpha * (px_tilde - (source.T * p1_tilde).T),
         )
-        t = source + torch.matmul(tf_obj.g, w)  # .dot
-        tr_xp1x = torch.trace(torch.matmul(target.T * pt1, target))  # .dot
-        tr_pxt = torch.trace(torch.matmul(px.T, t))  # .dot
-        tr_tpt = torch.trace(torch.matmul(t.T * p1, t))  # .dot
+        t = source + torch.matmul(tf_obj.g, w)  # previously np.dot
+        tr_xp1x = torch.trace(torch.matmul(target.T * pt1, target))  # previously np.dot
+        tr_pxt = torch.trace(torch.matmul(px.T, t))  # previously np.dot
+        tr_tpt = torch.trace(torch.matmul(t.T * p1, t))  # previously np.dot
         sigma2 = (tr_xp1x - 2.0 * tr_pxt + tr_tpt) / (n_p * dim)
         tf_obj.w = w
         return MstepResult(tf_obj, sigma2, sigma2)

@@ -26,4 +26,4 @@ from . import utils as utils
 from . import cpd as cpd
 from . import distances as distances
 from . import dtw as dtw
-from . import mpi_tools as mpi_tools
+# from . import mpi_tools as mpi_tools

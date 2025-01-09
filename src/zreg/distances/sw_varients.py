@@ -44,9 +44,12 @@ def compute_practical_moments_sw(x, y, num_projections=30, degree=2.0, **kwargs)
     x, y: [batch_size, num_points, dim=3]
     num_projections: integer number
     """
+    if x.dtype != y.dtype:
+        raise RuntimeError(f"Different dtypes btw x/y : {x.dtype}/{y.dtype}")
     dim = x.size(2)
     batch_size = x.size(0)
     projections = minibatch_rand_projections(batch_size, dim, num_projections)
+    projections = projections.to(dtype=x.dtype, device=x.device)
     # projs.shape: [batchsize, num_projs, dim]
 
     xproj = x.bmm(projections.transpose(1, 2))

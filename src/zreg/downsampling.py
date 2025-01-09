@@ -1,14 +1,23 @@
 from .dataset import open3d_to_zreg, zreg_to_open3d, zRegPointCloud
 import open3d as o3d
 import logging
-from torch_cluster import fps
+from torch_cluster import fps, knn_graph
 import torch
 from typing import Tuple
+import copy
+
+from . import utils
 
 
 log = logging.getLogger(__name__)
 
-__all__ = ["farthest_point_down_sample", "random_down_sample", "uniform_down_sample", "precompute_fps"]
+__all__ = [
+    "farthest_point_down_sample",
+    "random_down_sample",
+    "uniform_down_sample",
+    "precompute_fps",
+    "remove_outliers_knn",
+]
 
 
 def _preserve_labels(new_points, old_points):
@@ -128,7 +137,7 @@ def _farthest_point_ds_internal(target, points, use_precomputed_indexes):
     return target
 
 
-def random_down_sample(x: dict, y: dict, return_o3d: bool = False) -> Tuple[dict, dict]:
+def random_down_sample(x: dict, y: dict, points: int = -1, return_o3d: bool = False) -> Tuple[dict, dict]:
     """Downsamples the point clouds by randomly selecting points.
 
     This function takes two point clouds and downsamples them to the same number of
@@ -163,16 +172,29 @@ def random_down_sample(x: dict, y: dict, return_o3d: bool = False) -> Tuple[dict
     xshape = x["pos"].shape[0]
     yshape = y["pos"].shape[0]
 
-    if xshape < yshape:  # downsample y
-        target = y
-        keep = torch.randperm(yshape, device=target["pos"].device)[:xshape]
-    elif xshape > yshape:
-        target = x
-        keep = torch.randperm(xshape, device=target["pos"].device)[:yshape]
-    target["pos"] = target["pos"][keep]
-    target["color"] = target["color"][keep]
-    target["id"] = target["id"][keep]
-    target["fps-idx"] = target["fps-idx"][keep] if target["fps-idx"] is not None else None
+    if points > 0 and (points > xshape or points > yshape):
+        raise RuntimeError(f"points given excited yshape ({yshape}) or xshape ({xshape})")
+    elif points > 0:
+        for target in [x, y]:
+            keep = torch.randperm(target["pos"].shape[0], device=target["pos"].device)[:points]
+            target["pos"] = target["pos"][keep]
+            target["color"] = target["color"][keep]
+            target["id"] = target["id"][keep]
+            target["fps-idx"] = target["fps-idx"][keep] if target["fps-idx"] is not None else None
+    elif xshape == yshape:
+        # do-nothing case
+        pass
+    else:
+        if xshape < yshape:  # downsample y
+            target = y
+            keep = torch.randperm(yshape, device=target["pos"].device)[:xshape]
+        else:  # if xshape > yshape:
+            target = x
+            keep = torch.randperm(xshape, device=target["pos"].device)[:yshape]
+        target["pos"] = target["pos"][keep]
+        target["color"] = target["color"][keep]
+        target["id"] = target["id"][keep]
+        target["fps-idx"] = target["fps-idx"][keep] if target["fps-idx"] is not None else None
 
     if return_o3d:
         x = zreg_to_open3d(x)
@@ -249,3 +271,53 @@ def uniform_down_sample(x: dict, y: dict, return_o3d: bool = False) -> Tuple[dic
 #     if not return_o3d:
 #         return open3d_to_torch(downsampled)
 #     return downsampled
+
+
+def remove_outliers_knn(pc: zRegPointCloud, k=2, threshold=5.0, inplace: bool = False):
+    pos_base = pc["pos"]
+    if pos_base.max() > 5:  # arbitrary upper bound to test if the pc is normalized
+        normed = True
+        pos, norms = utils.normalize_point_cloud(pos_base, byaxis=False)
+    else:
+        pos = copy.deepcopy(pos_base)
+        normed = False
+    # use KNN to detemine what to drop
+    edge_index = knn_graph(pos, k=k, batch=torch.zeros(pos.shape[0]), loop=False)
+    # print(edge_index)
+    # Calculate the mean distance to neighbors for each point
+    pair, base = edge_index[0], edge_index[1]
+    distances = torch.norm(pos[pair] - pos[base], dim=1).view((-1, k))
+    # print(edge_index[:, :10], distances.shape)
+    mean_distances = distances.mean(dim=1)
+
+    # Calculate the standard deviation of the mean distances
+    std_dev = torch.std(mean_distances)
+    # print(std_dev)
+
+    # Identify outliers as points with mean distances greater than the threshold
+    outliers = mean_distances > threshold * std_dev
+
+    # Remove outliers from the point cloud
+    pos = pos[~outliers]
+    if normed:
+        pos = utils.undo_normalize(pos, minvals=norms[0], maxvals=norms[1])
+
+    if inplace:
+        pc["pos"] = pos
+        for key in pc:
+            if key == "pos":
+                continue
+            if pc[key] is not None:
+                pc[key] = pc[key][~outliers]
+        return pc
+    else:
+        ret = zRegPointCloud()
+        ret["pos"] = pos
+        for key in pc:
+            if key == "pos":
+                continue
+            if pc[key] is not None:
+                ret[key] = pc[key][~outliers]
+            else:
+                ret[key] = pc[key]
+        return ret

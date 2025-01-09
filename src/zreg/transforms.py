@@ -132,14 +132,21 @@ class RigidTransformation(TransformBase):
         if rot is None:
             rot = torch.eye(3, dtype=dtype, device=device)
         if t is None:
-            t = torch.ones(3, dtype=dtype, device=device)
+            t = torch.zeros(3, dtype=dtype, device=device)
+
+        if dtype is not None:
+            rot = rot.to(dtype=dtype)
+            t = t.to(dtype=dtype)
+        if device is not None:
+            rot = rot.to(device=device)
+            t = t.to(device=device)
         self.rot = rot
         self.t = t
         self.scale = scale
 
     def reset(self):
         self.rot = torch.eye(3, dtype=self.rot.dtype, device=self.rot.device)
-        self.t = torch.ones(3, dtype=self.t.dtype, device=self.t.device)
+        self.t = torch.zeros(3, dtype=self.t.dtype, device=self.t.device)
 
     def _transform(self, points):
         return self.scale * torch.matmul(points, self.rot.T) + self.t  # dot
@@ -151,7 +158,7 @@ class RigidTransformation(TransformBase):
     def __mul__(self, other):
         return RigidTransformation(
             torch.matmul(self.rot, other.rot),
-            self.t + self.scale * torch.matmul(self.rot, other.t),  # unclean if a squeeze is needed
+            self.t + self.scale * torch.matmul(self.rot, other.t),  # unclear if a squeeze is needed
             self.scale * other.scale,
         )
 

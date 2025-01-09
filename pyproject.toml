@@ -11,6 +11,8 @@ version_scheme = "no-guess-dev"
 [tool.ruff]
 line-length = 120
 indent-width = 4
+# In addition to the standard set of exclusions, omit all tests, plus a specific file.
+extend-exclude = ["notebooks/debug.ipynb"]
 
 [tool.ruff.lint]
 # Enable Pyflakes (`F`) and a subset of the pycodestyle (`E`)  codes by default.

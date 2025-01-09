@@ -41,23 +41,6 @@ pcs[5] = zreg.dataset.load_shah_from_csv(
     device="cuda:0",
 )
 
-# precompute farthest points before doing anything
-t0 = time.perf_counter()
-# print("getting all farthest points, will take some time...")
-for a in range(1, 5):
-    # if (a - 1) % MPI.COMM_WORLD.rank != 0:
-    #     continue
-    for k in pcs[a]:
-        if "fps-idx" not in pcs[a][k]:
-            pcs[a][k] = zreg.downsampling.precompute_fps(pcs[a][k])
-        # print(f"done with sample {k} in file {a}")
-
-# for a in range(1, 5):
-#     for k in pcs[a]:
-#         pcs[a][k] = zreg.mpi_tools.broadcast_pc(pcs[a][k], root=(a - 1) % MPI.COMM_WORLD.rank)
-
-# print(f"Finished with farthest point precompute, time required: {time.perf_counter() - t0}")
-
 distance_metrics = [
     "swd",
     # "aswd",

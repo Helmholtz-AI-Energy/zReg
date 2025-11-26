@@ -3,7 +3,7 @@ import open3d as o3d
 import logging
 from torch_cluster import fps, knn_graph
 import torch
-from typing import Tuple
+from typing import Tuple, Union
 import copy
 
 from . import utils
@@ -31,33 +31,36 @@ def _preserve_labels(new_points, old_points):
     return new_points
 
 
-def precompute_fps(pc: dict) -> dict:
+def precompute_fps(pc: zRegPointCloud) -> zRegPointCloud:
     """Precomputes the farthest points from a random start.
 
     These points will be reused until deleted or if specified in the downsample operation.
 
     Parameters
     ----------
-    pc : dict
-        A dictionary containing the point cloud data.
+    pc : zRegPointCloud
+        A point cloud containing the data.
 
     Returns
     -------
-    dict
-        The point cloud dictionary with the precomputed farthest points indices added.
+    zRegPointCloud
+        The point cloud with the precomputed farthest points indices added.
     """
     indexes = fps(pc["pos"], ratio=1.0)
     pc["fps-idx"] = indexes
     return pc
 
 
+PointCloudType = Union[zRegPointCloud, o3d.t.geometry.PointCloud]
+
+
 def farthest_point_down_sample(
-    x: dict,
-    y: dict,
+    x: PointCloudType,
+    y: PointCloudType,
     return_o3d: bool = False,
     use_precomputed_indexes: bool = False,
     points: int = None,
-) -> Tuple[dict, dict]:
+) -> Tuple[PointCloudType, PointCloudType]:
     """Downsamples the point clouds using farthest point sampling.
 
     This function takes two point clouds and downsamples them to the same number of
@@ -66,9 +69,9 @@ def farthest_point_down_sample(
 
     Parameters
     ----------
-    x : dict
+    x : zRegPointCloud or o3d.t.geometry.PointCloud
         The first point cloud.
-    y : dict
+    y : zRegPointCloud or o3d.t.geometry.PointCloud
         The second point cloud.
     return_o3d : bool, optional
         Whether to return the point clouds as Open3D objects, by default False
@@ -77,7 +80,7 @@ def farthest_point_down_sample(
 
     Returns
     -------
-    Tuple[dict, dict]
+    Tuple[PointCloudType, PointCloudType]
         The downsampled point clouds.
     """
     # o3d is slow, moving to torch cluster for this
@@ -137,7 +140,12 @@ def _farthest_point_ds_internal(target, points, use_precomputed_indexes):
     return target
 
 
-def random_down_sample(x: dict, y: dict, points: int = -1, return_o3d: bool = False) -> Tuple[dict, dict]:
+def random_down_sample(
+    x: PointCloudType,
+    y: PointCloudType,
+    points: int = -1,
+    return_o3d: bool = False,
+) -> Tuple[PointCloudType, PointCloudType]:
     """Downsamples the point clouds by randomly selecting points.
 
     This function takes two point clouds and downsamples them to the same number of
@@ -145,16 +153,16 @@ def random_down_sample(x: dict, y: dict, points: int = -1, return_o3d: bool = Fa
 
     Parameters
     ----------
-    x : dict
+    x : zRegPointCloud or o3d.t.geometry.PointCloud
         The first point cloud.
-    y : dict
+    y : zRegPointCloud or o3d.t.geometry.PointCloud
         The second point cloud.
     return_o3d : bool, optional
         Whether to return the point clouds as Open3D objects, by default False
 
     Returns
     -------
-    Tuple[dict, dict]
+    Tuple[PointCloudType, PointCloudType]
         The downsampled point clouds.
     """
     if isinstance(x, o3d.t.geometry.PointCloud):
@@ -202,7 +210,11 @@ def random_down_sample(x: dict, y: dict, points: int = -1, return_o3d: bool = Fa
     return x, y
 
 
-def uniform_down_sample(x: dict, y: dict, return_o3d: bool = False) -> Tuple[dict, dict]:
+def uniform_down_sample(
+    x: PointCloudType,
+    y: PointCloudType,
+    return_o3d: bool = False,
+) -> Tuple[PointCloudType, PointCloudType]:
     """Downsamples the point clouds uniformly.
 
     This function takes two point clouds and downsamples them to the same number of
@@ -210,16 +222,16 @@ def uniform_down_sample(x: dict, y: dict, return_o3d: bool = False) -> Tuple[dic
 
     Parameters
     ----------
-    x : dict
+    x : zRegPointCloud or o3d.t.geometry.PointCloud
         The first point cloud.
-    y : dict
+    y : zRegPointCloud or o3d.t.geometry.PointCloud
         The second point cloud.
     return_o3d : bool, optional
         Whether to return the point clouds as Open3D objects, by default False
 
     Returns
     -------
-    Tuple[dict, dict]
+    Tuple[PointCloudType, PointCloudType]
         The downsampled point clouds.
     """
     if not isinstance(x, zRegPointCloud):

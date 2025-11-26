@@ -21,6 +21,7 @@ from . import downsampling
 from . import utils
 from . import cpd
 from . import transforms
+from .dataset import zRegPointCloud
 
 
 log = logging.getLogger(__name__)
@@ -30,8 +31,8 @@ __all__ = ["create_dtw_matrix", "create_dtw_matrix_given_rigid_rot"]
 
 
 def create_dtw_matrix(
-    x: Dict[int, Dict],
-    y: Dict[int, Dict],
+    x: Dict[int, zRegPointCloud],
+    y: Dict[int, zRegPointCloud],
     window: Optional[int] = None,
     normalize: bool = True,
     distance_metric: Union[List[str], str] = "swd",
@@ -44,12 +45,12 @@ def create_dtw_matrix(
 
     Parameters
     ----------
-    x : Dict[int, Dict]
+    x : Dict[int, zRegPointCloud]
         A dictionary containing the first set of point cloud data. The keys are integer indices, and the values
-        are dictionaries containing point cloud data (e.g., 'pos' for positions).
-    y : Dict[int, Dict]
+        are zRegPointCloud instances containing point cloud data (e.g., 'pos' for positions).
+    y : Dict[int, zRegPointCloud]
         A dictionary containing the second set of point cloud data. The keys are integer indices, and the values
-        are dictionaries containing point cloud data (e.g., 'pos' for positions).
+        are zRegPointCloud instances containing point cloud data (e.g., 'pos' for positions).
     window : Optional[int], optional
         The window size to use for the DTW calculation. If None, no windowing is used (full DTW).
         By default, None.
@@ -260,16 +261,16 @@ def create_dtw_matrix(
 
 
 def create_dtw_matrix_given_rigid_rot(
-    x: dict,
-    y: dict,
+    x: Dict[int, zRegPointCloud],
+    y: Dict[int, zRegPointCloud],
     rotation: torch.Tensor,
     translation: torch.Tensor,
     scale: float = 1.0,
-    window: int = None,
+    window: Optional[int] = None,
     normalize: bool = True,
-    distance_metric: Union[list, str] = "swd",
-    distance_kwargs: Union[list, dict] = None,
-    downsample_method: str = None,
+    distance_metric: Union[List[str], str] = "swd",
+    distance_kwargs: Optional[Union[List[Dict], Dict]] = None,
+    downsample_method: Optional[str] = None,
     mpi_distribute: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     # This function follows the normal DTW function closely, but uses a fixed rotation

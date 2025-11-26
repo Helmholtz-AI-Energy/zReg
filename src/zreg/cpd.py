@@ -1039,9 +1039,12 @@ class ConstrainedNonRigidCPD(CoherentPointDrift):
         return MstepResult(tf_obj, sigma2, sigma2)
 
 
+from .dataset import zRegPointCloud
+
+
 def cpd_registration(
-    source: Union[torch.Tensor, o3d.t.geometry.PointCloud],
-    target: Union[torch.Tensor, o3d.t.geometry.PointCloud],
+    source: Union[zRegPointCloud, o3d.t.geometry.PointCloud],
+    target: Union[zRegPointCloud, o3d.t.geometry.PointCloud],
     tf_type_name: str = "rigid",
     w: float = 0.0,
     maxiter: int = 50,
@@ -1060,9 +1063,9 @@ def cpd_registration(
 
     Parameters
     ----------
-    source : torch.Tensor or o3d.t.geometry.PointCloud
+    source : zRegPointCloud or o3d.t.geometry.PointCloud
         Source point cloud data.
-    target : torch.Tensor or o3d.t.geometry.PointCloud
+    target : zRegPointCloud or o3d.t.geometry.PointCloud
         Target point cloud data.
     tf_type_name : str, optional
         Transformation type ('rigid', 'affine', 'nonrigid', 'nonrigid_constrained').
@@ -1124,8 +1127,8 @@ def cpd_registration(
 
 def init_cpd_from_existing(
     transform,
-    source: Union[torch.Tensor, o3d.t.geometry.PointCloud],
-    target: Union[torch.Tensor, o3d.t.geometry.PointCloud],
+    source: Union[zRegPointCloud, o3d.t.geometry.PointCloud],
+    target: Union[zRegPointCloud, o3d.t.geometry.PointCloud],
     w: float = 0.0,
     maxiter: int = 50,
     tol: float = 0.001,

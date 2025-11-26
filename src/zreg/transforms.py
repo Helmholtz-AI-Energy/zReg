@@ -29,7 +29,7 @@ def transform_points_homogeneous(
     points: Union[zRegPointCloud, o3d.t.geometry.PointCloud],
     transform_matrix: torch.Tensor,
     return_o3d: bool = False,
-):
+) -> Union[zRegPointCloud, o3d.t.geometry.PointCloud]:
     """Transforms a set of 3D points using a 4x4 transformation matrix.
 
     This function handles point data in two formats:

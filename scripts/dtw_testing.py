@@ -78,7 +78,7 @@ def _proc_run(gpu_id, distance, downsampling, i, j, cpd_type):
         testy[m] = testy[m].to(f"cuda:{gpu_id}")
 
     # for testing with a fixed rotation uncomment the following:
-    # mat = zreg.dtw.create_dtw_matrix_given_rigid_rot(
+    # mat = zreg.pairwise_distance_matrix.create_pairwise_distance_matrix_given_rigid_rot(
     #     x=testx, y=testy,
     #     rotation=torch.tensor([[-0.5953, -0.7996,  0.0796],
     #                            [ 0.7202, -0.4870,  0.4941],
@@ -95,7 +95,7 @@ def _proc_run(gpu_id, distance, downsampling, i, j, cpd_type):
     # rots = None
     # ------------------------------------------------------------
     # Otherwise, use this for the general CPD fitting
-    mat, rots = zreg.dtw.create_dtw_matrix(
+    mat, rots = zreg.pairwise_distance_matrix.create_pairwise_distance_matrix(
         x=testx,
         y=testy,
         window=None,

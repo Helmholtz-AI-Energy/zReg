@@ -27,10 +27,10 @@ from .dataset import zRegPointCloud
 log = logging.getLogger(__name__)
 
 
-__all__ = ["create_dtw_matrix", "create_dtw_matrix_given_rigid_rot"]
+__all__ = ["create_pairwise_distance_matrix", "create_pairwise_distance_matrix_given_rigid_rot"]
 
 
-def create_dtw_matrix(
+def create_pairwise_distance_matrix(
     x: Dict[int, zRegPointCloud],
     y: Dict[int, zRegPointCloud],
     window: Optional[int] = None,
@@ -41,7 +41,7 @@ def create_dtw_matrix(
     cpd_type: Optional[str] = None,
     mpi_distribute: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Create a DTW matrix using the given parameters.
+    """Create a pairwise distance matrix using the given parameters.
 
     Parameters
     ----------
@@ -52,13 +52,13 @@ def create_dtw_matrix(
         A dictionary containing the second set of point cloud data. The keys are integer indices, and the values
         are zRegPointCloud instances containing point cloud data (e.g., 'pos' for positions).
     window : Optional[int], optional
-        The window size to use for the DTW calculation. If None, no windowing is used (full DTW).
+        The window size to use for the distance matrix calculation. If None, no windowing is used (full matrix).
         By default, None.
     normalize : bool, optional
-        Whether to normalize the point clouds before calculating the DTW distance.
+        Whether to normalize the point clouds before calculating the distance.
         By default, True.
     distance_metric : Union[List[str], str], optional
-        The distance metric(s) to use for the DTW calculation. Can be a single string or a list of strings.
+        The distance metric(s) to use for the calculation. Can be a single string or a list of strings.
         Supported metrics depend on available functions (e.g., "swd" for Sliced Wasserstein Distance).
         By default, "swd".
     distance_kwargs : Optional[Union[List[Dict], Dict]], optional
@@ -79,7 +79,7 @@ def create_dtw_matrix(
     -------
     Tuple[torch.Tensor, torch.Tensor]
         A tuple containing:
-            - The DTW matrix (torch.Tensor).
+            - The pairwise distance matrix (torch.Tensor).
             - The rotations from CPD registration (torch.Tensor), if CPD is used; otherwise, an empty tensor.
     """
     rank, size = 0, 1
@@ -88,7 +88,7 @@ def create_dtw_matrix(
         rank, size = comm_world.rank, comm_world.size
 
     # Sanitize the inputs and get the distance and downsampling functions
-    distance_fns, downsample_method, downsample_fn = _sanitize_dtw_matrix(
+    distance_fns, downsample_method, downsample_fn = _sanitize_pairwise_distance_matrix(
         distance_kwargs=distance_kwargs,
         distance_metrics=distance_metric,
         downsample_method=downsample_method,
@@ -102,7 +102,7 @@ def create_dtw_matrix(
 
     shape = (len(distance_fns), x_samples + 1, y_samples + 1)
 
-    dtw_matrix = torch.full(shape, torch.inf, dtype=x[0]["pos"].dtype, device=x[0]["pos"].device)
+    distance_matrix = torch.full(shape, torch.inf, dtype=x[0]["pos"].dtype, device=x[0]["pos"].device)
 
     # Calculate the number of distance elements to compute
     if window is not None:
@@ -143,7 +143,7 @@ def create_dtw_matrix(
         # Iterate over the samples in the second set of data within the window
         for j in range(window_min, window_max):
             if full_counter % size != rank and mpi_distribute:
-                dtw_matrix[:, i, j] = 0.0
+                distance_matrix[:, i, j] = 0.0
                 full_counter += 1
                 continue
             t0 = time.perf_counter()
@@ -206,7 +206,7 @@ def create_dtw_matrix(
             times["distance"].append(tdist - tcpd)
 
             for di in range(len(distance_fns)):
-                dtw_matrix[di, i, j] = dists[di]
+                distance_matrix[di, i, j] = dists[di]
 
             full_counter += 1  # noqa: E741
             tf = time.perf_counter()
@@ -250,17 +250,17 @@ def create_dtw_matrix(
         # sync up mpi things
         if mpi_distribute and hasmpi:
             tcomm = time.perf_counter()
-            row = dtw_matrix[:, i].cpu().numpy()
+            row = distance_matrix[:, i].cpu().numpy()
             row = comm_world.allreduce(row)
-            dtw_matrix[:, i] = torch.tensor(row, device=dtw_matrix.device, dtype=dtw_matrix.dtype)
+            distance_matrix[:, i] = torch.tensor(row, device=distance_matrix.device, dtype=distance_matrix.dtype)
             if rank == 0:
                 print(f"Allreduce time required: {time.perf_counter() - tcomm}")
     if len(rots) > 0:
         rots = torch.cat(rots, dim=0)
-    return dtw_matrix, rots
+    return distance_matrix, rots
 
 
-def create_dtw_matrix_given_rigid_rot(
+def create_pairwise_distance_matrix_given_rigid_rot(
     x: Dict[int, zRegPointCloud],
     y: Dict[int, zRegPointCloud],
     rotation: torch.Tensor,
@@ -273,8 +273,8 @@ def create_dtw_matrix_given_rigid_rot(
     downsample_method: Optional[str] = None,
     mpi_distribute: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    # This function follows the normal DTW function closely, but uses a fixed rotation
-    # the other funcationality is the same.
+    # This function follows the normal pairwise distance matrix function closely, but uses a fixed rotation
+    # the other functionality is the same.
 
     rank, size = 0, 1
     if mpi_distribute and hasmpi:
@@ -282,7 +282,7 @@ def create_dtw_matrix_given_rigid_rot(
         rank, size = comm_world.rank, comm_world.size
 
     # Sanitize the inputs and get the distance and downsampling functions
-    distance_fns, downsample_method, downsample_fn = _sanitize_dtw_matrix(
+    distance_fns, downsample_method, downsample_fn = _sanitize_pairwise_distance_matrix(
         distance_kwargs=distance_kwargs,
         distance_metrics=distance_metric,
         downsample_method=downsample_method,
@@ -296,7 +296,7 @@ def create_dtw_matrix_given_rigid_rot(
 
     shape = (len(distance_fns), x_samples + 1, y_samples + 1)
 
-    dtw_matrix = torch.full(shape, torch.inf, dtype=x[0]["pos"].dtype, device=x[0]["pos"].device)
+    distance_matrix = torch.full(shape, torch.inf, dtype=x[0]["pos"].dtype, device=x[0]["pos"].device)
 
     # Calculate the number of distance elements to compute
     if window is not None:
@@ -341,7 +341,7 @@ def create_dtw_matrix_given_rigid_rot(
         # TODO: make comms communicate only the row that was calculated instead of the whole matrix (bandaid for now)
         for j in range(window_min, window_max):
             if full_counter % size != rank and mpi_distribute:
-                dtw_matrix[:, i, j] = 0.0
+                distance_matrix[:, i, j] = 0.0
                 full_counter += 1
                 continue
             t0 = time.perf_counter()
@@ -384,7 +384,7 @@ def create_dtw_matrix_given_rigid_rot(
             tdist = time.perf_counter()
 
             for di in range(len(distance_fns)):
-                dtw_matrix[di, i, j] = dists[di]
+                distance_matrix[di, i, j] = dists[di]
 
             full_counter += 1  # noqa: E741
             tf = time.perf_counter()
@@ -431,18 +431,18 @@ def create_dtw_matrix_given_rigid_rot(
         # sync up mpi things
         if mpi_distribute and hasmpi:
             tcomm = time.perf_counter()
-            row = dtw_matrix[:, i].cpu().numpy()
+            row = distance_matrix[:, i].cpu().numpy()
             row = comm_world.allreduce(row)
-            dtw_matrix[:, i] = torch.tensor(row, device=dtw_matrix.device, dtype=dtw_matrix.dtype)
+            distance_matrix[:, i] = torch.tensor(row, device=distance_matrix.device, dtype=distance_matrix.dtype)
             if rank == 0:
                 print(f"Allreduce time required: {time.perf_counter() - tcomm}")
-            # print(dtw_matrix)
+            # print(distance_matrix)
     # if len(rots) > 0:
     #     rots = torch.cat(rots, dim=0)
-    return dtw_matrix
+    return distance_matrix
 
 
-def _sanitize_dtw_matrix(distance_kwargs, distance_metrics, downsample_method, x, y):
+def _sanitize_pairwise_distance_matrix(distance_kwargs, distance_metrics, downsample_method, x, y):
     if not isinstance(distance_metrics, list):
         distance_metrics = [
             distance_metrics,

@@ -5,7 +5,7 @@
 #SBATCH --ntasks-per-node=4
 #SBATCH --gres=gpu:4
 #SBATCH --time=24:00:00
-#SBATCH --job-name=dtw-dwn-before-cpd
+#SBATCH --job-name=pairwise-dist-dwn-before-cpd
 #SBATCH --partition=booster
 #SBATCH --account=tissuetwin
 #SBATCH --output="/p/project/tissuetwin/coquelin1/zReg/logs/slurm/slurm-%j"

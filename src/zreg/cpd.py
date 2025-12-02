@@ -71,6 +71,9 @@ class CoherentPointDrift:
         Number of color channels (default: 3).
     """
 
+    _N_DIM = 3
+    _N_COLOR = 3
+
     def __init__(
         self,
         source: Optional[torch.Tensor] = None,
@@ -551,10 +554,11 @@ class RigidCPD(CoherentPointDrift):
             Result of the maximization step.
         """
         pt1, p1, px, n_p = estep_res
-        dim = source.shape[1]
-        if source_colors is not None:
-            source = torch.cat([source, source_colors], dim=1)
-            target = torch.cat([target, target_colors], dim=1)
+        dim = CoherentPointDrift._N_DIM  # Use fixed dimension (3) for rotation matrix
+        # Note: colors are not used in M-step because px is already computed in E-step
+        # with position-only dimensions. Color information is incorporated in the E-step
+        # probability calculations.
+        
         # Calculate means of source and target points
         mu_x = torch.sum(px, axis=0) / n_p
         mu_y = (source.T @ p1.unsqueeze(1)).squeeze() / n_p  # previously np.dot
@@ -591,7 +595,7 @@ class RigidCPD(CoherentPointDrift):
             sigma2 = (tr_xp1x - scale * tr_atr) / (n_p * dim)
         else:
             sigma2 = (tr_xp1x + tr_yp1y - scale * tr_atr) / (n_p * dim)
-        sigma2 = max(sigma2, torch.finfo(a.dtype).eps)  # Ensure sigma2 is not too small
+        sigma2 = torch.clamp(sigma2, min=torch.finfo(a.dtype).eps)  # Ensure sigma2 is not too small
 
         # Update the objective function value
         q = (tr_xp1x - 2.0 * scale * tr_atr + (scale**2) * tr_yp1y) / (
@@ -668,6 +672,8 @@ class AffineCPD(CoherentPointDrift):
         target: torch.Tensor,
         estep_res: EstepResult,
         sigma2_p: Optional[float] = None,
+        target_colors: Optional[torch.Tensor] = None,
+        source_colors: Optional[torch.Tensor] = None,
     ) -> MstepResult:
         """
         Perform the maximization step of the CPD algorithm.
@@ -685,6 +691,10 @@ class AffineCPD(CoherentPointDrift):
             Result of the expectation step.
         sigma2_p : float, optional
             Previous value of sigma2.
+        target_colors : torch.Tensor, optional
+            Target color data (unused, for API compatibility).
+        source_colors : torch.Tensor, optional
+            Source color data (unused, for API compatibility).
 
         Returns
         -------
@@ -705,8 +715,8 @@ class AffineCPD(CoherentPointDrift):
 
         # compute affine transformations parameters
         a = torch.matmul(px.T, source_hat) - torch.outer(
-            mu_x, torch.dot(p1.T, source_hat)
-        )  # previously np.dot  # previously np.dot
+            mu_x, (p1.unsqueeze(0) @ source_hat).squeeze()
+        )  # previously np.dot
         yp1y = torch.matmul(source_hat.T * p1, source_hat)  # previously np.dot
         b = torch.linalg.solve(yp1y.T, a.T).T  # solve for rotation and scaling matrix
         t = mu_x - torch.matmul(b, mu_y)  # previously np.dot  - solver for translation vector
@@ -715,7 +725,7 @@ class AffineCPD(CoherentPointDrift):
         tr_xp1x = torch.trace(torch.matmul(target_hat.T * pt1, target_hat))  # previously np.dot
         tr_xpyb = torch.trace(torch.matmul(a, b.T))  # previously np.dot
         sigma2 = (tr_xp1x - tr_xpyb) / (n_p * dim)
-        sigma2 = max(sigma2, torch.finfo(a.dtype).eps)
+        sigma2 = torch.clamp(sigma2, min=torch.finfo(a.dtype).eps)
 
         # update q (negative log-likelihood)
         tr_ab = torch.trace(torch.matmul(a, b.T))  # previously np.dot
@@ -785,7 +795,12 @@ class NonRigidCPD(CoherentPointDrift):
         self._tf_obj = self._tf_type(None, self._source, self._beta)
 
     def maximization_step(
-        self, target: torch.Tensor, estep_res: EstepResult, sigma2_p: Optional[float] = None
+        self,
+        target: torch.Tensor,
+        estep_res: EstepResult,
+        sigma2_p: Optional[float] = None,
+        target_colors: Optional[torch.Tensor] = None,
+        source_colors: Optional[torch.Tensor] = None,
     ) -> MstepResult:
         """
         Perform the maximization step of the EM algorithm.
@@ -801,6 +816,10 @@ class NonRigidCPD(CoherentPointDrift):
             Result of the expectation step.
         sigma2_p : float, optional
             Previous variance.
+        target_colors : torch.Tensor, optional
+            Target color data (unused, for API compatibility).
+        source_colors : torch.Tensor, optional
+            Source color data (unused, for API compatibility).
 
         Returns
         -------
@@ -936,7 +955,12 @@ class ConstrainedNonRigidCPD(CoherentPointDrift):
         self._tf_obj = self._tf_type(None, self._source, self._beta)
 
     def maximization_step(
-        self, target: torch.Tensor, estep_res: EstepResult, sigma2_p: Optional[float] = None
+        self,
+        target: torch.Tensor,
+        estep_res: EstepResult,
+        sigma2_p: Optional[float] = None,
+        target_colors: Optional[torch.Tensor] = None,
+        source_colors: Optional[torch.Tensor] = None,
     ) -> MstepResult:
         """
         Perform the maximization step of the EM algorithm.
@@ -949,6 +973,10 @@ class ConstrainedNonRigidCPD(CoherentPointDrift):
             Result of the expectation step.
         sigma2_p : float, optional
             Initial variance.
+        target_colors : torch.Tensor, optional
+            Target color data (unused, for API compatibility).
+        source_colors : torch.Tensor, optional
+            Source color data (unused, for API compatibility).
 
         Returns
         -------
@@ -1151,27 +1179,32 @@ def init_cpd_from_existing(
         # targeti = target["pos"]
     if isinstance(transform, tf.RigidTransformation):
         # rigid case
+        tf_init_params = {
+            "device": transform.rot.device,
+            "dtype": transform.rot.dtype,
+        }
         cpdobj = RigidCPD(
             sourcei,
             use_color=use_color,
-            rot=transform.rot,
-            t=transform.t,
-            scale=transform.scale,
-            device=transform.rot.device,
-            dtype=transform.rot.dtype,
+            tf_init_params=tf_init_params,
             log_freq=log_freq,
         )
+        # Set the transformation after initialization
+        cpdobj.transformation = transform
     elif isinstance(transform, tf.AffineTransformation):
-        # rigid case
+        # affine case
+        tf_init_params = {
+            "device": transform.b.device,
+            "dtype": transform.b.dtype,
+        }
         cpdobj = AffineCPD(
             sourcei,
             use_color=use_color,
-            b=transform.b,
-            t=transform.t,
-            device=transform.rot.device,
-            dtype=transform.rot.dtype,
+            tf_init_params=tf_init_params,
             log_freq=log_freq,
         )
+        # Set the transformation after initialization
+        cpdobj.transformation = transform
     else:
         raise TypeError(f"transform type not known/not implemented: {type(transform)}")
     return cpdobj

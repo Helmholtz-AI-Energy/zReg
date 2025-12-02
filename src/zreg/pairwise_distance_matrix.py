@@ -227,10 +227,12 @@ def create_pairwise_distance_matrix(
                 print("end of first iteration")
 
         # if l in log_intervals:
+        if len(times["copy"]) == 0:
+            continue
         tc = sum(times["copy"]) / float(len(times["copy"]))
         tn = sum(times["norm"]) / float(len(times["norm"]))
         tdn = sum(times["downsample"]) / float(len(times["downsample"]))
-        tcpd = sum(times["cpd"][2:]) / float(len(times["cpd"][2:]))
+        tcpd = sum(times["cpd"][2:]) / float(len(times["cpd"][2:])) if len(times["cpd"]) > 2 else 0.0
         tdi = sum(times["distance"]) / float(len(times["distance"]))
         tt = sum(times["total"]) / float(len(times["total"]))
 
@@ -410,10 +412,12 @@ def create_pairwise_distance_matrix_given_rigid_rot(
                 print("end of first iteration")
 
         # if l in log_intervals:
+        if len(times["copy"]) == 0:
+            continue
         tc = sum(times["copy"]) / float(len(times["copy"]))
         tn = sum(times["norm"]) / float(len(times["norm"]))
         tdn = sum(times["downsample"]) / float(len(times["downsample"]))
-        trt = sum(times["rot"][2:]) / float(len(times["rot"][2:]))
+        trt = sum(times["rot"][2:]) / float(len(times["rot"][2:])) if len(times["rot"]) > 2 else 0.0
         tdi = sum(times["distance"]) / float(len(times["distance"]))
         tt = sum(times["total"]) / float(len(times["total"]))
         log.info(
@@ -553,7 +557,7 @@ def _sanitize_pairwise_distance_matrix(distance_kwargs, distance_metrics, downsa
         else:
             raise ValueError(f"Invalid distance function: {dist}")
         distance_metrics[c] = distance_fn
-        if dist not in ["euclidean", "manhatten", "minkowski"] and downsample_method is None:
+        if dist not in ["euclidean", "manhattan", "minkowski", "cpd"] and downsample_method is None:
             raise RuntimeError("with SWD methods, need to use a downsampling method")
 
     log.info(f"Using Downsampling method: {downsample_method}")

@@ -26,3 +26,4 @@ from . import utils as utils
 from . import cpd as cpd
 from . import distances as distances
 from . import pairwise_distance_matrix as pairwise_distance_matrix
+from . import dtw as dtw

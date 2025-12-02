@@ -1,12 +1,22 @@
 from .dataset import open3d_to_zreg, zreg_to_open3d, zRegPointCloud
 import open3d as o3d
 import logging
-from torch_cluster import fps, knn_graph
 import torch
 from typing import Tuple, Union
 import copy
+from scipy.spatial import cKDTree
+import numpy as np
 
 from . import utils
+
+# Optional torch_cluster support for GPU-accelerated operations
+try:
+    from torch_cluster import fps as torch_cluster_fps, knn_graph as torch_cluster_knn_graph
+    TORCH_CLUSTER_AVAILABLE = True
+except ImportError:
+    TORCH_CLUSTER_AVAILABLE = False
+    torch_cluster_fps = None
+    torch_cluster_knn_graph = None
 
 
 log = logging.getLogger(__name__)
@@ -17,7 +27,162 @@ __all__ = [
     "uniform_down_sample",
     "precompute_fps",
     "remove_outliers_knn",
+    "TORCH_CLUSTER_AVAILABLE",
 ]
+
+
+def _fps_open3d(pos: torch.Tensor, ratio: float) -> torch.Tensor:
+    """Farthest point sampling using Open3D.
+    
+    Parameters
+    ----------
+    pos : torch.Tensor
+        Point positions of shape (N, 3)
+    ratio : float
+        Ratio of points to sample (0, 1]
+    
+    Returns
+    -------
+    torch.Tensor
+        Indices of sampled points
+    """
+    num_samples = max(1, int(pos.shape[0] * ratio))
+    device = pos.device
+    
+    # Convert to Open3D point cloud
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(pos.cpu().numpy())
+    
+    # Perform farthest point sampling
+    downsampled_pcd = pcd.farthest_point_down_sample(num_samples)
+    downsampled_points = np.asarray(downsampled_pcd.points)
+    
+    # Find indices of sampled points in original point cloud
+    original_points = pos.cpu().numpy()
+    tree = cKDTree(original_points)
+    _, indices = tree.query(downsampled_points, k=1)
+    
+    return torch.tensor(indices, dtype=torch.long, device=device)
+
+
+def fps(pos: torch.Tensor, ratio: float, use_torch_cluster: bool = None) -> torch.Tensor:
+    """Farthest point sampling.
+    
+    Uses torch_cluster if available and requested, otherwise falls back to Open3D.
+    
+    Parameters
+    ----------
+    pos : torch.Tensor
+        Point positions of shape (N, 3)
+    ratio : float
+        Ratio of points to sample (0, 1]
+    use_torch_cluster : bool, optional
+        If True, use torch_cluster (requires installation). If False, use Open3D.
+        If None (default), use torch_cluster only if available and pos is on GPU.
+    
+    Returns
+    -------
+    torch.Tensor
+        Indices of sampled points
+    """
+    if use_torch_cluster is None:
+        # Auto-detect: use torch_cluster if available and on GPU
+        use_torch_cluster = TORCH_CLUSTER_AVAILABLE and pos.is_cuda
+    
+    if use_torch_cluster:
+        if not TORCH_CLUSTER_AVAILABLE:
+            raise ImportError(
+                "torch_cluster is not installed. Install it with:\n"
+                "  pip install torch_cluster -f https://data.pyg.org/whl/torch-X.X.X+cuXXX.html\n"
+                "Or set use_torch_cluster=False to use Open3D instead."
+            )
+        return torch_cluster_fps(pos, ratio=ratio)
+    else:
+        return _fps_open3d(pos, ratio)
+
+
+def _knn_scipy(pos: torch.Tensor, k: int) -> torch.Tensor:
+    """K-nearest neighbors using scipy's cKDTree.
+    
+    Parameters
+    ----------
+    pos : torch.Tensor
+        Point positions of shape (N, 3)
+    k : int
+        Number of neighbors
+    
+    Returns
+    -------
+    torch.Tensor
+        Edge index tensor of shape (2, N*k) where edge_index[0] are source nodes
+        and edge_index[1] are target nodes
+    """
+    device = pos.device
+    points = pos.cpu().numpy()
+    
+    tree = cKDTree(points)
+    # k+1 because query includes self, we exclude it
+    distances, indices = tree.query(points, k=k + 1)
+    
+    # Exclude self (first column)
+    neighbor_indices = indices[:, 1:]  # Shape: (N, k)
+    
+    n_points = pos.shape[0]
+    # Create edge index: source (neighbors) -> target (center points)
+    source = neighbor_indices.flatten()  # neighbor indices
+    target = np.repeat(np.arange(n_points), k)  # center point indices
+    
+    edge_index = torch.tensor(
+        np.stack([source, target], axis=0),
+        dtype=torch.long,
+        device=device
+    )
+    
+    return edge_index
+
+
+def knn_graph(pos: torch.Tensor, k: int, batch: torch.Tensor = None, loop: bool = False, 
+              use_torch_cluster: bool = None) -> torch.Tensor:
+    """Compute k-nearest neighbors graph.
+    
+    Uses torch_cluster if available and requested, otherwise falls back to scipy.
+    
+    Parameters
+    ----------
+    pos : torch.Tensor
+        Point positions of shape (N, 3)
+    k : int
+        Number of neighbors
+    batch : torch.Tensor, optional
+        Batch vector (ignored in scipy implementation, assumes single batch)
+    loop : bool, optional
+        Whether to include self-loops (ignored in scipy implementation)
+    use_torch_cluster : bool, optional
+        If True, use torch_cluster (requires installation). If False, use scipy.
+        If None (default), use torch_cluster only if available and pos is on GPU.
+    
+    Returns
+    -------
+    torch.Tensor
+        Edge index tensor of shape (2, N*k)
+    """
+    if use_torch_cluster is None:
+        # Auto-detect: use torch_cluster if available and on GPU
+        use_torch_cluster = TORCH_CLUSTER_AVAILABLE and pos.is_cuda
+    
+    if use_torch_cluster:
+        if not TORCH_CLUSTER_AVAILABLE:
+            raise ImportError(
+                "torch_cluster is not installed. Install it with:\n"
+                "  pip install torch_cluster -f https://data.pyg.org/whl/torch-X.X.X+cuXXX.html\n"
+                "Or set use_torch_cluster=False to use scipy instead."
+            )
+        return torch_cluster_knn_graph(pos, k=k, batch=batch, loop=loop)
+    else:
+        if batch is not None and not torch.all(batch == batch[0]):
+            log.warning("scipy KNN implementation does not support batched point clouds. "
+                       "Processing as single batch.")
+        return _knn_scipy(pos, k)
 
 
 def _preserve_labels(new_points, old_points):

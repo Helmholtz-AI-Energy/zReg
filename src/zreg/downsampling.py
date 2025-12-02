@@ -474,6 +474,11 @@ def remove_outliers_knn(pc: zRegPointCloud, k=2, threshold=5.0, inplace: bool = 
     # Identify outliers as points with mean distances greater than the threshold
     outliers = mean_distances > threshold * std_dev
 
+    # Ensure we don't remove all points - keep at least the inliers or all points if all are outliers
+    if outliers.all():
+        # If all points would be removed, keep all of them (no outlier removal)
+        outliers = torch.zeros_like(outliers, dtype=torch.bool)
+
     # Remove outliers from the point cloud
     pos = pos[~outliers]
     if normed:

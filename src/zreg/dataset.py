@@ -186,8 +186,7 @@ def zreg_to_open3d(pc: zRegPointCloud) -> o3dtgeo.PointCloud:
         map_to_tensors["labels"] = o3c.Tensor.from_dlpack(torch.utils.dlpack.to_dlpack(pc["id"]))
         if pc["fps-idx"] is not None:
             map_to_tensors["fps_idx"] = o3c.Tensor.from_dlpack(torch.utils.dlpack.to_dlpack(pc["fps-idx"]))
-        else:
-            map_to_tensors["fps_idx"] = None
+        # Don't add fps_idx key if it's None - Open3D doesn't accept None values
     else:
         # If the input is already an Open3D tensor, no conversion is needed
         map_to_tensors["positions"] = pc["pos"]
@@ -195,8 +194,7 @@ def zreg_to_open3d(pc: zRegPointCloud) -> o3dtgeo.PointCloud:
         map_to_tensors["labels"] = pc["id"]
         if pc["fps-idx"] is not None:
             map_to_tensors["fps_idx"] = pc["fps-idx"]
-        else:
-            map_to_tensors["fps_idx"] = None
+        # Don't add fps_idx key if it's None - Open3D doesn't accept None values
 
     # Create and return the Open3D point cloud
     return o3dtgeo.PointCloud(map_to_tensors)

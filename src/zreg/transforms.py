@@ -251,8 +251,8 @@ class TPSTransformation(TransformBase):
         u, _, _ = torch.linalg.svd(pn, full_matrices=True)  # T or F?
         pp = u[:, d + 1 :]
         kk = self._kernel(control_pts, control_pts)
-        # Convert landmarks to tensor
-        uu = self._kernel(torch.tensor(landmarks, **self.fact), control_pts)
+        # Convert landmarks to tensor - transpose kernel output to get shape (m, n)
+        uu = self._kernel(torch.tensor(landmarks, **self.fact), control_pts).T
         basis = torch.cat([pm, torch.matmul(uu, pp)], dim=1)  # Use torch.matmul for matrix multiplication
         kernel = torch.matmul(pp.T, torch.matmul(kk, pp))
         return basis, kernel

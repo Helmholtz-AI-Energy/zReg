@@ -187,6 +187,12 @@ def normalize_point_cloud(
         A tensor of the same shape as points, with the points scaled
         to be between -1 and 1.
     """
+    # Handle empty point clouds
+    if points.shape[0] == 0:
+        # Return empty tensor with same shape and dummy min/max values
+        d = points.shape[1] if points.dim() > 1 else 1
+        dummy_vals = torch.zeros(d, dtype=points.dtype, device=points.device)
+        return points, (dummy_vals, dummy_vals)
 
     # Find the minimum and maximum values along each dimension if not given
     if max_vals is None:

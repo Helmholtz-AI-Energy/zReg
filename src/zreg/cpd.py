@@ -26,7 +26,7 @@ log = logging.getLogger(__name__)
 torch.set_float32_matmul_precision("high")
 
 
-EstepResult = namedtuple("EstepResult", ["pt1", "p1", "px", "n_p"])
+EstepResult = namedtuple("EstepResult", ["pt1", "p1", "px", "n_p", "pmat"])
 MstepResult = namedtuple("MstepResult", ["transformation", "sigma2", "q"])
 MstepResult.__doc__ = """Result of Maximization step.
 
@@ -210,7 +210,7 @@ class CoherentPointDrift:
         pt1 = torch.sum(pmat, dim=0)
         p1 = torch.sum(pmat, dim=1)
         px = torch.matmul(pmat, target)  # previously np.dot
-        return EstepResult(pt1, p1, px, torch.sum(p1))
+        return EstepResult(pt1, p1, px, torch.sum(p1), pmat)
 
     # @torch.compile
     def maximization_step(
@@ -553,7 +553,7 @@ class RigidCPD(CoherentPointDrift):
         MstepResult
             Result of the maximization step.
         """
-        pt1, p1, px, n_p = estep_res
+        pt1, p1, px, n_p, _ = estep_res
         dim = CoherentPointDrift._N_DIM  # Use fixed dimension (3) for rotation matrix
         # Note: colors are not used in M-step because px is already computed in E-step
         # with position-only dimensions. Color information is incorporated in the E-step
@@ -702,7 +702,7 @@ class AffineCPD(CoherentPointDrift):
             Result of the maximization step, containing the updated
             transformation, sigma2, and q.
         """
-        pt1, p1, px, n_p = estep_res
+        pt1, p1, px, n_p, _ = estep_res
         dim = CoherentPointDrift._N_DIM
 
         # get means
@@ -877,7 +877,7 @@ class NonRigidCPD(CoherentPointDrift):
         MstepResult
             Result of the maximization step.
         """
-        pt1, p1, px, n_p = estep_res
+        pt1, p1, px, n_p, _ = estep_res
         dim = CoherentPointDrift._N_DIM
 
         # Solve for the deformation parameters (w)
@@ -1048,7 +1048,7 @@ class ConstrainedNonRigidCPD(CoherentPointDrift):
         MstepResult
             Result of the maximization step.
         """
-        pt1, p1, px, n_p = estep_res
+        pt1, p1, px, n_p, _ = estep_res
         dim = CoherentPointDrift._N_DIM
 
         # Solve for the transformation parameters (w)

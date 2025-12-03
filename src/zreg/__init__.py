@@ -27,3 +27,4 @@ from . import cpd as cpd
 from . import distances as distances
 from . import pairwise_distance_matrix as pairwise_distance_matrix
 from . import dtw as dtw
+from . import color_transfer as color_transfer

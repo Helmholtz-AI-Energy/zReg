@@ -66,13 +66,15 @@ class TestEstepResult:
         p1 = torch.randn(10)
         px = torch.randn(10, 3)
         n_p = torch.tensor(10.0)
+        pmat = torch.randn(10, 10)
         
-        result = cpd.EstepResult(pt1, p1, px, n_p)
+        result = cpd.EstepResult(pt1, p1, px, n_p, pmat)
         
         assert torch.equal(result.pt1, pt1)
         assert torch.equal(result.p1, p1)
         assert torch.equal(result.px, px)
         assert torch.equal(result.n_p, n_p)
+        assert torch.equal(result.pmat, pmat)
 
 
 class TestMstepResult:

@@ -8,6 +8,8 @@ from typing import Optional, Union
 import torch
 import logging
 
+from zreg.cpd import EstepResult
+
 from .dataset import zRegPointCloud
 
 log = logging.getLogger(__name__)
@@ -19,6 +21,8 @@ class ColorTransferMethod:
     """Enumeration of available color transfer methods."""
     NEAREST_NEIGHBOR = "nearest_neighbor"
     CPD_WEIGHTED = "cpd_weighted"
+    KNN_VOTING = "knn_voting"
+    GAUSSIAN_KERNEL = "gaussian_kernel"
 
 
 def transfer_colors(
@@ -27,7 +31,7 @@ def transfer_colors(
     method: str = ColorTransferMethod.NEAREST_NEIGHBOR,
     source_colors: Optional[torch.Tensor] = None,
     target_colors: Optional[torch.Tensor] = None,
-    estep_result: Optional["EstepResult"] = None,
+    estep_result: Optional[EstepResult] = None,
     **kwargs
 ) -> torch.Tensor:
     """Transfer colors from source to target point cloud.
@@ -41,19 +45,19 @@ def transfer_colors(
         Target point cloud data. If zRegPointCloud, uses 'pos' field.
         If torch.Tensor, should be positions of shape (m_points, n_dims).
     method : str, optional
-        Color transfer method. Options: 'nearest_neighbor', 'cpd_weighted'.
+        Color transfer method. Options: 'nearest_neighbor', 'cpd_weighted', 'knn_voting', 'gaussian_kernel'.
         Default: 'nearest_neighbor'.
     source_colors : torch.Tensor, optional
         Source colors of shape (n_points, n_color_channels). Required if source
         is torch.Tensor. If source is zRegPointCloud, uses source['color'].
     target_colors : torch.Tensor, optional
-        Target colors of shape (m_points, n_color_channels). Only used for
-        validation in some methods. If target is zRegPointCloud, uses target['color'].
+        Target colors of shape (m_points, n_color_channels). Not used in current methods.
     estep_result : EstepResult, optional
         Result from CPD E-step containing posterior probabilities. Required for
         'cpd_weighted' method.
     **kwargs
-        Additional method-specific parameters.
+        Additional method-specific parameters. For 'knn_voting': 'k' (int, default 5).
+        For 'gaussian_kernel': 'sigma' (float, default 1.0).
 
     Returns
     -------
@@ -76,7 +80,6 @@ def transfer_colors(
 
     if isinstance(target, zRegPointCloud):
         target_pos = target["pos"]
-        target_colors = target.get("color")
     else:
         target_pos = target
 
@@ -90,6 +93,12 @@ def transfer_colors(
         if estep_result is None:
             raise ValueError("estep_result is required for CPD-weighted method")
         return _transfer_colors_cpd_weighted(source_pos, target_pos, source_colors, estep_result)
+    elif method == ColorTransferMethod.KNN_VOTING:
+        k = kwargs.get('k', 5)
+        return _transfer_colors_knn_voting(source_pos, target_pos, source_colors, k)
+    elif method == ColorTransferMethod.GAUSSIAN_KERNEL:
+        sigma = kwargs.get('sigma', 1.0)
+        return _transfer_colors_gaussian_kernel(source_pos, target_pos, source_colors, sigma)
     else:
         raise ValueError(f"Unknown color transfer method: {method}")
 
@@ -180,5 +189,101 @@ def _transfer_colors_cpd_weighted(
     # prob_matrix: (m_points, n_points), source_colors: (n_points, n_channels)
     # Result: (m_points, n_channels)
     transferred_colors = torch.matmul(prob_matrix, source_colors.float())
+
+    return transferred_colors
+
+
+def _transfer_colors_knn_voting(
+    source_pos: torch.Tensor,
+    target_pos: torch.Tensor,
+    source_colors: torch.Tensor,
+    k: int
+) -> torch.Tensor:
+    """Transfer colors using K-nearest neighbors with majority voting.
+
+    For each target point, finds K nearest source points and assigns the most
+    common color among them.
+
+    Parameters
+    ----------
+    source_pos : torch.Tensor
+        Source positions of shape (n_points, n_dims).
+    target_pos : torch.Tensor
+        Target positions of shape (m_points, n_dims).
+    source_colors : torch.Tensor
+        Source colors of shape (n_points, n_color_channels).
+    k : int
+        Number of nearest neighbors to consider.
+
+    Returns
+    -------
+    torch.Tensor
+        Transferred colors of shape (m_points, n_color_channels).
+
+    Raises
+    ------
+    ValueError
+        If n_color_channels != 1 (colors must be class indices).
+    """
+    log.debug(f"Transferring colors using KNN voting (k={k}): {source_pos.shape[0]} -> {target_pos.shape[0]} points")
+
+    if source_colors.shape[1] != 1:
+        raise ValueError("KNN voting assumes single-channel colors (class indices)")
+
+    # Compute pairwise distances
+    distances = torch.cdist(target_pos, source_pos, p=2)  # (m_points, n_points)
+
+    # Find K nearest neighbors
+    _, indices = torch.topk(distances, k=k, dim=1, largest=False)  # (m_points, k)
+
+    # Get colors for nearest neighbors
+    selected_colors = source_colors[indices].squeeze(-1)  # (m_points, k)
+
+    # Compute mode for each target point
+    transferred_colors = torch.mode(selected_colors, dim=1).values.unsqueeze(-1)  # (m_points, 1)
+
+    return transferred_colors
+
+
+def _transfer_colors_gaussian_kernel(
+    source_pos: torch.Tensor,
+    target_pos: torch.Tensor,
+    source_colors: torch.Tensor,
+    sigma: float
+) -> torch.Tensor:
+    """Transfer colors using Gaussian kernel interpolation.
+
+    Treats colors as a continuous field and interpolates using Gaussian kernels
+    centered at source points.
+
+    Parameters
+    ----------
+    source_pos : torch.Tensor
+        Source positions of shape (n_points, n_dims).
+    target_pos : torch.Tensor
+        Target positions of shape (m_points, n_dims).
+    source_colors : torch.Tensor
+        Source colors of shape (n_points, n_color_channels).
+    sigma : float
+        Standard deviation of the Gaussian kernel.
+
+    Returns
+    -------
+    torch.Tensor
+        Transferred colors of shape (m_points, n_color_channels).
+    """
+    log.debug(f"Transferring colors using Gaussian kernel (sigma={sigma}): {source_pos.shape[0]} -> {target_pos.shape[0]} points")
+
+    # Compute pairwise distances
+    distances = torch.cdist(target_pos, source_pos, p=2)  # (m_points, n_points)
+
+    # Compute Gaussian weights
+    weights = torch.exp(-distances**2 / (2 * sigma**2))  # (m_points, n_points)
+
+    # Normalize weights to sum to 1 for each target point
+    weights = weights / weights.sum(dim=1, keepdim=True)
+
+    # Compute weighted average of colors
+    transferred_colors = torch.matmul(weights, source_colors.float())  # (m_points, n_color_channels)
 
     return transferred_colors

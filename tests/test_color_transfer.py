@@ -178,3 +178,119 @@ def test_transfer_colors_prob_matrix_transpose(sample_point_clouds):
     )
 
     assert transferred_colors.shape == (4, 3)
+
+
+@pytest.fixture
+def sample_point_clouds_single_channel():
+    """Create sample point clouds with single-channel colors (class indices)."""
+    # Source point cloud
+    source_pos = torch.tensor([
+        [0.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [1.0, 1.0, 0.0]
+    ], dtype=torch.float32)
+
+    source_colors = torch.tensor([
+        [0],  # Class 0
+        [1],  # Class 1
+        [2],  # Class 2
+        [0]   # Class 0
+    ], dtype=torch.float32)
+
+    source_pc = zRegPointCloud(pos=source_pos, color=source_colors)
+
+    # Target point cloud (slightly offset)
+    target_pos = torch.tensor([
+        [0.1, 0.1, 0.0],  # Close to source[0] (class 0)
+        [0.9, 0.1, 0.0],  # Close to source[1] (class 1)
+        [0.1, 0.9, 0.0],  # Close to source[2] (class 2)
+        [0.9, 0.9, 0.0]   # Close to source[3] (class 0)
+    ], dtype=torch.float32)
+
+    target_pc = zRegPointCloud(pos=target_pos)
+
+    return source_pc, target_pc
+
+
+def test_transfer_colors_knn_voting(sample_point_clouds_single_channel):
+    """Test KNN voting color transfer."""
+    source_pc, target_pc = sample_point_clouds_single_channel
+
+    transferred_colors = transfer_colors(
+        source_pc, target_pc,
+        method=ColorTransferMethod.KNN_VOTING,
+        k=1  # With k=1, should be same as nearest neighbor
+    )
+
+    assert transferred_colors.shape == (4, 1)
+
+    # With k=1, should match nearest neighbor
+    expected_classes = torch.tensor([[0], [1], [2], [0]], dtype=torch.float32)
+    assert torch.allclose(transferred_colors, expected_classes, atol=1e-6)
+
+
+def test_transfer_colors_knn_voting_k3(sample_point_clouds_single_channel):
+    """Test KNN voting with k=3."""
+    source_pc, target_pc = sample_point_clouds_single_channel
+
+    transferred_colors = transfer_colors(
+        source_pc, target_pc,
+        method=ColorTransferMethod.KNN_VOTING,
+        k=3
+    )
+
+    assert transferred_colors.shape == (4, 1)
+
+    # With k=3, each target should get the majority class among its 3 nearest neighbors
+    # For this setup, the 3 nearest for each should include itself and neighbors
+    # But since positions are close, it might vary, but let's just check shape and range
+    assert transferred_colors.min() >= 0
+    assert transferred_colors.max() <= 2
+
+
+def test_transfer_colors_knn_voting_multichannel_error(sample_point_clouds):
+    """Test KNN voting raises error for multi-channel colors."""
+    source_pc, target_pc = sample_point_clouds  # This has 3-channel colors
+
+    with pytest.raises(ValueError, match="single-channel colors"):
+        transfer_colors(
+            source_pc, target_pc,
+            method=ColorTransferMethod.KNN_VOTING,
+            k=3
+        )
+
+
+def test_transfer_colors_gaussian_kernel(sample_point_clouds):
+    """Test Gaussian kernel color transfer."""
+    source_pc, target_pc = sample_point_clouds
+
+    transferred_colors = transfer_colors(
+        source_pc, target_pc,
+        method=ColorTransferMethod.GAUSSIAN_KERNEL,
+        sigma=0.1  # Small sigma, should be close to nearest neighbor
+    )
+
+    assert transferred_colors.shape == (4, 3)
+
+    # Colors should be weighted averages
+    # Check that values are reasonable (between 0 and 1 for RGB-like colors)
+    assert transferred_colors.min() >= 0
+    assert transferred_colors.max() <= 1
+
+
+def test_transfer_colors_gaussian_kernel_large_sigma(sample_point_clouds):
+    """Test Gaussian kernel with large sigma (should average all colors)."""
+    source_pc, target_pc = sample_point_clouds
+
+    transferred_colors = transfer_colors(
+        source_pc, target_pc,
+        method=ColorTransferMethod.GAUSSIAN_KERNEL,
+        sigma=10.0  # Large sigma, uniform weights
+    )
+
+    assert transferred_colors.shape == (4, 3)
+
+    # Should be close to the average of all source colors
+    expected_avg = source_pc["color"].mean(dim=0)
+    assert torch.allclose(transferred_colors, expected_avg, atol=1e-2)

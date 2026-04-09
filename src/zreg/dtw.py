@@ -285,8 +285,22 @@ class DynamicTimeWarping:
 
         while i > 0 or j > 0:
             if i == 0:
+                predecessor = accumulated_cost[0, j - 1].item()
+                if torch.isinf(accumulated_cost[0, j - 1]):
+                    raise ValueError(
+                        f"DTW warping path could not be traced — window too tight or "
+                        f"disconnected cost matrix. "
+                        f"Dead-end at ({i}, {j}), predecessor costs: {predecessor}"
+                    )
                 j -= 1
             elif j == 0:
+                predecessor = accumulated_cost[i - 1, 0].item()
+                if torch.isinf(accumulated_cost[i - 1, 0]):
+                    raise ValueError(
+                        f"DTW warping path could not be traced — window too tight or "
+                        f"disconnected cost matrix. "
+                        f"Dead-end at ({i}, {j}), predecessor costs: {predecessor}"
+                    )
                 i -= 1
             else:
                 # Find the minimum predecessor
@@ -295,6 +309,17 @@ class DynamicTimeWarping:
                     accumulated_cost[i, j - 1],      # came from left (deletion)
                     accumulated_cost[i - 1, j - 1],  # came from diagonal (match)
                 ])
+                if torch.isinf(candidates).all():
+                    predecessor_values = [
+                        accumulated_cost[i - 1, j].item(),
+                        accumulated_cost[i, j - 1].item(),
+                        accumulated_cost[i - 1, j - 1].item(),
+                    ]
+                    raise ValueError(
+                        f"DTW warping path could not be traced — window too tight or "
+                        f"disconnected cost matrix. "
+                        f"Dead-end at ({i}, {j}), predecessor costs: {predecessor_values}"
+                    )
                 argmin = torch.argmin(candidates).item()
 
                 if argmin == 0:

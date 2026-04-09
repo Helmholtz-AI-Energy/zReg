@@ -97,8 +97,8 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 05-01-PLAN.md — CPD numerical stability, transform composition depth, and device handling tests (TEST-01, TEST-03, TEST-04)
-- [ ] 05-02-PLAN.md — DTW metric variants and boundary condition tests (TEST-02)
+- [x] 05-01-PLAN.md — CPD numerical stability, transform composition depth, and device handling tests (TEST-01, TEST-03, TEST-04)
+- [x] 05-02-PLAN.md — DTW metric variants and boundary condition tests (TEST-02)
 - [x] 05-03-PLAN.md — Color transfer empty-source guard and edge case tests (TEST-05)
 
 ## Progress

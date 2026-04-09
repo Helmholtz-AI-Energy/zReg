@@ -39,10 +39,10 @@ Requirements for milestone v1.0.
 
 ### Test Coverage
 
-- [ ] **TEST-01**: CPD numerical stability tested (edge cases, extreme scales, near-degenerate configs)
-- [ ] **TEST-02**: DTW path reconstruction tested (multiple metrics, windowed, boundary conditions)
-- [ ] **TEST-03**: Transform composition tested (3+ transforms, matrix property invariants)
-- [ ] **TEST-04**: Device handling tested (GPU/CPU transfers, mixed-device errors)
+- [x] **TEST-01**: CPD numerical stability tested (edge cases, extreme scales, near-degenerate configs)
+- [x] **TEST-02**: DTW path reconstruction tested (multiple metrics, windowed, boundary conditions)
+- [x] **TEST-03**: Transform composition tested (3+ transforms, matrix property invariants)
+- [x] **TEST-04**: Device handling tested (GPU/CPU transfers, mixed-device errors)
 - [x] **TEST-05**: Color transfer edge cases tested (empty clouds, single point, mismatched dims)
 
 ## v2 Requirements
@@ -94,10 +94,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CPD-01 | Phase 3 | Complete |
 | CPD-02 | Phase 3 | Complete |
 | CPD-03 | Phase 3 | Complete |
-| TEST-01 | Phase 5 | Pending |
-| TEST-02 | Phase 5 | Pending |
-| TEST-03 | Phase 5 | Pending |
-| TEST-04 | Phase 5 | Pending |
+| TEST-01 | Phase 5 | Complete |
+| TEST-02 | Phase 5 | Complete |
+| TEST-03 | Phase 5 | Complete |
+| TEST-04 | Phase 5 | Complete |
 | TEST-05 | Phase 5 | Complete |
 
 **Coverage:**

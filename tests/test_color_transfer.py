@@ -294,3 +294,49 @@ def test_transfer_colors_gaussian_kernel_large_sigma(sample_point_clouds):
     # Should be close to the average of all source colors
     expected_avg = source_pc["color"].mean(dim=0)
     assert torch.allclose(transferred_colors, expected_avg, atol=1e-2)
+
+class TestColorTransferEdgeCases:
+    """Regression tests for color transfer edge cases (TEST-05)."""
+
+    def test_empty_source_tensor_raises_valueerror(self):
+        """transfer_colors raises ValueError with descriptive message for 0-point source (Tensor)."""
+        source_pos = torch.zeros(0, 3)
+        source_colors = torch.zeros(0, 3)
+        target_pos = torch.randn(5, 3)
+        with pytest.raises(ValueError, match="0 points"):
+            transfer_colors(source_pos, target_pos, source_colors=source_colors)
+
+    def test_empty_source_zreg_raises_valueerror(self):
+        """transfer_colors raises ValueError with descriptive message for 0-point source (zRegPointCloud)."""
+        source = zRegPointCloud(pos=torch.zeros(0, 3), color=torch.zeros(0, 3))
+        target = zRegPointCloud(pos=torch.randn(5, 3))
+        with pytest.raises(ValueError, match="0 points"):
+            transfer_colors(source, target)
+
+    def test_single_point_source_returns_correct_shape(self):
+        """transfer_colors returns (m_target, n_channels) for a single-point source."""
+        source = zRegPointCloud(
+            pos=torch.tensor([[0.0, 0.0, 0.0]]),
+            color=torch.tensor([[0.2, 0.5, 0.8]]),
+        )
+        target = zRegPointCloud(pos=torch.randn(7, 3))
+        result = transfer_colors(source, target)
+        assert result.shape == (7, 3)
+        assert torch.isfinite(result).all()
+
+    def test_single_point_source_all_targets_get_same_color(self):
+        """With a single source point, all target points receive that point's color."""
+        color = torch.tensor([[0.1, 0.9, 0.4]])
+        source = zRegPointCloud(pos=torch.tensor([[0.0, 0.0, 0.0]]), color=color)
+        target = zRegPointCloud(pos=torch.randn(5, 3))
+        result = transfer_colors(source, target)
+        assert torch.allclose(result, color.expand(5, 3), atol=1e-5)
+
+    def test_dimension_mismatch_raises_valueerror(self):
+        """transfer_colors raises ValueError when source and target have different spatial dims."""
+        source_pos = torch.randn(10, 3)
+        source_colors = torch.zeros(10, 3)
+        target_pos = torch.randn(5, 2)
+        with pytest.raises(ValueError, match="dimensionality"):
+            transfer_colors(source_pos, target_pos, source_colors=source_colors)
+

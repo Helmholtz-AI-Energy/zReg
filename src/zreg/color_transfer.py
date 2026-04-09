@@ -85,6 +85,9 @@ def transfer_colors(
         target_pos = target
 
     # Validate inputs
+    if source_pos.shape[0] == 0:
+        raise ValueError("source has 0 points — cannot transfer colors from an empty point cloud")
+
     if source_pos.shape[1] != target_pos.shape[1]:
         raise ValueError(f"Source and target must have same dimensionality: {source_pos.shape[1]} vs {target_pos.shape[1]}")
 

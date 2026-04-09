@@ -1,5 +1,6 @@
 """Tests for zreg.cpd module."""
 
+import logging
 import pytest
 import torch
 
@@ -396,5 +397,66 @@ class TestCPDWithColor:
             target, maxiter=10,
             target_colors=target_colors,
         )
-        
+
         assert result.transformation is not None
+
+
+class TestMstepResultDiagnostics:
+    """Tests for extended MstepResult with convergence diagnostics (03-02)."""
+
+    def test_mstep_result_has_five_fields(self):
+        """Test 1: MstepResult has fields transformation, sigma2, q, n_iters, sigma2_history."""
+        assert "n_iters" in cpd.MstepResult._fields
+        assert "sigma2_history" in cpd.MstepResult._fields
+        assert len(cpd.MstepResult._fields) == 5
+
+    def test_registration_n_iters_is_int_gte_one(self):
+        """Test 2: After registration(), result.n_iters is an int >= 1."""
+        source = torch.randn(30, 3)
+        target = source + torch.tensor([0.5, 0.0, 0.0])
+        cpd_obj = cpd.RigidCPD(source=source, log_freq=-1)
+
+        result = cpd_obj.registration(target, maxiter=5, tol=1e-6)
+
+        assert isinstance(result.n_iters, int)
+        assert result.n_iters >= 1
+
+    def test_registration_sigma2_history_length_matches_n_iters(self):
+        """Test 3: sigma2_history is a list of floats with length == n_iters."""
+        source = torch.randn(30, 3)
+        target = source + torch.tensor([0.5, 0.0, 0.0])
+        cpd_obj = cpd.RigidCPD(source=source, log_freq=-1)
+
+        result = cpd_obj.registration(target, maxiter=5, tol=1e-6)
+
+        assert isinstance(result.sigma2_history, list)
+        assert len(result.sigma2_history) == result.n_iters
+        # All elements must be plain Python floats
+        for val in result.sigma2_history:
+            assert isinstance(val, float)
+
+    def test_sigma2_history_values_all_positive(self):
+        """Test 4: sigma2_history values are all > 0 (clamped to eps)."""
+        source = torch.randn(30, 3)
+        target = source + torch.tensor([0.5, 0.0, 0.0])
+        cpd_obj = cpd.RigidCPD(source=source, log_freq=-1)
+
+        result = cpd_obj.registration(target, maxiter=10, tol=1e-6)
+
+        for val in result.sigma2_history:
+            assert val > 0.0, f"sigma2 history contains non-positive value: {val}"
+
+    def test_sigma2_clamped_emits_warning(self, caplog):
+        """Test 5: When sigma2 would go below eps, it is clamped and a warning is logged."""
+        source = torch.randn(30, 3)
+        # Identical source/target causes sigma2 -> 0 quickly
+        target = source.clone()
+        cpd_obj = cpd.RigidCPD(source=source, log_freq=-1)
+
+        with caplog.at_level(logging.WARNING, logger="zreg.cpd"):
+            result = cpd_obj.registration(target, maxiter=20, tol=1e-10)
+
+        # If clamping occurred, warning must have been emitted
+        if any(v <= torch.finfo(torch.float32).eps for v in result.sigma2_history):
+            warning_msgs = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+            assert any("sigma2 clamped to dtype.eps" in str(m) for m in warning_msgs)

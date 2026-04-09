@@ -396,5 +396,70 @@ class TestCPDWithColor:
             target, maxiter=10,
             target_colors=target_colors,
         )
-        
+
         assert result.transformation is not None
+
+
+class TestRigidCPDScale:
+    """Regression tests for RigidCPD scale handling (BUGFIX-02)."""
+
+    def test_scale_reflects_size_ratio(self):
+        """RigidCPD with scale=True on target = 2*source returns scale ~2.0."""
+        torch.manual_seed(42)
+        source = torch.randn(50, 3)
+        target = 2.0 * source + torch.randn(50, 3) * 0.01
+
+        cpd_obj = cpd.RigidCPD(source=source, use_color=False, log_freq=-1, update_scale=True)
+        result = cpd_obj.registration(target, maxiter=100, tol=1e-6)
+
+        scale = result.transformation.scale
+        assert 1.5 <= scale <= 2.5, f"Expected scale near 2.0, got {scale}"
+
+    def test_scale_near_one_without_scaling(self):
+        """RigidCPD with scale=True on rigid-only transform returns scale ~1.0."""
+        torch.manual_seed(42)
+        source = torch.randn(50, 3)
+        # Small rotation around z-axis (0.1 rad) + translation
+        angle = 0.1
+        rot = torch.tensor([
+            [torch.cos(torch.tensor(angle)), -torch.sin(torch.tensor(angle)), 0.0],
+            [torch.sin(torch.tensor(angle)),  torch.cos(torch.tensor(angle)), 0.0],
+            [0.0, 0.0, 1.0],
+        ])
+        t = torch.tensor([0.1, 0.1, 0.1])
+        target = source @ rot.T + t
+
+        cpd_obj = cpd.RigidCPD(source=source, use_color=False, log_freq=-1, update_scale=True)
+        result = cpd_obj.registration(target, maxiter=100, tol=1e-6)
+
+        scale = result.transformation.scale
+        assert 0.8 <= scale <= 1.2, f"Expected scale near 1.0, got {scale}"
+
+    def test_no_division_by_zero_degenerate(self):
+        """_maximization_step does not raise when tr_yp1y is zero."""
+        n, dim = 10, 3
+        source = torch.randn(n, dim)
+        target = torch.randn(n, dim)
+
+        # Craft degenerate EstepResult where p1 is exactly zero
+        # This makes tr_yp1y = trace(source_hat.T * diag(p1) * source_hat) = 0
+        pt1 = torch.zeros(n)
+        p1 = torch.zeros(n)
+        px = torch.zeros(n, dim)
+        n_p = torch.tensor(1e-20)
+        pmat = torch.zeros(n, n)
+
+        estep_res = cpd.EstepResult(pt1, p1, px, n_p, pmat)
+
+        # Should not raise division by zero
+        result = cpd.RigidCPD._maximization_step(
+            source, target, estep_res, update_scale=True,
+        )
+        assert torch.isfinite(result.sigma2), f"sigma2 is not finite: {result.sigma2}"
+        scale_val = result.transformation.scale
+        if isinstance(scale_val, torch.Tensor):
+            assert torch.isfinite(scale_val), f"scale is not finite: {scale_val}"
+        else:
+            assert torch.isfinite(torch.tensor(float(scale_val))), (
+                f"scale is not finite: {scale_val}"
+            )

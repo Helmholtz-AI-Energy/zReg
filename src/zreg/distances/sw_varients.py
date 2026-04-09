@@ -7,6 +7,8 @@ from torch.autograd import Variable
 from pathlib import Path
 import os
 
+from ..validation import _validate_tensors
+
 __all__ = [
     "SlicedWassersteinDistance",
     "MaxSlicedWassersteinDistance",
@@ -128,6 +130,7 @@ class BaseWD(nn.Module):
         self.nobatchdim = nobatchdim
 
     def forward(self, x, y, *args, **kwargs):
+        _validate_tensors(x, y, names=["x", "y"])
         xsqueeze = False
         if x.ndim < 3 or self.nobatchdim:
             x = x.unsqueeze(0)

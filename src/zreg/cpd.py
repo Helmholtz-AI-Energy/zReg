@@ -13,6 +13,7 @@ import open3d as o3d
 from . import transforms as tf
 from . import dataset
 from .utils import squared_kernel_sum
+from .validation import _validate_tensors
 import logging
 
 
@@ -95,6 +96,9 @@ class CoherentPointDrift:
         self.log_freq = log_freq
 
     def set_source(self, source: torch.Tensor, source_colors: Optional[torch.Tensor] = None) -> None:
+        _validate_tensors(source, names=["source"])
+        if source_colors is not None:
+            _validate_tensors(source, source_colors, names=["source", "source_colors"])
         self._source = source
         if self._use_color and source_colors is not None:
             self._source_colors = source_colors
@@ -320,6 +324,10 @@ class CoherentPointDrift:
             other registration information.
         """
         assert self._tf_type is not None, "transformation type is None."
+        if self._source is not None:
+            _validate_tensors(self._source, target, names=["source", "target"])
+        else:
+            _validate_tensors(target, names=["target"])
         res = self._initialize(target)
         sigma2_c = 0.0
         if self._use_color:

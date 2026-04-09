@@ -22,6 +22,7 @@ from . import utils
 from . import cpd
 from . import transforms
 from .dataset import zRegPointCloud
+from .validation import _validate_tensors
 
 
 log = logging.getLogger(__name__)
@@ -82,6 +83,7 @@ def create_pairwise_distance_matrix(
             - The pairwise distance matrix (torch.Tensor).
             - The rotations from CPD registration (torch.Tensor), if CPD is used; otherwise, an empty tensor.
     """
+    _validate_tensors(x[0]["pos"], y[0]["pos"], names=["x[0]['pos']", "y[0]['pos']"])
     rank, size = 0, 1
     if mpi_distribute and hasmpi:
         comm_world = MPI.COMM_WORLD

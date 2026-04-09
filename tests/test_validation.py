@@ -5,6 +5,7 @@ import torch
 from unittest.mock import PropertyMock, patch
 
 from zreg.validation import _validate_tensors
+from zreg.distances.general import minkowski_distance
 
 
 class TestValidateTensors:
@@ -87,3 +88,49 @@ class TestValidateTensors:
         """Test that a single tensor never triggers device check even with check_device=True."""
         t = torch.randn(5, 3)
         _validate_tensors(t, names=["source"], check_device=True)  # should not raise
+
+
+class TestEntryPointValidation:
+    """Integration tests confirming NaN/inf rejection at actual entry points."""
+
+    def test_cpd_set_source_nan_raises(self):
+        """Test that CPD.set_source rejects a NaN tensor with 'source' in message."""
+        from zreg.cpd import RigidCPD
+
+        # Initialize with a valid source, then call set_source with NaN
+        valid_source = torch.randn(10, 3)
+        cpd = RigidCPD(source=valid_source)
+        nan_tensor = torch.full((10, 3), float("nan"))
+        with pytest.raises(ValueError) as exc_info:
+            cpd.set_source(nan_tensor)
+        assert "source" in str(exc_info.value)
+
+    def test_cpd_registration_nan_target_raises(self):
+        """Test that CPD.registration rejects a NaN target tensor with 'target' in message."""
+        from zreg.cpd import RigidCPD
+
+        source = torch.randn(10, 3)
+        cpd = RigidCPD(source=source)
+        nan_target = torch.full((10, 3), float("nan"))
+        with pytest.raises(ValueError) as exc_info:
+            cpd.registration(nan_target)
+        assert "target" in str(exc_info.value)
+
+    def test_base_wd_forward_nan_raises(self):
+        """Test that BaseWD.forward rejects a NaN x tensor with 'x' in message."""
+        from zreg.distances.sw_varients import SlicedWassersteinDistance
+
+        swd = SlicedWassersteinDistance(num_projs=50, nobatchdim=True, device="cpu")
+        nan_tensor = torch.full((10, 3), float("nan"))
+        valid_tensor = torch.randn(10, 3)
+        with pytest.raises(ValueError) as exc_info:
+            swd.forward(nan_tensor, valid_tensor)
+        assert "x" in str(exc_info.value)
+
+    def test_minkowski_nan_raises(self):
+        """Test that minkowski_distance rejects a NaN x tensor with 'x' in message."""
+        nan_tensor = torch.full((10, 3), float("nan"))
+        valid_tensor = torch.randn(10, 3)
+        with pytest.raises(ValueError) as exc_info:
+            minkowski_distance(nan_tensor, valid_tensor)
+        assert "x" in str(exc_info.value)

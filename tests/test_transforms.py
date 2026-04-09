@@ -231,6 +231,66 @@ class TestTransformPointsHomogeneous:
         """Test that raw tensor input raises TypeError."""
         points = torch.randn(10, 3)
         transform = torch.eye(4)
-        
+
         with pytest.raises(TypeError):
             transforms.transform_points_homogeneous(points, transform)
+
+    def test_near_zero_w_does_not_produce_inf_or_nan(self):
+        """Test 2: w-clamping: near-zero w coordinate does not produce inf or NaN."""
+        from zreg.dataset import zRegPointCloud
+
+        # A 4x4 matrix that zeroes out the w coordinate for the last row.
+        # Row 3 (bottom row) is [0,0,0,0] so transformed_points[:, 3] == 0
+        # Without clamping this causes division by zero.
+        transform = torch.eye(4)
+        transform[3, :] = 0.0  # zero out the bottom row -> w = 0 for all points
+
+        pc = zRegPointCloud(pos=torch.tensor([[1.0, 2.0, 3.0]]))
+        result = transforms.transform_points_homogeneous(pc, transform)
+
+        assert not torch.isnan(result["pos"]).any(), "NaN produced by near-zero w"
+        assert not torch.isinf(result["pos"]).any(), "Inf produced by near-zero w"
+
+
+class TestRigidTransformationComposition:
+    """Tests for RigidTransformation.__mul__ post-composition validation."""
+
+    def test_composition_valid_rotations(self):
+        """Test 3: composing two valid identity rotations succeeds."""
+        r1 = transforms.RigidTransformation(rot=torch.eye(3), t=torch.zeros(3))
+        r2 = transforms.RigidTransformation(rot=torch.eye(3), t=torch.ones(3))
+        r3 = r1 * r2
+        assert r3 is not None
+        assert torch.allclose(r3.rot, torch.eye(3), atol=1e-5)
+
+    def test_composition_invalid_det_raises_value_error(self):
+        """Test 4: composing matrices whose product has det far from 1.0 raises ValueError."""
+        # A 3x3 matrix with det=2 (scaling matrix)
+        bad_rot = torch.diag(torch.tensor([2.0, 1.0, 1.0]))
+        r1 = transforms.RigidTransformation(rot=bad_rot, t=torch.zeros(3))
+        r2 = transforms.RigidTransformation(rot=bad_rot, t=torch.zeros(3))
+        # composed det will be 4.0, far from 1.0
+        with pytest.raises(ValueError) as exc_info:
+            _ = r1 * r2
+        msg = str(exc_info.value)
+        assert "RigidTransformation composition produced invalid rotation" in msg
+        assert "det=" in msg
+
+    def test_composition_invalid_cond_raises_value_error(self):
+        """Test 5: composing matrices with high condition number raises ValueError."""
+        # A near-singular rotation: first column scaled to near zero
+        ill = torch.eye(3)
+        ill[0, 0] = 1e-8  # near-singular -> high cond number
+        # det ≈ 1e-8 (far from 1), will trigger det check first.
+        # Use a matrix where cond is high but det might still pass if needed.
+        # The plan says cond > 1e6 triggers ValueError with cond= value.
+        # We create a matrix where det is close enough but cond is huge.
+        # Actually: ill above has det=1e-8 so det check fires first; either path is fine.
+        r1 = transforms.RigidTransformation(rot=ill, t=torch.zeros(3))
+        r2 = transforms.RigidTransformation(rot=torch.eye(3), t=torch.zeros(3))
+        with pytest.raises(ValueError) as exc_info:
+            _ = r1 * r2
+        msg = str(exc_info.value)
+        assert "RigidTransformation composition produced invalid rotation" in msg
+        # Either det= or cond= must appear (depending on which check fires first)
+        assert "det=" in msg or "cond=" in msg

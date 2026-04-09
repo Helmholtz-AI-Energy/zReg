@@ -1,5 +1,6 @@
 from .. import utils
 import torch
+from ..validation import _validate_tensors
 
 __all__ = ["euclidean_distance", "manhattan_distance", "minkowski_distance"]
 
@@ -71,6 +72,7 @@ def minkowski_distance(x: torch.Tensor, y: torch.Tensor, p: float = 2, normalize
     This function returns a tensor of shape (x.shape[0], y.shape[0]) where each element (i, j)
     is the Minkowski distance between x[i] and y[j].
     """
+    _validate_tensors(x, y, names=["x", "y"])
     # TODO: add option to pass min/max to normalization function within this function
     if normalize:
         x, _ = utils.normalize_point_cloud(x)

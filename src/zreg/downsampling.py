@@ -88,7 +88,15 @@ def fps(pos: torch.Tensor, ratio: float, use_torch_cluster: bool = None) -> torc
     if use_torch_cluster is None:
         # Auto-detect: use torch_cluster if available and on GPU
         use_torch_cluster = TORCH_CLUSTER_AVAILABLE and pos.is_cuda
-    
+
+    if use_torch_cluster:
+        log.debug("Using torch_cluster FPS: %d points", pos.shape[0])
+    else:
+        log.debug("Using Open3D FPS (torch_cluster %s, CUDA %s): %d points",
+                  "available" if TORCH_CLUSTER_AVAILABLE else "unavailable",
+                  "yes" if pos.is_cuda else "no",
+                  pos.shape[0])
+
     if use_torch_cluster:
         if not TORCH_CLUSTER_AVAILABLE:
             raise ImportError(
@@ -169,7 +177,16 @@ def knn_graph(pos: torch.Tensor, k: int, batch: torch.Tensor = None, loop: bool 
     if use_torch_cluster is None:
         # Auto-detect: use torch_cluster if available and on GPU
         use_torch_cluster = TORCH_CLUSTER_AVAILABLE and pos.is_cuda
-    
+
+    if use_torch_cluster:
+        log.debug("Using torch_cluster KNN (k=%d): %d points", k, pos.shape[0])
+    else:
+        log.debug("Using scipy KNN (k=%d, torch_cluster %s, CUDA %s): %d points",
+                  k,
+                  "available" if TORCH_CLUSTER_AVAILABLE else "unavailable",
+                  "yes" if pos.is_cuda else "no",
+                  pos.shape[0])
+
     if use_torch_cluster:
         if not TORCH_CLUSTER_AVAILABLE:
             raise ImportError(

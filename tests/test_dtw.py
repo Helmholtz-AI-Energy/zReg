@@ -1,5 +1,7 @@
 """Tests for zreg.dtw module."""
 
+import math
+
 import pytest
 import torch
 from pathlib import Path
@@ -509,3 +511,160 @@ class TestExports:
         assert hasattr(zreg, "dtw")
         assert hasattr(zreg.dtw, "DynamicTimeWarping")
         assert hasattr(zreg.dtw, "DTWResult")
+
+
+class TestDTWMetricsAndBoundaries:
+    """Tests for DTW with additional distance metrics, windowed asymmetric inputs, and boundary conditions (TEST-02)."""
+
+    def test_compute_manhattan_metric(self, small_trajectory_pair):
+        """Test DTW computation with manhattan distance metric."""
+        x, y = small_trajectory_pair
+        dtw_obj = DynamicTimeWarping(
+            x, y,
+            distance_metric="manhattan",
+            downsample_method=None,
+            normalize=True,
+        )
+        result = dtw_obj.compute()
+
+        assert isinstance(result, DTWResult)
+        assert result.distance >= 0
+        assert len(result.warping_path) >= 3
+        assert result.warping_path[0] == (0, 0)
+        assert result.warping_path[-1] == (2, 2)
+
+    def test_compute_cpd_metric(self, small_trajectory_pair):
+        """Test DTW computation with cpd distance metric (requires cpd_type for registration)."""
+        x, y = small_trajectory_pair
+        dtw_obj = DynamicTimeWarping(
+            x, y,
+            distance_metric="cpd",
+            downsample_method=None,
+            cpd_type="rigid",
+        )
+        result = dtw_obj.compute()
+
+        assert isinstance(result, DTWResult)
+        # CPD quality metric (reg.q) can be negative, so check finite instead of >= 0
+        assert math.isfinite(result.distance)
+        assert len(result.warping_path) >= 3
+        assert result.warping_path[0] == (0, 0)
+        assert result.warping_path[-1] == (2, 2)
+
+    def test_compute_minkowski_metric(self, small_trajectory_pair):
+        """Test DTW computation with minkowski distance metric."""
+        x, y = small_trajectory_pair
+        dtw_obj = DynamicTimeWarping(
+            x, y,
+            distance_metric="minkowski",
+            downsample_method=None,
+            normalize=True,
+        )
+        result = dtw_obj.compute()
+
+        assert isinstance(result, DTWResult)
+        assert result.distance >= 0
+        assert len(result.warping_path) >= 3
+        assert result.warping_path[0] == (0, 0)
+        assert result.warping_path[-1] == (2, 2)
+
+    def test_windowed_asymmetric_trajectories(self):
+        """Test DTW with windowed constraint on asymmetric trajectory lengths."""
+        # x has 4 time points, y has 3 time points
+        x = {i: zRegPointCloud(pos=torch.randn(10, 3)) for i in range(4)}
+        y = {i: zRegPointCloud(pos=torch.randn(10, 3)) for i in range(3)}
+
+        dtw_obj = DynamicTimeWarping(
+            x, y,
+            distance_metric="euclidean",
+            downsample_method=None,
+            window=1,
+        )
+        result = dtw_obj.compute()
+
+        assert result.warping_path[0] == (0, 0)
+        assert result.warping_path[-1] == (3, 2)
+        assert result.distance >= 0
+
+        # Each step must respect window constraint: |i - j| <= 1
+        for i, j in result.warping_path:
+            assert abs(i - j) <= 1, f"Window constraint violated at ({i}, {j})"
+
+        # Each consecutive step must be a valid DTW move
+        for k in range(1, len(result.warping_path)):
+            di = result.warping_path[k][0] - result.warping_path[k - 1][0]
+            dj = result.warping_path[k][1] - result.warping_path[k - 1][1]
+            assert 0 <= di <= 1
+            assert 0 <= dj <= 1
+            assert di + dj >= 1
+
+    def test_boundary_single_timepoint_x(self):
+        """Test DTW with single time point in x (1xN boundary)."""
+        x = {0: zRegPointCloud(pos=torch.randn(10, 3))}
+        y = {i: zRegPointCloud(pos=torch.randn(10, 3)) for i in range(3)}
+
+        dtw_obj = DynamicTimeWarping(
+            x, y,
+            distance_metric="euclidean",
+            downsample_method=None,
+        )
+        result = dtw_obj.compute()
+
+        assert result.warping_path[0] == (0, 0)
+        assert result.warping_path[-1] == (0, 2)
+
+        # All steps must have i == 0 (forced along row boundary)
+        for i, j in result.warping_path:
+            assert i == 0, f"Expected i=0 for single-timepoint x, got ({i}, {j})"
+
+    def test_boundary_single_timepoint_y(self):
+        """Test DTW with single time point in y (Nx1 boundary)."""
+        x = {i: zRegPointCloud(pos=torch.randn(10, 3)) for i in range(3)}
+        y = {0: zRegPointCloud(pos=torch.randn(10, 3))}
+
+        dtw_obj = DynamicTimeWarping(
+            x, y,
+            distance_metric="euclidean",
+            downsample_method=None,
+        )
+        result = dtw_obj.compute()
+
+        assert result.warping_path[0] == (0, 0)
+        assert result.warping_path[-1] == (2, 0)
+
+        # All steps must have j == 0 (forced along column boundary)
+        for i, j in result.warping_path:
+            assert j == 0, f"Expected j=0 for single-timepoint y, got ({i}, {j})"
+
+    def test_boundary_equal_identical_trajectories(self):
+        """Test DTW with identical trajectories produces diagonal path.
+
+        Uses a precomputed cost matrix where diagonal is zero to verify
+        that DTW correctly identifies the optimal diagonal alignment
+        when self-match cost is zero.
+        """
+        # Build trajectories (needed for DynamicTimeWarping constructor)
+        x = {i: zRegPointCloud(pos=torch.randn(10, 3)) for i in range(4)}
+        y = {i: zRegPointCloud(pos=torch.randn(10, 3)) for i in range(4)}
+
+        dtw_obj = DynamicTimeWarping(x, y, distance_metric="euclidean")
+
+        # Set a cost matrix where diagonal is 0 (perfect self-match)
+        # and off-diagonal > 0 (non-zero cross-match cost)
+        cost = torch.tensor([
+            [0.0, 1.0, 2.0, 3.0],
+            [1.0, 0.0, 1.0, 2.0],
+            [2.0, 1.0, 0.0, 1.0],
+            [3.0, 2.0, 1.0, 0.0],
+        ])
+        dtw_obj.set_cost_matrix(cost)
+        result = dtw_obj.compute()
+
+        # Path should be the diagonal
+        expected_path = [(i, i) for i in range(4)]
+        assert result.warping_path == expected_path, (
+            f"Expected diagonal path {expected_path}, got {result.warping_path}"
+        )
+
+        # Distance should be 0 for perfect diagonal alignment
+        assert result.distance == 0.0

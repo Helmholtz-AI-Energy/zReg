@@ -6,6 +6,7 @@ import torch.nn as nn
 from torch.autograd import Variable
 from pathlib import Path
 import os
+import tempfile
 
 from ..validation import _validate_tensors
 
@@ -180,7 +181,7 @@ class AdaptiveSlicedWassersteinDistance(BaseWD):
         step_projs=10,
         k=2.0,
         loop_rate_thresh=0.05,
-        projs_history="projs_history.txt",
+        projs_history=None,
         max_slices=500,
         nobatchdim=True,
         epsilon=0.5,
@@ -236,16 +237,23 @@ class AdaptiveSlicedWassersteinDistance(BaseWD):
             loop_conditions = (self.k**2 * (second_moment_sw_p_pow_p - first_moment_sw_p_pow_p**2)) > ((n - 1) * eps**2)
             loop_rate = loop_conditions.sum(dim=0) * 1.0 / loop_conditions.shape[0]
 
-        with open(self.projs_history, "a") as fp:  # jot down number of sampled projections
-            fp.write(str(n) + "\n")
+        if self.projs_history is not None:
+            with open(self.projs_history, "a") as fp:
+                fp.write(str(n) + "\n")
+        else:
+            # Auto-cleanup: use tempfile that deletes on close
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=True) as fp:
+                fp.write(str(n) + "\n")
         return first_moment_sw_p_pow_p.mean(dim=0)
 
     def remove_history(self):
+        if self.projs_history is None:
+            return
         file = Path(self.projs_history)
         if file.exists():
             # remove the proj history...need to do this after every distance
             try:
-                os.remove("projs_history.txt")
+                os.remove(self.projs_history)
             except FileNotFoundError:
                 # preventing race condition when running in parallel
                 pass

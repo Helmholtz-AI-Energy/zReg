@@ -242,6 +242,63 @@ class TestGeneralisedSlicedWassersteinDistance:
         with pytest.raises(NotImplementedError):
             gswd(x, y)
 
+    def test_default_degree_direct(self):
+        """Test GSWD with default degree (no explicit kwarg) returns finite positive distance."""
+        torch.manual_seed(42)
+        x = torch.randn(1, 30, 3)
+        torch.manual_seed(123)
+        y = torch.randn(1, 30, 3)
+        gswd = sw_varients.GeneralisedSlicedWassersteinDistance(
+            num_projs=10, device="cpu", nobatchdim=False
+        )
+        dist = gswd(x, y)
+        assert torch.isfinite(dist).all(), f"GSWD returned non-finite: {dist}"
+        assert dist.item() > 0, f"GSWD returned non-positive: {dist}"
+
+    def test_default_degree_via_pairwise_defaults(self):
+        """Test that pairwise_distance_matrix GSWD defaults include degree=2.0.
+
+        This verifies the defaults list in _sanitize_pairwise_distance_matrix
+        includes degree so that GSWD constructed via dist='gswd' path gets
+        the degree parameter even when not explicitly provided by the user.
+        """
+        from unittest.mock import MagicMock, patch
+        import zreg.pairwise_distance_matrix as pdm
+
+        # Create minimal mock point clouds with device attribute
+        mock_device = torch.device("cpu")
+        mock_pos = MagicMock()
+        mock_pos.device = mock_device
+        mock_pos.dtype = torch.float32
+        x = {0: {"pos": mock_pos}}
+        y = {0: {"pos": mock_pos}}
+
+        # Capture kwargs passed to GeneralisedSlicedWassersteinDistance constructor
+        captured_kwargs = {}
+        original_init = sw_varients.GeneralisedSlicedWassersteinDistance.__init__
+
+        def capturing_init(self, *args, **kwargs):
+            captured_kwargs.update(kwargs)
+            original_init(self, *args, **kwargs)
+
+        with patch.object(
+            sw_varients.GeneralisedSlicedWassersteinDistance,
+            "__init__",
+            capturing_init,
+        ):
+            pdm._sanitize_pairwise_distance_matrix(
+                distance_kwargs=[None],
+                distance_metrics=["gswd"],
+                downsample_method="random",
+                x=x,
+                y=y,
+            )
+
+        assert "degree" in captured_kwargs, (
+            f"degree not passed to GSWD constructor via pairwise defaults. "
+            f"Got kwargs: {captured_kwargs}"
+        )
+
 
 class TestProjectedWassersteinDistance:
     """Tests for ProjectedWassersteinDistance class."""

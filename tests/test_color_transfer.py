@@ -294,3 +294,115 @@ def test_transfer_colors_gaussian_kernel_large_sigma(sample_point_clouds):
     # Should be close to the average of all source colors
     expected_avg = source_pc["color"].mean(dim=0)
     assert torch.allclose(transferred_colors, expected_avg, atol=1e-2)
+
+
+class TestColorTransferEdgeCases:
+    """Edge case tests for color transfer (TEST-05): empty source, single-point source,
+    and dimension-mismatched inputs."""
+
+    # --- Empty source tests (D-10, D-12) ---
+
+    def test_empty_source_zreg_raises_valueerror(self):
+        """Empty source zRegPointCloud raises ValueError."""
+        source = zRegPointCloud(pos=torch.zeros(0, 3), color=torch.zeros(0, 3))
+        target = zRegPointCloud(pos=torch.randn(5, 3))
+
+        with pytest.raises(ValueError, match="source has no points"):
+            transfer_colors(source, target, method=ColorTransferMethod.NEAREST_NEIGHBOR)
+
+    def test_empty_source_tensor_raises_valueerror(self):
+        """Empty source tensors raise ValueError."""
+        source_pos = torch.zeros(0, 3)
+        source_colors = torch.zeros(0, 3)
+        target_pos = torch.randn(5, 3)
+
+        with pytest.raises(ValueError, match="source has no points"):
+            transfer_colors(
+                source_pos, target_pos,
+                method=ColorTransferMethod.NEAREST_NEIGHBOR,
+                source_colors=source_colors,
+            )
+
+    def test_empty_source_error_contains_shape(self):
+        """Empty source error message includes the shape tuple."""
+        source = zRegPointCloud(pos=torch.zeros(0, 3), color=torch.zeros(0, 3))
+        target = zRegPointCloud(pos=torch.randn(5, 3))
+
+        with pytest.raises(ValueError) as exc_info:
+            transfer_colors(source, target, method=ColorTransferMethod.NEAREST_NEIGHBOR)
+
+        assert "(0, 3)" in str(exc_info.value)
+
+    # --- Single-point source tests (D-11) ---
+
+    def test_single_point_source_nearest_neighbor(self):
+        """Single-point source returns valid output via nearest neighbor."""
+        source = zRegPointCloud(
+            pos=torch.tensor([[1.0, 2.0, 3.0]]),
+            color=torch.tensor([[0.5, 0.8, 0.2]]),
+        )
+        target = zRegPointCloud(pos=torch.randn(10, 3))
+
+        result = transfer_colors(source, target, method=ColorTransferMethod.NEAREST_NEIGHBOR)
+
+        assert result.shape == (10, 3)
+        assert torch.isfinite(result).all()
+        # All target points must receive the single source color
+        assert torch.allclose(result, torch.tensor([[0.5, 0.8, 0.2]]).expand(10, 3))
+
+    def test_single_point_source_gaussian_kernel(self):
+        """Single-point source returns valid output via Gaussian kernel."""
+        source = zRegPointCloud(
+            pos=torch.tensor([[1.0, 2.0, 3.0]]),
+            color=torch.tensor([[0.5, 0.8, 0.2]]),
+        )
+        target = zRegPointCloud(pos=torch.randn(10, 3))
+
+        result = transfer_colors(
+            source, target, method=ColorTransferMethod.GAUSSIAN_KERNEL, sigma=1.0
+        )
+
+        assert result.shape == (10, 3)
+        assert torch.isfinite(result).all()
+        # With one source point all Gaussian weights go to it
+        assert torch.allclose(result, torch.tensor([[0.5, 0.8, 0.2]]).expand(10, 3))
+
+    def test_single_point_source_cpd_weighted(self):
+        """Single-point source returns valid output via CPD weighted."""
+        source = zRegPointCloud(
+            pos=torch.tensor([[1.0, 2.0, 3.0]]),
+            color=torch.tensor([[0.5, 0.8, 0.2]]),
+        )
+        target = zRegPointCloud(pos=torch.randn(10, 3))
+
+        # pmat shape: (n_target=10, n_source=1)
+        # Build mock manually to avoid MockEstepResult matrix size issue
+        class _SimpleEstep:
+            pass
+        estep_result = _SimpleEstep()
+        estep_result.pmat = torch.ones(10, 1)
+
+        result = transfer_colors(
+            source, target, method=ColorTransferMethod.CPD_WEIGHTED, estep_result=estep_result
+        )
+
+        assert result.shape == (10, 3)
+        assert torch.isfinite(result).all()
+
+    # --- Dimension mismatch tests ---
+
+    def test_dimension_mismatch_3d_source_2d_target(self):
+        """3D source with 2D target raises ValueError."""
+        source = zRegPointCloud(pos=torch.randn(10, 3), color=torch.randn(10, 3))
+        target = zRegPointCloud(pos=torch.randn(5, 2))
+
+        with pytest.raises(ValueError, match="same dimensionality"):
+            transfer_colors(source, target, method=ColorTransferMethod.NEAREST_NEIGHBOR)
+
+    def test_dimension_mismatch_2d_source_3d_target(self):
+        """2D source with 3D target raises ValueError."""
+        source = zRegPointCloud(pos=torch.randn(10, 2), color=torch.randn(10, 2))
+        target = zRegPointCloud(pos=torch.randn(5, 3))
+
+        with pytest.raises(ValueError, match="same dimensionality"):
+            transfer_colors(source, target, method=ColorTransferMethod.NEAREST_NEIGHBOR)

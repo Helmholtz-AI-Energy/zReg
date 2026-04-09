@@ -523,6 +523,7 @@ def _sanitize_pairwise_distance_matrix(distance_kwargs, distance_metrics, downsa
             defaults = [
                 ["device", x[0]["pos"].device],
                 ["num_projs", 50],
+                ["degree", 2.0],
             ]
             for kw, val in defaults:
                 if kw not in dist_kwargs:

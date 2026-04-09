@@ -332,7 +332,6 @@ class OrthogonalSlicedWassersteinDistance(BaseWD):
 
 
 class GeneralisedSlicedWassersteinDistance(BaseWD):
-    # TODO: update forward to have degree as default somewhere
     """
     Generalized SW distance was proposed in paper "Generalized Sliced Wasserstein Distance" - NeurIPS'19
     """

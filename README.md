@@ -1,121 +1,157 @@
 [![Project generated with PyScaffold](https://img.shields.io/badge/-PyScaffold-005CA0?logo=pyscaffold)](https://pyscaffold.org/)
-<!-- These are examples of badges you might also want to add to your README. Update the URLs accordingly.
-[![Built Status](https://api.cirrus-ci.com/github/<USER>/zReg.svg?branch=main)](https://cirrus-ci.com/github/<USER>/zReg)
-[![ReadTheDocs](https://readthedocs.org/projects/zReg/badge/?version=latest)](https://zReg.readthedocs.io/en/stable/)
-[![Coveralls](https://img.shields.io/coveralls/github/<USER>/zReg/main.svg)](https://coveralls.io/r/<USER>/zReg)
-[![PyPI-Server](https://img.shields.io/pypi/v/zReg.svg)](https://pypi.org/project/zReg/)
-[![Conda-Forge](https://img.shields.io/conda/vn/conda-forge/zReg.svg)](https://anaconda.org/conda-forge/zReg)
-[![Monthly Downloads](https://pepy.tech/badge/zReg/month)](https://pepy.tech/project/zReg)
-[![Twitter](https://img.shields.io/twitter/url/http/shields.io.svg?style=social&label=Twitter)](https://twitter.com/zReg)
--->
 
 # zReg
 
-> Add a short description here!
+> GPU-accelerated 3D point cloud registration, temporal alignment, and color transfer using PyTorch.
 
-A longer description of your project goes here...
+zReg is a scientific computing library for analyzing 3D point cloud data. It provides Coherent Point Drift (CPD) registration, Dynamic Time Warping (DTW) for trajectory alignment, Sliced Wasserstein Distance variants, and color/celltype transfer between aligned clouds — all built on PyTorch with optional GPU acceleration.
+
+**v1.0** — 275 passing regression tests, full input validation, CPD convergence diagnostics.
+
+## Features
+
+- **CPD Registration** — rigid, affine, non-rigid, and constrained non-rigid point cloud alignment
+- **Sliced Wasserstein Distances** — SWD, MaxSWD, ASWD, OSWD, GSWD, PSWD
+- **Dynamic Time Warping** — temporal alignment of point cloud trajectories with Sakoe-Chiba band support
+- **Pairwise Distance Matrix** — compute matrices across trajectory sets with optional MPI distribution
+- **Color/Celltype Transfer** — propagate labels from source to target via nearest-neighbor, CPD-weighted, KNN voting, or Gaussian kernel
+- **Downsampling** — Farthest Point Sampling (GPU-accelerated via torch_cluster), random, uniform
+- **Geometric Transformations** — Rigid, Affine, NonRigid, TPS, Combined; composable and invertible
+- **Open3D & torch_cluster interoperability** — convert to/from Open3D point clouds; FPS via torch_cluster when available
 
 ## Installation
 
-In order to set up the necessary environment:
-
-1. review and uncomment what you need in `environment.yml` and create an environment `zReg` with the help of [conda]:
-   ```
+1. Review `environment.yml` and create the conda environment:
+   ```bash
    conda env create -f environment.yml
-   ```
-2. activate the new environment with:
-   ```
    conda activate zReg
    ```
+   > The conda environment installs zReg in editable mode. Re-run `pip install -e .` after changes to `setup.cfg`.
 
-> **_NOTE:_**  The conda environment will have zReg installed in editable mode.
-> Some changes, e.g. in `setup.cfg`, might require you to run `pip install -e .` again.
+2. For pip-only installs:
+   ```bash
+   pip install -e .
+   # With MPI support:
+   pip install -e ".[mpi]"
+   # With visualization tools:
+   pip install -e ".[viz]"
+   ```
 
+Optional, run once after `git clone`:
 
-Optional and needed only once after `git clone`:
-
-3. install several [pre-commit] git hooks with:
+3. Install pre-commit hooks:
    ```bash
    pre-commit install
-   # You might also want to run `pre-commit autoupdate`
    ```
-   and checkout the configuration under `.pre-commit-config.yaml`.
-   The `-n, --no-verify` flag of `git commit` can be used to deactivate pre-commit hooks temporarily.
 
-4. install [nbstripout] git hooks to remove the output cells of committed notebooks with:
+4. Install nbstripout to keep notebook outputs out of git history:
    ```bash
    nbstripout --install --attributes notebooks/.gitattributes
    ```
-   This is useful to avoid large diffs due to plots in your notebooks.
-   A simple `nbstripout --uninstall` will revert these changes.
 
+## Quick Start
 
-Then take a look into the `scripts` and `notebooks` folders.
+**Point cloud registration (CPD):**
+```python
+import zreg
 
-## Dependency Management & Reproducibility
+# source, target: torch tensors of shape (N, 3) and (M, 3)
+result = zreg.cpd.cpd_registration(source, target, tf_type_name="rigid")
+transformed = result.transformation.transform(source)
+```
 
-1. Always keep your abstract (unpinned) dependencies updated in `environment.yml` and eventually
-   in `setup.cfg` if you want to ship and install your package via `pip` later on.
-2. Create concrete dependencies as `environment.lock.yml` for the exact reproduction of your
-   environment with:
-   ```bash
-   conda env export -n zReg -f environment.lock.yml
-   ```
-   For multi-OS development, consider using `--no-builds` during the export.
-3. Update your current environment with respect to a new `environment.lock.yml` using:
-   ```bash
-   conda env update -f environment.lock.yml --prune
-   ```
+**Temporal alignment (DTW):**
+```python
+from zreg.dtw import DynamicTimeWarping
+
+# x, y: dicts mapping time index -> point cloud tensor
+dtw = DynamicTimeWarping(x=trajectory_x, y=trajectory_y, distance_metric="swd")
+result = dtw.compute()
+# result.warping_path, result.distance, result.cost_matrix
+```
+
+**Pairwise distance matrix:**
+```python
+from zreg.pairwise_distance_matrix import create_pairwise_distance_matrix
+
+matrix, rotations = create_pairwise_distance_matrix(
+    x=x_trajectories, y=y_trajectories,
+    distance_metric="swd", cpd_type="rigid"
+)
+```
+
+**Color/celltype transfer:**
+```python
+from zreg.color_transfer import transfer_colors, ColorTransferMethod
+
+colors = transfer_colors(
+    source, target,
+    method=ColorTransferMethod.NEAREST_NEIGHBOR,
+    source_colors=source_labels,
+)
+```
+
+## Modules
+
+| Module | Description |
+|--------|-------------|
+| `zreg.cpd` | CPD registration — `RigidCPD`, `AffineCPD`, `NonRigidCPD`, `cpd_registration()` |
+| `zreg.transforms` | Transformation classes — `RigidTransformation`, `AffineTransformation`, `NonRigidTransformation`, `TPSTransformation`, `CombinedTransformation` |
+| `zreg.dtw` | `DynamicTimeWarping` — trajectory alignment with windowed DP and multiple distance metrics |
+| `zreg.distances` | Sliced Wasserstein variants — SWD, MaxSWD, ASWD, OSWD, GSWD, PSWD; also Euclidean/Manhattan/Minkowski |
+| `zreg.pairwise_distance_matrix` | `create_pairwise_distance_matrix()` — full matrix computation with optional MPI |
+| `zreg.color_transfer` | `transfer_colors()` — four label propagation methods |
+| `zreg.downsampling` | `farthest_point_down_sample()`, `random_down_sample()`, `uniform_down_sample()` |
+| `zreg.dataset` | `zRegPointCloud`, data loading from MATLAB/CSV formats |
+| `zreg.validation` | Input tensor validation (NaN/inf, device mismatch) used across the public API |
+
+## Dependencies
+
+**Core:** `numpy`, `scipy`, `torch`, `open3d`, `colorlog`, `tqdm`
+
+**Optional:**
+- `mpi4py` — MPI-distributed pairwise distance computation (`pip install -e ".[mpi]"`)
+- `torch_cluster` — GPU-accelerated Farthest Point Sampling
+- `matplotlib`, `seaborn` — visualization (`pip install -e ".[viz]"`)
+
+**Python:** 3.9–3.12
+
+## Logging
+
+```python
+import zreg
+
+zreg.set_log_level("DEBUG")          # programmatic
+# or via environment variable:
+# ZREG_LOG_LEVEL=DEBUG python ...
+```
+
 ## Project Organization
 
 ```
-├── AUTHORS.md              <- List of developers and maintainers.
-├── CHANGELOG.md            <- Changelog to keep track of new features and fixes.
-├── CONTRIBUTING.md         <- Guidelines for contributing to this project.
-├── Dockerfile              <- Build a docker container with `docker build .`.
-├── LICENSE.txt             <- License as chosen on the command-line.
-├── README.md               <- The top-level README for developers.
-├── configs                 <- Directory for configurations of model & application.
+├── AUTHORS.md
+├── CHANGELOG.md
+├── LICENSE.txt
+├── README.md
+├── configs                 <- Model and application configurations.
 ├── data
 │   ├── external            <- Data from third party sources.
-│   ├── interim             <- Intermediate data that has been transformed.
-│   ├── processed           <- The final, canonical data sets for modeling.
-│   └── raw                 <- The original, immutable data dump.
-├── docs                    <- Directory for Sphinx documentation in rst or md.
-├── environment.yml         <- The conda environment file for reproducibility.
-├── models                  <- Trained and serialized models, model predictions,
-│                              or model summaries.
-├── notebooks               <- Jupyter notebooks. Naming convention is a number (for
-│                              ordering), the creator's initials and a description,
-│                              e.g. `1.0-fw-initial-data-exploration`.
-├── pyproject.toml          <- Build configuration. Don't change! Use `pip install -e .`
-│                              to install for development or to build `tox -e build`.
-├── references              <- Data dictionaries, manuals, and all other materials.
-├── reports                 <- Generated analysis as HTML, PDF, LaTeX, etc.
-│   └── figures             <- Generated plots and figures for reports.
-├── scripts                 <- Analysis and production scripts which import the
-│                              actual PYTHON_PKG, e.g. train_model.
-├── setup.cfg               <- Declarative configuration of your project.
-├── setup.py                <- [DEPRECATED] Use `python setup.py develop` to install for
-│                              development or `python setup.py bdist_wheel` to build.
+│   ├── interim             <- Intermediate transformed data.
+│   ├── processed           <- Final canonical datasets.
+│   └── raw                 <- Original immutable data.
+├── docs                    <- Sphinx documentation.
+├── environment.yml         <- Conda environment for reproducibility.
+├── models                  <- Trained models and predictions.
+├── notebooks               <- Jupyter notebooks (basics.ipynb, cpd.ipynb).
+├── pyproject.toml          <- Build configuration.
+├── scripts                 <- Analysis scripts (example_plots.py, dtw_testing.py, color_transfer_example.py).
+├── setup.cfg               <- Declarative project configuration.
 ├── src
-│   └── zreg                <- Actual Python package where the main functionality goes.
-├── tests                   <- Unit tests which can be run with `pytest`.
-├── .coveragerc             <- Configuration for coverage reports of unit tests.
-├── .isort.cfg              <- Configuration for git hook that sorts imports.
-└── .pre-commit-config.yaml <- Configuration of pre-commit git hooks.
+│   └── zreg                <- Package source.
+├── tests                   <- Pytest test suite (275 regression tests).
+└── .pre-commit-config.yaml <- Pre-commit hook configuration.
 ```
-
-<!-- pyscaffold-notes -->
-
-## Note
-
-This project has been set up using [PyScaffold] 4.6 and the [dsproject extension] 0.7.2.
 
 [conda]: https://docs.conda.io/
 [pre-commit]: https://pre-commit.com/
-[Jupyter]: https://jupyter.org/
 [nbstripout]: https://github.com/kynan/nbstripout
-[Google style]: http://google.github.io/styleguide/pyguide.html#38-comments-and-docstrings
-[PyScaffold]: https://pyscaffold.org/
-[dsproject extension]: https://github.com/pyscaffold/pyscaffoldext-dsproject

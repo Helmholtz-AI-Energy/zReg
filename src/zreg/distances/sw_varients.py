@@ -252,7 +252,6 @@ class AdaptiveSlicedWassersteinDistance(BaseWD):
 
 
 class MaxSlicedWassersteinDistance(BaseWD):
-    # TODO: BROKEN IN BACKWARDS!!
     """
     Max-SW distance was proposed in paper "Max-Sliced Wasserstein Distance and its use for GANs" - CVPR'19
     The way to estimate it was proposed in paper "Generalized Sliced Wasserstein Distance" - NeurIPS'19
@@ -277,7 +276,6 @@ class MaxSlicedWassersteinDistance(BaseWD):
         optimizer = torch.optim.Adam([projections], lr=lr)
 
         for i in range(num_iter):
-            print(i)
             # compute loss
             xproj = x.bmm(projections.transpose(1, 2))
 
@@ -294,9 +292,8 @@ class MaxSlicedWassersteinDistance(BaseWD):
             hold = negative_first_moment.mean()
             hold.backward(retain_graph=True)
             optimizer.step()
-            # project onto unit sphere
-            projections = proj_onto_unit_sphere(projections)
-            print(optimizer.param_groups[0])
+            # project onto unit sphere (in-place to preserve Adam's parameter reference)
+            projections.data = proj_onto_unit_sphere(projections.data)
 
         projections_no_grad = projections.detach()
         loss, _ = compute_practical_moments_sw_with_predefined_projections(x, y, projections_no_grad)

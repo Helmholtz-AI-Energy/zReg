@@ -1,5 +1,7 @@
 """Tests for zreg.utils module."""
 
+from unittest.mock import patch
+
 import pytest
 import torch
 
@@ -74,6 +76,40 @@ class TestRbfKernel:
         result_large_beta = utils.rbf_kernel(x, y, beta=10.0)
         # Larger beta should give values closer to 1
         assert result_large_beta.mean() > result_small_beta.mean()
+
+
+class TestRBFKernelNormalization:
+    """Regression tests verifying rbf_kernel is a pure computation without internal normalization."""
+
+    def _make_normalized(self, n, d):
+        """Create a tensor normalized to [-1, 1]."""
+        pts = torch.randn(n, d)
+        pts, _ = utils.normalize_point_cloud(pts)
+        return pts
+
+    def test_rbf_kernel_shape(self):
+        """rbf_kernel with pre-normalized inputs returns finite tensor of correct shape (m, n)."""
+        x = self._make_normalized(10, 3)
+        y = self._make_normalized(15, 3)
+        result = utils.rbf_kernel(x, y, beta=2.0)
+        assert result.shape == (15, 10)
+        assert torch.isfinite(result).all()
+
+    def test_rbf_kernel_no_internal_normalization(self):
+        """rbf_kernel does NOT call normalize_point_cloud internally."""
+        x = self._make_normalized(10, 3)
+        y = self._make_normalized(15, 3)
+        with patch("zreg.utils.normalize_point_cloud") as mock_norm:
+            utils.rbf_kernel(x, y, 2.0)
+            mock_norm.assert_not_called()
+
+    def test_rbf_kernel_values_in_range(self):
+        """rbf_kernel output values are in range (0, 1] for pre-normalized data."""
+        x = self._make_normalized(10, 3)
+        y = self._make_normalized(15, 3)
+        result = utils.rbf_kernel(x, y, beta=2.0)
+        assert (result > 0).all()
+        assert (result <= 1).all()
 
 
 class TestTpsKernel:

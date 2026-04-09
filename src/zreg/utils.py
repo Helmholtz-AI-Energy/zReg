@@ -60,12 +60,16 @@ def rbf_kernel(x: torch.Tensor, y: torch.Tensor, beta: float) -> torch.Tensor:
     """
     Computes the Radial Basis Function (RBF) kernel between two tensors.
 
+    .. note::
+        Inputs must be pre-normalized (e.g., via :func:`normalize_point_cloud`)
+        to prevent numerical instability. This function does NOT normalize internally.
+
     Parameters
     ----------
     x : torch.Tensor
-        First tensor with shape (n, d).
+        First tensor with shape (n, d). Must be pre-normalized.
     y : torch.Tensor
-        Second tensor with shape (m, d).
+        Second tensor with shape (m, d). Must be pre-normalized.
     beta : float
         Bandwidth parameter for the RBF kernel.
 
@@ -74,9 +78,7 @@ def rbf_kernel(x: torch.Tensor, y: torch.Tensor, beta: float) -> torch.Tensor:
     torch.Tensor
         A tensor with shape (m, n) representing the RBF kernel.
     """
-    # Scale the point clouds to prevent numerical instability
-    x, _ = normalize_point_cloud(x)
-    y, _ = normalize_point_cloud(y)
+    # NOTE: inputs must be pre-normalized before calling this function
     diff2 = squared_kernel(x, y)
     return torch.exp(-diff2 / (2.0 * beta))
 

@@ -12,7 +12,7 @@ import open3d as o3d
 # from . import math_utils as mu
 from . import transforms as tf
 from . import dataset
-from .utils import squared_kernel_sum
+from .utils import normalize_point_cloud, squared_kernel_sum
 from .validation import _validate_tensors
 import logging
 
@@ -799,11 +799,13 @@ class NonRigidCPD(CoherentPointDrift):
         self._lmd = lmd
         self._tf_obj = None
         if self._source is not None:
-            self._tf_obj = self._tf_type(None, self._source, self._beta)
+            self._normalized_source, _ = normalize_point_cloud(self._source)
+            self._tf_obj = self._tf_type(None, self._normalized_source, self._beta)
 
     def set_source(self, source: torch.Tensor) -> None:
         self._source = source
-        self._tf_obj = self._tf_type(None, self._source, self._beta)
+        self._normalized_source, _ = normalize_point_cloud(self._source)
+        self._tf_obj = self._tf_type(None, self._normalized_source, self._beta)
 
     def maximization_step(
         self,
@@ -959,11 +961,13 @@ class ConstrainedNonRigidCPD(CoherentPointDrift):
         self._tf_obj = None
         self.idx_source, self.idx_target = idx_source, idx_target
         if self._source is not None:
-            self._tf_obj = self._tf_type(None, self._source, self._beta)
+            self._normalized_source, _ = normalize_point_cloud(self._source)
+            self._tf_obj = self._tf_type(None, self._normalized_source, self._beta)
 
     def set_source(self, source: torch.Tensor) -> None:
         self._source = source
-        self._tf_obj = self._tf_type(None, self._source, self._beta)
+        self._normalized_source, _ = normalize_point_cloud(self._source)
+        self._tf_obj = self._tf_type(None, self._normalized_source, self._beta)
 
     def maximization_step(
         self,

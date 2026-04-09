@@ -456,6 +456,10 @@ class TestRigidCPDScale:
             source, target, estep_res, update_scale=True,
         )
         assert torch.isfinite(result.sigma2), f"sigma2 is not finite: {result.sigma2}"
-        assert torch.isfinite(torch.tensor(result.transformation.scale)), (
-            f"scale is not finite: {result.transformation.scale}"
-        )
+        scale_val = result.transformation.scale
+        if isinstance(scale_val, torch.Tensor):
+            assert torch.isfinite(scale_val), f"scale is not finite: {scale_val}"
+        else:
+            assert torch.isfinite(torch.tensor(float(scale_val))), (
+                f"scale is not finite: {scale_val}"
+            )

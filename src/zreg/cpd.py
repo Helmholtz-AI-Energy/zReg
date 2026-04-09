@@ -577,25 +577,28 @@ class RigidCPD(CoherentPointDrift):
         rot = torch.matmul(u * c, vh)  # previously np.dot
 
         # Compute the optimal scale (if enabled)
-        tr_atr = torch.trace(torch.matmul(a.T, rot))  # previously np.dot
-        tr_yp1y = torch.trace(torch.matmul(source_hat.T * p1, source_hat))  # previously np.dot
-        # TODO: fix the condition below
+        # Eq. (9)-(10) from Myronenko & Song 2010: s = tr(A^T R) / tr(Y_hat^T diag(P1) Y_hat)
+        # Here a = X^T diag(P1) Y_hat - mu_x (P1^T Y_hat)^T (cross-covariance),
+        # rot = R (optimal rotation from SVD of A), matching the paper's convention.
+        tr_atr = torch.trace(torch.matmul(a.T, rot))
+        tr_yp1y = torch.trace(torch.matmul(source_hat.T * p1, source_hat))
         if update_scale:
-            # attempt to avoide changing scale too quickly?
-            scale = tr_atr / tr_yp1y
+            # Guard against division by zero when tr_yp1y is near zero (degenerate input)
+            scale = tr_atr / torch.clamp(tr_yp1y, min=torch.finfo(a.dtype).eps)
         else:
             scale = 1.0
 
         # Compute the optimal translation
-        t = mu_x - scale * torch.matmul(rot, mu_y)  # previously np.dot
-        tr_xp1x = torch.trace(torch.matmul(target_hat.T * pt1, target_hat))  # previously np.dot
+        t = mu_x - scale * torch.matmul(rot, mu_y)
+        tr_xp1x = torch.trace(torch.matmul(target_hat.T * pt1, target_hat))
 
         # Update the variance
+        # Eq. (23) from Myronenko & Song 2010; clamped below to prevent negative values
         if update_scale:
             sigma2 = (tr_xp1x - scale * tr_atr) / (n_p * dim)
         else:
             sigma2 = (tr_xp1x + tr_yp1y - scale * tr_atr) / (n_p * dim)
-        sigma2 = torch.clamp(sigma2, min=torch.finfo(a.dtype).eps)  # Ensure sigma2 is not too small
+        sigma2 = torch.clamp(sigma2, min=torch.finfo(a.dtype).eps)
 
         # Update the objective function value
         q = (tr_xp1x - 2.0 * scale * tr_atr + (scale**2) * tr_yp1y) / (

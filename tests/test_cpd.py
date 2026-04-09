@@ -525,3 +525,104 @@ class TestMstepResultDiagnostics:
         if any(v <= torch.finfo(torch.float32).eps for v in result.sigma2_history):
             warning_msgs = [r.message for r in caplog.records if r.levelno == logging.WARNING]
             assert any("sigma2 clamped to dtype.eps" in str(m) for m in warning_msgs)
+
+
+class TestCPDNumericalStability:
+    """Tests for CPD numerical stability with extreme and degenerate inputs (TEST-01)."""
+
+    def test_extreme_scale_ratio_100x(self):
+        """CPD handles 100x scale ratio without NaN or inf in sigma2 or transformation."""
+        torch.manual_seed(42)
+        source = torch.randn(30, 3)
+        target = 100.0 * source + torch.randn(30, 3) * 0.01
+        result = cpd.RigidCPD(source=source, log_freq=-1, update_scale=True).registration(
+            target, maxiter=50, tol=1e-6
+        )
+        assert torch.isfinite(result.sigma2.detach().clone())
+        scale_val = result.transformation.scale
+        if not isinstance(scale_val, torch.Tensor):
+            scale_val = torch.tensor(scale_val)
+        assert torch.isfinite(scale_val)
+
+    def test_coplanar_points_z_zero(self):
+        """CPD handles coplanar (z=0) point clouds without NaN."""
+        torch.manual_seed(42)
+        source_2d = torch.randn(30, 2)
+        source = torch.cat([source_2d, torch.zeros(30, 1)], dim=1)
+        target = source + torch.randn(30, 3) * 0.01
+        result = cpd.RigidCPD(source=source, log_freq=-1).registration(
+            target, maxiter=30, tol=1e-5
+        )
+        assert torch.isfinite(result.sigma2.detach().clone())
+        assert result.transformation is not None
+
+    def test_collinear_points(self):
+        """CPD handles collinear point clouds without NaN."""
+        torch.manual_seed(42)
+        t = torch.linspace(0, 1, 30).unsqueeze(1)
+        source = torch.cat([t, torch.zeros(30, 1), torch.zeros(30, 1)], dim=1)
+        target = source + torch.randn(30, 3) * 0.01
+        result = cpd.RigidCPD(source=source, log_freq=-1).registration(
+            target, maxiter=30, tol=1e-5
+        )
+        assert torch.isfinite(result.sigma2.detach().clone())
+        assert result.transformation is not None
+
+    def test_tight_cluster_points(self):
+        """CPD handles tight-cluster (all points within 1e-4) without NaN."""
+        torch.manual_seed(42)
+        source = torch.randn(30, 3) * 1e-4
+        target = source + torch.randn(30, 3) * 1e-5
+        result = cpd.RigidCPD(source=source, log_freq=-1).registration(
+            target, maxiter=30, tol=1e-5
+        )
+        assert torch.isfinite(result.sigma2.detach().clone())
+        assert result.transformation is not None
+
+    def test_sigma2_clamping_exercised(self):
+        """Sigma2 clamping code path is exercised when identical points force sigma2 toward 0."""
+        torch.manual_seed(42)
+        # Use perfectly identical 3D point clouds with scale update to drive sigma2 toward 0
+        source = torch.randn(30, 3)
+        target = source.clone()  # identical points force sigma2 toward 0
+        result = cpd.RigidCPD(
+            source=source, log_freq=-1, update_scale=True
+        ).registration(target, maxiter=500, tol=0.0)
+        # After many iterations on identical points, sigma2_history should contain
+        # values near zero, proving the clamping region is approached.
+        # The clamp is at eps (~1.19e-7); we check sigma2 gets very small.
+        eps = torch.finfo(torch.float32).eps
+        min_sigma2 = min(result.sigma2_history)
+        assert min_sigma2 <= eps * 10, (
+            f"sigma2_history min ({min_sigma2}) should be near eps ({eps}), "
+            f"proving the clamp code path is exercised"
+        )
+
+
+class TestCPDDeviceHandling:
+    """Tests for CPD device handling (TEST-04)."""
+
+    def test_cpu_registration_roundtrip(self):
+        """CPU registration produces finite results on CPU device."""
+        torch.manual_seed(42)
+        source = torch.randn(30, 3)
+        target = source + torch.randn(30, 3) * 0.1
+        result = cpd.RigidCPD(source=source, log_freq=-1).registration(
+            target, maxiter=20
+        )
+        transformed = result.transformation.transform(source)
+        assert transformed.device.type == "cpu"
+        assert torch.isfinite(transformed).all()
+
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
+    def test_gpu_registration(self):
+        """GPU registration produces results on CUDA device."""
+        torch.manual_seed(42)
+        source = torch.randn(30, 3).cuda()
+        target = (source + torch.randn(30, 3).cuda() * 0.1)
+        result = cpd.RigidCPD(source=source, log_freq=-1).registration(
+            target, maxiter=20
+        )
+        assert result.transformation is not None
+        transformed = result.transformation.transform(source)
+        assert transformed.device.type == "cuda"

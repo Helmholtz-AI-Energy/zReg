@@ -1,8 +1,12 @@
-"""Tests for zreg.validation module."""
+"""Tests for zreg.validation module and logging configuration."""
 
+import os
+import subprocess
+import sys
+import logging
 import pytest
 import torch
-from unittest.mock import PropertyMock, patch
+from unittest.mock import MagicMock
 
 from zreg.validation import _validate_tensors
 from zreg.distances.general import minkowski_distance
@@ -36,18 +40,13 @@ class TestValidateTensors:
 
     def test_device_mismatch_raises(self):
         """Test that tensors on different devices raise ValueError containing both device names."""
-        from unittest.mock import MagicMock
-
         cpu_tensor = torch.randn(5, 3)
 
         # Create a mock tensor that reports being on cuda:0
         mock_tensor = MagicMock(spec=torch.Tensor)
         mock_tensor.device = torch.device("cuda:0")
-        # Make isfinite work on it (returns all-true tensor)
-        torch.isfinite = torch.isfinite  # ensure original still works
-        mock_tensor.__class__ = torch.Tensor  # allow isinstance checks
+        mock_tensor.__class__ = torch.Tensor
 
-        # Use a real CPU tensor and a mock tensor with cuda:0 device
         with pytest.raises(ValueError) as exc_info:
             _validate_tensors(cpu_tensor, mock_tensor, names=["source", "target"], check_finite=False)
         msg = str(exc_info.value)
@@ -67,7 +66,6 @@ class TestValidateTensors:
         with pytest.raises(ValueError) as exc_info:
             _validate_tensors(t1, t2, names=["only_one"])
         msg = str(exc_info.value)
-        # Should mention something about the mismatch
         assert "2" in msg or "1" in msg
 
     def test_check_finite_false_skips(self):
@@ -77,8 +75,6 @@ class TestValidateTensors:
 
     def test_check_device_false_skips(self):
         """Test that check_device=False skips device mismatch validation."""
-        from unittest.mock import MagicMock
-
         cpu_tensor = torch.randn(5, 3)
         mock_tensor = MagicMock(spec=torch.Tensor)
         mock_tensor.device = torch.device("cuda:0")
@@ -97,7 +93,6 @@ class TestEntryPointValidation:
         """Test that CPD.set_source rejects a NaN tensor with 'source' in message."""
         from zreg.cpd import RigidCPD
 
-        # Initialize with a valid source, then call set_source with NaN
         valid_source = torch.randn(10, 3)
         cpd = RigidCPD(source=valid_source)
         nan_tensor = torch.full((10, 3), float("nan"))
@@ -134,3 +129,54 @@ class TestEntryPointValidation:
         with pytest.raises(ValueError) as exc_info:
             minkowski_distance(nan_tensor, valid_tensor)
         assert "x" in str(exc_info.value)
+
+
+class TestLogging:
+    """Tests for logging configuration (QUALITY-03)."""
+
+    def test_set_log_level_string(self):
+        import zreg
+        zreg.set_log_level("WARNING")
+        assert logging.getLogger("zreg").level == logging.WARNING
+        zreg.set_log_level("INFO")
+
+    def test_set_log_level_int(self):
+        import zreg
+        zreg.set_log_level(logging.WARNING)
+        assert logging.getLogger("zreg").level == logging.WARNING
+        zreg.set_log_level(logging.INFO)
+
+    def test_set_log_level_case_insensitive(self):
+        import zreg
+        zreg.set_log_level("warning")
+        assert logging.getLogger("zreg").level == logging.WARNING
+        zreg.set_log_level("INFO")
+
+    def test_env_var_suppresses_info(self):
+        """ZREG_LOG_LEVEL=WARNING must suppress INFO output."""
+        script = (
+            "import logging; import zreg; "
+            "logging.getLogger('zreg').info('should_not_appear'); "
+            "print('DONE')"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            capture_output=True, text=True,
+            env={**os.environ, "ZREG_LOG_LEVEL": "WARNING"},
+        )
+        assert "should_not_appear" not in result.stdout
+        assert "should_not_appear" not in result.stderr
+        assert "DONE" in result.stdout
+
+    def test_default_level_is_info(self):
+        """Default log level should be INFO when env var not set."""
+        script = (
+            "import logging; import zreg; "
+            "print(logging.getLogger('zreg').level)"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            capture_output=True, text=True,
+            env={k: v for k, v in os.environ.items() if k != "ZREG_LOG_LEVEL"},
+        )
+        assert result.stdout.strip() == str(logging.INFO)

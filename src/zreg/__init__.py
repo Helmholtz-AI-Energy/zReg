@@ -1,17 +1,30 @@
-import sys
+import os
 import logging
+from typing import Union
+from importlib.metadata import PackageNotFoundError, version
+
 from .setup_log import setup_logger
 
-setup_logger(logging.INFO)  # TODO: add a basic flag to overwrite this?
+_log_level_str = os.environ.get("ZREG_LOG_LEVEL", "INFO").upper()
+_log_level = getattr(logging, _log_level_str, logging.INFO)
+setup_logger(_log_level)
 
-if sys.version_info[:2] >= (3, 8):
-    # TODO: Import directly (no need for conditional) when `python_requires = >= 3.8`
-    from importlib.metadata import PackageNotFoundError, version  # pragma: no cover
-else:
-    from importlib_metadata import PackageNotFoundError, version  # pragma: no cover
+
+def set_log_level(level: Union[int, str]) -> None:
+    """Set the log level for the zreg logger.
+
+    Parameters
+    ----------
+    level : int or str
+        Logging level. Accepts both string (e.g., "WARNING") and
+        int (e.g., logging.WARNING) values.
+    """
+    if isinstance(level, str):
+        level = getattr(logging, level.upper())
+    logging.getLogger("zreg").setLevel(level)
+
 
 try:
-    # Change here if project is renamed and does not equal the package name
     dist_name = "zReg"
     __version__ = version(dist_name)
 except PackageNotFoundError:  # pragma: no cover

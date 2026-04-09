@@ -279,7 +279,35 @@ class TestMaxSlicedWassersteinDistance:
         max_swd = sw_varients.MaxSlicedWassersteinDistance(device="cpu")
         assert max_swd is not None
 
-    # Note: MaxSWD has known issues with backward pass according to comments
+    def test_nonidentical_returns_finite_positive(self):
+        """Test MaxSWD returns finite positive distance for non-identical clouds."""
+        torch.manual_seed(42)
+        x = torch.randn(1, 50, 3)
+        torch.manual_seed(123)
+        y = torch.randn(1, 50, 3)
+        mswd = sw_varients.MaxSlicedWassersteinDistance(device="cpu", nobatchdim=False)
+        dist = mswd(x, y)
+        assert torch.isfinite(dist).all(), f"MaxSWD returned non-finite: {dist}"
+        assert dist.item() > 0, f"MaxSWD returned non-positive: {dist}"
+
+    def test_identical_returns_near_zero(self):
+        """Test MaxSWD returns near-zero distance for identical clouds."""
+        torch.manual_seed(42)
+        x = torch.randn(1, 50, 3)
+        mswd = sw_varients.MaxSlicedWassersteinDistance(device="cpu", nobatchdim=False)
+        dist = mswd(x, x)
+        assert dist.item() < 1e-4, f"MaxSWD on identical clouds too large: {dist}"
+
+    def test_no_print_output(self, capsys):
+        """Test MaxSWD produces no stdout output (debug prints removed)."""
+        torch.manual_seed(42)
+        x = torch.randn(1, 50, 3)
+        torch.manual_seed(123)
+        y = torch.randn(1, 50, 3)
+        mswd = sw_varients.MaxSlicedWassersteinDistance(device="cpu", nobatchdim=False)
+        mswd(x, y)
+        captured = capsys.readouterr()
+        assert captured.out == "", f"MaxSWD produced unexpected output: {captured.out[:200]}"
 
 
 class TestHelperFunctions:

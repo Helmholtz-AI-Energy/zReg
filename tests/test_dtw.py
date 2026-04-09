@@ -209,6 +209,95 @@ class TestBacktrace:
             assert 0 <= dj <= 1
             assert di + dj >= 1  # Must make progress
 
+    def test_backtrace_boundary_row_dead_end_raises(self):
+        """Test 3: _backtrace raises ValueError when boundary row cell is inf."""
+        # Accumulated cost where the path is forced along row 0, but hits an inf.
+        # Build a 3x3 accumulated cost: start at (2,2), j==0 boundary forces i--,
+        # but to hit a row-0 dead-end we need i==0 while j>0 with acc[0, j-1]==inf.
+        # Shape: 2 rows x 3 cols. When backtracing from (1,2):
+        #   i==1>0, j==2>0 -> interior, min of [acc[0,2], acc[1,1], acc[0,1]] = ...
+        # Simpler: construct a 1x3 matrix (i==0 throughout) so that j boundary branch
+        # is never taken. Instead: 2x2, start (1,1), interior min picks diagonal -> (0,0).
+        # To force boundary row dead-end: 2x3, start (1,2).
+        #   Interior: candidates = acc[0,2], acc[1,1], acc[0,1]
+        #   We want to end up in i==0 state with acc[0, j-1]==inf.
+        # Easiest: 1x3 accumulated cost (only row 0 exists). i==0 always, force j boundary.
+        # acc[0, j-1] is inf when j==2 -> acc[0,1] is inf.
+        x_dummy = {0: zRegPointCloud(pos=torch.randn(5, 3))}
+        y_dummy = {0: zRegPointCloud(pos=torch.randn(5, 3))}
+        dtw_obj = DynamicTimeWarping(x_dummy, y_dummy, distance_metric="euclidean")
+
+        # 1x3: start (0,2), i==0 so j-branch: check acc[0,1] = inf -> should raise
+        acc = torch.tensor([[1.0, float("inf"), 3.0]])
+        with pytest.raises(ValueError, match="DTW warping path could not be traced"):
+            dtw_obj._backtrace(acc)
+
+    def test_backtrace_boundary_col_dead_end_raises(self):
+        """Test 3b: _backtrace raises ValueError when boundary col cell is inf."""
+        x_dummy = {0: zRegPointCloud(pos=torch.randn(5, 3))}
+        y_dummy = {0: zRegPointCloud(pos=torch.randn(5, 3))}
+        dtw_obj = DynamicTimeWarping(x_dummy, y_dummy, distance_metric="euclidean")
+
+        # 3x1: start (2,0), j==0 so i-branch: check acc[1,0] = inf -> should raise
+        acc = torch.tensor([[1.0], [float("inf")], [3.0]])
+        with pytest.raises(ValueError, match="DTW warping path could not be traced"):
+            dtw_obj._backtrace(acc)
+
+    def test_backtrace_interior_all_inf_raises(self):
+        """Test 4: _backtrace raises ValueError when all interior predecessors are inf."""
+        x_dummy = {0: zRegPointCloud(pos=torch.randn(5, 3))}
+        y_dummy = {0: zRegPointCloud(pos=torch.randn(5, 3))}
+        dtw_obj = DynamicTimeWarping(x_dummy, y_dummy, distance_metric="euclidean")
+
+        # 3x3 accumulated cost where (2,2) is reachable but all predecessors are inf
+        acc = torch.tensor([
+            [1.0, float("inf"), float("inf")],
+            [float("inf"), float("inf"), float("inf")],
+            [float("inf"), float("inf"), 5.0],
+        ])
+        with pytest.raises(ValueError, match="DTW warping path could not be traced"):
+            dtw_obj._backtrace(acc)
+
+    def test_backtrace_interior_error_contains_position(self):
+        """Test 4b: ValueError for interior dead-end includes current (i, j) position."""
+        x_dummy = {0: zRegPointCloud(pos=torch.randn(5, 3))}
+        y_dummy = {0: zRegPointCloud(pos=torch.randn(5, 3))}
+        dtw_obj = DynamicTimeWarping(x_dummy, y_dummy, distance_metric="euclidean")
+
+        acc = torch.tensor([
+            [1.0, float("inf"), float("inf")],
+            [float("inf"), float("inf"), float("inf")],
+            [float("inf"), float("inf"), 5.0],
+        ])
+        with pytest.raises(ValueError, match=r"\(2, 2\)"):
+            dtw_obj._backtrace(acc)
+
+    def test_backtrace_1x1_returns_origin(self):
+        """Test 5: _backtrace on a 1x1 matrix returns [(0, 0)] with no error."""
+        x_dummy = {0: zRegPointCloud(pos=torch.randn(5, 3))}
+        y_dummy = {0: zRegPointCloud(pos=torch.randn(5, 3))}
+        dtw_obj = DynamicTimeWarping(x_dummy, y_dummy, distance_metric="euclidean")
+
+        acc = torch.tensor([[2.5]])
+        path = dtw_obj._backtrace(acc)
+        assert path == [(0, 0)]
+
+    def test_backtrace_windowed_valid_path(self):
+        """Test 2: _backtrace on a windowed accumulated cost returns correct path."""
+        x_dummy = {0: zRegPointCloud(pos=torch.randn(5, 3))}
+        y_dummy = {0: zRegPointCloud(pos=torch.randn(5, 3))}
+        dtw_obj = DynamicTimeWarping(x_dummy, y_dummy, distance_metric="euclidean")
+
+        # 3x3 windowed cost: cells outside window are inf, diagonal path is valid
+        acc = torch.tensor([
+            [1.0, 2.0, float("inf")],
+            [3.0, 3.0, 5.0],
+            [float("inf"), 5.0, 6.0],
+        ])
+        path = dtw_obj._backtrace(acc)
+        assert path[0] == (0, 0)
+        assert path[-1] == (2, 2)
+
 
 class TestDTWCompute:
     """Tests for full DTW computation."""

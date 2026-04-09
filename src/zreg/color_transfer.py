@@ -188,14 +188,21 @@ def _transfer_colors_cpd_weighted(
     # pmat should be (n_target, n_source) - probability of each target point belonging to each source
     pmat = estep_result.pmat
 
-    # For now, assume pmat is (n_target, n_source)
-    # If it's the wrong shape, we might need to transpose
-    if pmat.shape[0] == target_pos.shape[0] and pmat.shape[1] == source_pos.shape[0]:
+    n_target = target_pos.shape[0]
+    n_source = source_pos.shape[0]
+
+    if pmat.shape == (n_target, n_source):
         prob_matrix = pmat
-    elif pmat.shape[0] == source_pos.shape[0] and pmat.shape[1] == target_pos.shape[0]:
-        prob_matrix = pmat.T
+    elif pmat.shape == (n_source, n_target):
+        raise ValueError(
+            f"pmat has shape {pmat.shape} which looks transposed. "
+            f"Expected (n_target={n_target}, n_source={n_source})"
+        )
     else:
-        raise ValueError(f"Probability matrix shape {pmat.shape} doesn't match points: source {source_pos.shape[0]}, target {target_pos.shape[0]}")
+        raise ValueError(
+            f"pmat has shape {pmat.shape} but expected "
+            f"(n_target={n_target}, n_source={n_source})"
+        )
 
     # Normalize probabilities (should already be normalized, but ensure)
     prob_matrix = prob_matrix / prob_matrix.sum(dim=1, keepdim=True)

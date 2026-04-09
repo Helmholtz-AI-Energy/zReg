@@ -21,6 +21,7 @@ __pycache__/*
 .settings
 .idea
 .vscode
+.planning
 tags
 
 # Package files
@@ -54,3 +55,4 @@ MANIFEST
 .python-version
 
 figures/*.txt
+.planning/

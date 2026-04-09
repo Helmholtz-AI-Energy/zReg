@@ -28,13 +28,21 @@ torch.set_float32_matmul_precision("high")
 
 
 EstepResult = namedtuple("EstepResult", ["pt1", "p1", "px", "n_p", "pmat"])
-MstepResult = namedtuple("MstepResult", ["transformation", "sigma2", "q"])
+MstepResult = namedtuple(
+    "MstepResult",
+    ["transformation", "sigma2", "q", "n_iters", "sigma2_history"],
+    defaults=(None, None),
+)
 MstepResult.__doc__ = """Result of Maximization step.
 
     Attributes:
         transformation (tf.Transformation): Transformation from source to target.
         sigma2 (float): Variance of Gaussian distribution.
         q (float): Result of likelihood.
+        n_iters (int): Number of EM iterations executed during registration.
+        sigma2_history (List[float]): sigma2 value recorded after each M-step
+            (length == n_iters).  Only populated by the final return of
+            registration(); intermediate MstepResult objects carry None.
 """
 
 
@@ -333,6 +341,11 @@ class CoherentPointDrift:
         if self._use_color:
             sigma2_c = squared_kernel_sum(self._source_colors, target_colors)
 
+        sigma2_history: List[float] = []
+        sigma2_clamped = False
+        eps = torch.finfo(target.dtype).eps
+        n_iters = 0
+
         running_avg = torch.arange(4, dtype=target.dtype, device=target.device)
         for i in range(maxiter):
             t_source = res.transformation.transform(self._source)
@@ -353,6 +366,23 @@ class CoherentPointDrift:
                 source_colors=self._source_colors,
             )
 
+            # Clamp sigma2 to safe lower bound to prevent NaN in subsequent E-steps
+            clamped_sigma2 = torch.clamp(res.sigma2, min=eps)
+            if clamped_sigma2 != res.sigma2 and not sigma2_clamped:
+                log.warning(
+                    "CPD: sigma2 clamped to dtype.eps during registration"
+                    " — numerical instability possible."
+                )
+                sigma2_clamped = True
+            res = MstepResult(
+                transformation=res.transformation,
+                sigma2=clamped_sigma2,
+                q=res.q,
+            )
+            sigma2_history.append(
+                res.sigma2.item() if isinstance(res.sigma2, torch.Tensor) else float(res.sigma2)
+            )
+
             for c in self._callbacks:
                 c(res.transformation)
 
@@ -366,10 +396,18 @@ class CoherentPointDrift:
                     log.info(f"Hit tolerance in iteration {i} (criteria: {res.q:.4f}), exiting.")
                 break
             # last = res.q
-        if self.log_freq > 0:
+
+        n_iters = (i + 1) if maxiter > 0 else 0
+        if self.log_freq > 0 and maxiter > 0:
             log.info(f"End registration at step {i} (criteria: {res.q:.5f})")
 
-        return res
+        return MstepResult(
+            transformation=res.transformation,
+            sigma2=res.sigma2,
+            q=res.q,
+            n_iters=n_iters,
+            sigma2_history=sigma2_history,
+        )
 
 
 class RigidCPD(CoherentPointDrift):

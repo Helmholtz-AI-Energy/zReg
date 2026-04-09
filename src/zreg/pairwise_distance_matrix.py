@@ -255,10 +255,11 @@ def create_pairwise_distance_matrix(
         if mpi_distribute and hasmpi:
             tcomm = time.perf_counter()
             row = distance_matrix[:, i].cpu().numpy()
-            row = comm_world.allreduce(row)
-            distance_matrix[:, i] = torch.tensor(row, device=distance_matrix.device, dtype=distance_matrix.dtype)
+            gathered = comm_world.allgather(row)
+            combined = sum(gathered)
+            distance_matrix[:, i] = torch.tensor(combined, device=distance_matrix.device, dtype=distance_matrix.dtype)
             if rank == 0:
-                print(f"Allreduce time required: {time.perf_counter() - tcomm}")
+                log.debug("MPI allgather row %d: %.4f s", i, time.perf_counter() - tcomm)
     if len(rots) > 0:
         rots = torch.cat(rots, dim=0)
     return distance_matrix, rots
@@ -342,7 +343,6 @@ def create_pairwise_distance_matrix_given_rigid_rot(
             window_min, window_max = 0, y_samples + 1
 
         # Iterate over the samples in the second set of data within the window
-        # TODO: make comms communicate only the row that was calculated instead of the whole matrix (bandaid for now)
         for j in range(window_min, window_max):
             if full_counter % size != rank and mpi_distribute:
                 distance_matrix[:, i, j] = 0.0
@@ -438,10 +438,11 @@ def create_pairwise_distance_matrix_given_rigid_rot(
         if mpi_distribute and hasmpi:
             tcomm = time.perf_counter()
             row = distance_matrix[:, i].cpu().numpy()
-            row = comm_world.allreduce(row)
-            distance_matrix[:, i] = torch.tensor(row, device=distance_matrix.device, dtype=distance_matrix.dtype)
+            gathered = comm_world.allgather(row)
+            combined = sum(gathered)
+            distance_matrix[:, i] = torch.tensor(combined, device=distance_matrix.device, dtype=distance_matrix.dtype)
             if rank == 0:
-                print(f"Allreduce time required: {time.perf_counter() - tcomm}")
+                log.debug("MPI allgather row %d: %.4f s", i, time.perf_counter() - tcomm)
             # print(distance_matrix)
     # if len(rots) > 0:
     #     rots = torch.cat(rots, dim=0)

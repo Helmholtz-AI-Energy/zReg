@@ -4,6 +4,7 @@ This module provides methods to transfer color/cell type information from a sour
 point cloud to a target point cloud after spatial alignment.
 """
 
+from enum import Enum
 from typing import Optional, Union
 import torch
 import logging
@@ -17,7 +18,7 @@ log = logging.getLogger(__name__)
 __all__ = ["transfer_colors", "ColorTransferMethod"]
 
 
-class ColorTransferMethod:
+class ColorTransferMethod(Enum):
     """Enumeration of available color transfer methods."""
     NEAREST_NEIGHBOR = "nearest_neighbor"
     CPD_WEIGHTED = "cpd_weighted"
@@ -28,7 +29,7 @@ class ColorTransferMethod:
 def transfer_colors(
     source: Union[zRegPointCloud, torch.Tensor],
     target: Union[zRegPointCloud, torch.Tensor],
-    method: str = ColorTransferMethod.NEAREST_NEIGHBOR,
+    method: Union[str, ColorTransferMethod] = ColorTransferMethod.NEAREST_NEIGHBOR,
     source_colors: Optional[torch.Tensor] = None,
     target_colors: Optional[torch.Tensor] = None,
     estep_result: Optional[EstepResult] = None,
@@ -87,6 +88,16 @@ def transfer_colors(
     if source_pos.shape[1] != target_pos.shape[1]:
         raise ValueError(f"Source and target must have same dimensionality: {source_pos.shape[1]} vs {target_pos.shape[1]}")
 
+    # Normalize method to enum (accepts both string and enum)
+    if isinstance(method, str):
+        try:
+            method = ColorTransferMethod(method)
+        except ValueError:
+            raise ValueError(
+                f"Unknown color transfer method: '{method}'. "
+                f"Valid options: {[m.value for m in ColorTransferMethod]}"
+            )
+
     if method == ColorTransferMethod.NEAREST_NEIGHBOR:
         return _transfer_colors_nearest_neighbor(source_pos, target_pos, source_colors)
     elif method == ColorTransferMethod.CPD_WEIGHTED:
@@ -100,7 +111,11 @@ def transfer_colors(
         sigma = kwargs.get('sigma', 1.0)
         return _transfer_colors_gaussian_kernel(source_pos, target_pos, source_colors, sigma)
     else:
-        raise ValueError(f"Unknown color transfer method: {method}")
+        # Should not reach here if normalization above is correct, but guard anyway
+        raise ValueError(
+            f"Unknown color transfer method: '{method}'. "
+            f"Valid options: {[m.value for m in ColorTransferMethod]}"
+        )
 
 
 def _transfer_colors_nearest_neighbor(

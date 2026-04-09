@@ -75,7 +75,10 @@ def transform_points_homogeneous(
         transformed_points = homogeneous_points @ torch.tensor(transform_matrix, dtype=pos.dtype, device=pos.device).T
 
         # Divide by the homogeneous coordinate to get back to 3D
-        transformed_points = transformed_points[:, :3] / transformed_points[:, 3:]
+        # Clamp w to avoid division by near-zero (per D-14, D-15)
+        w = transformed_points[:, 3:]
+        w = torch.clamp(w, min=torch.finfo(pos.dtype).eps)
+        transformed_points = transformed_points[:, :3] / w
         points["pos"] = transformed_points
 
     elif isinstance(points, o3d.t.geometry.PointCloud):
@@ -156,9 +159,23 @@ class RigidTransformation(TransformBase):
         return RigidTransformation(self.rot.T, -torch.matmul(self.rot.T, self.t) / self.scale, 1.0 / self.scale)
 
     def __mul__(self, other):
+        rot_composed = torch.matmul(self.rot, other.rot)
+        # Validate composed rotation (per D-10, D-11, D-12, D-13)
+        det = torch.det(rot_composed)
+        if abs(det.item() - 1.0) > 1e-6:
+            raise ValueError(
+                f"RigidTransformation composition produced invalid rotation: "
+                f"det={det.item():.6f}, expected 1.0"
+            )
+        cond = torch.linalg.cond(rot_composed)
+        if cond.item() > 1e6:
+            raise ValueError(
+                f"RigidTransformation composition produced invalid rotation: "
+                f"det={det.item():.6f}, cond={cond.item():.2e}"
+            )
         return RigidTransformation(
-            torch.matmul(self.rot, other.rot),
-            self.t + self.scale * torch.matmul(self.rot, other.t),  # unclear if a squeeze is needed
+            rot_composed,
+            self.t + self.scale * torch.matmul(self.rot, other.t),
             self.scale * other.scale,
         )
 

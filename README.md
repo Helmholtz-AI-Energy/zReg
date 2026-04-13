@@ -114,7 +114,7 @@ colors = transfer_colors(
 - `torch_cluster` — GPU-accelerated Farthest Point Sampling
 - `matplotlib`, `seaborn` — visualization (`pip install -e ".[viz]"`)
 
-**Python:** 3.9–3.12
+**Python:** 3.12+
 
 ## Logging
 

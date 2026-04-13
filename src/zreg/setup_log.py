@@ -2,14 +2,14 @@ import logging
 import colorlog
 from pathlib import Path
 import sys
-from typing import Union, Optional
+from typing import Optional
 
 log = logging.getLogger(__name__)
 
 
 def setup_logger(
     level: int = logging.INFO,
-    log_file: Optional[Union[str, Path]] = None,
+    log_file: str | Path | None = None,
     log_to_stdout: bool = True,
     colors: bool = True,
 ) -> None:

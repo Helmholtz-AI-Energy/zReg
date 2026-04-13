@@ -1,7 +1,7 @@
 import scipy.io as sio
 import logging
 import time
-from typing import Dict, Tuple, Union
+from typing import Dict, Tuple
 import csv
 
 import open3d.t.geometry as o3dtgeo
@@ -282,7 +282,7 @@ def open3d_to_zreg(
     return ret
 
 
-def load_shah_from_csv(filepath: Union[str, Path], device: Union[str, torch.device]) -> Dict[int, zRegPointCloud]:
+def load_shah_from_csv(filepath: str | Path, device: str | torch.device) -> Dict[int, zRegPointCloud]:
     """
     Loads point cloud data from a CSV file in the format used by Shah
 

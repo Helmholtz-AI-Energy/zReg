@@ -2,7 +2,7 @@
 # The core algorithms are the same, but the implementation now makes use of pytorch
 
 from collections import namedtuple
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional
 import torch
 
 import open3d as o3d
@@ -1124,8 +1124,8 @@ from .dataset import zRegPointCloud
 
 
 def cpd_registration(
-    source: Union[zRegPointCloud, o3d.t.geometry.PointCloud],
-    target: Union[zRegPointCloud, o3d.t.geometry.PointCloud],
+    source: zRegPointCloud | o3d.t.geometry.PointCloud,
+    target: zRegPointCloud | o3d.t.geometry.PointCloud,
     tf_type_name: str = "rigid",
     w: float = 0.0,
     maxiter: int = 50,
@@ -1208,8 +1208,8 @@ def cpd_registration(
 
 def init_cpd_from_existing(
     transform,
-    source: Union[zRegPointCloud, o3d.t.geometry.PointCloud],
-    target: Union[zRegPointCloud, o3d.t.geometry.PointCloud],
+    source: zRegPointCloud | o3d.t.geometry.PointCloud,
+    target: zRegPointCloud | o3d.t.geometry.PointCloud,
     w: float = 0.0,
     maxiter: int = 50,
     tol: float = 0.001,

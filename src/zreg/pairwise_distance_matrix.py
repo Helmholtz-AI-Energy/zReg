@@ -5,7 +5,7 @@ import logging
 import os
 import time
 
-from typing import Union, Tuple, Dict, Optional, List
+from typing import Tuple, Dict, Optional, List
 
 if "NOMPI" not in os.environ:
     from mpi4py import MPI
@@ -36,8 +36,8 @@ def create_pairwise_distance_matrix(
     y: Dict[int, zRegPointCloud],
     window: Optional[int] = None,
     normalize: bool = True,
-    distance_metric: Union[List[str], str] = "swd",
-    distance_kwargs: Optional[Union[List[Dict], Dict]] = None,
+    distance_metric: list[str] | str = "swd",
+    distance_kwargs: list[Dict] | Dict | None = None,
     downsample_method: Optional[str] = None,
     cpd_type: Optional[str] = None,
     mpi_distribute: bool = False,
@@ -58,11 +58,11 @@ def create_pairwise_distance_matrix(
     normalize : bool, optional
         Whether to normalize the point clouds before calculating the distance.
         By default, True.
-    distance_metric : Union[List[str], str], optional
+    distance_metric : list[str] | str, optional
         The distance metric(s) to use for the calculation. Can be a single string or a list of strings.
         Supported metrics depend on available functions (e.g., "swd" for Sliced Wasserstein Distance).
         By default, "swd".
-    distance_kwargs : Optional[Union[List[Dict], Dict]], optional
+    distance_kwargs : list[Dict] | Dict | None, optional
         Keyword arguments to pass to the distance function(s). If `distance_metric` is a list, this should be a list of
         dictionaries of the same length.
         By default, None.
@@ -273,8 +273,8 @@ def create_pairwise_distance_matrix_given_rigid_rot(
     scale: float = 1.0,
     window: Optional[int] = None,
     normalize: bool = True,
-    distance_metric: Union[List[str], str] = "swd",
-    distance_kwargs: Optional[Union[List[Dict], Dict]] = None,
+    distance_metric: list[str] | str = "swd",
+    distance_kwargs: list[Dict] | Dict | None = None,
     downsample_method: Optional[str] = None,
     mpi_distribute: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor]:

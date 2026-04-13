@@ -5,7 +5,7 @@ point cloud to a target point cloud after spatial alignment.
 """
 
 from enum import Enum
-from typing import Optional, Union
+from typing import Optional
 import torch
 import logging
 
@@ -27,9 +27,9 @@ class ColorTransferMethod(Enum):
 
 
 def transfer_colors(
-    source: Union[zRegPointCloud, torch.Tensor],
-    target: Union[zRegPointCloud, torch.Tensor],
-    method: Union[str, ColorTransferMethod] = ColorTransferMethod.NEAREST_NEIGHBOR,
+    source: zRegPointCloud | torch.Tensor,
+    target: zRegPointCloud | torch.Tensor,
+    method: str | ColorTransferMethod = ColorTransferMethod.NEAREST_NEIGHBOR,
     source_colors: Optional[torch.Tensor] = None,
     target_colors: Optional[torch.Tensor] = None,
     estep_result: Optional[EstepResult] = None,

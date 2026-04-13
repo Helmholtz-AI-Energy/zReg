@@ -1,6 +1,5 @@
 import os
 import logging
-from typing import Union
 from importlib.metadata import PackageNotFoundError, version
 
 from .setup_log import setup_logger
@@ -10,7 +9,7 @@ _log_level = getattr(logging, _log_level_str, logging.INFO)
 setup_logger(_log_level)
 
 
-def set_log_level(level: Union[int, str]) -> None:
+def set_log_level(level: int | str) -> None:
     """Set the log level for the zreg logger.
 
     Parameters

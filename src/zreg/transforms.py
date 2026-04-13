@@ -3,7 +3,6 @@
 # pytorch as well as some efficiency changes
 
 import torch
-from typing import Union
 import open3d as o3d
 
 from .dataset import open3d_to_zreg, zreg_to_open3d, zRegPointCloud
@@ -26,10 +25,10 @@ __all__ = [
 
 
 def transform_points_homogeneous(
-    points: Union[zRegPointCloud, o3d.t.geometry.PointCloud],
+    points: zRegPointCloud | o3d.t.geometry.PointCloud,
     transform_matrix: torch.Tensor,
     return_o3d: bool = False,
-) -> Union[zRegPointCloud, o3d.t.geometry.PointCloud]:
+) -> zRegPointCloud | o3d.t.geometry.PointCloud:
     """Transforms a set of 3D points using a 4x4 transformation matrix.
 
     This function handles point data in two formats:

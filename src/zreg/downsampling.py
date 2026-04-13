@@ -2,7 +2,7 @@ from .dataset import open3d_to_zreg, zreg_to_open3d, zRegPointCloud
 import open3d as o3d
 import logging
 import torch
-from typing import Tuple, Union
+from typing import Tuple
 import copy
 from scipy.spatial import cKDTree
 import numpy as np
@@ -233,7 +233,7 @@ def precompute_fps(pc: zRegPointCloud) -> zRegPointCloud:
     return pc
 
 
-PointCloudType = Union[zRegPointCloud, o3d.t.geometry.PointCloud]
+PointCloudType = zRegPointCloud | o3d.t.geometry.PointCloud
 
 
 def farthest_point_down_sample(
@@ -456,7 +456,7 @@ def uniform_down_sample(
 
 # TODO: check out how to make this work in the future
 # Open3d source: https://www.open3d.org/docs/release/python_api/open3d.t.geometry.PointCloud.html#open3d.t.geometry.PointCloud.voxel_down_sample
-# def voxel_down_sample(pc: Union[o3d.t.geometry.PointCloud, torch.Tensor], num_samples: int, return_o3d: bool = False):
+# def voxel_down_sample(pc: o3d.t.geometry.PointCloud | torch.Tensor, num_samples: int, return_o3d: bool = False):
 #     if not isinstance(pc, o3d.t.geometry.PointCloud):
 #         pc = torch_to_open3d(pc)
 

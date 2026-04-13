@@ -6,7 +6,7 @@ two sequences of point clouds using Dynamic Time Warping (DTW).
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple
 import logging
 
 import torch
@@ -65,11 +65,11 @@ class DynamicTimeWarping:
         First trajectory (source) - dictionary mapping time indices to point clouds.
     y : Dict[int, zRegPointCloud]
         Second trajectory (target) - dictionary mapping time indices to point clouds.
-    distance_metric : Union[List[str], str], optional
+    distance_metric : list[str] | str, optional
         Distance metric(s) for point cloud comparison.
         Supported: "swd", "aswd", "oswd", "gswd", "pswd", "euclidean",
         "manhattan", "minkowski", "cpd". Default: "swd".
-    distance_kwargs : Optional[Union[List[Dict], Dict]], optional
+    distance_kwargs : list[Dict] | Dict | None, optional
         Additional kwargs for distance functions. Default: None.
     downsample_method : Optional[str], optional
         Downsampling method ("random", "uniform", "farthest"). Default: "random".
@@ -108,8 +108,8 @@ class DynamicTimeWarping:
         self,
         x: Dict[int, zRegPointCloud],
         y: Dict[int, zRegPointCloud],
-        distance_metric: Union[List[str], str] = "swd",
-        distance_kwargs: Optional[Union[List[Dict], Dict]] = None,
+        distance_metric: list[str] | str = "swd",
+        distance_kwargs: list[Dict] | Dict | None = None,
         downsample_method: Optional[str] = "random",
         cpd_type: Optional[str] = None,
         window: Optional[int] = None,
@@ -447,7 +447,7 @@ class DynamicTimeWarping:
 
     def plot_alignment(
         self,
-        save_path: Optional[Union[str, Path]] = None,
+        save_path: str | Path | None = None,
         figsize: Tuple[int, int] = (12, 5),
         metric_index: int = 0,
     ) -> None:
@@ -459,7 +459,7 @@ class DynamicTimeWarping:
 
         Parameters
         ----------
-        save_path : Optional[Union[str, Path]], optional
+        save_path : str | Path | None, optional
             Path to save the figure. If None, displays the plot. Default: None.
         figsize : Tuple[int, int], optional
             Figure size (width, height) in inches. Default: (12, 5).
@@ -524,14 +524,14 @@ class DynamicTimeWarping:
 
         plt.close()
 
-    def save(self, path: Union[str, Path]) -> None:
+    def save(self, path: str | Path) -> None:
         """Save DTW results to disk.
 
         Saves the cost matrix, accumulated cost, warping path, and distance.
 
         Parameters
         ----------
-        path : Union[str, Path]
+        path : str | Path
             Path to save the results (as a .pt file).
 
         Raises
@@ -562,12 +562,12 @@ class DynamicTimeWarping:
         log.info(f"Saved DTW results to {path}")
 
     @classmethod
-    def load(cls, path: Union[str, Path]) -> DTWResult:
+    def load(cls, path: str | Path) -> DTWResult:
         """Load DTW results from disk.
 
         Parameters
         ----------
-        path : Union[str, Path]
+        path : str | Path
             Path to the saved results (.pt file).
 
         Returns

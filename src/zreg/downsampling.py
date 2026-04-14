@@ -2,7 +2,6 @@ from .dataset import open3d_to_zreg, zreg_to_open3d, zRegPointCloud
 import open3d as o3d
 import logging
 import torch
-from typing import Tuple
 import copy
 from scipy.spatial import cKDTree
 import numpy as np
@@ -242,7 +241,7 @@ def farthest_point_down_sample(
     return_o3d: bool = False,
     use_precomputed_indexes: bool = False,
     points: int = None,
-) -> Tuple[PointCloudType, PointCloudType]:
+) -> tuple[PointCloudType, PointCloudType]:
     """Downsamples the point clouds using farthest point sampling.
 
     This function takes two point clouds and downsamples them to the same number of
@@ -262,7 +261,7 @@ def farthest_point_down_sample(
 
     Returns
     -------
-    Tuple[PointCloudType, PointCloudType]
+    tuple[PointCloudType, PointCloudType]
         The downsampled point clouds.
     """
     # o3d is slow, moving to torch cluster for this
@@ -327,7 +326,7 @@ def random_down_sample(
     y: PointCloudType,
     points: int = -1,
     return_o3d: bool = False,
-) -> Tuple[PointCloudType, PointCloudType]:
+) -> tuple[PointCloudType, PointCloudType]:
     """Downsamples the point clouds by randomly selecting points.
 
     This function takes two point clouds and downsamples them to the same number of
@@ -344,7 +343,7 @@ def random_down_sample(
 
     Returns
     -------
-    Tuple[PointCloudType, PointCloudType]
+    tuple[PointCloudType, PointCloudType]
         The downsampled point clouds.
     """
     if isinstance(x, o3d.t.geometry.PointCloud):
@@ -396,7 +395,7 @@ def uniform_down_sample(
     x: PointCloudType,
     y: PointCloudType,
     return_o3d: bool = False,
-) -> Tuple[PointCloudType, PointCloudType]:
+) -> tuple[PointCloudType, PointCloudType]:
     """Downsamples the point clouds uniformly.
 
     This function takes two point clouds and downsamples them to the same number of
@@ -413,7 +412,7 @@ def uniform_down_sample(
 
     Returns
     -------
-    Tuple[PointCloudType, PointCloudType]
+    tuple[PointCloudType, PointCloudType]
         The downsampled point clouds.
     """
     if not isinstance(x, zRegPointCloud):

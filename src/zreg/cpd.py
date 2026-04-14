@@ -2,7 +2,7 @@
 # The core algorithms are the same, but the implementation now makes use of pytorch
 
 from collections import namedtuple
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable
 import torch
 
 import open3d as o3d
@@ -40,7 +40,7 @@ MstepResult.__doc__ = """Result of Maximization step.
         sigma2 (float): Variance of Gaussian distribution.
         q (float): Result of likelihood.
         n_iters (int): Number of EM iterations executed during registration.
-        sigma2_history (List[float]): sigma2 value recorded after each M-step
+        sigma2_history (list[float]): sigma2 value recorded after each M-step
             (length == n_iters).  Only populated by the final return of
             registration(); intermediate MstepResult objects carry None.
 """
@@ -111,7 +111,7 @@ class CoherentPointDrift:
         if self._use_color and source_colors is not None:
             self._source_colors = source_colors
 
-    def set_callbacks(self, callbacks: List[Callable]) -> None:
+    def set_callbacks(self, callbacks: list[Callable]) -> None:
         self._callbacks.extend(callbacks)
 
     def _initialize(self, target: torch.Tensor) -> MstepResult:
@@ -341,7 +341,7 @@ class CoherentPointDrift:
         if self._use_color:
             sigma2_c = squared_kernel_sum(self._source_colors, target_colors)
 
-        sigma2_history: List[float] = []
+        sigma2_history: list[float] = []
         sigma2_clamped = False
         eps = torch.finfo(target.dtype).eps
         n_iters = 0
@@ -463,7 +463,7 @@ class RigidCPD(CoherentPointDrift):
         self,
         source: torch.Tensor | None = None,
         update_scale: bool = True,
-        tf_init_params: Dict = {},
+        tf_init_params: dict = {},
         use_color: bool = False,
         use_cuda: bool = False,
         log_freq: bool = 100,
@@ -685,7 +685,7 @@ class AffineCPD(CoherentPointDrift):
     def __init__(
         self,
         source: torch.Tensor | None = None,
-        tf_init_params: Dict = {},
+        tf_init_params: dict = {},
         use_color: bool = False,
         use_cuda: bool = False,
         log_freq=100,
@@ -1130,7 +1130,7 @@ def cpd_registration(
     w: float = 0.0,
     maxiter: int = 50,
     tol: float = 0.001,
-    callbacks: List[Callable] = [],
+    callbacks: list[Callable] = [],
     use_color: bool = False,
     log_freq: bool = 100,
     **kwargs: Any,
@@ -1213,7 +1213,7 @@ def init_cpd_from_existing(
     w: float = 0.0,
     maxiter: int = 50,
     tol: float = 0.001,
-    callbacks: List[Callable] = [],
+    callbacks: list[Callable] = [],
     use_color: bool = False,
     log_freq: int = 100,
 ):

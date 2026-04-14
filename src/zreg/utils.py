@@ -1,5 +1,4 @@
 import torch
-from typing import Tuple
 
 __all__ = [
     "squared_kernel",
@@ -167,7 +166,7 @@ def normalize_point_cloud(
     max_vals: torch.Tensor = None,
     min_vals: torch.Tensor = None,
     byaxis=False,
-) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
     """
     Scales the points of a point cloud to be between -1 and 1.
 
@@ -218,7 +217,7 @@ def normalize_point_cloud(
 
 def normalize_to_pc_w_most_points(
     pointx: torch.Tensor, pointy: torch.Tensor
-) -> Tuple[torch.Tensor, torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+) -> tuple[torch.Tensor, torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
     """Normalizes two point clouds to the range [-1, 1] based on the one with the most points.
 
     This function takes two point clouds, `pointx` and `pointy`, and normalizes them to the range
@@ -237,13 +236,13 @@ def normalize_to_pc_w_most_points(
 
     Returns
     -------
-    Tuple[torch.Tensor, torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]
+    tuple[torch.Tensor, torch.Tensor, tuple[torch.Tensor, torch.Tensor]]
         A tuple containing:
         - **xi** : torch.Tensor
             The normalized `pointx` point cloud, with the same shape as the input `pointx`.
         - **yi** : torch.Tensor
             The normalized `pointy` point cloud, with the same shape as the input `pointy`.
-        - **(minv, maxv)** : Tuple[torch.Tensor, torch.Tensor]
+        - **(minv, maxv)** : tuple[torch.Tensor, torch.Tensor]
             A tuple containing the minimum and maximum values used for normalization. These
             values are determined from the point cloud with the most points. `minv` and `maxv` are
             tensors with shape (D,).

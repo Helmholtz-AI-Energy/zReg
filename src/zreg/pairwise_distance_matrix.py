@@ -5,7 +5,6 @@ import logging
 import os
 import time
 
-from typing import Tuple, Dict, List
 
 if "NOMPI" not in os.environ:
     from mpi4py import MPI
@@ -32,24 +31,24 @@ __all__ = ["create_pairwise_distance_matrix", "create_pairwise_distance_matrix_g
 
 
 def create_pairwise_distance_matrix(
-    x: Dict[int, zRegPointCloud],
-    y: Dict[int, zRegPointCloud],
+    x: dict[int, zRegPointCloud],
+    y: dict[int, zRegPointCloud],
     window: int | None = None,
     normalize: bool = True,
     distance_metric: list[str] | str = "swd",
-    distance_kwargs: list[Dict] | Dict | None = None,
+    distance_kwargs: list[dict] | dict | None = None,
     downsample_method: str | None = None,
     cpd_type: str | None = None,
     mpi_distribute: bool = False,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """Create a pairwise distance matrix using the given parameters.
 
     Parameters
     ----------
-    x : Dict[int, zRegPointCloud]
+    x : dict[int, zRegPointCloud]
         A dictionary containing the first set of point cloud data. The keys are integer indices, and the values
         are zRegPointCloud instances containing point cloud data (e.g., 'pos' for positions).
-    y : Dict[int, zRegPointCloud]
+    y : dict[int, zRegPointCloud]
         A dictionary containing the second set of point cloud data. The keys are integer indices, and the values
         are zRegPointCloud instances containing point cloud data (e.g., 'pos' for positions).
     window : int | None, optional
@@ -78,7 +77,7 @@ def create_pairwise_distance_matrix(
 
     Returns
     -------
-    Tuple[torch.Tensor, torch.Tensor]
+    tuple[torch.Tensor, torch.Tensor]
         A tuple containing:
             - The pairwise distance matrix (torch.Tensor).
             - The rotations from CPD registration (torch.Tensor), if CPD is used; otherwise, an empty tensor.
@@ -266,18 +265,18 @@ def create_pairwise_distance_matrix(
 
 
 def create_pairwise_distance_matrix_given_rigid_rot(
-    x: Dict[int, zRegPointCloud],
-    y: Dict[int, zRegPointCloud],
+    x: dict[int, zRegPointCloud],
+    y: dict[int, zRegPointCloud],
     rotation: torch.Tensor,
     translation: torch.Tensor,
     scale: float = 1.0,
     window: int | None = None,
     normalize: bool = True,
     distance_metric: list[str] | str = "swd",
-    distance_kwargs: list[Dict] | Dict | None = None,
+    distance_kwargs: list[dict] | dict | None = None,
     downsample_method: str | None = None,
     mpi_distribute: bool = False,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     # This function follows the normal pairwise distance matrix function closely, but uses a fixed rotation
     # the other functionality is the same.
 

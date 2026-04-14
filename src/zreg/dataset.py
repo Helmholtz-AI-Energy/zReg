@@ -1,7 +1,6 @@
 import scipy.io as sio
 import logging
 import time
-from typing import Dict, Tuple
 import csv
 
 import open3d.t.geometry as o3dtgeo
@@ -18,7 +17,7 @@ log = logging.getLogger(__name__)
 __all__ = ["load_data_from_tracklets", "open3d_to_zreg", "zreg_to_open3d", "zRegPointCloud", "load_shah_from_csv"]
 
 
-class zRegPointCloud(dict):  # Dict[str, torch.Tensor]
+class zRegPointCloud(dict):  # dict[str, torch.Tensor]
     def __init__(self, *args, **kwargs):
         super(zRegPointCloud, self).__init__(*args, **kwargs)
 
@@ -52,7 +51,7 @@ class zRegPointCloud(dict):  # Dict[str, torch.Tensor]
 def load_data_from_tracklets(
     filepath: str,
     device: str = "cpu",
-) -> Tuple[Dict[int, zRegPointCloud], Dict[int, Dict]]:
+) -> tuple[dict[int, zRegPointCloud], dict[int, dict]]:
     """Load data from tracklets.
 
     Loads data from a MATLAB file containing tracklet data and returns a tuple containing
@@ -202,7 +201,7 @@ def zreg_to_open3d(pc: zRegPointCloud) -> o3dtgeo.PointCloud:
 
 def open3d_to_zreg(
     pc: o3dtgeo.PointCloud, device: torch.device = None, to_torch: bool = True
-) -> Dict[str, torch.Tensor]:
+) -> dict[str, torch.Tensor]:
     """Converts an Open3D point cloud to a dictionary of Torch tensors or NumPy arrays.
 
     This function extracts the positions, colors, and labels from an Open3D
@@ -282,7 +281,7 @@ def open3d_to_zreg(
     return ret
 
 
-def load_shah_from_csv(filepath: str | Path, device: str | torch.device) -> Dict[int, zRegPointCloud]:
+def load_shah_from_csv(filepath: str | Path, device: str | torch.device) -> dict[int, zRegPointCloud]:
     """
     Loads point cloud data from a CSV file in the format used by Shah
 
@@ -302,7 +301,7 @@ def load_shah_from_csv(filepath: str | Path, device: str | torch.device) -> Dict
         device (torch.device): The device to store the point cloud data on.
 
     Returns:
-         Dict[int, zRegPointCloud]: A dictionary of `zRegPointCloud` objects.
+         dict[int, zRegPointCloud]: A dictionary of `zRegPointCloud` objects.
     """
     pcs = {}
 

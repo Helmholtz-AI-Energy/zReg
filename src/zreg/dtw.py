@@ -6,7 +6,6 @@ two sequences of point clouds using Dynamic Time Warping (DTW).
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Tuple
 import logging
 
 import torch
@@ -33,7 +32,7 @@ class DTWResult:
     accumulated_cost : torch.Tensor
         Accumulated cost matrix from DTW dynamic programming.
         Shape: same as cost_matrix.
-    warping_path : List[Tuple[int, int]]
+    warping_path : list[tuple[int, int]]
         Optimal alignment path as list of (x_idx, y_idx) pairs.
         Path goes from (0, 0) to (len(x)-1, len(y)-1).
     distance : float
@@ -44,7 +43,7 @@ class DTWResult:
 
     cost_matrix: torch.Tensor
     accumulated_cost: torch.Tensor
-    warping_path: List[Tuple[int, int]]
+    warping_path: list[tuple[int, int]]
     distance: float
     rotations: torch.Tensor | None = None
 
@@ -61,9 +60,9 @@ class DynamicTimeWarping:
 
     Parameters
     ----------
-    x : Dict[int, zRegPointCloud]
+    x : dict[int, zRegPointCloud]
         First trajectory (source) - dictionary mapping time indices to point clouds.
-    y : Dict[int, zRegPointCloud]
+    y : dict[int, zRegPointCloud]
         Second trajectory (target) - dictionary mapping time indices to point clouds.
     distance_metric : list[str] | str, optional
         Distance metric(s) for point cloud comparison.
@@ -106,10 +105,10 @@ class DynamicTimeWarping:
 
     def __init__(
         self,
-        x: Dict[int, zRegPointCloud],
-        y: Dict[int, zRegPointCloud],
+        x: dict[int, zRegPointCloud],
+        y: dict[int, zRegPointCloud],
         distance_metric: list[str] | str = "swd",
-        distance_kwargs: list[Dict] | Dict | None = None,
+        distance_kwargs: list[dict] | dict | None = None,
         downsample_method: str | None = "random",
         cpd_type: str | None = None,
         window: int | None = None,
@@ -263,7 +262,7 @@ class DynamicTimeWarping:
 
         return accumulated
 
-    def _backtrace(self, accumulated_cost: torch.Tensor) -> List[Tuple[int, int]]:
+    def _backtrace(self, accumulated_cost: torch.Tensor) -> list[tuple[int, int]]:
         """Extract the optimal warping path by backtracing through accumulated cost.
 
         Starts from the end point (n-1, m-1) and traces back to (0, 0)
@@ -276,7 +275,7 @@ class DynamicTimeWarping:
 
         Returns
         -------
-        List[Tuple[int, int]]
+        list[tuple[int, int]]
             Warping path as list of (i, j) index pairs, ordered from start to end.
         """
         n, m = accumulated_cost.shape
@@ -336,12 +335,12 @@ class DynamicTimeWarping:
         path.reverse()
         return path
 
-    def get_warping_path(self) -> List[Tuple[int, int]]:
+    def get_warping_path(self) -> list[tuple[int, int]]:
         """Get the optimal warping path.
 
         Returns
         -------
-        List[Tuple[int, int]]
+        list[tuple[int, int]]
             Warping path as list of (x_idx, y_idx) pairs.
 
         Raises
@@ -370,7 +369,7 @@ class DynamicTimeWarping:
             raise RuntimeError("DTW has not been computed yet. Call compute() first.")
         return self.result.distance
 
-    def get_aligned_indices(self) -> Tuple[List[int], List[int]]:
+    def get_aligned_indices(self) -> tuple[list[int], list[int]]:
         """Get aligned index sequences from the warping path.
 
         This extracts two lists of indices that show how time points
@@ -378,7 +377,7 @@ class DynamicTimeWarping:
 
         Returns
         -------
-        Tuple[List[int], List[int]]
+        tuple[list[int], list[int]]
             (x_indices, y_indices) where x_indices[k] corresponds to y_indices[k].
 
         Raises
@@ -393,9 +392,9 @@ class DynamicTimeWarping:
 
     def get_aligned_trajectory(
         self,
-        trajectory: Dict[int, zRegPointCloud],
+        trajectory: dict[int, zRegPointCloud],
         reference: str = "x",
-    ) -> Dict[int, zRegPointCloud]:
+    ) -> dict[int, zRegPointCloud]:
         """Resample a trajectory according to the warping path.
 
         This creates a new trajectory where time points are remapped
@@ -403,7 +402,7 @@ class DynamicTimeWarping:
 
         Parameters
         ----------
-        trajectory : Dict[int, zRegPointCloud]
+        trajectory : dict[int, zRegPointCloud]
             The trajectory to resample. Should be either x or y.
         reference : str, optional
             Which trajectory to use as reference for the new time indices.
@@ -413,7 +412,7 @@ class DynamicTimeWarping:
 
         Returns
         -------
-        Dict[int, zRegPointCloud]
+        dict[int, zRegPointCloud]
             Resampled trajectory with new time indices.
 
         Raises
@@ -448,7 +447,7 @@ class DynamicTimeWarping:
     def plot_alignment(
         self,
         save_path: str | Path | None = None,
-        figsize: Tuple[int, int] = (12, 5),
+        figsize: tuple[int, int] = (12, 5),
         metric_index: int = 0,
     ) -> None:
         """Visualize the cost matrix and warping path.
@@ -461,7 +460,7 @@ class DynamicTimeWarping:
         ----------
         save_path : str | Path | None, optional
             Path to save the figure. If None, displays the plot. Default: None.
-        figsize : Tuple[int, int], optional
+        figsize : tuple[int, int], optional
             Figure size (width, height) in inches. Default: (12, 5).
         metric_index : int, optional
             If multiple metrics, which one to plot. Default: 0.

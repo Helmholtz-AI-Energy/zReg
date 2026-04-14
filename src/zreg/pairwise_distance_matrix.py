@@ -61,7 +61,7 @@ def create_pairwise_distance_matrix(
         The distance metric(s) to use for the calculation. Can be a single string or a list of strings.
         Supported metrics depend on available functions (e.g., "swd" for Sliced Wasserstein Distance).
         By default, "swd".
-    distance_kwargs : list[Dict] | Dict | None, optional
+    distance_kwargs : list[dict] | dict | None, optional
         Keyword arguments to pass to the distance function(s). If `distance_metric` is a list, this should be a list of
         dictionaries of the same length.
         By default, None.

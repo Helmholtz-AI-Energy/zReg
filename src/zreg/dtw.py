@@ -68,7 +68,7 @@ class DynamicTimeWarping:
         Distance metric(s) for point cloud comparison.
         Supported: "swd", "aswd", "oswd", "gswd", "pswd", "euclidean",
         "manhattan", "minkowski", "cpd". Default: "swd".
-    distance_kwargs : list[Dict] | Dict | None, optional
+    distance_kwargs : list[dict] | dict | None, optional
         Additional kwargs for distance functions. Default: None.
     downsample_method : str | None, optional
         Downsampling method ("random", "uniform", "farthest"). Default: "random".

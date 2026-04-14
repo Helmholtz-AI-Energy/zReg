@@ -2,6 +2,7 @@ import scipy.io as sio
 import logging
 import time
 import csv
+from typing import Self
 
 import open3d.t.geometry as o3dtgeo
 import open3d.core as o3c
@@ -25,7 +26,7 @@ class zRegPointCloud(dict):  # dict[str, torch.Tensor]
         for key in ["pos", "color", "id", "fps-idx"]:
             self[key] = kwargs[key] if key in kwargs else None
 
-    def to(self, device):
+    def to(self, device) -> Self:
         for k in self.keys():
             if isinstance(self[k], torch.Tensor):
                 self[k] = self[k].to(device=device)

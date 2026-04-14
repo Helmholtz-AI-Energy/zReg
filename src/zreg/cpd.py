@@ -2,7 +2,7 @@
 # The core algorithms are the same, but the implementation now makes use of pytorch
 
 from collections import namedtuple
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List
 import torch
 
 import open3d as o3d
@@ -85,8 +85,8 @@ class CoherentPointDrift:
 
     def __init__(
         self,
-        source: Optional[torch.Tensor] = None,
-        source_colors: Optional[torch.Tensor] = None,
+        source: torch.Tensor | None = None,
+        source_colors: torch.Tensor | None = None,
         use_color: bool = False,
         use_cuda: bool = False,
         log_freq: bool = True,
@@ -103,7 +103,7 @@ class CoherentPointDrift:
         self.transformation = None
         self.log_freq = log_freq
 
-    def set_source(self, source: torch.Tensor, source_colors: Optional[torch.Tensor] = None) -> None:
+    def set_source(self, source: torch.Tensor, source_colors: torch.Tensor | None = None) -> None:
         _validate_tensors(source, names=["source"])
         if source_colors is not None:
             _validate_tensors(source, source_colors, names=["source", "source_colors"])
@@ -165,8 +165,8 @@ class CoherentPointDrift:
         sigma2: float,
         sigma2_c: float,
         w: float = 0.0,
-        target_colors: Optional[torch.Tensor] = None,
-        source_colors: Optional[torch.Tensor] = None,
+        target_colors: torch.Tensor | None = None,
+        source_colors: torch.Tensor | None = None,
     ) -> EstepResult:
         """Perform the Expectation step of the EM algorithm.
 
@@ -229,9 +229,9 @@ class CoherentPointDrift:
         self,
         target: torch.Tensor,
         estep_res: EstepResult,
-        sigma2_p: Optional[float] = None,
-        target_colors: Optional[torch.Tensor] = None,
-        source_colors: Optional[torch.Tensor] = None,
+        sigma2_p: float | None = None,
+        target_colors: torch.Tensor | None = None,
+        source_colors: torch.Tensor | None = None,
     ) -> MstepResult:
         """Perform the Maximization step of the EM algorithm.
 
@@ -271,10 +271,10 @@ class CoherentPointDrift:
         source: torch.Tensor,
         target: torch.Tensor,
         estep_res: EstepResult,
-        sigma2_p: Optional[float] = None,
-        target_colors: Optional[torch.Tensor] = None,
-        source_colors: Optional[torch.Tensor] = None,
-    ) -> MstepResult:
+        sigma2_p: float | None = None,
+        target_colors: torch.Tensor | None = None,
+        source_colors: torch.Tensor | None = None,
+    ) -> MstepResult | None:
         """Internal method for the Maximization step.
 
         This method is called by the `maximization_step` method and can be
@@ -294,7 +294,7 @@ class CoherentPointDrift:
 
         Returns
         -------
-        Optional[MstepResult]
+        MstepResult | None
             Result object containing updated transformation parameters and
             other relevant information.
         """
@@ -307,7 +307,7 @@ class CoherentPointDrift:
         w: float = 0.0,
         maxiter: int = 50,
         tol: float = 0.001,
-        target_colors: Optional[torch.Tensor] = None,
+        target_colors: torch.Tensor | None = None,
     ) -> MstepResult:
         """Perform the CPD registration process.
 
@@ -461,13 +461,13 @@ class RigidCPD(CoherentPointDrift):
 
     def __init__(
         self,
-        source: Optional[torch.Tensor] = None,
+        source: torch.Tensor | None = None,
         update_scale: bool = True,
         tf_init_params: Dict = {},
         use_color: bool = False,
         use_cuda: bool = False,
         log_freq: bool = 100,
-        source_colors: Optional[torch.Tensor] = None,
+        source_colors: torch.Tensor | None = None,
     ) -> None:
         super(RigidCPD, self).__init__(
             source, use_color=use_color, use_cuda=use_cuda, log_freq=log_freq, source_colors=source_colors
@@ -524,9 +524,9 @@ class RigidCPD(CoherentPointDrift):
         self,
         target: torch.Tensor,
         estep_res: EstepResult,
-        sigma2_p: Optional[float] = None,
-        source_colors: Optional[torch.Tensor] = None,
-        target_colors: Optional[torch.Tensor] = None,
+        sigma2_p: float | None = None,
+        source_colors: torch.Tensor | None = None,
+        target_colors: torch.Tensor | None = None,
     ) -> MstepResult:
         """
         Perform the maximization step of the CPD algorithm.
@@ -569,10 +569,10 @@ class RigidCPD(CoherentPointDrift):
         source: torch.Tensor,
         target: torch.Tensor,
         estep_res: EstepResult,
-        sigma2_p: Optional[float] = None,
+        sigma2_p: float | None = None,
         update_scale: bool = True,
-        target_colors: Optional[torch.Tensor] = None,
-        source_colors: Optional[torch.Tensor] = None,
+        target_colors: torch.Tensor | None = None,
+        source_colors: torch.Tensor | None = None,
     ) -> MstepResult:
         """
         Static method for the maximization step.
@@ -684,7 +684,7 @@ class AffineCPD(CoherentPointDrift):
 
     def __init__(
         self,
-        source: Optional[torch.Tensor] = None,
+        source: torch.Tensor | None = None,
         tf_init_params: Dict = {},
         use_color: bool = False,
         use_cuda: bool = False,
@@ -720,9 +720,9 @@ class AffineCPD(CoherentPointDrift):
         source: torch.Tensor,
         target: torch.Tensor,
         estep_res: EstepResult,
-        sigma2_p: Optional[float] = None,
-        target_colors: Optional[torch.Tensor] = None,
-        source_colors: Optional[torch.Tensor] = None,
+        sigma2_p: float | None = None,
+        target_colors: torch.Tensor | None = None,
+        source_colors: torch.Tensor | None = None,
     ) -> MstepResult:
         """
         Perform the maximization step of the CPD algorithm.
@@ -824,7 +824,7 @@ class NonRigidCPD(CoherentPointDrift):
 
     def __init__(
         self,
-        source: Optional[torch.Tensor] = None,
+        source: torch.Tensor | None = None,
         beta: float = 2.0,
         lmd: float = 2.0,
         use_color: bool = False,
@@ -849,9 +849,9 @@ class NonRigidCPD(CoherentPointDrift):
         self,
         target: torch.Tensor,
         estep_res: EstepResult,
-        sigma2_p: Optional[float] = None,
-        target_colors: Optional[torch.Tensor] = None,
-        source_colors: Optional[torch.Tensor] = None,
+        sigma2_p: float | None = None,
+        target_colors: torch.Tensor | None = None,
+        source_colors: torch.Tensor | None = None,
     ) -> MstepResult:
         """
         Perform the maximization step of the EM algorithm.
@@ -981,14 +981,14 @@ class ConstrainedNonRigidCPD(CoherentPointDrift):
 
     def __init__(
         self,
-        source: Optional[torch.Tensor] = None,
+        source: torch.Tensor | None = None,
         beta: float = 2.0,
         lmd: float = 2.0,
         alpha: float = 1e-8,
         use_color: bool = False,
         use_cuda: bool = False,
-        idx_source: Optional[torch.Tensor] = None,
-        idx_target: Optional[torch.Tensor] = None,
+        idx_source: torch.Tensor | None = None,
+        idx_target: torch.Tensor | None = None,
         log_freq=100,
     ):
         super(ConstrainedNonRigidCPD, self).__init__(source, use_color, use_cuda, log_freq=log_freq)
@@ -1011,9 +1011,9 @@ class ConstrainedNonRigidCPD(CoherentPointDrift):
         self,
         target: torch.Tensor,
         estep_res: EstepResult,
-        sigma2_p: Optional[float] = None,
-        target_colors: Optional[torch.Tensor] = None,
-        source_colors: Optional[torch.Tensor] = None,
+        sigma2_p: float | None = None,
+        target_colors: torch.Tensor | None = None,
+        source_colors: torch.Tensor | None = None,
     ) -> MstepResult:
         """
         Perform the maximization step of the EM algorithm.

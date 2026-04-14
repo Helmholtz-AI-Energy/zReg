@@ -5,7 +5,7 @@ import logging
 import os
 import time
 
-from typing import Tuple, Dict, Optional, List
+from typing import Tuple, Dict, List
 
 if "NOMPI" not in os.environ:
     from mpi4py import MPI
@@ -34,12 +34,12 @@ __all__ = ["create_pairwise_distance_matrix", "create_pairwise_distance_matrix_g
 def create_pairwise_distance_matrix(
     x: Dict[int, zRegPointCloud],
     y: Dict[int, zRegPointCloud],
-    window: Optional[int] = None,
+    window: int | None = None,
     normalize: bool = True,
     distance_metric: list[str] | str = "swd",
     distance_kwargs: list[Dict] | Dict | None = None,
-    downsample_method: Optional[str] = None,
-    cpd_type: Optional[str] = None,
+    downsample_method: str | None = None,
+    cpd_type: str | None = None,
     mpi_distribute: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Create a pairwise distance matrix using the given parameters.
@@ -52,7 +52,7 @@ def create_pairwise_distance_matrix(
     y : Dict[int, zRegPointCloud]
         A dictionary containing the second set of point cloud data. The keys are integer indices, and the values
         are zRegPointCloud instances containing point cloud data (e.g., 'pos' for positions).
-    window : Optional[int], optional
+    window : int | None, optional
         The window size to use for the distance matrix calculation. If None, no windowing is used (full matrix).
         By default, None.
     normalize : bool, optional
@@ -66,10 +66,10 @@ def create_pairwise_distance_matrix(
         Keyword arguments to pass to the distance function(s). If `distance_metric` is a list, this should be a list of
         dictionaries of the same length.
         By default, None.
-    downsample_method : Optional[str], optional
+    downsample_method : str | None, optional
         The downsampling method to use. If None, no downsampling is performed.
         By default, None.
-    cpd_type : Optional[str], optional
+    cpd_type : str | None, optional
         The type of Coherent Point Drift registration to perform. If None, no CPD is used.
         By default, None.
     mpi_distribute : bool, optional
@@ -271,11 +271,11 @@ def create_pairwise_distance_matrix_given_rigid_rot(
     rotation: torch.Tensor,
     translation: torch.Tensor,
     scale: float = 1.0,
-    window: Optional[int] = None,
+    window: int | None = None,
     normalize: bool = True,
     distance_metric: list[str] | str = "swd",
     distance_kwargs: list[Dict] | Dict | None = None,
-    downsample_method: Optional[str] = None,
+    downsample_method: str | None = None,
     mpi_distribute: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     # This function follows the normal pairwise distance matrix function closely, but uses a fixed rotation

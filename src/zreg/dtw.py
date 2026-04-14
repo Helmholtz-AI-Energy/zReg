@@ -6,7 +6,7 @@ two sequences of point clouds using Dynamic Time Warping (DTW).
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 import logging
 
 import torch
@@ -38,7 +38,7 @@ class DTWResult:
         Path goes from (0, 0) to (len(x)-1, len(y)-1).
     distance : float
         Total DTW distance (accumulated cost at the end of the path).
-    rotations : Optional[torch.Tensor]
+    rotations : torch.Tensor | None
         CPD rotations if cpd_type was specified during computation.
     """
 
@@ -46,7 +46,7 @@ class DTWResult:
     accumulated_cost: torch.Tensor
     warping_path: List[Tuple[int, int]]
     distance: float
-    rotations: Optional[torch.Tensor] = None
+    rotations: torch.Tensor | None = None
 
 
 class DynamicTimeWarping:
@@ -71,12 +71,12 @@ class DynamicTimeWarping:
         "manhattan", "minkowski", "cpd". Default: "swd".
     distance_kwargs : list[Dict] | Dict | None, optional
         Additional kwargs for distance functions. Default: None.
-    downsample_method : Optional[str], optional
+    downsample_method : str | None, optional
         Downsampling method ("random", "uniform", "farthest"). Default: "random".
-    cpd_type : Optional[str], optional
+    cpd_type : str | None, optional
         CPD registration type ("rigid", "affine", "nonrigid").
         If None, no spatial registration is performed. Default: None.
-    window : Optional[int], optional
+    window : int | None, optional
         Sakoe-Chiba band width for constraining warping path.
         If None, no constraint is applied (full matrix). Default: None.
     normalize : bool, optional
@@ -86,7 +86,7 @@ class DynamicTimeWarping:
 
     Attributes
     ----------
-    result : Optional[DTWResult]
+    result : DTWResult | None
         The result of the DTW computation. None until `compute()` is called.
 
     Examples
@@ -110,9 +110,9 @@ class DynamicTimeWarping:
         y: Dict[int, zRegPointCloud],
         distance_metric: list[str] | str = "swd",
         distance_kwargs: list[Dict] | Dict | None = None,
-        downsample_method: Optional[str] = "random",
-        cpd_type: Optional[str] = None,
-        window: Optional[int] = None,
+        downsample_method: str | None = "random",
+        cpd_type: str | None = None,
+        window: int | None = None,
         normalize: bool = True,
         mpi_distribute: bool = False,
     ) -> None:
@@ -127,11 +127,11 @@ class DynamicTimeWarping:
         self.mpi_distribute = mpi_distribute
 
         # Result storage
-        self.result: Optional[DTWResult] = None
+        self.result: DTWResult | None = None
 
         # Internal state
-        self._cost_matrix: Optional[torch.Tensor] = None
-        self._rotations: Optional[torch.Tensor] = None
+        self._cost_matrix: torch.Tensor | None = None
+        self._rotations: torch.Tensor | None = None
 
     def compute(self, metric_index: int = 0) -> DTWResult:
         """Run the full DTW pipeline.

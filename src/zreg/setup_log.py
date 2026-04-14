@@ -2,7 +2,6 @@ import logging
 import colorlog
 from pathlib import Path
 import sys
-from typing import Optional
 
 log = logging.getLogger(__name__)
 

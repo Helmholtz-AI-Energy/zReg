@@ -10,8 +10,13 @@ from ._types import EstepResult, MstepResult
 # Kernel utilities
 from .kernels import rbf_kernel_matrix
 
+# Base class
+from .base import CoherentPointDrift
+
 # Public API will be extended in subsequent plans
 __all__ = [
+    # Base class
+    "CoherentPointDrift",
     # Types
     "EstepResult",
     "MstepResult",

@@ -39,7 +39,9 @@ Full details: [.planning/milestones/v1.0-ROADMAP.md](.planning/milestones/v1.0-R
   2. All self-returning methods use Self type annotation
   3. pyproject.toml specifies python_requires >= 3.12
   4. No deprecated stdlib patterns remain (typing module generics replaced with built-ins)
-**Plans**: TBD
+**Plans**: 2 plans
+- [x] 06-01-PLAN.md — Version constraints + Union/Optional to PEP 604 syntax
+- [x] 06-02-PLAN.md — Built-in generics + Self type + typing import cleanup
 
 ### Phase 7: CPD Deep Restructure
 **Goal**: CPD module has clean inheritance hierarchy with shared base and explicit public API
@@ -51,7 +53,10 @@ Full details: [.planning/milestones/v1.0-ROADMAP.md](.planning/milestones/v1.0-R
   3. RBF kernel computation lives in dedicated utility function/class
   4. Convergence diagnostics are reusable across registration types
   5. Module __all__ exports only public API; internal helpers are underscore-prefixed
-**Plans**: TBD
+**Plans**: 3 plans
+- [ ] 07-01-PLAN.md — Package foundation: types, kernels, abstract base class
+- [ ] 07-02-PLAN.md — Registration variants: Rigid, Affine, NonRigid, ConstrainedNonRigid
+- [ ] 07-03-PLAN.md — Registration functions and public API finalization
 
 ### Phase 8: DTW Deep Restructure
 **Goal**: DTW module cleanly separates algorithm core from metric computation with composable components
@@ -96,8 +101,8 @@ Full details: [.planning/milestones/v1.0-ROADMAP.md](.planning/milestones/v1.0-R
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 6. Python 3.12 Migration | v1.1 | 0/? | Not started | - |
-| 7. CPD Deep Restructure | v1.1 | 0/? | Not started | - |
+| 6. Python 3.12 Migration | v1.1 | 2/2 | Complete | - |
+| 7. CPD Deep Restructure | v1.1 | 0/3 | Planned | - |
 | 8. DTW Deep Restructure | v1.1 | 0/? | Not started | - |
 | 9. Distance & Transform Restructure | v1.1 | 0/? | Not started | - |
 | 10. Code Quality & Verification | v1.1 | 0/? | Not started | - |

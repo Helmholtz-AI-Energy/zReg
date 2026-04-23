@@ -6,7 +6,7 @@ two sequences of point clouds using Dynamic Time Warping (DTW).
 Public API
 ----------
 Classes:
-    DynamicTimeWarping : Main DTW algorithm class
+    DynamicTimeWarping : Main DTW algorithm class for temporal alignment
 
 Dataclasses:
     DTWResult : Container for DTW computation results
@@ -14,9 +14,14 @@ Dataclasses:
 Functions:
     compose_constraints : Combine multiple windowing constraint functions
 
-Note: The DTW algorithm is metric-agnostic by design. It delegates metric
+Note
+----
+The DTW algorithm is metric-agnostic by design. It delegates metric
 computation to pairwise_distance_matrix.create_pairwise_distance_matrix().
-For custom constraints, use set_cost_matrix() with a pre-masked matrix.
+
+For custom constraints beyond the built-in Sakoe-Chiba band (window parameter):
+1. Use compose_constraints() to combine constraint functions
+2. Use set_cost_matrix() with a pre-masked cost matrix for arbitrary constraints
 """
 
 # Result dataclass
@@ -25,13 +30,14 @@ from .result import DTWResult
 # Constraint utilities
 from .constraints import compose_constraints
 
-# DynamicTimeWarping class will be added in Plan 02
+# Main algorithm class
+from .core import DynamicTimeWarping
 
 __all__ = [
+    # Classes
+    "DynamicTimeWarping",
     # Dataclasses
     "DTWResult",
     # Functions
     "compose_constraints",
-    # Classes (added in Plan 02)
-    # "DynamicTimeWarping",
 ]

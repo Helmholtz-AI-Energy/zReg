@@ -54,21 +54,22 @@ Full details: [.planning/milestones/v1.0-ROADMAP.md](.planning/milestones/v1.0-R
   4. Convergence diagnostics are reusable across registration types
   5. Module __all__ exports only public API; internal helpers are underscore-prefixed
 **Plans**: 3 plans
-- [ ] 07-01-PLAN.md — Package foundation: types, kernels, abstract base class
-- [ ] 07-02-PLAN.md — Registration variants: Rigid, Affine, NonRigid, ConstrainedNonRigid
-- [ ] 07-03-PLAN.md — Registration functions and public API finalization
+- [x] 07-01-PLAN.md — Package foundation: types, kernels, abstract base class
+- [x] 07-02-PLAN.md — Registration variants: Rigid, Affine, NonRigid, ConstrainedNonRigid
+- [x] 07-03-PLAN.md — Registration functions and public API finalization
 
 ### Phase 8: DTW Deep Restructure
 **Goal**: DTW module cleanly separates algorithm core from metric computation with composable components
 **Depends on**: Phase 6 (modern syntax available for new code)
-**Requirements**: DTW-01, DTW-02, DTW-03, DTW-04, DTW-05
+**Requirements**: DTW-01, DTW-03, DTW-04, DTW-05 (DTW-02 deferred to Phase 9)
 **Success Criteria** (what must be TRUE):
-  1. DTW algorithm core is metric-agnostic (accepts any distance function)
-  2. All metric variants (manhattan, cpd, minkowski, etc.) implement consistent interface
-  3. Path reconstruction is standalone function callable independently
-  4. Windowing constraints are composable (can combine multiple constraints)
-  5. Module __all__ exports only public API; internal helpers are underscore-prefixed
-**Plans**: TBD
+  1. DTW algorithm core is metric-agnostic (delegates to create_pairwise_distance_matrix)
+  2. Path reconstruction is focused private method (_backtrace) with single responsibility
+  3. Windowing constraints are composable (compose_constraints + set_cost_matrix pattern)
+  4. Module __all__ exports only public API; internal helpers are underscore-prefixed
+**Plans**: 2 plans
+- [ ] 08-01-PLAN.md — Package foundation: DTWResult dataclass, compose_constraints utility
+- [ ] 08-02-PLAN.md — Core class migration and public API finalization
 
 ### Phase 9: Distance & Transform Restructure
 **Goal**: Distance metrics and transforms have consistent interfaces with shared abstraction patterns
@@ -102,8 +103,8 @@ Full details: [.planning/milestones/v1.0-ROADMAP.md](.planning/milestones/v1.0-R
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 6. Python 3.12 Migration | v1.1 | 2/2 | Complete | - |
-| 7. CPD Deep Restructure | v1.1 | 0/3 | Planned | - |
-| 8. DTW Deep Restructure | v1.1 | 0/? | Not started | - |
+| 7. CPD Deep Restructure | v1.1 | 3/3 | Complete | - |
+| 8. DTW Deep Restructure | v1.1 | 0/2 | Planned | - |
 | 9. Distance & Transform Restructure | v1.1 | 0/? | Not started | - |
 | 10. Code Quality & Verification | v1.1 | 0/? | Not started | - |
 | 1. Validation Foundation & Quick Wins | v1.0 | 2/2 | Complete | 2026-04-09 |

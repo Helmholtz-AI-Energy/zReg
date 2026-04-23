@@ -68,7 +68,7 @@ Full details: [.planning/milestones/v1.0-ROADMAP.md](.planning/milestones/v1.0-R
   3. Windowing constraints are composable (compose_constraints + set_cost_matrix pattern)
   4. Module __all__ exports only public API; internal helpers are underscore-prefixed
 **Plans**: 2 plans
-- [ ] 08-01-PLAN.md — Package foundation: DTWResult dataclass, compose_constraints utility
+- [x] 08-01-PLAN.md — Package foundation: DTWResult dataclass, compose_constraints utility
 - [ ] 08-02-PLAN.md — Core class migration and public API finalization
 
 ### Phase 9: Distance & Transform Restructure

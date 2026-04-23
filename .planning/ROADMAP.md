@@ -69,7 +69,7 @@ Full details: [.planning/milestones/v1.0-ROADMAP.md](.planning/milestones/v1.0-R
   4. Module __all__ exports only public API; internal helpers are underscore-prefixed
 **Plans**: 2 plans
 - [x] 08-01-PLAN.md — Package foundation: DTWResult dataclass, compose_constraints utility
-- [ ] 08-02-PLAN.md — Core class migration and public API finalization
+- [x] 08-02-PLAN.md — Core class migration and public API finalization
 
 ### Phase 9: Distance & Transform Restructure
 **Goal**: Distance metrics and transforms have consistent interfaces with shared abstraction patterns
@@ -104,7 +104,7 @@ Full details: [.planning/milestones/v1.0-ROADMAP.md](.planning/milestones/v1.0-R
 |-------|-----------|----------------|--------|-----------|
 | 6. Python 3.12 Migration | v1.1 | 2/2 | Complete | - |
 | 7. CPD Deep Restructure | v1.1 | 3/3 | Complete | - |
-| 8. DTW Deep Restructure | v1.1 | 0/2 | Planned | - |
+| 8. DTW Deep Restructure | v1.1 | 2/2 | Complete   | 2026-04-23 |
 | 9. Distance & Transform Restructure | v1.1 | 0/? | Not started | - |
 | 10. Code Quality & Verification | v1.1 | 0/? | Not started | - |
 | 1. Validation Foundation & Quick Wins | v1.0 | 2/2 | Complete | 2026-04-09 |

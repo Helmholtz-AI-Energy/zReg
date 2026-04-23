@@ -601,6 +601,20 @@ class TestExports:
         assert hasattr(zreg.dtw, "DynamicTimeWarping")
         assert hasattr(zreg.dtw, "DTWResult")
 
+    def test_import_dtwresult_from_package(self):
+        """Test that DTWResult is importable from dtw package."""
+        from zreg.dtw import DTWResult
+        from zreg.dtw.result import DTWResult as DTWResultDirect
+
+        assert DTWResult is DTWResultDirect
+
+    def test_import_compose_constraints(self):
+        """Test that compose_constraints is importable from dtw package."""
+        from zreg.dtw import compose_constraints
+        from zreg.dtw.constraints import compose_constraints as direct
+
+        assert compose_constraints is direct
+
 
 class TestDTWMetricsAndBoundaries:
     """Tests for DTW with additional distance metrics, windowed asymmetric inputs, and boundary conditions (TEST-02)."""
@@ -757,3 +771,74 @@ class TestDTWMetricsAndBoundaries:
 
         # Distance should be 0 for perfect diagonal alignment
         assert result.distance == 0.0
+
+
+class TestComposeConstraints:
+    """Tests for compose_constraints utility function."""
+
+    def test_no_constraints_allows_all(self):
+        """Test that no constraints means all cells allowed."""
+        from zreg.dtw.constraints import compose_constraints
+
+        composed = compose_constraints()
+        # All cells should be allowed
+        assert composed(0, 0, 10, 10) is True
+        assert composed(5, 5, 10, 10) is True
+        assert composed(9, 9, 10, 10) is True
+
+    def test_single_constraint_passthrough(self):
+        """Test that single constraint is passed through correctly."""
+        from zreg.dtw.constraints import compose_constraints
+
+        def sakoe_chiba(i, j, n, m, window=2):
+            return abs(i - j) <= window
+
+        composed = compose_constraints(lambda i, j, n, m: sakoe_chiba(i, j, n, m, window=1))
+
+        # Within window
+        assert composed(0, 0, 10, 10) is True
+        assert composed(1, 0, 10, 10) is True
+        assert composed(0, 1, 10, 10) is True
+
+        # Outside window
+        assert composed(0, 2, 10, 10) is False
+        assert composed(5, 8, 10, 10) is False
+
+    def test_multiple_constraints_intersection(self):
+        """Test that multiple constraints are ANDed together."""
+        from zreg.dtw.constraints import compose_constraints
+
+        # Constraint 1: i >= 2
+        constraint1 = lambda i, j, n, m: i >= 2
+        # Constraint 2: j >= 3
+        constraint2 = lambda i, j, n, m: j >= 3
+
+        composed = compose_constraints(constraint1, constraint2)
+
+        # Both satisfied
+        assert composed(2, 3, 10, 10) is True
+        assert composed(5, 5, 10, 10) is True
+
+        # Only first satisfied
+        assert composed(2, 2, 10, 10) is False
+
+        # Only second satisfied
+        assert composed(1, 3, 10, 10) is False
+
+        # Neither satisfied
+        assert composed(1, 2, 10, 10) is False
+
+    def test_constraint_receives_matrix_dimensions(self):
+        """Test that constraints receive correct n and m values."""
+        from zreg.dtw.constraints import compose_constraints
+
+        received_args = []
+
+        def capture_args(i, j, n, m):
+            received_args.append((i, j, n, m))
+            return True
+
+        composed = compose_constraints(capture_args)
+        composed(3, 4, 10, 15)
+
+        assert received_args == [(3, 4, 10, 15)]

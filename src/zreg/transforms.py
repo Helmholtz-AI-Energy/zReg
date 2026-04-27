@@ -66,40 +66,55 @@ def transform_points_homogeneous(
     transform_matrix: torch.Tensor,
     return_o3d: bool = False,
 ) -> zRegPointCloud | o3d.t.geometry.PointCloud:
-    """Transforms a set of 3D points using a 4x4 transformation matrix.
+    """Transform points using a 4x4 homogeneous transformation matrix.
 
-    This function handles point data in two formats:
-        - A dictionary with a 'pos' key containing a torch.Tensor of shape (n, 3).
-        - An Open3D PointCloud object.
+    This function applies a 4x4 transformation matrix to 3D points using
+    homogeneous coordinates. It handles both zRegPointCloud and Open3D
+    point cloud formats.
 
-    The transformation is applied using homogeneous coordinates.
+    Homogeneous Coordinate Handling
+    -------------------------------
+    For zRegPointCloud inputs, the transformation process is:
+
+    1. Extend points to homogeneous: [x, y, z] -> [x, y, z, 1]
+    2. Apply transformation: [x', y', z', w'] = [x, y, z, 1] @ M.T
+    3. Perspective divide: [x', y', z'] / w'
+
+    W-Clamping: The w coordinate is clamped to avoid division by near-zero
+    values. This prevents inf/NaN results when transformation matrices
+    have degenerate bottom rows. The clamping uses torch.finfo(dtype).eps
+    as the minimum value.
+
+    For Open3D inputs, the native transform() method is used.
 
     Parameters
     ----------
-    points : dict or o3d.t.geometry.PointCloud
+    points : zRegPointCloud or o3d.t.geometry.PointCloud
         The 3D points to transform.
     transform_matrix : torch.Tensor
-        The 4x4 transformation matrix.
+        4x4 transformation matrix.
     return_o3d : bool, optional
-        If True, returns an Open3D PointCloud.
-        If False (default), returns a dictionary with the transformed points.
+        If True, return Open3D PointCloud. Default False.
 
     Returns
     -------
-    dict or o3d.t.geometry.PointCloud
-        The transformed 3D points in the specified format.
+    zRegPointCloud or o3d.t.geometry.PointCloud
+        Transformed points in requested format.
 
     Raises
     ------
     TypeError
-        If `points` is a torch.Tensor and not a dictionary or Open3D PointCloud.
+        If points is a raw torch.Tensor (must be wrapped in zRegPointCloud).
 
-    Examples
+    Notes
+    -----
+    This function modifies the input zRegPointCloud in-place (updates 'pos' key)
+    and returns the same object. For Open3D inputs, a new object is returned.
+
+    See Also
     --------
-    >>> points = {'pos': torch.tensor([[1, 2, 3], [4, 5, 6]])}
-    >>> transform_matrix = np.eye(4)  # Identity matrix
-    >>> transformed_points = transform_points(points, transform_matrix)
-    >>> print(transformed_points)
+    RigidTransformation : For rigid transformations without homogeneous coords
+    AffineTransformation : For affine transformations
     """
     if isinstance(points, zRegPointCloud):
         pos = points["pos"]
@@ -222,6 +237,41 @@ class RigidTransformation(TransformBase):
         return RigidTransformation(self.rot.T, -torch.matmul(self.rot.T, self.t) / self.scale, 1.0 / self.scale)
 
     def __mul__(self, other):
+        """Compose two rigid transformations.
+
+        Computes the composition self * other, which applies other first,
+        then self. The composed transformation satisfies:
+
+            (self * other).transform(points) == self.transform(other.transform(points))
+
+        Composition Validation
+        ----------------------
+        The composed rotation matrix is validated:
+        - Determinant must be within 1e-6 of 1.0 (preserves orientation)
+        - Condition number must be below 1e6 (numerical stability)
+
+        Parameters
+        ----------
+        other : RigidTransformation
+            The transformation to apply first.
+
+        Returns
+        -------
+        RigidTransformation
+            The composed transformation.
+
+        Raises
+        ------
+        ValueError
+            If composed rotation has invalid determinant or condition number.
+
+        Examples
+        --------
+        >>> tf1 = RigidTransformation(t=torch.tensor([1., 0., 0.]))
+        >>> tf2 = RigidTransformation(t=torch.tensor([0., 1., 0.]))
+        >>> tf_composed = tf1 * tf2
+        >>> # tf_composed translates by (1, 1, 0)
+        """
         rot_composed = torch.matmul(self.rot, other.rot)
         # Validate composed rotation (per D-10, D-11, D-12, D-13)
         det = torch.det(rot_composed)

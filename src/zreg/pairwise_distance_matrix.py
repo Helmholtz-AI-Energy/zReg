@@ -449,6 +449,54 @@ def create_pairwise_distance_matrix_given_rigid_rot(
 
 
 def _sanitize_pairwise_distance_matrix(distance_kwargs, distance_metrics, downsample_method, x, y):
+    """Resolve distance metric strings to callable objects.
+
+    This function implements string-to-callable dispatch for distance metrics.
+    The returned callables satisfy the DistanceMetric protocol interface:
+
+        callable(x: Tensor, y: Tensor, **kwargs) -> Tensor
+
+    Supported Metrics
+    -----------------
+    String      | Returns                          | Notes
+    ------------|----------------------------------|----------------------------------
+    "swd"       | SlicedWassersteinDistance        | Requires downsampling
+    "aswd"      | AdaptiveSlicedWassersteinDistance| Requires downsampling
+    "oswd"      | OrthogonalSlicedWassersteinDistance| Requires downsampling
+    "gswd"      | GeneralisedSlicedWassersteinDistance| Requires downsampling
+    "pswd"      | ProjectedWassersteinDistance     | Requires downsampling
+    "euclidean" | partial(euclidean_distance, ...) | No downsampling required
+    "manhattan" | partial(manhattan_distance, ...) | No downsampling required
+    "minkowski" | partial(minkowski_distance, ...) | No downsampling required
+    "cpd"       | None (uses CPD q metric)         | Special case
+
+    Parameters
+    ----------
+    distance_kwargs : list[dict] | dict | None
+        Keyword arguments for each distance metric.
+    distance_metrics : list[str] | str
+        String identifiers for distance metrics.
+    downsample_method : str | None
+        Downsampling method identifier.
+    x, y : dict[int, zRegPointCloud]
+        Point cloud dictionaries (used for device inference).
+
+    Returns
+    -------
+    distance_fns : list[Callable | None]
+        List of distance callables (None for cpd).
+    downsample_method : str | None
+        Resolved downsample method.
+    downsample_fn : Callable
+        Downsampling function.
+
+    Raises
+    ------
+    ValueError
+        If invalid distance metric string provided.
+    RuntimeError
+        If SWD metric used without downsampling method.
+    """
     if not isinstance(distance_metrics, list):
         distance_metrics = [
             distance_metrics,

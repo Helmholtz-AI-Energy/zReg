@@ -121,6 +121,37 @@ def _linear(x, theta):
 
 
 class BaseWD(nn.Module):
+    """Base class for Sliced Wasserstein Distance variants.
+
+    This class handles batch dimension logic uniformly across all SWD variants.
+    Subclasses implement `_forward()` with the specific distance computation.
+
+    Batch Dimension Handling
+    ------------------------
+    - If input has 2 dimensions (n_points, dim), a batch dimension is added
+    - If `nobatchdim=True`, inputs are always unsqueezed to add batch dim
+    - After computation, the batch dimension is squeezed back if it was added
+
+    All SWD variant classes (SlicedWassersteinDistance, MaxSlicedWassersteinDistance,
+    etc.) inherit from this base to share the batch handling logic.
+
+    Parameters
+    ----------
+    nobatchdim : bool
+        If True, always treat inputs as unbatched (add batch dim).
+    device : str or torch.device
+        Device to use for computation.
+
+    See Also
+    --------
+    SlicedWassersteinDistance : Fixed number of random projections
+    AdaptiveSlicedWassersteinDistance : Adaptive number of projections
+    MaxSlicedWassersteinDistance : Optimized single projection
+    OrthogonalSlicedWassersteinDistance : Orthogonal projections
+    GeneralisedSlicedWassersteinDistance : Circular/linear defining functions
+    ProjectedWassersteinDistance : Point-wise projected distance
+    """
+
     def __init__(self, nobatchdim, device):
         super().__init__()
         if device is None:

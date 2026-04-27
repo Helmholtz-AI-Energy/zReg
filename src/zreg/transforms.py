@@ -1,3 +1,39 @@
+"""Point cloud transformation classes.
+
+This module provides transformation classes for manipulating 3D point clouds,
+supporting rigid, affine, non-rigid (RBF), combined, and TPS transformations.
+
+Public API
+----------
+Base Class:
+    TransformBase - Abstract base for all transformations (user subclassing)
+
+Transformation Classes:
+    RigidTransformation - Rotation, translation, and uniform scaling
+    AffineTransformation - General affine matrix transformation
+    NonRigidTransformation - RBF kernel-based deformation
+    CombinedTransformation - Rigid + non-rigid deformation
+    TPSTransformation - Thin Plate Spline transformation
+
+Functions:
+    transform_points_homogeneous - Apply 4x4 matrix to point cloud
+
+Kernel Patterns
+---------------
+NonRigidTransformation and TPSTransformation share a common kernel-based
+deformation pattern:
+
+1. Both use kernel functions from utils.py (rbf_kernel, tps_kernel)
+2. Both store a kernel matrix G = kernel(control_pts, control_pts)
+3. Both compute deformation as: points + G @ weights
+
+The kernel functions differ in their radial basis:
+- RBF: exp(-beta * ||x - y||^2)
+- TPS: ||x - y||^2 * log(||x - y||)
+
+See NonRigidTransformation and TPSTransformation docstrings for details.
+"""
+
 # This file takes insperation from https://github.com/neka-nat/probreg/
 # Some algorithms are the same, but the implementations make use of
 # pytorch as well as some efficiency changes
@@ -15,12 +51,13 @@ from . import utils
 
 
 __all__ = [
-    "transform_points_homogeneous",
+    "TransformBase",
     "RigidTransformation",
     "AffineTransformation",
     "NonRigidTransformation",
     "CombinedTransformation",
     "TPSTransformation",
+    "transform_points_homogeneous",
 ]
 
 
@@ -106,6 +143,33 @@ def transform_points_homogeneous(
 
 
 class TransformBase(object):
+    """Abstract base class for point cloud transformations.
+
+    All transformation classes inherit from this base, which provides:
+    - A standard `transform()` method that handles both 3D and extended point data
+    - A `_transform()` template method for subclasses to implement
+
+    Subclassing
+    -----------
+    To create a custom transformation, subclass TransformBase and implement
+    `_transform(self, points)`:
+
+        class MyTransform(TransformBase):
+            def _transform(self, points):
+                # points: torch.Tensor of shape (n, 3)
+                return transformed_points
+
+    The `transform()` method handles points with extra columns (e.g., colors)
+    by only transforming the first 3 columns (xyz) and preserving the rest.
+
+    See Also
+    --------
+    RigidTransformation : Rotation + translation + scale
+    AffineTransformation : General affine transformation
+    NonRigidTransformation : RBF kernel deformation
+    TPSTransformation : Thin Plate Spline deformation
+    """
+
     def __init__(self) -> None:
         pass
 

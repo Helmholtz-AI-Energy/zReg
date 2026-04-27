@@ -316,13 +316,48 @@ class AffineTransformation(TransformBase):
 
 
 class NonRigidTransformation(TransformBase):
-    """Nonrigid Transformation
+    """Non-rigid transformation using RBF (Radial Basis Function) kernel.
 
-    Args:
-        w (numpy.array): Weights for kernel.
-        points (numpy.array): Source point cloud data.
-        beta (float, optional): Parameter for gaussian kernel.
-        xp (module): Numpy or Cupy.
+    This transformation computes point displacements using an RBF kernel
+    matrix and learned weights. The deformation at each point is a weighted
+    sum of Gaussian basis functions centered at the control points.
+
+    Kernel Pattern
+    --------------
+    This class shares a common kernel-based deformation pattern with
+    TPSTransformation:
+
+    1. Kernel matrix: G = rbf_kernel(points, points, beta)
+       Shape: (n_points, n_points)
+    2. Deformation: transformed = points + G @ weights
+       Where weights has shape (n_points, 3)
+
+    The RBF kernel is: k(x, y) = exp(-beta * ||x - y||^2)
+
+    See utils.rbf_kernel() for the kernel implementation.
+
+    Parameters
+    ----------
+    w : torch.Tensor
+        Deformation weights, shape (n_points, 3).
+    points : torch.Tensor
+        Control points for kernel computation, shape (n_points, 3).
+    beta : float, optional
+        Kernel bandwidth parameter. Default 2.0.
+        Smaller values = smoother deformation, larger = more local.
+
+    Attributes
+    ----------
+    g : torch.Tensor
+        Precomputed kernel matrix, shape (n_points, n_points).
+    w : torch.Tensor
+        Deformation weights.
+
+    See Also
+    --------
+    TPSTransformation : TPS kernel variant with different basis function
+    utils.rbf_kernel : The kernel function used
+    CombinedTransformation : Combines rigid with non-rigid
     """
 
     def __init__(self, w, points, beta=2.0):
@@ -354,13 +389,48 @@ class CombinedTransformation(TransformBase):
 
 
 class TPSTransformation(TransformBase):
-    """Thin Plate Spline transformaion.
+    """Thin Plate Spline (TPS) transformation.
 
-    Args:
-        a (numpy.array): Affine matrix.
-        v (numpy.array): Translation vector.
-        control_pts (numpy.array): Control points.
-        kernel (function, optional): Kernel function.
+    TPS is a spline-based interpolation method that minimizes bending
+    energy while passing through control points. It's commonly used for
+    smooth non-rigid registration.
+
+    Kernel Pattern
+    --------------
+    This class shares a common kernel-based deformation pattern with
+    NonRigidTransformation:
+
+    1. Kernel function: k(x, y) = ||x - y||^2 * log(||x - y||)
+    2. Basis construction: combines affine and kernel terms
+    3. Transformation: basis @ [affine_params; kernel_weights]
+
+    The TPS kernel naturally produces smoother deformations than RBF
+    for large displacements.
+
+    See utils.tps_kernel() for the kernel implementation.
+
+    Parameters
+    ----------
+    a : torch.Tensor
+        Affine parameters, shape (d+1, d) where d is dimension.
+    v : torch.Tensor
+        Kernel weights, shape (n_control, d).
+    control_pts : torch.Tensor
+        Control points, shape (n_control, d).
+    kernel : callable, optional
+        Kernel function. Default is utils.tps_kernel.
+
+    Methods
+    -------
+    prepare(landmarks)
+        Compute basis and kernel matrices for given landmarks.
+    transform_basis(basis)
+        Apply transformation given precomputed basis.
+
+    See Also
+    --------
+    NonRigidTransformation : RBF kernel variant
+    utils.tps_kernel : The kernel function used
     """
 
     def __init__(self, a, v, control_pts, kernel=utils.tps_kernel):

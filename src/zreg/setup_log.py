@@ -65,7 +65,6 @@ def setup_logger(
 if __name__ == "__main__":
     setup_logger()
     log = logging.getLogger("zreg")
-    print(log)
     log.info("test info")
     log.debug("test debug")
     log.warning("test warning")

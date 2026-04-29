@@ -99,9 +99,9 @@ Full details: [.planning/milestones/v1.0-ROADMAP.md](.planning/milestones/v1.0-R
   5. Naming conventions are consistent (same style for similar constructs)
   6. All 275+ existing tests pass after restructuring (no regressions)
 **Plans**: 3 plans
-- [ ] 10-01-PLAN.md — Silent failure fixes (minkowski_distance, normalize_point_cloud, CPD source_colors)
-- [ ] 10-02-PLAN.md — Logging consistency (print->log.debug, configure_pytorch function)
-- [ ] 10-03-PLAN.md — Code cleanup (mutable defaults, TODO markers, TODO inventory, test verification)
+- [x] 10-01-PLAN.md — Silent failure fixes (minkowski_distance, normalize_point_cloud, CPD source_colors)
+- [x] 10-02-PLAN.md — Logging consistency (print->log.debug, configure_pytorch function)
+- [x] 10-03-PLAN.md — Code cleanup (mutable defaults, TODO markers, TODO inventory, test verification)
 
 ## Progress
 
@@ -111,7 +111,7 @@ Full details: [.planning/milestones/v1.0-ROADMAP.md](.planning/milestones/v1.0-R
 | 7. CPD Deep Restructure | v1.1 | 3/3 | Complete | - |
 | 8. DTW Deep Restructure | v1.1 | 2/2 | Complete   | 2026-04-23 |
 | 9. Distance & Transform Restructure | v1.1 | 2/2 | Complete | 2026-04-27 |
-| 10. Code Quality & Verification | v1.1 | 0/3 | Not started | - |
+| 10. Code Quality & Verification | v1.1 | 3/3 | Complete    | 2026-04-29 |
 | 1. Validation Foundation & Quick Wins | v1.0 | 2/2 | Complete | 2026-04-09 |
 | 2. Distance Metric & CPD Bug Fixes | v1.0 | 3/3 | Complete | 2026-04-09 |
 | 3. DTW, Transform & CPD Enhancements | v1.0 | 3/3 | Complete | 2026-04-09 |

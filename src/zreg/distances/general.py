@@ -78,7 +78,7 @@ def minkowski_distance(x: torch.Tensor, y: torch.Tensor, p: float = 2, normalize
         x, _ = utils.normalize_point_cloud(x)
         y, _ = utils.normalize_point_cloud(y)
 
-    return torch.cdist(x, y, p=2)
+    return torch.cdist(x, y, p=p)
 
     # if p == 1:
     #     return (x[None, :, :] - y[:, None, :]).abs().sum(dim=2)

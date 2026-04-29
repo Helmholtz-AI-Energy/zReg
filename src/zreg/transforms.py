@@ -44,6 +44,8 @@ import open3d as o3d
 from .dataset import open3d_to_zreg, zreg_to_open3d, zRegPointCloud
 from . import utils
 
+# TODO(deferred): dq3d import check preserved for DeformableKinematicModel.
+# See DeformableKinematicModel class at end of file for context.
 # try:
 #     _imp_dq = True
 # except:
@@ -465,8 +467,12 @@ class TPSTransformation(TransformBase):
         return self.transform_basis(basis)
 
 
-# TODO: this is only used in one place, and would need to be adapted for torch...
-# https://github.com/neka-nat/probreg/blob/master/probreg/filterreg.py
+# TODO(deferred): DeformableKinematicModel requires dq3d (dual quaternion) library.
+# Preserved for potential future implementation. Would need:
+# 1. pip install dq3d or torch-based quaternion ops
+# 2. Adapt numpy arrays to torch tensors
+# 3. Add tests for skinning weight interpolation
+# Reference: https://github.com/neka-nat/probreg/blob/master/probreg/filterreg.py
 # class DeformableKinematicModel(object):
 #     """Deformable Kinematic Transformation
 

@@ -83,7 +83,9 @@ Full details: [.planning/milestones/v1.0-ROADMAP.md](.planning/milestones/v1.0-R
   5. Homogeneous coordinate handling is consolidated in one location
   6. TPS and RBF transforms share base patterns where appropriate
   7. Both distance and transform modules have explicit __all__ exports
-**Plans**: TBD
+**Plans**: 2 plans
+- [x] 09-01-PLAN.md — Distance module API cleanup and documentation
+- [x] 09-02-PLAN.md — Transform module API and documentation
 
 ### Phase 10: Code Quality & Verification
 **Goal**: Codebase has no silent failures, consistent patterns, and all tests pass
@@ -96,7 +98,10 @@ Full details: [.planning/milestones/v1.0-ROADMAP.md](.planning/milestones/v1.0-R
   4. Identified code duplications are extracted to shared utilities
   5. Naming conventions are consistent (same style for similar constructs)
   6. All 275+ existing tests pass after restructuring (no regressions)
-**Plans**: TBD
+**Plans**: 3 plans
+- [ ] 10-01-PLAN.md — Silent failure fixes (minkowski_distance, normalize_point_cloud, CPD source_colors)
+- [ ] 10-02-PLAN.md — Logging consistency (print->log.debug, configure_pytorch function)
+- [ ] 10-03-PLAN.md — Code cleanup (mutable defaults, TODO markers, TODO inventory, test verification)
 
 ## Progress
 
@@ -105,8 +110,8 @@ Full details: [.planning/milestones/v1.0-ROADMAP.md](.planning/milestones/v1.0-R
 | 6. Python 3.12 Migration | v1.1 | 2/2 | Complete | - |
 | 7. CPD Deep Restructure | v1.1 | 3/3 | Complete | - |
 | 8. DTW Deep Restructure | v1.1 | 2/2 | Complete   | 2026-04-23 |
-| 9. Distance & Transform Restructure | v1.1 | 0/? | Not started | - |
-| 10. Code Quality & Verification | v1.1 | 0/? | Not started | - |
+| 9. Distance & Transform Restructure | v1.1 | 2/2 | Complete | 2026-04-27 |
+| 10. Code Quality & Verification | v1.1 | 0/3 | Not started | - |
 | 1. Validation Foundation & Quick Wins | v1.0 | 2/2 | Complete | 2026-04-09 |
 | 2. Distance Metric & CPD Bug Fixes | v1.0 | 3/3 | Complete | 2026-04-09 |
 | 3. DTW, Transform & CPD Enhancements | v1.0 | 3/3 | Complete | 2026-04-09 |

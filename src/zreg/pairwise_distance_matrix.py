@@ -225,7 +225,7 @@ def create_pairwise_distance_matrix(
                     f"norm: {tn:.4f}, downsample: {tdn:.4f}, cpd: {tcpd:.4f}, distance: {tdi:.4f}"
                 )
             if full_counter == 1:
-                print("end of first iteration")
+                log.debug("end of first iteration")
 
         # if l in log_intervals:
         if len(times["copy"]) == 0:
@@ -410,7 +410,7 @@ def create_pairwise_distance_matrix_given_rigid_rot(
                     f"norm: {tn:.4f}, downsample: {tdn:.4f}, rot: {trt:.4f}, distance: {tdi:.4f}"
                 )
             if full_counter == 1:
-                print("end of first iteration")
+                log.debug("end of first iteration")
 
         # if l in log_intervals:
         if len(times["copy"]) == 0:

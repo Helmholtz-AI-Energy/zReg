@@ -209,6 +209,10 @@ def normalize_point_cloud(
     # Calculate the range of each dimension
     ranges = max_vals - min_vals
 
+    # Guard against zero-range axes (would produce NaN/Inf)
+    eps = torch.finfo(points.dtype).eps
+    ranges = torch.clamp(ranges, min=eps)
+
     # Scale the points
     scaled_points = 2 * (points - min_vals) / ranges - 1
 

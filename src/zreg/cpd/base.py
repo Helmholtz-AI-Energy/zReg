@@ -64,6 +64,11 @@ class CoherentPointDrift(ABC):
         self._callbacks: list[Callable] = []
         self._use_color = use_color
         if use_color:
+            if source_colors is None:
+                raise ValueError(
+                    "use_color=True requires source_colors to be provided. "
+                    "Got source_colors=None."
+                )
             self._source_colors = source_colors
         self.transformation = None
         self.log_freq = log_freq

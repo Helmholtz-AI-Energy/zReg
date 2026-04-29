@@ -156,8 +156,6 @@ class BaseWD(nn.Module):
         super().__init__()
         if device is None:
             device = 0 if torch.cuda.is_available() else "cpu"
-            # double check for if needed to be 'cuda:0'
-        torch.set_default_device(device)
         self.device = device
         self.nobatchdim = nobatchdim
 

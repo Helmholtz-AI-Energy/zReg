@@ -14,9 +14,6 @@ __all__ = ["CoherentPointDrift"]
 
 log = logging.getLogger(__name__)
 
-# Enable high precision for matrix operations
-torch.set_float32_matmul_precision("high")
-
 
 class CoherentPointDrift(ABC):
     """Abstract base class for Coherent Point Drift algorithm.

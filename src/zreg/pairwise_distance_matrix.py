@@ -6,12 +6,13 @@ import os
 import time
 
 
-if "NOMPI" not in os.environ:
+# Try to import MPI for parallel computation, but make it optional
+try:
     from mpi4py import MPI
-
     hasmpi = True
-else:
+except (ImportError, ModuleNotFoundError):
     hasmpi = False
+    MPI = None
 
 import torch
 

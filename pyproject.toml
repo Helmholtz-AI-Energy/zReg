@@ -43,3 +43,20 @@ skip-magic-trailing-comma = false
 
 # Like Black, automatically detect the appropriate line ending.
 line-ending = "auto"
+
+[tool.coverage.run]
+source = ["src/zreg"]
+branch = true
+omit = [
+    # Typing protocol with no runtime code (only contains ellipsis)
+    "src/zreg/distances/_protocol.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "@abstractmethod",
+    "\\.\\.\\.",  # ellipsis in Protocol methods
+]

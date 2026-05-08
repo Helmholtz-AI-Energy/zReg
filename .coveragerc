@@ -2,7 +2,9 @@
 [run]
 branch = True
 source = zreg
-# omit = bad_file.py
+omit =
+    # Typing protocol with no runtime code (only contains ellipsis)
+    */distances/_protocol.py
 
 [paths]
 source =

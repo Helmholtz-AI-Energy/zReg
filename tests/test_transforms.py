@@ -251,6 +251,14 @@ class TestTransformPointsHomogeneous:
         assert not torch.isnan(result["pos"]).any(), "NaN produced by near-zero w"
         assert not torch.isinf(result["pos"]).any(), "Inf produced by near-zero w"
 
+    def test_unsupported_type_raises_error(self):
+        """Test that unsupported point type raises TypeError."""
+        transform = torch.eye(4)
+
+        # Pass an unsupported type (a list)
+        with pytest.raises(TypeError, match="Unsupported point type"):
+            transforms.transform_points_homogeneous([1, 2, 3], transform)
+
 
 class TestRigidTransformationComposition:
     """Tests for RigidTransformation.__mul__ post-composition validation."""

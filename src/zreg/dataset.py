@@ -4,12 +4,19 @@ import time
 import csv
 from typing import Self
 
-import open3d.t.geometry as o3dtgeo
-import open3d.core as o3c
-
 from pathlib import Path
 
 import torch
+
+# Lazy imports for open3d (optional, may fail on some architectures)
+try:
+    import open3d.t.geometry as o3dtgeo
+    import open3d.core as o3c
+    HAS_OPEN3D = True
+except (ImportError, OSError):
+    HAS_OPEN3D = False
+    o3dtgeo = None
+    o3c = None
 
 
 log = logging.getLogger(__name__)
@@ -33,6 +40,9 @@ class zRegPointCloud(dict):  # dict[str, torch.Tensor]
         return self
 
     def get_open3d_pc(self):
+        if not HAS_OPEN3D:
+            raise RuntimeError("open3d is not available. Check your Python architecture and open3d installation.")
+        
         # Create a dictionary to store the Open3D tensors
         map_to_tensors = {}
 
@@ -153,7 +163,7 @@ def load_data_from_tracklets(
     return pc, data["tracklets"]
 
 
-def zreg_to_open3d(pc: zRegPointCloud) -> o3dtgeo.PointCloud:
+def zreg_to_open3d(pc: zRegPointCloud) -> "o3dtgeo.PointCloud":
     """Converts a point cloud from a PyTorch dictionary to an Open3D point cloud.
 
     This function takes a dictionary representing a point cloud, where the keys are
@@ -171,7 +181,10 @@ def zreg_to_open3d(pc: zRegPointCloud) -> o3dtgeo.PointCloud:
     Raises:
         KeyError: If the input dictionary does not contain the keys 'pos', 'color',
                   and 'id'.
+        RuntimeError: If open3d is not available.
     """
+    if not HAS_OPEN3D:
+        raise RuntimeError("open3d is not available. Check your Python architecture and open3d installation.")
 
     # Check if the input is a PyTorch tensor
     from_torch = isinstance(pc["pos"], torch.Tensor)
@@ -201,7 +214,7 @@ def zreg_to_open3d(pc: zRegPointCloud) -> o3dtgeo.PointCloud:
 
 
 def open3d_to_zreg(
-    pc: o3dtgeo.PointCloud, device: torch.device = None, to_torch: bool = True
+    pc: "o3dtgeo.PointCloud", device: torch.device = None, to_torch: bool = True
 ) -> dict[str, torch.Tensor]:
     """Converts an Open3D point cloud to a dictionary of Torch tensors or NumPy arrays.
 
@@ -240,7 +253,12 @@ def open3d_to_zreg(
     >>> data = open3d_to_torch(pc, to_torch=False)
     >>> print(type(data['pos']))
     <class 'numpy.ndarray'>
+
+    Raises:
+        RuntimeError: If open3d is not available.
     """
+    if not HAS_OPEN3D:
+        raise RuntimeError("open3d is not available. Check your Python architecture and open3d installation.")
 
     # Extract positions, colors, and labels as NumPy arrays
     if isinstance(pc, o3dtgeo.PointCloud):

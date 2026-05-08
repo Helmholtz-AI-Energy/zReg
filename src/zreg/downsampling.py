@@ -1,5 +1,10 @@
 from .dataset import open3d_to_zreg, zreg_to_open3d, zRegPointCloud
-import open3d as o3d
+try:
+    import open3d as o3d
+    HAS_OPEN3D = True
+except (ImportError, OSError):
+    HAS_OPEN3D = False
+    o3d = None
 import logging
 import torch
 import copy
@@ -45,6 +50,9 @@ def _fps_open3d(pos: torch.Tensor, ratio: float) -> torch.Tensor:
     torch.Tensor
         Indices of sampled points
     """
+    if not HAS_OPEN3D:
+        raise RuntimeError("open3d is not available. Check your Python architecture and open3d installation.")
+    
     num_samples = max(1, int(pos.shape[0] * ratio))
     device = pos.device
     
@@ -232,7 +240,7 @@ def precompute_fps(pc: zRegPointCloud) -> zRegPointCloud:
     return pc
 
 
-PointCloudType = zRegPointCloud | o3d.t.geometry.PointCloud
+PointCloudType = "zRegPointCloud | o3d.t.geometry.PointCloud"
 
 
 def farthest_point_down_sample(
@@ -265,9 +273,9 @@ def farthest_point_down_sample(
         The downsampled point clouds.
     """
     # o3d is slow, moving to torch cluster for this
-    if isinstance(x, o3d.t.geometry.PointCloud):
+    if HAS_OPEN3D and isinstance(x, o3d.t.geometry.PointCloud):
         x = open3d_to_zreg(x)
-    if isinstance(y, o3d.t.geometry.PointCloud):
+    if HAS_OPEN3D and isinstance(y, o3d.t.geometry.PointCloud):
         y = open3d_to_zreg(y)
     # early out
     if x["pos"].shape[0] == y["pos"].shape[0]:
@@ -346,9 +354,9 @@ def random_down_sample(
     tuple[PointCloudType, PointCloudType]
         The downsampled point clouds.
     """
-    if isinstance(x, o3d.t.geometry.PointCloud):
+    if HAS_OPEN3D and isinstance(x, o3d.t.geometry.PointCloud):
         x = open3d_to_zreg(x)
-    if isinstance(y, o3d.t.geometry.PointCloud):
+    if HAS_OPEN3D and isinstance(y, o3d.t.geometry.PointCloud):
         y = open3d_to_zreg(y)
 
     if x["pos"].shape[0] == y["pos"].shape[0]:

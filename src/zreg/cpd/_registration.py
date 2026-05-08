@@ -7,21 +7,26 @@ away the class instantiation details.
 from typing import Any, Callable
 
 import torch
-import open3d as o3d
+try:
+    import open3d as o3d
+    HAS_OPEN3D = True
+except (ImportError, OSError):
+    HAS_OPEN3D = False
+    o3d = None
 
 from ._types import MstepResult
 from .rigid import RigidCPD
 from .affine import AffineCPD
 from .nonrigid import NonRigidCPD, ConstrainedNonRigidCPD
-from ..dataset import zRegPointCloud, open3d_to_torch
+from ..dataset import zRegPointCloud, open3d_to_zreg
 from .. import transforms as tf
 
 __all__ = ["cpd_registration", "init_cpd_from_existing"]
 
 
 def cpd_registration(
-    source: zRegPointCloud | o3d.t.geometry.PointCloud,
-    target: zRegPointCloud | o3d.t.geometry.PointCloud,
+    source: "zRegPointCloud | o3d.t.geometry.PointCloud",
+    target: "zRegPointCloud | o3d.t.geometry.PointCloud",
     tf_type_name: str = "rigid",
     w: float = 0.0,
     maxiter: int = 50,
@@ -88,10 +93,10 @@ def cpd_registration(
         callbacks = []
 
     # Convert from Open3D if necessary
-    if isinstance(source, o3d.t.geometry.PointCloud):
-        source = open3d_to_torch(source)
-    if isinstance(target, o3d.t.geometry.PointCloud):
-        target = open3d_to_torch(target)
+    if HAS_OPEN3D and isinstance(source, o3d.t.geometry.PointCloud):
+        source = open3d_to_zreg(source)
+    if HAS_OPEN3D and isinstance(target, o3d.t.geometry.PointCloud):
+        target = open3d_to_zreg(target)
 
     # Prepare point data
     if use_color:
@@ -118,9 +123,9 @@ def cpd_registration(
 
 
 def init_cpd_from_existing(
-    transform: tf.RigidTransformation | tf.AffineTransformation,
-    source: zRegPointCloud | o3d.t.geometry.PointCloud,
-    target: zRegPointCloud | o3d.t.geometry.PointCloud,
+    transform: "tf.RigidTransformation | tf.AffineTransformation",
+    source: "zRegPointCloud | o3d.t.geometry.PointCloud",
+    target: "zRegPointCloud | o3d.t.geometry.PointCloud",
     w: float = 0.0,
     maxiter: int = 50,
     tol: float = 0.001,
@@ -174,10 +179,10 @@ def init_cpd_from_existing(
         callbacks = []
 
     # Convert from Open3D if necessary
-    if isinstance(source, o3d.t.geometry.PointCloud):
-        source = open3d_to_torch(source)
-    if isinstance(target, o3d.t.geometry.PointCloud):
-        target = open3d_to_torch(target)
+    if HAS_OPEN3D and isinstance(source, o3d.t.geometry.PointCloud):
+        source = open3d_to_zreg(source)
+    if HAS_OPEN3D and isinstance(target, o3d.t.geometry.PointCloud):
+        target = open3d_to_zreg(target)
 
     # Prepare point data
     if use_color:

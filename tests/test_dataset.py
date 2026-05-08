@@ -5,7 +5,7 @@ import torch
 import tempfile
 import os
 
-from zreg.dataset import zRegPointCloud, load_shah_from_csv
+from zreg.dataset import zRegPointCloud, load_shah_from_csv, HAS_OPEN3D
 
 
 class TestZRegPointCloud:
@@ -127,6 +127,7 @@ class TestLoadShahFromCSV:
             os.unlink(temp_path)
 
 
+@pytest.mark.skipif(not HAS_OPEN3D, reason="Open3D not available")
 class TestOpen3DConversions:
     """Tests for Open3D conversion functions."""
 

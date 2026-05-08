@@ -626,3 +626,57 @@ class TestCPDDeviceHandling:
         assert result.transformation is not None
         transformed = result.transformation.transform(source)
         assert transformed.device.type == "cuda"
+
+
+class TestRBFKernelMatrix:
+    """Tests for rbf_kernel_matrix function."""
+
+    def test_kernel_shape(self):
+        """Test that kernel matrix has correct shape."""
+        from zreg.cpd.kernels import rbf_kernel_matrix
+
+        points = torch.randn(50, 3)
+        G = rbf_kernel_matrix(points, beta=2.0)
+
+        assert G.shape == (50, 50)
+
+    def test_kernel_symmetric(self):
+        """Test that kernel matrix is symmetric."""
+        from zreg.cpd.kernels import rbf_kernel_matrix
+
+        points = torch.randn(30, 3)
+        G = rbf_kernel_matrix(points, beta=2.0)
+
+        assert torch.allclose(G, G.T)
+
+    def test_kernel_diagonal_ones(self):
+        """Test that diagonal elements are 1 (distance to self is 0)."""
+        from zreg.cpd.kernels import rbf_kernel_matrix
+
+        points = torch.randn(20, 3)
+        G = rbf_kernel_matrix(points, beta=2.0)
+
+        assert torch.allclose(torch.diag(G), torch.ones(20))
+
+    def test_kernel_values_in_range(self):
+        """Test that kernel values are in [0, 1]."""
+        from zreg.cpd.kernels import rbf_kernel_matrix
+
+        points = torch.randn(25, 3)
+        G = rbf_kernel_matrix(points, beta=2.0)
+
+        assert (G >= 0).all()
+        assert (G <= 1).all()
+
+    def test_kernel_beta_effect(self):
+        """Test that larger beta produces smoother (larger) off-diagonal values."""
+        from zreg.cpd.kernels import rbf_kernel_matrix
+
+        points = torch.randn(15, 3)
+        G_small = rbf_kernel_matrix(points, beta=0.5)
+        G_large = rbf_kernel_matrix(points, beta=5.0)
+
+        # Larger beta means larger off-diagonal values (smoother kernel)
+        # Compare sum of off-diagonal elements
+        mask = ~torch.eye(15, dtype=bool)
+        assert G_large[mask].mean() > G_small[mask].mean()

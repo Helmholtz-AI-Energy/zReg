@@ -6,6 +6,13 @@ import torch
 from zreg.dataset import zRegPointCloud
 from zreg import downsampling
 
+# Check if FPS backend is available (needs either Open3D or torch_cluster)
+_HAS_FPS_BACKEND = downsampling.HAS_OPEN3D or downsampling.TORCH_CLUSTER_AVAILABLE
+_SKIP_FPS = pytest.mark.skipif(
+    not _HAS_FPS_BACKEND,
+    reason="FPS requires Open3D or torch_cluster, neither is available"
+)
+
 
 @pytest.fixture
 def sample_pointcloud():
@@ -33,6 +40,7 @@ def two_pointclouds():
     return pc1, pc2
 
 
+@_SKIP_FPS
 class TestPrecomputeFPS:
     """Tests for precompute_fps function."""
 
@@ -48,6 +56,7 @@ class TestPrecomputeFPS:
         assert result is sample_pointcloud
 
 
+@_SKIP_FPS
 class TestFarthestPointDownSample:
     """Tests for farthest_point_down_sample function."""
 
@@ -243,6 +252,7 @@ class TestRemoveOutliersKNN:
                 assert result[key].shape[0] == result["pos"].shape[0]
 
 
+@pytest.mark.skipif(not downsampling.HAS_OPEN3D, reason="Open3D not available")
 class TestDownsamplingWithOpen3D:
     """Tests for downsampling functions with Open3D point clouds."""
 

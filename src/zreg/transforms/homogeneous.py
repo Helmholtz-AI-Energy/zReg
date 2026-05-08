@@ -1,7 +1,13 @@
 """Homogeneous coordinate transformations using 4×4 matrices."""
 
 import torch
-import open3d as o3d
+
+try:
+    import open3d as o3d
+    HAS_OPEN3D = True
+except (ImportError, OSError):
+    HAS_OPEN3D = False
+    o3d = None
 
 from ..dataset import zRegPointCloud, open3d_to_zreg, zreg_to_open3d
 
@@ -9,10 +15,10 @@ __all__ = ["transform_points_homogeneous"]
 
 
 def transform_points_homogeneous(
-    points: zRegPointCloud | o3d.t.geometry.PointCloud,
+    points: "zRegPointCloud | o3d.t.geometry.PointCloud",
     transform_matrix: torch.Tensor,
     return_o3d: bool = False,
-) -> zRegPointCloud | o3d.t.geometry.PointCloud:
+) -> "zRegPointCloud | o3d.t.geometry.PointCloud":
     """Transform points using a 4x4 homogeneous transformation matrix.
 
     This function applies a 4x4 transformation matrix to 3D points using
@@ -93,7 +99,7 @@ def transform_points_homogeneous(
         transformed_points = transformed_points[:, :3] / w
         points["pos"] = transformed_points
 
-    elif isinstance(points, o3d.t.geometry.PointCloud):
+    elif HAS_OPEN3D and isinstance(points, o3d.t.geometry.PointCloud):
         # Use Open3D's built-in transform method
         try:
             transform_matrix = transform_matrix.numpy()
@@ -116,6 +122,6 @@ def transform_points_homogeneous(
             return zreg_to_open3d(points)
         return transformed_points
     else:
-        if isinstance(points, o3d.t.geometry.PointCloud):
+        if HAS_OPEN3D and isinstance(points, o3d.t.geometry.PointCloud):
             return open3d_to_zreg(transformed_points)
         return points

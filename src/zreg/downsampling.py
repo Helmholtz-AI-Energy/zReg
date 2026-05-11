@@ -35,48 +35,35 @@ __all__ = [
 ]
 
 
-def _fps_open3d(pos: torch.Tensor, ratio: float) -> torch.Tensor:
-    """Farthest point sampling using Open3D.
-    
-    Parameters
-    ----------
-    pos : torch.Tensor
-        Point positions of shape (N, 3)
-    ratio : float
-        Ratio of points to sample (0, 1]
-    
-    Returns
-    -------
-    torch.Tensor
-        Indices of sampled points
-    """
-    if not HAS_OPEN3D:
-        raise RuntimeError("open3d is not available. Check your Python architecture and open3d installation.")
-    
+def _fps_numpy(pos: torch.Tensor, ratio: float) -> torch.Tensor:
+    """Farthest point sampling using numpy (greedy, deterministic from point 0)."""
     num_samples = max(1, int(pos.shape[0] * ratio))
     device = pos.device
-    
-    # Convert to Open3D point cloud
-    pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(pos.cpu().numpy())
-    
-    # Perform farthest point sampling
-    downsampled_pcd = pcd.farthest_point_down_sample(num_samples)
-    downsampled_points = np.asarray(downsampled_pcd.points)
-    
-    # Find indices of sampled points in original point cloud
-    original_points = pos.cpu().numpy()
-    tree = cKDTree(original_points)
-    _, indices = tree.query(downsampled_points, k=1)
-    
-    return torch.tensor(indices, dtype=torch.long, device=device)
+    points = pos.cpu().numpy()
+
+    # Start from a deterministic seed for stable tests and reproducible behavior.
+    selected_indices = [0]
+    min_distances = np.linalg.norm(points - points[0], axis=1)
+
+    while len(selected_indices) < num_samples:
+        farthest_index = int(np.argmax(min_distances))
+        if farthest_index in selected_indices:
+            break
+        selected_indices.append(farthest_index)
+
+        candidate = points[farthest_index]
+        distances = np.linalg.norm(points - candidate, axis=1)
+        min_distances = np.minimum(min_distances, distances)
+
+    return torch.tensor(selected_indices, dtype=torch.long, device=device)
 
 
 def fps(pos: torch.Tensor, ratio: float, use_torch_cluster: bool = None) -> torch.Tensor:
     """Farthest point sampling.
-    
-    Uses torch_cluster if available and requested, otherwise falls back to Open3D.
-    
+
+    Uses torch_cluster if available and requested (GPU path), otherwise falls
+    back to the built-in numpy implementation.
+
     Parameters
     ----------
     pos : torch.Tensor
@@ -84,36 +71,29 @@ def fps(pos: torch.Tensor, ratio: float, use_torch_cluster: bool = None) -> torc
     ratio : float
         Ratio of points to sample (0, 1]
     use_torch_cluster : bool, optional
-        If True, use torch_cluster (requires installation). If False, use Open3D.
+        If True, use torch_cluster (requires installation).
         If None (default), use torch_cluster only if available and pos is on GPU.
-    
+
     Returns
     -------
     torch.Tensor
         Indices of sampled points
     """
     if use_torch_cluster is None:
-        # Auto-detect: use torch_cluster if available and on GPU
         use_torch_cluster = TORCH_CLUSTER_AVAILABLE and pos.is_cuda
 
     if use_torch_cluster:
         log.debug("Using torch_cluster FPS: %d points", pos.shape[0])
-    else:
-        log.debug("Using Open3D FPS (torch_cluster %s, CUDA %s): %d points",
-                  "available" if TORCH_CLUSTER_AVAILABLE else "unavailable",
-                  "yes" if pos.is_cuda else "no",
-                  pos.shape[0])
-
-    if use_torch_cluster:
         if not TORCH_CLUSTER_AVAILABLE:
             raise ImportError(
                 "torch_cluster is not installed. Install it with:\n"
                 "  pip install torch_cluster -f https://data.pyg.org/whl/torch-X.X.X+cuXXX.html\n"
-                "Or set use_torch_cluster=False to use Open3D instead."
+                "Or set use_torch_cluster=False to use the numpy fallback instead."
             )
         return torch_cluster_fps(pos, ratio=ratio)
     else:
-        return _fps_open3d(pos, ratio)
+        log.debug("Using numpy FPS: %d points", pos.shape[0])
+        return _fps_numpy(pos, ratio)
 
 
 def _knn_scipy(pos: torch.Tensor, k: int) -> torch.Tensor:
@@ -363,7 +343,7 @@ def random_down_sample(
         if not return_o3d:
             return x, y
         else:
-            return open3d_to_zreg(x), open3d_to_zreg(y)
+            return zreg_to_open3d(x), zreg_to_open3d(y)
 
     # expect point clouds and will randomly sample down to the number needed
     xshape = x["pos"].shape[0]
@@ -432,7 +412,7 @@ def uniform_down_sample(
         if not return_o3d:
             return x, y
         else:
-            return open3d_to_zreg(x), open3d_to_zreg(y)
+            return zreg_to_open3d(x), zreg_to_open3d(y)
 
     xshape = x["pos"].shape[0]
     yshape = y["pos"].shape[0]

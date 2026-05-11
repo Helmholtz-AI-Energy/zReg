@@ -6,14 +6,6 @@ import torch
 from zreg.dataset import zRegPointCloud
 from zreg import downsampling
 
-# Check if FPS backend is available (needs either Open3D or torch_cluster)
-_HAS_FPS_BACKEND = downsampling.HAS_OPEN3D or downsampling.TORCH_CLUSTER_AVAILABLE
-_SKIP_FPS = pytest.mark.skipif(
-    not _HAS_FPS_BACKEND,
-    reason="FPS requires Open3D or torch_cluster, neither is available"
-)
-
-
 @pytest.fixture
 def sample_pointcloud():
     """Create a sample point cloud for testing."""
@@ -40,7 +32,6 @@ def two_pointclouds():
     return pc1, pc2
 
 
-@_SKIP_FPS
 class TestPrecomputeFPS:
     """Tests for precompute_fps function."""
 
@@ -56,7 +47,6 @@ class TestPrecomputeFPS:
         assert result is sample_pointcloud
 
 
-@_SKIP_FPS
 class TestFarthestPointDownSample:
     """Tests for farthest_point_down_sample function."""
 
@@ -250,6 +240,103 @@ class TestRemoveOutliersKNN:
             if result[key] is not None:
                 # All arrays should have same length
                 assert result[key].shape[0] == result["pos"].shape[0]
+
+
+class TestFPSAndKNNExplicitMode:
+    """Tests for fps/knn_graph with explicit use_torch_cluster flag (branch coverage)."""
+
+    def test_knn_explicit_false_covers_branch(self):
+        """knn_graph with use_torch_cluster=False explicitly skips the None-check branch."""
+        pos = torch.randn(20, 3)
+        edge_index = downsampling.knn_graph(pos, k=2, use_torch_cluster=False)
+        assert edge_index.shape[0] == 2
+        assert edge_index.shape[1] == 20 * 2
+
+    def test_knn_mixed_batch_logs_warning(self, caplog):
+        """knn_graph with a heterogeneous batch vector logs a warning (line 207)."""
+        import logging
+        pos = torch.randn(20, 3)
+        batch = torch.tensor([0] * 10 + [1] * 10)
+        with caplog.at_level(logging.WARNING, logger="zreg.downsampling"):
+            edge_index = downsampling.knn_graph(pos, k=2, batch=batch, use_torch_cluster=False)
+        assert any("single batch" in str(r.message) for r in caplog.records)
+
+    @pytest.mark.skipif(downsampling.TORCH_CLUSTER_AVAILABLE, reason="torch_cluster IS installed")
+    def test_fps_use_torch_cluster_true_raises_importerror(self):
+        """fps with use_torch_cluster=True raises ImportError when torch_cluster missing."""
+        pos = torch.randn(20, 3)
+        with pytest.raises(ImportError, match="torch_cluster"):
+            downsampling.fps(pos, ratio=0.5, use_torch_cluster=True)
+
+    @pytest.mark.skipif(downsampling.TORCH_CLUSTER_AVAILABLE, reason="torch_cluster IS installed")
+    def test_knn_use_torch_cluster_true_raises_importerror(self):
+        """knn_graph with use_torch_cluster=True raises ImportError when torch_cluster missing."""
+        pos = torch.randn(20, 3)
+        with pytest.raises(ImportError, match="torch_cluster"):
+            downsampling.knn_graph(pos, k=2, use_torch_cluster=True)
+
+
+class TestRandomDownsampleXSmallerThanY:
+    """Test random_down_sample when x has fewer points than y (line 383)."""
+
+    def test_x_smaller_downsample_y(self):
+        """When x has fewer points, y is downsampled to x's size (line 383)."""
+        pc_small = zRegPointCloud(
+            pos=torch.randn(30, 3),
+            color=torch.randn(30, 3),
+            id=torch.arange(30),
+        )
+        pc_large = zRegPointCloud(
+            pos=torch.randn(80, 3),
+            color=torch.randn(80, 3),
+            id=torch.arange(80),
+        )
+        x, y = downsampling.random_down_sample(pc_small, pc_large)
+        assert x["pos"].shape[0] == 30
+        assert y["pos"].shape[0] == 30
+
+    @pytest.mark.skipif(downsampling.HAS_OPEN3D, reason="Open3D available — no RuntimeError expected")
+    def test_random_downsample_return_o3d_without_open3d(self):
+        """return_o3d=True raises RuntimeError when Open3D is unavailable (lines 397-398)."""
+        pc1 = zRegPointCloud(pos=torch.randn(30, 3), color=torch.randn(30, 3), id=torch.arange(30))
+        pc2 = zRegPointCloud(pos=torch.randn(80, 3), color=torch.randn(80, 3), id=torch.arange(80))
+        with pytest.raises(RuntimeError, match="open3d is not available"):
+            downsampling.random_down_sample(pc1, pc2, return_o3d=True)
+
+
+class TestUniformDownsampleEdgeCases:
+    """Edge cases for uniform_down_sample (lines 427, 429, 435, 442, 459-460)."""
+
+    @pytest.mark.skipif(downsampling.HAS_OPEN3D, reason="Open3D available — no RuntimeError expected")
+    def test_uniform_downsample_return_o3d_equal_sizes_without_open3d(self):
+        """Equal-sized clouds with return_o3d=True raise RuntimeError without Open3D (line 435)."""
+        pc1 = zRegPointCloud(pos=torch.randn(50, 3), color=torch.randn(50, 3), id=torch.arange(50))
+        pc2 = zRegPointCloud(pos=torch.randn(50, 3), color=torch.randn(50, 3), id=torch.arange(50))
+        with pytest.raises(RuntimeError, match="open3d is not available"):
+            downsampling.uniform_down_sample(pc1, pc2, return_o3d=True)
+
+    @pytest.mark.skipif(downsampling.HAS_OPEN3D, reason="Open3D available — no RuntimeError expected")
+    def test_uniform_downsample_return_o3d_unequal_without_open3d(self):
+        """Unequal-sized clouds with return_o3d=True raise RuntimeError without Open3D (lines 459-460)."""
+        pc1 = zRegPointCloud(pos=torch.randn(30, 3), color=torch.randn(30, 3), id=torch.arange(30))
+        pc2 = zRegPointCloud(pos=torch.randn(80, 3), color=torch.randn(80, 3), id=torch.arange(80))
+        with pytest.raises(RuntimeError, match="open3d is not available"):
+            downsampling.uniform_down_sample(pc1, pc2, return_o3d=True)
+
+    def test_uniform_downsample_x_smaller_than_y(self):
+        """When x has fewer points, y is downsampled to match x (line 442: target = y)."""
+        pc_small = zRegPointCloud(
+            pos=torch.randn(30, 3),
+            color=torch.randn(30, 3),
+            id=torch.arange(30),
+        )
+        pc_large = zRegPointCloud(
+            pos=torch.randn(80, 3),
+            color=torch.randn(80, 3),
+            id=torch.arange(80),
+        )
+        x, y = downsampling.uniform_down_sample(pc_small, pc_large)
+        assert x["pos"].shape[0] == y["pos"].shape[0]
 
 
 @pytest.mark.skipif(not downsampling.HAS_OPEN3D, reason="Open3D not available")

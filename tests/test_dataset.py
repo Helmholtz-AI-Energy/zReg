@@ -4,6 +4,7 @@ import pytest
 import torch
 import tempfile
 import os
+from unittest.mock import patch, MagicMock
 
 from zreg.dataset import zRegPointCloud, load_shah_from_csv, HAS_OPEN3D
 
@@ -160,11 +161,11 @@ class TestOpen3DConversions:
         """Test conversion from Open3D to zRegPointCloud."""
         try:
             from zreg.dataset import zreg_to_open3d, open3d_to_zreg
-            
+
             # Convert to Open3D and back
             o3d_pc = zreg_to_open3d(sample_pointcloud)
             restored = open3d_to_zreg(o3d_pc, device="cpu")
-            
+
             # Check positions match
             assert torch.allclose(
                 restored["pos"],
@@ -173,6 +174,49 @@ class TestOpen3DConversions:
             )
         except ImportError:
             pytest.skip("Open3D not installed")
+
+    def test_open3d_to_zreg_numpy(self, sample_pointcloud):
+        """Test open3d_to_zreg with to_torch=False returns numpy arrays."""
+        from zreg.dataset import zreg_to_open3d, open3d_to_zreg
+        import numpy as np
+
+        o3d_pc = zreg_to_open3d(sample_pointcloud)
+        result = open3d_to_zreg(o3d_pc, to_torch=False)
+
+        assert isinstance(result["pos"], np.ndarray)
+        assert isinstance(result["color"], np.ndarray)
+
+    def test_zreg_to_open3d_with_fps_idx(self):
+        """Test zreg_to_open3d preserves fps-idx when set."""
+        from zreg.dataset import zreg_to_open3d
+        import open3d as o3d
+
+        pc = zRegPointCloud(
+            pos=torch.randn(10, 3),
+            color=torch.randn(10, 3),
+            id=torch.arange(10),
+        )
+        pc["fps-idx"] = torch.arange(5)
+
+        o3d_pc = zreg_to_open3d(pc)
+        assert isinstance(o3d_pc, o3d.t.geometry.PointCloud)
+        assert "fps_idx" in o3d_pc.point
+
+    def test_open3d_to_zreg_no_labels(self):
+        """Test open3d_to_zreg when PointCloud has no labels key."""
+        from zreg.dataset import open3d_to_zreg
+        import open3d as o3d
+        import open3d.core as o3c
+        import numpy as np
+
+        o3d_pc = o3d.t.geometry.PointCloud({
+            "positions": o3c.Tensor(torch.randn(5, 3).numpy().astype(np.float32)),
+            "colors": o3c.Tensor(torch.randn(5, 3).numpy().astype(np.float32)),
+        })
+        result = open3d_to_zreg(o3d_pc, device="cpu")
+
+        assert result["id"] is None
+        assert result["pos"].shape == (5, 3)
 
     def test_get_open3d_pc_method(self, sample_pointcloud):
         """Test the get_open3d_pc method on zRegPointCloud."""
@@ -198,6 +242,172 @@ class TestLoadDataFromTracklets:
     def test_missing_file_raises_error(self):
         """Test that missing file raises appropriate error."""
         from zreg.dataset import load_data_from_tracklets
-        
+
         with pytest.raises(FileNotFoundError):
             load_data_from_tracklets("nonexistent_file.mat")
+
+
+class TestLoadDataFromTrackletsWithMock:
+    """Tests for load_data_from_tracklets body via mocked scipy.io.loadmat."""
+
+    def _make_fake_mat(self):
+        """Return a minimal fake loadmat result mimicking the tracklet format."""
+        return {
+            "trackletsPerTimePoint": [None, None],  # len=2 time points
+            "tracklets": [
+                {
+                    "startTime": 1,
+                    "endTime": 2,
+                    "pos": [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]],
+                    "color": [0.5, 0.6, 0.7],
+                    "id": 1,
+                },
+                {
+                    "startTime": 2,
+                    "endTime": 2,
+                    "pos": [[7.0, 8.0, 9.0]],
+                    "color": [0.1, 0.2, 0.3],
+                    "id": 2,
+                },
+            ],
+        }
+
+    def test_load_executes_full_body(self):
+        """Mocked loadmat executes lines 129-163 of load_data_from_tracklets."""
+        from zreg.dataset import load_data_from_tracklets
+        import numpy as np
+
+        fake = self._make_fake_mat()
+        # Wrap lists as numpy arrays to match real loadmat output
+        for t in fake["tracklets"]:
+            t["pos"] = np.array(t["pos"])
+            t["color"] = np.array(t["color"])
+
+        with patch("zreg.dataset.sio.loadmat", return_value=fake):
+            pc, tracklets = load_data_from_tracklets("fake.mat", device="cpu")
+
+        assert 0 in pc
+        assert 1 in pc
+        assert isinstance(pc[0], zRegPointCloud)
+        assert pc[0]["pos"].shape[1] == 3
+
+    def test_load_cuda_not_available_falls_back_to_cpu(self):
+        """device='cuda' with CUDA unavailable logs warning and uses cpu (lines 125-127)."""
+        from zreg.dataset import load_data_from_tracklets
+        import numpy as np
+
+        fake = self._make_fake_mat()
+        for t in fake["tracklets"]:
+            t["pos"] = np.array(t["pos"])
+            t["color"] = np.array(t["color"])
+
+        with patch("zreg.dataset.sio.loadmat", return_value=fake), \
+             patch("torch.cuda.is_available", return_value=False):
+            pc, _ = load_data_from_tracklets("fake.mat", device="cuda")
+
+        assert pc[0]["pos"].device.type == "cpu"
+
+
+class TestDatasetNoOpen3D:
+    """Tests for RuntimeError paths when Open3D is unavailable (lines 44, 187, 261)."""
+
+    def test_get_open3d_pc_raises_without_open3d(self):
+        """get_open3d_pc raises RuntimeError when HAS_OPEN3D is False (line 44)."""
+        import zreg.dataset as ds
+        pc = zRegPointCloud(pos=torch.randn(5, 3))
+        with patch.object(ds, "HAS_OPEN3D", False):
+            with pytest.raises(RuntimeError, match="open3d is not available"):
+                pc.get_open3d_pc()
+
+    def test_zreg_to_open3d_raises_without_open3d(self):
+        """zreg_to_open3d raises RuntimeError when HAS_OPEN3D is False (line 187)."""
+        import zreg.dataset as ds
+        from zreg.dataset import zreg_to_open3d
+        pc = zRegPointCloud(pos=torch.randn(5, 3), color=torch.randn(5, 3), id=torch.arange(5))
+        with patch.object(ds, "HAS_OPEN3D", False):
+            with pytest.raises(RuntimeError, match="open3d is not available"):
+                zreg_to_open3d(pc)
+
+    def test_open3d_to_zreg_raises_without_open3d(self):
+        """open3d_to_zreg raises RuntimeError when HAS_OPEN3D is False (line 261)."""
+        import zreg.dataset as ds
+        from zreg.dataset import open3d_to_zreg
+        mock_pc = MagicMock()
+        with patch.object(ds, "HAS_OPEN3D", False):
+            with pytest.raises(RuntimeError, match="open3d is not available"):
+                open3d_to_zreg(mock_pc)
+
+
+@pytest.mark.skipif(not HAS_OPEN3D, reason="Open3D not available")
+class TestZRegToOpen3DWithOpen3DTensors:
+    """Test zreg_to_open3d when pc values are already Open3D tensors (lines 205-209)."""
+
+    def test_zreg_to_open3d_from_non_torch_values(self):
+        """Values that are o3c.Tensor (not torch.Tensor) take the else branch (lines 205-209)."""
+        import open3d.core as o3c
+        import numpy as np
+        from zreg.dataset import zreg_to_open3d
+        import open3d as o3d
+
+        pc = zRegPointCloud()
+        pc["pos"] = o3c.Tensor(np.zeros((5, 3), dtype=np.float32))
+        pc["color"] = o3c.Tensor(np.zeros((5, 3), dtype=np.float32))
+        pc["id"] = o3c.Tensor(np.arange(5, dtype=np.int32))
+
+        result = zreg_to_open3d(pc)
+        assert isinstance(result, o3d.t.geometry.PointCloud)
+        assert result.point.positions.shape[0] == 5
+
+    def test_zreg_to_open3d_from_non_torch_with_fps_idx(self):
+        """Non-torch values with fps-idx set also use the else branch (line 209: fps_idx added)."""
+        import open3d.core as o3c
+        import numpy as np
+        from zreg.dataset import zreg_to_open3d
+        import open3d as o3d
+
+        pc = zRegPointCloud()
+        pc["pos"] = o3c.Tensor(np.zeros((5, 3), dtype=np.float32))
+        pc["color"] = o3c.Tensor(np.zeros((5, 3), dtype=np.float32))
+        pc["id"] = o3c.Tensor(np.arange(5, dtype=np.int32))
+        pc["fps-idx"] = o3c.Tensor(np.arange(3, dtype=np.int32))
+
+        result = zreg_to_open3d(pc)
+        assert isinstance(result, o3d.t.geometry.PointCloud)
+        assert "fps_idx" in result.point
+
+
+@pytest.mark.skipif(not HAS_OPEN3D, reason="Open3D not available")
+class TestOpen3DToZRegNonPointCloud:
+    """Tests for the non-o3dtgeo.PointCloud else branch in open3d_to_zreg (lines 276-285)."""
+
+    def test_non_pointcloud_open3d_input(self):
+        """Passing a mock with .positions/.colors/.labels attributes uses the else branch."""
+        from zreg.dataset import open3d_to_zreg
+        import numpy as np
+
+        mock_pc = MagicMock()
+        mock_pc.positions.cpu().numpy.return_value = np.zeros((5, 3), dtype=np.float32)
+        mock_pc.colors.cpu().numpy.return_value = np.zeros((5, 3), dtype=np.float32)
+        mock_pc.labels.cpu().numpy.return_value = np.arange(5, dtype=np.int32)
+        mock_pc.fps_idx.cpu().numpy.return_value = np.arange(5, dtype=np.int32)
+
+        # Must not be recognized as o3dtgeo.PointCloud — MagicMock is not
+        result = open3d_to_zreg(mock_pc, device="cpu")
+
+        assert result["pos"].shape == (5, 3)
+        assert result["id"] is not None
+
+    def test_non_pointcloud_missing_labels(self):
+        """Non-PointCloud input without labels attribute yields id=None (line 279-280)."""
+        from zreg.dataset import open3d_to_zreg
+        import numpy as np
+
+        mock_pc = MagicMock()
+        mock_pc.positions.cpu().numpy.return_value = np.zeros((5, 3), dtype=np.float32)
+        mock_pc.colors.cpu().numpy.return_value = np.zeros((5, 3), dtype=np.float32)
+        mock_pc.labels.cpu().numpy.side_effect = KeyError("labels")
+        mock_pc.fps_idx.cpu().numpy.side_effect = KeyError("fps_idx")
+
+        result = open3d_to_zreg(mock_pc, device="cpu")
+        assert result["id"] is None
+        assert result["fps-idx"] is None

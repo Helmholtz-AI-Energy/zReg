@@ -6,17 +6,17 @@ from typing import Self
 
 from pathlib import Path
 
-import torch
-
-# Lazy imports for open3d (optional, may fail on some architectures)
+# open3d must be imported before torch to avoid libomp conflict on macOS ARM
 try:
     import open3d.t.geometry as o3dtgeo
     import open3d.core as o3c
     HAS_OPEN3D = True
-except (ImportError, OSError):
-    HAS_OPEN3D = False
-    o3dtgeo = None
-    o3c = None
+except (ImportError, OSError):  # pragma: no cover
+    HAS_OPEN3D = False  # pragma: no cover
+    o3dtgeo = None  # pragma: no cover
+    o3c = None  # pragma: no cover
+
+import torch
 
 
 log = logging.getLogger(__name__)

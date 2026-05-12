@@ -452,3 +452,51 @@ class TestDistanceConsistency:
         y64 = y.double()
         result64 = general.euclidean_distance(x64, y64)
         assert result64.dtype == torch.float64
+
+
+class TestSWDtypeMismatch:
+    """Test dtype mismatch raises RuntimeError (sw_varients.py:51)."""
+
+    def test_dtype_mismatch_raises_runtime_error(self):
+        """Passing float32 and float64 tensors raises RuntimeError (line 51)."""
+        x = torch.randn(2, 10, 3, dtype=torch.float32)
+        y = torch.randn(2, 10, 3, dtype=torch.float64)
+        with pytest.raises(RuntimeError, match="Different dtypes"):
+            sw_varients.compute_practical_moments_sw(x, y)
+
+
+class TestASWDRemoveHistory:
+    """Tests for AdaptiveSlicedWassersteinDistance.remove_history (lines 280, 282->exit)."""
+
+    def test_remove_history_none_is_noop(self):
+        """remove_history with projs_history=None returns immediately (line 280)."""
+        aswd = sw_varients.AdaptiveSlicedWassersteinDistance(projs_history=None)
+        aswd.remove_history()  # no-op, early return at line 280
+
+    def test_remove_history_nonexistent_file_is_noop(self, tmp_path):
+        """remove_history with a path that doesn't exist returns without error (282->exit)."""
+        path = str(tmp_path / "never_created.txt")
+        aswd = sw_varients.AdaptiveSlicedWassersteinDistance(projs_history=path)
+        # file.exists() is False → branch 282->exit is taken, no os.remove called
+        aswd.remove_history()
+
+    def test_remove_history_file_not_found_on_remove(self, tmp_path):
+        """FileNotFoundError from os.remove is silently swallowed (lines 286-288)."""
+        from unittest.mock import patch
+        path = str(tmp_path / "exists.txt")
+        open(path, "w").close()  # create the file so file.exists() is True
+        aswd = sw_varients.AdaptiveSlicedWassersteinDistance(projs_history=path)
+        # Simulate race condition: file disappears between exists() and os.remove()
+        with patch("zreg.distances.sw_varients.os.remove", side_effect=FileNotFoundError):
+            aswd.remove_history()  # must not raise
+
+
+class TestBaseWDForwardStub:
+    """Call BaseWD._forward directly to exercise its body (line 180->exit branch)."""
+
+    def test_base_forward_returns_none(self):
+        """Directly invoking BaseWD._forward() returns None (the ... stub body)."""
+        import torch
+        base = sw_varients.BaseWD(nobatchdim=True, device="cpu")
+        result = base._forward(torch.randn(4, 3), torch.randn(4, 3))
+        assert result is None

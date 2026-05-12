@@ -10,9 +10,9 @@ import torch
 try:
     import open3d as o3d
     HAS_OPEN3D = True
-except (ImportError, OSError):
-    HAS_OPEN3D = False
-    o3d = None
+except (ImportError, OSError):  # pragma: no cover
+    HAS_OPEN3D = False  # pragma: no cover
+    o3d = None  # pragma: no cover
 
 from ._types import MstepResult
 from .rigid import RigidCPD

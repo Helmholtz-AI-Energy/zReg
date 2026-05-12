@@ -300,6 +300,24 @@ class TestBacktrace:
         assert path[0] == (0, 0)
         assert path[-1] == (2, 2)
 
+    def test_backtrace_argmin1_j_decrement(self):
+        """Interior step with argmin==1 decrements j only (line 298: j -= 1)."""
+        x_dummy = {0: zRegPointCloud(pos=torch.randn(5, 3))}
+        y_dummy = {0: zRegPointCloud(pos=torch.randn(5, 3))}
+        dtw_obj = DynamicTimeWarping(x_dummy, y_dummy, distance_metric="euclidean")
+
+        # At (2,2): acc[1,2]=4.0, acc[2,1]=1.5, acc[1,1]=3.0 → argmin=1 → j -= 1
+        acc = torch.tensor([
+            [1.0, 2.0, 3.0],
+            [2.0, 3.0, 4.0],
+            [3.0, 1.5, 5.0],
+        ])
+        path = dtw_obj._backtrace(acc)
+        assert path[0] == (0, 0)
+        assert path[-1] == (2, 2)
+        # (2,2) → (2,1) via j-decrement, so (2,1) must be in the path
+        assert (2, 1) in path
+
 
 class TestDTWCompute:
     """Tests for full DTW computation."""
@@ -842,3 +860,133 @@ class TestComposeConstraints:
         composed(3, 4, 10, 15)
 
         assert received_args == [(3, 4, 10, 15)]
+
+
+class TestAlignTrajectoryDuplicateIndex:
+    """Tests for get_aligned_trajectory with duplicate warping-path indices (408->407, 413->412)."""
+
+    def _make_dtw_with_path(self, path):
+        """Return a DynamicTimeWarping object with a pre-set result using the given path."""
+        n_x = max(p[0] for p in path) + 1
+        n_y = max(p[1] for p in path) + 1
+        x = {i: zRegPointCloud(pos=torch.randn(5, 3)) for i in range(n_x)}
+        y = {i: zRegPointCloud(pos=torch.randn(5, 3)) for i in range(n_y)}
+        dtw_obj = DynamicTimeWarping(x, y, distance_metric="euclidean")
+
+        cost = torch.ones(n_x, n_y)
+        acc = torch.cumsum(torch.cumsum(cost, dim=0), dim=1)
+        dtw_obj.result = DTWResult(
+            cost_matrix=cost,
+            accumulated_cost=acc,
+            warping_path=path,
+            distance=float(acc[-1, -1]),
+            rotations=None,
+        )
+        return dtw_obj, x, y
+
+    def test_reference_x_duplicate_x_idx_skipped(self):
+        """Second occurrence of same x_idx is skipped (line 408 False → 408->407 covered)."""
+        # Path: (0,0), (0,1), (1,2) — x_idx=0 appears twice
+        path = [(0, 0), (0, 1), (1, 2)]
+        dtw_obj, x, y = self._make_dtw_with_path(path)
+
+        aligned = dtw_obj.get_aligned_trajectory(y, reference="x")
+        # Only 2 unique x_indices: 0 and 1
+        assert set(aligned.keys()) == {0, 1}
+        # x_idx=0 gets y[0] (first match), not y[1]
+        assert aligned[0] is y[0]
+
+    def test_reference_y_duplicate_y_idx_skipped(self):
+        """Second occurrence of same y_idx is skipped (line 413 False → 413->412 covered)."""
+        # Path: (0,0), (1,0), (2,1) — y_idx=0 appears twice
+        path = [(0, 0), (1, 0), (2, 1)]
+        dtw_obj, x, y = self._make_dtw_with_path(path)
+
+        aligned = dtw_obj.get_aligned_trajectory(x, reference="y")
+        # Only 2 unique y_indices: 0 and 1
+        assert set(aligned.keys()) == {0, 1}
+        # y_idx=0 gets x[0] (first match), not x[1]
+        assert aligned[0] is x[0]
+
+
+class TestPlotAlignmentNoMatplotlib:
+    """Tests for plot_alignment when matplotlib is unavailable (lines 447-451)."""
+
+    def test_plot_alignment_returns_early_without_matplotlib(self, caplog):
+        """plot_alignment returns early and logs a warning when matplotlib is missing (lines 447-451)."""
+        import logging
+        x = {i: zRegPointCloud(pos=torch.randn(5, 3), color=torch.rand(5, 3), id=torch.arange(5)) for i in range(3)}
+        y = {i: zRegPointCloud(pos=torch.randn(5, 3), color=torch.rand(5, 3), id=torch.arange(5)) for i in range(3)}
+        dtw_obj = DynamicTimeWarping(x, y, distance_metric="euclidean", downsample_method=None)
+        dtw_obj.compute()
+
+        try:
+            import matplotlib  # noqa: F401
+            pytest.skip("matplotlib IS available — early-return path not taken")
+        except ImportError:
+            pass
+
+        with caplog.at_level(logging.WARNING, logger="zreg.dtw.core"):
+            dtw_obj.plot_alignment()  # should return without raising
+
+        assert any("matplotlib" in str(r.message) for r in caplog.records)
+
+    def test_plot_alignment_with_mocked_matplotlib(self, tmp_path):
+        """plot_alignment runs the full plotting code path when matplotlib is available (lines 453-495)."""
+        from unittest.mock import MagicMock, patch
+
+        x = {i: zRegPointCloud(pos=torch.randn(5, 3), color=torch.rand(5, 3), id=torch.arange(5)) for i in range(3)}
+        y = {i: zRegPointCloud(pos=torch.randn(5, 3), color=torch.rand(5, 3), id=torch.arange(5)) for i in range(3)}
+        dtw_obj = DynamicTimeWarping(x, y, distance_metric="euclidean", downsample_method=None)
+        dtw_obj.compute()
+
+        original_result = dtw_obj.result
+
+        # Build a 2D-cost variant so the `if cost.ndim == 3:` False branch (454->457) is also taken.
+        result_2d = DTWResult(
+            cost_matrix=original_result.cost_matrix[0],  # 2D slice
+            accumulated_cost=original_result.accumulated_cost,
+            warping_path=original_result.warping_path,
+            distance=original_result.distance,
+            rotations=original_result.rotations,
+        )
+
+        mock_plt = MagicMock()
+        mock_fig = MagicMock()
+        mock_ax1, mock_ax2 = MagicMock(), MagicMock()
+        mock_plt.subplots.return_value = (mock_fig, [mock_ax1, mock_ax2])
+        # Wire mock_mpl.pyplot = mock_plt so `import matplotlib.pyplot as plt` gets mock_plt.
+        mock_mpl = MagicMock()
+        mock_mpl.pyplot = mock_plt
+
+        save_path = str(tmp_path / "dtw_plot.png")
+        with patch.dict("sys.modules", {"matplotlib": mock_mpl, "matplotlib.pyplot": mock_plt}):
+            # 3D cost matrix → line 455 (cost = cost[metric_index]) is executed
+            dtw_obj.result = original_result
+            dtw_obj.plot_alignment(save_path=save_path)
+            # 2D cost matrix → False branch (454->457) is taken; also covers plt.show (line 493)
+            dtw_obj.result = result_2d
+            dtw_obj.plot_alignment()
+
+        assert mock_plt.subplots.call_count == 2
+        mock_plt.savefig.assert_called_once()
+
+
+class TestPlotAlignmentMatplotlibImportError:
+    """Force the matplotlib ImportError path (lines 449-451) via sys.modules patching."""
+
+    def test_plot_returns_early_when_matplotlib_pyplot_absent(self, caplog):
+        """Setting matplotlib.pyplot=None in sys.modules triggers ImportError (lines 449-451)."""
+        import logging
+        from unittest.mock import patch
+
+        x = {i: zRegPointCloud(pos=torch.randn(5, 3), color=torch.rand(5, 3), id=torch.arange(5)) for i in range(3)}
+        y = {i: zRegPointCloud(pos=torch.randn(5, 3), color=torch.rand(5, 3), id=torch.arange(5)) for i in range(3)}
+        dtw_obj = DynamicTimeWarping(x, y, distance_metric="euclidean", downsample_method=None)
+        dtw_obj.compute()
+
+        with caplog.at_level(logging.WARNING, logger="zreg.dtw.core"):
+            with patch.dict("sys.modules", {"matplotlib.pyplot": None}):
+                dtw_obj.plot_alignment()
+
+        assert any("matplotlib" in str(r.message) for r in caplog.records)

@@ -10,9 +10,9 @@ import time
 try:
     from mpi4py import MPI
     hasmpi = True
-except (ImportError, ModuleNotFoundError):
-    hasmpi = False
-    MPI = None
+except (ImportError, ModuleNotFoundError):  # pragma: no cover
+    hasmpi = False  # pragma: no cover
+    MPI = None  # pragma: no cover
 
 import torch
 

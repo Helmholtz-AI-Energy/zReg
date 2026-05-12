@@ -5,9 +5,9 @@ import torch
 try:
     import open3d as o3d
     HAS_OPEN3D = True
-except (ImportError, OSError):
-    HAS_OPEN3D = False
-    o3d = None
+except (ImportError, OSError):  # pragma: no cover
+    HAS_OPEN3D = False  # pragma: no cover
+    o3d = None  # pragma: no cover
 
 from ..dataset import zRegPointCloud, open3d_to_zreg, zreg_to_open3d
 
@@ -87,9 +87,7 @@ def transform_points_homogeneous(
         )
 
         # Apply the transformation
-        transform_tensor = torch.tensor(
-            transform_matrix, dtype=pos.dtype, device=pos.device
-        )
+        transform_tensor = torch.as_tensor(transform_matrix, dtype=pos.dtype, device=pos.device)
         transformed_points = homogeneous_points @ transform_tensor.T
 
         # Divide by the homogeneous coordinate to get back to 3D

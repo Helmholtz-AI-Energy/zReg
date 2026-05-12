@@ -2,13 +2,14 @@
 
 ## Milestones
 
-- **v1.1 Code Quality & Refactoring** — Phases 6-10 (active)
+- **v1.1 Code Quality & Refactoring** — Phases 6-11 (active)
 - ✅ **v1.0 Consolidation** — Phases 1-5 (shipped 2026-04-09) — [archive](.planning/milestones/v1.0-ROADMAP.md)
 
 ## Phases
 
-### v1.1 Code Quality & Refactoring (Phases 6-10)
+### v1.1 Code Quality & Refactoring (Phases 6-11)
 
+- [ ] **Phase 11: Validate Refactoring and Fix Coverage** - Verify optional-Open3D refactor, close test-coverage gaps
 - [ ] **Phase 6: Python 3.12 Migration** - Modernize syntax and type hints for 3.12+
 - [ ] **Phase 7: CPD Deep Restructure** - Extract base class and clean module architecture
 - [ ] **Phase 8: DTW Deep Restructure** - Separate algorithm from metrics, clean interfaces
@@ -103,10 +104,25 @@ Full details: [.planning/milestones/v1.0-ROADMAP.md](.planning/milestones/v1.0-R
 - [x] 10-02-PLAN.md — Logging consistency (print->log.debug, configure_pytorch function)
 - [x] 10-03-PLAN.md — Code cleanup (mutable defaults, TODO markers, TODO inventory, test verification)
 
+### Phase 11: Validate Refactoring and Fix Coverage
+**Goal**: All refactoring from Phases 6–10 (plus the optional-Open3D change) is verified correct and the test suite covers the changed code paths
+**Depends on**: Phase 10 (all code-quality work complete)
+**Requirements**: QUAL-06 (all tests pass after restructuring)
+**Success Criteria** (what must be TRUE):
+  1. Full test suite passes with zero failures
+  2. Previously Open3D-gated FPS tests now run unconditionally (no `_SKIP_FPS` guard)
+  3. `_fps_numpy` is exercised by at least one test
+  4. `return_o3d` error paths in downsampling raise `RuntimeError` with correct message
+  5. Coverage report shows ≥93% overall (matching or exceeding pre-change baseline)
+  6. All public API behaviour (FPS, random, uniform downsampling, knn_graph, CPD registration, transforms, distances, DTW) produces results identical to the pre-refactoring version on the same inputs — no regressions in functionality
+**Plans**: 1 plan
+- [x] 11-01-PLAN.md — Remove dead code + close coverage gaps (return_o3d paths, size branches, _fps_numpy break)
+
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
+| 11. Validate Refactoring and Fix Coverage | v1.1 | 1/1 | Complete | 2026-05-12 |
 | 6. Python 3.12 Migration | v1.1 | 2/2 | Complete | - |
 | 7. CPD Deep Restructure | v1.1 | 3/3 | Complete | - |
 | 8. DTW Deep Restructure | v1.1 | 2/2 | Complete   | 2026-04-23 |

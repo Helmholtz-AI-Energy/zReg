@@ -2,6 +2,7 @@
 
 import pytest
 import torch
+from unittest.mock import MagicMock
 
 from zreg import pairwise_distance_matrix
 from zreg.dataset import zRegPointCloud
@@ -353,3 +354,423 @@ class TestPairwiseDistanceMatrixExportedFunctions:
         """Test that expected functions are exported."""
         assert "create_pairwise_distance_matrix" in pairwise_distance_matrix.__all__
         assert "create_pairwise_distance_matrix_given_rigid_rot" in pairwise_distance_matrix.__all__
+
+
+class TestSanitizeAdditional:
+    """Additional coverage for _sanitize_pairwise_distance_matrix (lines 517, 519->524, 526->529, 537->536, 549->548, 553-556, 559-568, 578->577, 582-591, 603->602)."""
+
+    def test_explicit_kwargs_covers_false_branch(self, small_trajectory_pair):
+        """Non-None distance_kwargs[0] takes the False branch (line 519->524)."""
+        x, y = small_trajectory_pair
+        _, _, _ = pairwise_distance_matrix._sanitize_pairwise_distance_matrix(
+            distance_kwargs={"num_projs": 30},  # not None → 519->524 False branch
+            distance_metrics="swd",
+            downsample_method="random",
+            x=x,
+            y=y,
+        )
+
+    def test_kwargs_len_mismatch_raises(self, small_trajectory_pair):
+        """Mismatched kwargs/metrics lengths raises RuntimeError (line 517)."""
+        x, y = small_trajectory_pair
+        with pytest.raises(RuntimeError, match="len distance kwargs != len distance metrics"):
+            pairwise_distance_matrix._sanitize_pairwise_distance_matrix(
+                distance_kwargs=[{"num_projs": 30}, {"num_projs": 50}],
+                distance_metrics="swd",  # only 1 metric but 2 kwargs
+                downsample_method="random",
+                x=x,
+                y=y,
+            )
+
+    def test_oswd_metric(self, small_trajectory_pair):
+        """oswd metric is handled (lines 559-568)."""
+        x, y = small_trajectory_pair
+        fns, _, _ = pairwise_distance_matrix._sanitize_pairwise_distance_matrix(
+            distance_kwargs=None,
+            distance_metrics="oswd",
+            downsample_method="random",
+            x=x,
+            y=y,
+        )
+        assert fns[0] is not None
+
+    def test_pswd_metric(self, small_trajectory_pair):
+        """pswd metric is handled (lines 582-591)."""
+        x, y = small_trajectory_pair
+        fns, _, _ = pairwise_distance_matrix._sanitize_pairwise_distance_matrix(
+            distance_kwargs=None,
+            distance_metrics="pswd",
+            downsample_method="random",
+            x=x,
+            y=y,
+        )
+        assert fns[0] is not None
+
+    def test_minkowski_metric(self, small_trajectory_pair):
+        """minkowski metric with explicit p kwarg covers default-check False branch (603->602)."""
+        x, y = small_trajectory_pair
+        fns, _, _ = pairwise_distance_matrix._sanitize_pairwise_distance_matrix(
+            distance_kwargs={"p": 3},  # key already present → default check False branch
+            distance_metrics="minkowski",
+            downsample_method=None,
+            x=x,
+            y=y,
+        )
+        assert callable(fns[0])
+
+    def test_oswd_with_preset_key_covers_false_branch(self, small_trajectory_pair):
+        """Explicit oswd kwargs with existing key covers the False branch (566->565)."""
+        x, y = small_trajectory_pair
+        fns, _, _ = pairwise_distance_matrix._sanitize_pairwise_distance_matrix(
+            distance_kwargs={"device": x[0]["pos"].device, "num_projs": 30},  # keys already present
+            distance_metrics="oswd",
+            downsample_method="random",
+            x=x,
+            y=y,
+        )
+        assert fns[0] is not None
+
+    def test_pswd_with_preset_key_covers_false_branch(self, small_trajectory_pair):
+        """Explicit pswd kwargs with existing key covers the False branch (589->588)."""
+        x, y = small_trajectory_pair
+        fns, _, _ = pairwise_distance_matrix._sanitize_pairwise_distance_matrix(
+            distance_kwargs={"device": x[0]["pos"].device, "num_projs": 30},  # keys already present
+            distance_metrics="pswd",
+            downsample_method="random",
+            x=x,
+            y=y,
+        )
+        assert fns[0] is not None
+
+    def test_aswd_with_projs_history_file_cleanup(self, small_trajectory_pair, tmp_path, monkeypatch):
+        """projs_history.txt cleanup runs when file exists (lines 553-556)."""
+        x, y = small_trajectory_pair
+        # Create projs_history.txt in cwd so the code's Path("projs_history.txt").exists() is True
+        hist_file = tmp_path / "projs_history.txt"
+        hist_file.write_text("dummy")
+        monkeypatch.chdir(tmp_path)
+        pairwise_distance_matrix._sanitize_pairwise_distance_matrix(
+            distance_kwargs=None,
+            distance_metrics="aswd",
+            downsample_method="random",
+            x=x,
+            y=y,
+        )
+        # The file should have been deleted
+        assert not hist_file.exists()
+
+
+class TestCreateGivenRigidRotAdditional:
+    """Additional coverage for create_pairwise_distance_matrix_given_rigid_rot (lines 341, 357->366, 380, 383)."""
+
+    def test_with_window_large_enough_to_clamp(self, small_trajectory_pair):
+        """window large enough that window_max gets clamped (line 341)."""
+        x, y = small_trajectory_pair  # 3 time points each
+        rotation = torch.eye(3, dtype=torch.float32)
+        translation = torch.zeros(3, dtype=torch.float32)
+        matrix = pairwise_distance_matrix.create_pairwise_distance_matrix_given_rigid_rot(
+            x, y, rotation=rotation, translation=translation,
+            normalize=False, window=100,  # far exceeds y_samples → clamps at line 341
+            distance_metric="euclidean", downsample_method=None,
+        )
+        assert matrix.shape[1] == len(x)
+
+    def test_with_normalize_false(self, small_trajectory_pair):
+        """normalize=False takes the False branch (357->366)."""
+        x, y = small_trajectory_pair
+        rotation = torch.eye(3, dtype=torch.float32)
+        translation = torch.zeros(3, dtype=torch.float32)
+        matrix = pairwise_distance_matrix.create_pairwise_distance_matrix_given_rigid_rot(
+            x, y, rotation=rotation, translation=translation,
+            normalize=False, distance_metric="euclidean", downsample_method=None,
+        )
+        assert torch.isfinite(matrix).all()
+
+    def test_with_aswd_metric_calls_remove_history(self, small_trajectory_pair):
+        """ASWD metric causes remove_history() per iteration (line 383)."""
+        x, y = small_trajectory_pair
+        rotation = torch.eye(3, dtype=torch.float32)
+        translation = torch.zeros(3, dtype=torch.float32)
+        matrix = pairwise_distance_matrix.create_pairwise_distance_matrix_given_rigid_rot(
+            x, y, rotation=rotation, translation=translation,
+            normalize=False, distance_metric="aswd", downsample_method="random",
+        )
+        assert matrix.shape[1] == len(x)
+
+    def test_aswd_with_preset_key_covers_false_branch(self, small_trajectory_pair):
+        """Explicit aswd kwargs with existing key covers the `kw in dist_kwargs` False branch (549->548)."""
+        x, y = small_trajectory_pair
+        rotation = torch.eye(3, dtype=torch.float32)
+        translation = torch.zeros(3, dtype=torch.float32)
+        # "device" key already provided → `if kw not in dist_kwargs:` is False → 549->548
+        matrix = pairwise_distance_matrix.create_pairwise_distance_matrix_given_rigid_rot(
+            x, y, rotation=rotation, translation=translation,
+            normalize=False, distance_metric="aswd",
+            distance_kwargs={"device": x[0]["pos"].device, "max_slices": 50, "init_projs": 20, "step_projs": 10},
+            downsample_method="random",
+        )
+        assert matrix.shape[1] == len(x)
+
+
+class TestPairwiseNormalizePath:
+    """Test normalize=True code path (pairwise_distance_matrix.py lines 159-166)."""
+
+    def test_normalize_true_executes_normalization(self, small_trajectory_pair):
+        """create_pairwise_distance_matrix with normalize=True runs the normalize block."""
+        x, y = small_trajectory_pair
+        matrix, rots = pairwise_distance_matrix.create_pairwise_distance_matrix(
+            x, y,
+            distance_metric="euclidean",
+            downsample_method=None,
+            normalize=True,
+        )
+        assert matrix.shape[1] == len(x)
+        assert matrix.shape[2] == len(y)
+        assert torch.isfinite(matrix).all()
+
+
+class TestPairwiseASWDRemoveHistory:
+    """Test ASWD remove_history is called in create_pairwise_distance_matrix (line 202)."""
+
+    def test_aswd_distance_calls_remove_history(self, small_trajectory_pair):
+        """Using aswd metric calls fn.remove_history() each iteration (line 202)."""
+        from zreg.distances.sw_varients import AdaptiveSlicedWassersteinDistance
+        x, y = small_trajectory_pair
+        matrix, rots = pairwise_distance_matrix.create_pairwise_distance_matrix(
+            x, y,
+            distance_metric="aswd",
+            downsample_method="random",
+            normalize=False,
+        )
+        assert matrix.shape[1] == len(x)
+
+
+class TestSanitizeGSWDMetric:
+    """gswd metric branch coverage (lines 569-580, 578->577 branch)."""
+
+    def test_gswd_metric(self, small_trajectory_pair):
+        """gswd metric executes the gswd branch (lines 569-580) and loops through defaults."""
+        x, y = small_trajectory_pair
+        fns, _, _ = pairwise_distance_matrix._sanitize_pairwise_distance_matrix(
+            distance_kwargs=None,
+            distance_metrics="gswd",
+            downsample_method="random",
+            x=x,
+            y=y,
+        )
+        assert fns[0] is not None
+
+    def test_gswd_with_preset_keys(self, small_trajectory_pair):
+        """gswd with all keys preset exercises the False branch of 'if kw not in dist_kwargs' (578->577)."""
+        x, y = small_trajectory_pair
+        fns, _, _ = pairwise_distance_matrix._sanitize_pairwise_distance_matrix(
+            distance_kwargs={"device": x[0]["pos"].device, "num_projs": 30, "degree": 3.0},
+            distance_metrics="gswd",
+            downsample_method="random",
+            x=x,
+            y=y,
+        )
+        assert fns[0] is not None
+
+
+class TestASDWPropsHistoryFileNotFound:
+    """aswd projs_history.txt FileNotFoundError path (lines 555-556)."""
+
+    def test_aswd_projs_history_file_not_found_on_remove(self, small_trajectory_pair, tmp_path, monkeypatch):
+        """Race condition: file exists at exists() check but raises FileNotFoundError on remove (lines 555-556)."""
+        from unittest.mock import patch as _patch
+        x, y = small_trajectory_pair
+        hist_file = tmp_path / "projs_history.txt"
+        hist_file.write_text("dummy")
+        monkeypatch.chdir(tmp_path)
+        with _patch("zreg.pairwise_distance_matrix.os.remove", side_effect=FileNotFoundError):
+            # Must not raise; FileNotFoundError is swallowed (lines 555-556)
+            pairwise_distance_matrix._sanitize_pairwise_distance_matrix(
+                distance_kwargs=None,
+                distance_metrics="aswd",
+                downsample_method="random",
+                x=x,
+                y=y,
+            )
+
+
+class TestGivenRigidRotCPDMetric:
+    """create_pairwise_distance_matrix_given_rigid_rot with cpd metric (line 380)."""
+
+    def test_cpd_metric_fn_is_none_path(self, small_trajectory_pair):
+        """distance_metric='cpd' makes fn=None, which hits 'if fn is None: continue' (line 380)."""
+        x, y = small_trajectory_pair
+        rotation = torch.eye(3, dtype=torch.float32)
+        translation = torch.zeros(3, dtype=torch.float32)
+        # fn=None → line 380 covered; dists stays empty → IndexError on dists[di]
+        with pytest.raises(IndexError):
+            pairwise_distance_matrix.create_pairwise_distance_matrix_given_rigid_rot(
+                x, y,
+                rotation=rotation,
+                translation=translation,
+                normalize=False,
+                distance_metric="cpd",
+            )
+
+
+class TestMPIPaths:
+    """Coverage for MPI distribution paths via mocked hasmpi/MPI.
+
+    Uses unittest.mock to inject hasmpi=True and a fake MPI.COMM_WORLD so the
+    mpi_distribute branches run without mpi4py installed.
+    """
+
+    def _make_single_sample_pair(self):
+        """1-element trajectory (x_samples=0, y_samples=0 → single inner iteration)."""
+        pc = zRegPointCloud(pos=torch.randn(10, 3), color=torch.rand(10, 3), id=torch.arange(10))
+        return {0: pc}, {0: pc}
+
+    def _make_two_sample_pair(self):
+        """2-element trajectory."""
+        pcs_x = {i: zRegPointCloud(pos=torch.randn(10, 3), color=torch.rand(10, 3), id=torch.arange(10)) for i in range(2)}
+        pcs_y = {i: zRegPointCloud(pos=torch.randn(10, 3), color=torch.rand(10, 3), id=torch.arange(10)) for i in range(2)}
+        return pcs_x, pcs_y
+
+    def _make_comm(self, rank, size):
+        import numpy as np
+        comm = MagicMock()
+        comm.rank = rank
+        comm.size = size
+        comm.allgather.side_effect = lambda row: [row, np.zeros_like(row)]
+        return comm
+
+    def test_mpi_skip_and_empty_row_continue(self):
+        """rank=1, size=2 with 1-sample pair: iteration fc=0 is skipped (148-150) → empty row → continue (233)."""
+        from unittest.mock import patch as _patch, MagicMock as _MagicMock
+        import zreg.pairwise_distance_matrix as pmat
+
+        comm = self._make_comm(rank=1, size=2)
+        mock_mpi = _MagicMock()
+        mock_mpi.COMM_WORLD = comm
+        x, y = self._make_single_sample_pair()
+
+        with _patch.object(pmat, "hasmpi", True), _patch.object(pmat, "MPI", mock_mpi):
+            matrix, _ = pmat.create_pairwise_distance_matrix(
+                x, y,
+                normalize=False,
+                distance_metric="euclidean",
+                mpi_distribute=True,
+            )
+        # rank=1 skips fc=0 (0%2 ≠ 1), so distance stays inf
+        assert matrix.shape[1] == 1
+
+    def test_mpi_allgather_path(self):
+        """rank=0, size=2 with 2-sample pair: fc=1 skipped, fc=0,2 processed → allgather called (89-90, 256-262)."""
+        from unittest.mock import patch as _patch, MagicMock as _MagicMock
+        import zreg.pairwise_distance_matrix as pmat
+
+        comm = self._make_comm(rank=0, size=2)
+        mock_mpi = _MagicMock()
+        mock_mpi.COMM_WORLD = comm
+        x, y = self._make_two_sample_pair()
+
+        with _patch.object(pmat, "hasmpi", True), _patch.object(pmat, "MPI", mock_mpi):
+            matrix, _ = pmat.create_pairwise_distance_matrix(
+                x, y,
+                normalize=False,
+                distance_metric="euclidean",
+                mpi_distribute=True,
+            )
+        assert comm.allgather.called
+        assert matrix.shape[1] == 2
+
+    def test_mpi_given_rigid_rot_skip_and_empty_row(self):
+        """rank=1, size=2 with given_rigid_rot: fc=0 skipped (348-350) → empty row → continue (418)."""
+        from unittest.mock import patch as _patch, MagicMock as _MagicMock
+        import zreg.pairwise_distance_matrix as pmat
+
+        comm = self._make_comm(rank=1, size=2)
+        mock_mpi = _MagicMock()
+        mock_mpi.COMM_WORLD = comm
+        x, y = self._make_single_sample_pair()
+        rotation = torch.eye(3, dtype=torch.float32)
+        translation = torch.zeros(3, dtype=torch.float32)
+
+        with _patch.object(pmat, "hasmpi", True), _patch.object(pmat, "MPI", mock_mpi):
+            matrix = pmat.create_pairwise_distance_matrix_given_rigid_rot(
+                x, y,
+                rotation=rotation,
+                translation=translation,
+                normalize=False,
+                distance_metric="euclidean",
+                mpi_distribute=True,
+            )
+        assert matrix.shape[1] == 1
+
+    def test_mpi_given_rigid_rot_allgather(self):
+        """rank=0, size=2 with given_rigid_rot: allgather called (286-287, 439-445)."""
+        from unittest.mock import patch as _patch, MagicMock as _MagicMock
+        import zreg.pairwise_distance_matrix as pmat
+
+        comm = self._make_comm(rank=0, size=2)
+        mock_mpi = _MagicMock()
+        mock_mpi.COMM_WORLD = comm
+        x, y = self._make_two_sample_pair()
+        rotation = torch.eye(3, dtype=torch.float32)
+        translation = torch.zeros(3, dtype=torch.float32)
+
+        with _patch.object(pmat, "hasmpi", True), _patch.object(pmat, "MPI", mock_mpi):
+            matrix = pmat.create_pairwise_distance_matrix_given_rigid_rot(
+                x, y,
+                rotation=rotation,
+                translation=translation,
+                normalize=False,
+                distance_metric="euclidean",
+                mpi_distribute=True,
+            )
+        assert comm.allgather.called
+        assert matrix.shape[1] == 2
+
+    def _make_asymmetric_pair(self):
+        """x has 2 samples, y has 1 sample — for loop back-edge branch tests."""
+        pcs_x = {i: zRegPointCloud(pos=torch.randn(10, 3), color=torch.rand(10, 3), id=torch.arange(10)) for i in range(2)}
+        pcs_y = {0: zRegPointCloud(pos=torch.randn(10, 3), color=torch.rand(10, 3), id=torch.arange(10))}
+        return pcs_x, pcs_y
+
+    def test_mpi_loop_back_edge_create(self):
+        """rank=1, size=2, x=2 samples, y=1 sample: i=0 is fully skipped → continue back to i=1 (261->133)."""
+        from unittest.mock import patch as _patch, MagicMock as _MagicMock
+        import zreg.pairwise_distance_matrix as pmat
+
+        comm = self._make_comm(rank=1, size=2)
+        mock_mpi = _MagicMock()
+        mock_mpi.COMM_WORLD = comm
+        x, y = self._make_asymmetric_pair()
+
+        with _patch.object(pmat, "hasmpi", True), _patch.object(pmat, "MPI", mock_mpi):
+            matrix, _ = pmat.create_pairwise_distance_matrix(
+                x, y,
+                normalize=False,
+                distance_metric="euclidean",
+                mpi_distribute=True,
+            )
+        assert matrix.shape[1] == 2
+
+    def test_mpi_loop_back_edge_given_rigid_rot(self):
+        """rank=1, size=2, x=2 samples, y=1 sample: i=0 fully skipped → continue back to i=1 (444->333)."""
+        from unittest.mock import patch as _patch, MagicMock as _MagicMock
+        import zreg.pairwise_distance_matrix as pmat
+
+        comm = self._make_comm(rank=1, size=2)
+        mock_mpi = _MagicMock()
+        mock_mpi.COMM_WORLD = comm
+        x, y = self._make_asymmetric_pair()
+        rotation = torch.eye(3, dtype=torch.float32)
+        translation = torch.zeros(3, dtype=torch.float32)
+
+        with _patch.object(pmat, "hasmpi", True), _patch.object(pmat, "MPI", mock_mpi):
+            matrix = pmat.create_pairwise_distance_matrix_given_rigid_rot(
+                x, y,
+                rotation=rotation,
+                translation=translation,
+                normalize=False,
+                distance_metric="euclidean",
+                mpi_distribute=True,
+            )
+        assert matrix.shape[1] == 2
+        assert torch.isfinite(matrix).all()

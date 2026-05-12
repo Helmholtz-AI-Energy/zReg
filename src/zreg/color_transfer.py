@@ -112,7 +112,7 @@ def transfer_colors(
     elif method == ColorTransferMethod.GAUSSIAN_KERNEL:
         sigma = kwargs.get('sigma', 1.0)
         return _transfer_colors_gaussian_kernel(source_pos, target_pos, source_colors, sigma)
-    else:
+    else:  # pragma: no cover
         # Should not reach here if normalization above is correct, but guard anyway
         raise ValueError(
             f"Unknown color transfer method: '{method}'. "

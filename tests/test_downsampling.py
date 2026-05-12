@@ -378,6 +378,60 @@ class TestFarthestPointXSmallerThanY:
         assert x["pos"].shape[0] == y["pos"].shape[0]
 
 
+class TestFPSPrecomputeWhenNone:
+    """Test farthest_point_down_sample with use_precomputed_indexes=True but fps-idx=None (lines 258, 260)."""
+
+    def test_precompute_triggered_for_x_and_y_when_fps_idx_is_none(self):
+        """Both x and y have fps-idx=None with use_precomputed=True → precompute_fps called (lines 258, 260)."""
+        pc1 = zRegPointCloud(
+            pos=torch.randn(100, 3),
+            color=torch.randn(100, 3),
+            id=torch.arange(100),
+        )
+        pc2 = zRegPointCloud(
+            pos=torch.randn(50, 3),
+            color=torch.randn(50, 3),
+            id=torch.arange(50),
+        )
+        # Confirm fps-idx is None (default)
+        assert pc1["fps-idx"] is None
+        assert pc2["fps-idx"] is None
+
+        x, y = downsampling.farthest_point_down_sample(
+            pc1, pc2, use_precomputed_indexes=True
+        )
+        assert x["pos"].shape[0] == y["pos"].shape[0]
+
+
+class TestFPSInternalRoundoffCorrection:
+    """Test _farthest_point_ds_internal roundoff corrections (lines 287, 290).
+
+    shape=39, points=31 is the smallest pair where:
+      int(31/39 * 39) = 30 < 31  →  line 287 (perc_keep += 1/shape)
+      int(32/39 * 39) = 32 > 31  →  line 290 (perc_keep -= 0.5/shape)
+    """
+
+    def test_roundoff_correction_applied(self):
+        """farthest_point_down_sample with shape=39→31 triggers both roundoff corrections."""
+        pc_large = zRegPointCloud(
+            pos=torch.randn(80, 3),
+            color=torch.randn(80, 3),
+            id=torch.arange(80),
+        )
+        pc_target = zRegPointCloud(
+            pos=torch.randn(39, 3),
+            color=torch.randn(39, 3),
+            id=torch.arange(39),
+        )
+        # With x=80pts, y=39pts and points=31, _farthest_point_ds_internal is called
+        # with shape=39, points=31 — triggers both roundoff guards
+        x, y = downsampling.farthest_point_down_sample(
+            pc_large, pc_target, points=31, use_precomputed_indexes=False
+        )
+        assert x["pos"].shape[0] == 31
+        assert y["pos"].shape[0] == 31
+
+
 class TestUniformDownsampleXLargerThanY:
     """Test uniform_down_sample when x has more points than y (lines 423-426)."""
 

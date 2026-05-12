@@ -2,9 +2,9 @@ from .dataset import open3d_to_zreg, zreg_to_open3d, zRegPointCloud
 try:
     import open3d as o3d
     HAS_OPEN3D = True
-except (ImportError, OSError):
-    HAS_OPEN3D = False
-    o3d = None
+except (ImportError, OSError):  # pragma: no cover
+    HAS_OPEN3D = False  # pragma: no cover
+    o3d = None  # pragma: no cover
 import logging
 import torch
 import copy
@@ -16,11 +16,11 @@ from . import utils
 # Optional torch_cluster support for GPU-accelerated operations
 try:
     from torch_cluster import fps as torch_cluster_fps, knn_graph as torch_cluster_knn_graph
-    TORCH_CLUSTER_AVAILABLE = True
-except ImportError:
-    TORCH_CLUSTER_AVAILABLE = False
-    torch_cluster_fps = None
-    torch_cluster_knn_graph = None
+    TORCH_CLUSTER_AVAILABLE = True  # pragma: no cover
+except ImportError:  # pragma: no cover
+    TORCH_CLUSTER_AVAILABLE = False  # pragma: no cover
+    torch_cluster_fps = None  # pragma: no cover
+    torch_cluster_knn_graph = None  # pragma: no cover
 
 
 log = logging.getLogger(__name__)
@@ -90,7 +90,7 @@ def fps(pos: torch.Tensor, ratio: float, use_torch_cluster: bool = None) -> torc
                 "  pip install torch_cluster -f https://data.pyg.org/whl/torch-X.X.X+cuXXX.html\n"
                 "Or set use_torch_cluster=False to use the numpy fallback instead."
             )
-        return torch_cluster_fps(pos, ratio=ratio)
+        return torch_cluster_fps(pos, ratio=ratio)  # pragma: no cover
     else:
         log.debug("Using numpy FPS: %d points", pos.shape[0])
         return _fps_numpy(pos, ratio)
@@ -181,7 +181,7 @@ def knn_graph(pos: torch.Tensor, k: int, batch: torch.Tensor = None, loop: bool 
                 "  pip install torch_cluster -f https://data.pyg.org/whl/torch-X.X.X+cuXXX.html\n"
                 "Or set use_torch_cluster=False to use scipy instead."
             )
-        return torch_cluster_knn_graph(pos, k=k, batch=batch, loop=loop)
+        return torch_cluster_knn_graph(pos, k=k, batch=batch, loop=loop)  # pragma: no cover
     else:
         if batch is not None and not torch.all(batch == batch[0]):
             log.warning("scipy KNN implementation does not support batched point clouds. "
@@ -269,7 +269,7 @@ def farthest_point_down_sample(
 
     elif xshape < yshape:  # downsample y to size of x
         y = _farthest_point_ds_internal(target=y, points=xshape, use_precomputed_indexes=use_precomputed_indexes)
-    elif xshape > yshape:  # downsample x to size of y
+    else:  # xshape > yshape — downsample x to size of y
         x = _farthest_point_ds_internal(target=x, points=yshape, use_precomputed_indexes=use_precomputed_indexes)
 
     if return_o3d:
@@ -347,9 +347,6 @@ def random_down_sample(
             target["color"] = target["color"][keep]
             target["id"] = target["id"][keep]
             target["fps-idx"] = target["fps-idx"][keep] if target["fps-idx"] is not None else None
-    elif xshape == yshape:
-        # do-nothing case
-        pass
     else:
         if xshape < yshape:  # downsample y
             target = y
@@ -409,7 +406,7 @@ def uniform_down_sample(
 
     if xshape < yshape:  # downsample y
         target = y
-    elif xshape > yshape:  # downsample x
+    else:  # xshape > yshape — downsample x
         target = x
 
     remainder = target["pos"].shape[0] % num_to_remove

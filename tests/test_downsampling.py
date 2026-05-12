@@ -276,6 +276,24 @@ class TestFPSAndKNNExplicitMode:
             downsampling.knn_graph(pos, k=2, use_torch_cluster=True)
 
 
+class TestFPSNumpyBreakPath:
+    """Test that _fps_numpy's break condition (line 51) is exercised."""
+
+    def test_fps_numpy_break_condition_ratio_one(self):
+        """All-zero points cause argmax to always return 0 (already selected), triggering break.
+
+        With pos=torch.zeros(5,3) and ratio=1.0: num_samples=5, selected=[0],
+        min_distances=[0,0,0,0,0] so argmax=0 which is already selected -> break.
+        Covers line 51 (_fps_numpy break statement).
+        """
+        pos = torch.zeros(5, 3)
+        result = downsampling.fps(pos, ratio=1.0, use_torch_cluster=False)
+        assert isinstance(result, torch.Tensor)
+        assert result.dtype == torch.long
+        assert len(result) >= 1
+        assert result[0].item() == 0
+
+
 class TestRandomDownsampleXSmallerThanY:
     """Test random_down_sample when x has fewer points than y (line 383)."""
 

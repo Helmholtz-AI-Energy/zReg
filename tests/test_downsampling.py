@@ -339,6 +339,48 @@ class TestUniformDownsampleEdgeCases:
         assert x["pos"].shape[0] == y["pos"].shape[0]
 
 
+class TestFarthestPointXSmallerThanY:
+    """Test farthest_point_down_sample when x has fewer points than y (line 282)."""
+
+    def test_fps_x_smaller_downsamples_y(self):
+        """When x is smaller, y is downsampled to x's size (covers line 282)."""
+        pc_small = zRegPointCloud(
+            pos=torch.randn(30, 3),
+            color=torch.randn(30, 3),
+            id=torch.arange(30),
+        )
+        pc_large = zRegPointCloud(
+            pos=torch.randn(80, 3),
+            color=torch.randn(80, 3),
+            id=torch.arange(80),
+        )
+        x, y = downsampling.farthest_point_down_sample(pc_small, pc_large)
+        assert x["pos"].shape[0] == 30
+        assert y["pos"].shape[0] == 30
+        assert x["pos"].shape[0] == y["pos"].shape[0]
+
+
+class TestUniformDownsampleXLargerThanY:
+    """Test uniform_down_sample when x has more points than y (lines 423-426)."""
+
+    def test_uniform_x_larger_downsamples_x(self):
+        """When x is larger, x is downsampled to y's size (covers lines 423-426)."""
+        pc_large = zRegPointCloud(
+            pos=torch.randn(100, 3),
+            color=torch.randn(100, 3),
+            id=torch.arange(100),
+        )
+        pc_small = zRegPointCloud(
+            pos=torch.randn(30, 3),
+            color=torch.randn(30, 3),
+            id=torch.arange(30),
+        )
+        x, y = downsampling.uniform_down_sample(pc_large, pc_small)
+        assert y["pos"].shape[0] == 30
+        assert x["pos"].shape[0] == y["pos"].shape[0]
+        assert x["pos"].shape[0] < 100
+
+
 @pytest.mark.skipif(not downsampling.HAS_OPEN3D, reason="Open3D not available")
 class TestDownsamplingWithOpen3D:
     """Tests for downsampling functions with Open3D point clouds."""

@@ -189,17 +189,6 @@ def knn_graph(pos: torch.Tensor, k: int, batch: torch.Tensor = None, loop: bool 
         return _knn_scipy(pos, k)
 
 
-def _preserve_labels(new_points, old_points):
-    indices = (
-        (new_points.point.positions.numpy()[:, None] == old_points.point.positions.numpy())
-        .all(axis=-1)
-        .any(axis=0)
-        .nonzero()
-    )
-    new_points.point.labels = old_points.point.labels[indices]
-    return new_points
-
-
 def precompute_fps(pc: zRegPointCloud) -> zRegPointCloud:
     """Precomputes the farthest points from a random start.
 

@@ -380,3 +380,65 @@ class TestDownsamplingWithOpen3D:
             assert x["pos"].shape[0] == y["pos"].shape[0]
         except ImportError:
             pytest.skip("Open3D not installed")
+
+    @pytest.fixture
+    def open3d_equal_pointclouds(self):
+        """Create two equal-sized Open3D point clouds for testing early-return paths."""
+        from zreg.dataset import zreg_to_open3d
+
+        pc1 = zRegPointCloud(
+            pos=torch.randn(50, 3),
+            color=torch.randn(50, 3),
+            id=torch.arange(50),
+        )
+        pc2 = zRegPointCloud(
+            pos=torch.randn(50, 3),
+            color=torch.randn(50, 3),
+            id=torch.arange(50),
+        )
+        return zreg_to_open3d(pc1), zreg_to_open3d(pc2)
+
+    def test_fps_return_o3d_unequal(self, open3d_pointclouds):
+        """FPS with return_o3d=True on unequal clouds returns Open3D PointClouds (lines 287-288)."""
+        o3d_pc1, o3d_pc2 = open3d_pointclouds
+        result = downsampling.farthest_point_down_sample(o3d_pc1, o3d_pc2, return_o3d=True)
+        assert isinstance(result[0], downsampling.o3d.t.geometry.PointCloud)
+        assert isinstance(result[1], downsampling.o3d.t.geometry.PointCloud)
+        assert result[0].point.positions.shape[0] == result[1].point.positions.shape[0]
+
+    def test_fps_return_o3d_equal(self, open3d_equal_pointclouds):
+        """FPS with return_o3d=True on equal-size clouds hits the early-return path (line 265)."""
+        eq1, eq2 = open3d_equal_pointclouds
+        result = downsampling.farthest_point_down_sample(eq1, eq2, return_o3d=True)
+        assert isinstance(result[0], downsampling.o3d.t.geometry.PointCloud)
+        assert isinstance(result[1], downsampling.o3d.t.geometry.PointCloud)
+
+    def test_random_return_o3d_unequal(self, open3d_pointclouds):
+        """random_down_sample with return_o3d=True on unequal clouds returns Open3D PointClouds (lines 377-378)."""
+        o3d_pc1, o3d_pc2 = open3d_pointclouds
+        result = downsampling.random_down_sample(o3d_pc1, o3d_pc2, return_o3d=True)
+        assert isinstance(result[0], downsampling.o3d.t.geometry.PointCloud)
+        assert isinstance(result[1], downsampling.o3d.t.geometry.PointCloud)
+        assert result[0].point.positions.shape[0] == result[1].point.positions.shape[0]
+
+    def test_random_return_o3d_equal(self, open3d_equal_pointclouds):
+        """random_down_sample with return_o3d=True on equal-size clouds hits early-return (line 346)."""
+        eq1, eq2 = open3d_equal_pointclouds
+        result = downsampling.random_down_sample(eq1, eq2, return_o3d=True)
+        assert isinstance(result[0], downsampling.o3d.t.geometry.PointCloud)
+        assert isinstance(result[1], downsampling.o3d.t.geometry.PointCloud)
+
+    def test_uniform_return_o3d_unequal(self, open3d_pointclouds):
+        """uniform_down_sample with return_o3d=True on unequal clouds returns Open3D PointClouds (lines 439-440)."""
+        o3d_pc1, o3d_pc2 = open3d_pointclouds
+        result = downsampling.uniform_down_sample(o3d_pc1, o3d_pc2, return_o3d=True)
+        assert isinstance(result[0], downsampling.o3d.t.geometry.PointCloud)
+        assert isinstance(result[1], downsampling.o3d.t.geometry.PointCloud)
+        assert result[0].point.positions.shape[0] == result[1].point.positions.shape[0]
+
+    def test_uniform_return_o3d_equal(self, open3d_equal_pointclouds):
+        """uniform_down_sample with return_o3d=True on equal-size clouds hits early-return (line 415)."""
+        eq1, eq2 = open3d_equal_pointclouds
+        result = downsampling.uniform_down_sample(eq1, eq2, return_o3d=True)
+        assert isinstance(result[0], downsampling.o3d.t.geometry.PointCloud)
+        assert isinstance(result[1], downsampling.o3d.t.geometry.PointCloud)

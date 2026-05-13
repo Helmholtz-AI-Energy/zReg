@@ -13,7 +13,8 @@ class DistanceMetric(Protocol):
     (euclidean_distance) and callable classes (SlicedWassersteinDistance)
     satisfy this protocol.
 
-    Note: This is an internal typing protocol and is NOT part of the public API.
+    This protocol is part of the public API and can be imported from
+    `zreg.distances`.
     """
 
     def __call__(self, x: torch.Tensor, y: torch.Tensor, **kwargs) -> torch.Tensor:

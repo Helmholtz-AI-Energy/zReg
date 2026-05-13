@@ -526,6 +526,13 @@ def _sanitize_pairwise_distance_matrix(distance_kwargs, distance_metrics, downsa
         if dist_kwargs is None:
             dist_kwargs = {}
 
+        if callable(dist):
+            # Caller supplied a conforming callable (function, bound method, or nn.Module).
+            # Pass it through directly without string dispatch or downsampling requirement.
+            distance_fn = dist
+            distance_metrics[c] = distance_fn
+            continue
+
         if dist == "swd":
             log.info("Using Sliced Wasserstein Distance for distance metric")
             # set default kwargs

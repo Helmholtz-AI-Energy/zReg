@@ -2,19 +2,20 @@
 
 ## Milestones
 
-- **v1.1 Code Quality & Refactoring** — Phases 6-11 (active)
+- **v1.1 Code Quality & Refactoring** — Phases 6-11.1 (active)
 - ✅ **v1.0 Consolidation** — Phases 1-5 (shipped 2026-04-09) — [archive](.planning/milestones/v1.0-ROADMAP.md)
 
 ## Phases
 
-### v1.1 Code Quality & Refactoring (Phases 6-11)
+### v1.1 Code Quality & Refactoring (Phases 6-11.1)
 
-- [ ] **Phase 11: Validate Refactoring and Fix Coverage** - Verify optional-Open3D refactor, close test-coverage gaps
-- [ ] **Phase 6: Python 3.12 Migration** - Modernize syntax and type hints for 3.12+
-- [ ] **Phase 7: CPD Deep Restructure** - Extract base class and clean module architecture
-- [ ] **Phase 8: DTW Deep Restructure** - Separate algorithm from metrics, clean interfaces
-- [ ] **Phase 9: Distance & Transform Restructure** - Consistent interfaces and shared patterns
-- [ ] **Phase 10: Code Quality & Verification** - Silent failure fixes, consistency, test validation
+- [x] **Phase 6: Python 3.12 Migration** - Modernize syntax and type hints for 3.12+
+- [x] **Phase 7: CPD Deep Restructure** - Extract base class and clean module architecture
+- [x] **Phase 8: DTW Deep Restructure** - Separate algorithm from metrics, clean interfaces
+- [x] **Phase 9: Distance & Transform Restructure** - Consistent interfaces and shared patterns
+- [x] **Phase 10: Code Quality & Verification** - Silent failure fixes, consistency, test validation
+- [x] **Phase 11: Validate Refactoring and Fix Coverage** - Verify optional-Open3D refactor, close test-coverage gaps
+- [ ] **Phase 11.1: Close DTW-02: consistent metric variant interface** (INSERTED) - Satisfy deferred DTW-02 requirement: give all metric variants a consistent calling interface
 
 <details>
 <summary>✅ v1.0 Consolidation (Phases 1-5) — SHIPPED 2026-04-09</summary>
@@ -118,18 +119,31 @@ Full details: [.planning/milestones/v1.0-ROADMAP.md](.planning/milestones/v1.0-R
 **Plans**: 1 plan
 - [x] 11-01-PLAN.md — Remove dead code + close coverage gaps (return_o3d paths, size branches, _fps_numpy break)
 
+### Phase 11.1: Close DTW-02 — Consistent Metric Variant Interface (INSERTED)
+**Goal**: All DTW metric variants expose a consistent calling interface, satisfying the deferred DTW-02 requirement
+**Depends on**: Phase 11 (full test suite passing; inserted to close v1.1 audit gap)
+**Requirements**: DTW-02
+**Success Criteria** (what must be TRUE):
+  1. All DTW distance metric variants (manhattan, cpd, minkowski, etc.) accept the same argument signature
+  2. A common Protocol or base class documents the expected interface
+  3. DynamicTimeWarping accepts any conforming metric without special-casing
+  4. Existing tests continue to pass (no regressions)
+**Plans**: TBD
+- [ ] 11.1-01-PLAN.md — Audit metric variant interfaces and implement consistent protocol
+
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 11. Validate Refactoring and Fix Coverage | v1.1 | 1/1 | Complete | 2026-05-12 |
-| 6. Python 3.12 Migration | v1.1 | 2/2 | Complete | - |
-| 7. CPD Deep Restructure | v1.1 | 3/3 | Complete | - |
-| 8. DTW Deep Restructure | v1.1 | 2/2 | Complete   | 2026-04-23 |
-| 9. Distance & Transform Restructure | v1.1 | 2/2 | Complete | 2026-04-27 |
-| 10. Code Quality & Verification | v1.1 | 3/3 | Complete    | 2026-04-29 |
 | 1. Validation Foundation & Quick Wins | v1.0 | 2/2 | Complete | 2026-04-09 |
 | 2. Distance Metric & CPD Bug Fixes | v1.0 | 3/3 | Complete | 2026-04-09 |
 | 3. DTW, Transform & CPD Enhancements | v1.0 | 3/3 | Complete | 2026-04-09 |
 | 4. Infrastructure & Color Transfer Quality | v1.0 | 2/2 | Complete | 2026-04-09 |
 | 5. Test Coverage | v1.0 | 3/3 | Complete | 2026-04-09 |
+| 6. Python 3.12 Migration | v1.1 | 2/2 | Complete | - |
+| 7. CPD Deep Restructure | v1.1 | 3/3 | Complete | - |
+| 8. DTW Deep Restructure | v1.1 | 2/2 | Complete | 2026-04-23 |
+| 9. Distance & Transform Restructure | v1.1 | 2/2 | Complete | 2026-04-27 |
+| 10. Code Quality & Verification | v1.1 | 3/3 | Complete | 2026-04-29 |
+| 11. Validate Refactoring and Fix Coverage | v1.1 | 1/1 | Complete | 2026-05-12 |
+| 11.1. Close DTW-02: consistent metric variant interface | v1.1 | 0/1 | Not started | - |

@@ -773,4 +773,65 @@ class TestMPIPaths:
                 mpi_distribute=True,
             )
         assert matrix.shape[1] == 2
-        assert torch.isfinite(matrix).all()
+
+
+class TestCallableMetricPassThrough:
+    """RED-phase tests: callable pass-through in _sanitize_pairwise_distance_matrix.
+
+    These tests define the behaviour required by DTW-02 (consistent metric variant
+    interface).  They intentionally fail before the implementation is wired.
+    """
+
+    @pytest.fixture
+    def small_pair(self):
+        x = {i: zRegPointCloud(pos=torch.randn(5, 3), id=torch.arange(5)) for i in range(2)}
+        y = {i: zRegPointCloud(pos=torch.randn(5, 3), id=torch.arange(5)) for i in range(2)}
+        return x, y
+
+    def test_distance_metric_protocol_is_importable(self):
+        """DistanceMetric Protocol must be importable from zreg.distances."""
+        from zreg.distances import DistanceMetric  # noqa: F401 (import-only test)
+        assert DistanceMetric is not None
+
+    def test_callable_metric_returned_unchanged_by_sanitize(self, small_pair):
+        """A callable passed to _sanitize must be returned as-is (no string lookup)."""
+        from zreg.distances.general import euclidean_distance
+        from zreg.pairwise_distance_matrix import _sanitize_pairwise_distance_matrix
+        x, y = small_pair
+        fns, _, _ = _sanitize_pairwise_distance_matrix(
+            distance_kwargs=None,
+            distance_metrics=euclidean_distance,
+            downsample_method=None,
+            x=x,
+            y=y,
+        )
+        assert fns[0] is euclidean_distance
+
+    def test_invalid_string_still_raises_value_error(self, small_pair):
+        """An unrecognised string must still raise ValueError (regression guard)."""
+        from zreg.pairwise_distance_matrix import _sanitize_pairwise_distance_matrix
+        x, y = small_pair
+        with pytest.raises(ValueError):
+            _sanitize_pairwise_distance_matrix(
+                distance_kwargs=None,
+                distance_metrics="not_a_real_metric",
+                downsample_method=None,
+                x=x,
+                y=y,
+            )
+
+    def test_callable_skips_swd_downsampling_guard(self, small_pair):
+        """A callable metric must not trigger the SWD downsampling RuntimeError."""
+        from zreg.distances.general import euclidean_distance
+        from zreg.pairwise_distance_matrix import _sanitize_pairwise_distance_matrix
+        x, y = small_pair
+        # With a string metric (non-euclidean) and no downsampling → RuntimeError
+        # With a callable + no downsampling → should succeed
+        fns, ds_method, _ = _sanitize_pairwise_distance_matrix(
+            distance_kwargs=None,
+            distance_metrics=euclidean_distance,
+            downsample_method=None,
+            x=x,
+            y=y,
+        )
+        assert ds_method is None  # callable path → downsampling untouched

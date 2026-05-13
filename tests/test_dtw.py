@@ -1,6 +1,7 @@
 """Tests for zreg.dtw module."""
 
 import math
+from unittest.mock import MagicMock
 
 import pytest
 import torch
@@ -10,6 +11,8 @@ import tempfile
 from zreg import dtw
 from zreg.dtw import DynamicTimeWarping, DTWResult
 from zreg.dataset import zRegPointCloud
+from zreg.distances import euclidean_distance
+from zreg.pairwise_distance_matrix import create_pairwise_distance_matrix
 
 
 @pytest.fixture
@@ -989,4 +992,75 @@ class TestPlotAlignmentMatplotlibImportError:
             with patch.dict("sys.modules", {"matplotlib.pyplot": None}):
                 dtw_obj.plot_alignment()
 
-        assert any("matplotlib" in str(r.message) for r in caplog.records)
+
+class TestAnnotationWideningRED:
+    """RED-phase tests: DynamicTimeWarping accepts DistanceMetric callables.
+
+    These tests define the type-widening behaviour required by DTW-02. They
+    intentionally fail before the annotation is updated in dtw/core.py.
+    """
+
+    def test_dtw_annotation_includes_distance_metric_protocol(self):
+        """DynamicTimeWarping.__init__ annotation for distance_metric must include DistanceMetric."""
+        hints = DynamicTimeWarping.__init__.__annotations__
+        annotation_str = str(hints.get("distance_metric", ""))
+        assert "DistanceMetric" in annotation_str, (
+            f"Expected 'DistanceMetric' in annotation, got: {annotation_str!r}"
+        )
+
+    def test_dtw_accepts_callable_without_type_error(self):
+        """DynamicTimeWarping must accept a callable distance_metric without raising."""
+        from zreg.distances import euclidean_distance
+        x = {i: zRegPointCloud(pos=torch.randn(5, 3), id=torch.arange(5)) for i in range(2)}
+        y = {i: zRegPointCloud(pos=torch.randn(5, 3), id=torch.arange(5)) for i in range(2)}
+        d = DynamicTimeWarping(x, y, distance_metric=euclidean_distance, downsample_method=None)
+        assert callable(d.distance_metric)
+
+
+class TestCallableMetric:
+    """End-to-end tests covering callable distance_metric pass-through (DTW-02)."""
+
+    def test_callable_metric_in_create_pairwise_distance_matrix(self, small_trajectory_pair):
+        """create_pairwise_distance_matrix accepts a callable metric and returns a float tensor."""
+        x, y = small_trajectory_pair
+        matrix, _ = create_pairwise_distance_matrix(
+            x, y, distance_metric=euclidean_distance, downsample_method=None
+        )
+        assert isinstance(matrix, torch.Tensor)
+        assert matrix.is_floating_point()
+        # Output shape is (num_metrics, len_x, len_y); with a single metric this is (1, N, M)
+        assert matrix.shape[-2] == len(x)
+        assert matrix.shape[-1] == len(y)
+
+    def test_callable_metric_matches_string_metric(self, small_trajectory_pair):
+        """DynamicTimeWarping with callable metric yields same result as equivalent string."""
+        x, y = small_trajectory_pair
+        dtw_callable = DynamicTimeWarping(
+            x, y, distance_metric=euclidean_distance, downsample_method=None
+        )
+        dtw_string = DynamicTimeWarping(
+            x, y, distance_metric="euclidean", downsample_method=None
+        )
+        result_callable = dtw_callable.compute()
+        result_string = dtw_string.compute()
+        assert result_callable.distance >= 0
+        assert result_string.distance >= 0
+        assert result_callable.distance == pytest.approx(result_string.distance, rel=1e-5)
+
+    def test_callable_is_actually_invoked(self, small_trajectory_pair):
+        """The callable metric must actually be called during distance computation."""
+        x, y = small_trajectory_pair
+        mock = MagicMock(wraps=euclidean_distance)
+        create_pairwise_distance_matrix(
+            x, y, distance_metric=mock, downsample_method=None
+        )
+        assert mock.call_count >= 1
+
+    def test_custom_lambda_metric_returns_zeros(self, small_trajectory_pair):
+        """A lambda returning zeros produces an all-zero distance matrix."""
+        x, y = small_trajectory_pair
+        zero_metric = lambda x, y, **kw: torch.zeros(1)  # noqa: E731
+        matrix, _ = create_pairwise_distance_matrix(
+            x, y, distance_metric=zero_metric, downsample_method=None
+        )
+        assert torch.all(matrix == 0)

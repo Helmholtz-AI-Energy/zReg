@@ -6,6 +6,9 @@ This module provides distance metrics for comparing point clouds, including:
 
 Public API
 ----------
+Protocols:
+    DistanceMetric
+
 Functions:
     euclidean_distance, manhattan_distance, minkowski_distance
 
@@ -15,6 +18,7 @@ Classes (nn.Module):
     OrthogonalSlicedWassersteinDistance, GeneralisedSlicedWassersteinDistance
 """
 
+from ._protocol import DistanceMetric
 from .general import euclidean_distance, manhattan_distance, minkowski_distance
 from .sw_varients import (
     SlicedWassersteinDistance,
@@ -26,6 +30,8 @@ from .sw_varients import (
 )
 
 __all__ = [
+    # Protocol
+    "DistanceMetric",
     # Functions
     "euclidean_distance",
     "manhattan_distance",

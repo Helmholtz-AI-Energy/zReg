@@ -8,6 +8,16 @@ Read more about conftest.py under:
 """
 
 import pytest
+
+# On macOS ARM, open3d must be imported before torch to prevent a libomp
+# duplicate-initialization crash (SIGABRT). Guard with try/except for
+# environments where open3d is not installed.
+try:
+    import open3d.t.geometry  # noqa: F401
+    import open3d.core  # noqa: F401
+except Exception:
+    pass
+
 import torch
 
 from zreg.dataset import zRegPointCloud

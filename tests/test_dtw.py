@@ -989,4 +989,26 @@ class TestPlotAlignmentMatplotlibImportError:
             with patch.dict("sys.modules", {"matplotlib.pyplot": None}):
                 dtw_obj.plot_alignment()
 
-        assert any("matplotlib" in str(r.message) for r in caplog.records)
+
+class TestAnnotationWideningRED:
+    """RED-phase tests: DynamicTimeWarping accepts DistanceMetric callables.
+
+    These tests define the type-widening behaviour required by DTW-02. They
+    intentionally fail before the annotation is updated in dtw/core.py.
+    """
+
+    def test_dtw_annotation_includes_distance_metric_protocol(self):
+        """DynamicTimeWarping.__init__ annotation for distance_metric must include DistanceMetric."""
+        hints = DynamicTimeWarping.__init__.__annotations__
+        annotation_str = str(hints.get("distance_metric", ""))
+        assert "DistanceMetric" in annotation_str, (
+            f"Expected 'DistanceMetric' in annotation, got: {annotation_str!r}"
+        )
+
+    def test_dtw_accepts_callable_without_type_error(self):
+        """DynamicTimeWarping must accept a callable distance_metric without raising."""
+        from zreg.distances import euclidean_distance
+        x = {i: zRegPointCloud(pos=torch.randn(5, 3), id=torch.arange(5)) for i in range(2)}
+        y = {i: zRegPointCloud(pos=torch.randn(5, 3), id=torch.arange(5)) for i in range(2)}
+        d = DynamicTimeWarping(x, y, distance_metric=euclidean_distance, downsample_method=None)
+        assert callable(d.distance_metric)

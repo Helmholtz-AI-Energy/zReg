@@ -26,7 +26,7 @@ Requirements for v1.1 Code Quality & Refactoring. Each maps to roadmap phases.
 ### DTW Restructure
 
 - [x] **DTW-01**: DTW core algorithm separated from metric computation
-- [ ] **DTW-02**: Metric variants (manhattan, cpd, minkowski, etc.) use consistent interface
+- [x] **DTW-02**: Metric variants (manhattan, cpd, minkowski, etc.) use consistent interface
 - [x] **DTW-03**: Path reconstruction logic extracted into focused function
 - [x] **DTW-04**: Windowing/constraint logic factored into composable components
 - [x] **DTW-05**: DTW module has clear public API with internal helpers marked private
@@ -94,7 +94,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CPD-04 | Phase 7 | Pending |
 | CPD-05 | Phase 7 | Pending |
 | DTW-01 | Phase 8 | Complete |
-| DTW-02 | Phase 8 | Pending |
+| DTW-02 | Phase 11.1 | Complete |
 | DTW-03 | Phase 8 | Complete |
 | DTW-04 | Phase 8 | Complete |
 | DTW-05 | Phase 8 | Complete |

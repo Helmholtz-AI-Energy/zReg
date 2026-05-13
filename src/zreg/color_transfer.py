@@ -8,7 +8,7 @@ from enum import Enum
 import torch
 import logging
 
-from zreg.cpd import EstepResult
+from .cpd import EstepResult
 
 from .dataset import zRegPointCloud
 

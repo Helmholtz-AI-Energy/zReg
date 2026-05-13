@@ -23,6 +23,7 @@ from . import cpd
 from . import transforms
 from .dataset import zRegPointCloud
 from .validation import _validate_tensors
+from .distances import DistanceMetric
 
 
 log = logging.getLogger(__name__)
@@ -36,7 +37,7 @@ def create_pairwise_distance_matrix(
     y: dict[int, zRegPointCloud],
     window: int | None = None,
     normalize: bool = True,
-    distance_metric: list[str] | str = "swd",
+    distance_metric: list[str | DistanceMetric] | str | DistanceMetric = "swd",
     distance_kwargs: list[dict] | dict | None = None,
     downsample_method: str | None = None,
     cpd_type: str | None = None,
@@ -58,9 +59,11 @@ def create_pairwise_distance_matrix(
     normalize : bool, optional
         Whether to normalize the point clouds before calculating the distance.
         By default, True.
-    distance_metric : list[str] | str, optional
-        The distance metric(s) to use for the calculation. Can be a single string or a list of strings.
-        Supported metrics depend on available functions (e.g., "swd" for Sliced Wasserstein Distance).
+    distance_metric : list[str | DistanceMetric] | str | DistanceMetric, optional
+        The distance metric(s) to use for the calculation. Accepts string identifiers
+        ('swd', 'euclidean', 'manhattan', 'minkowski', 'cpd', 'aswd', 'oswd', 'gswd', 'pswd')
+        or any callable conforming to the `DistanceMetric` protocol
+        (``zreg.distances.DistanceMetric``). Can be a single value or a list of values.
         By default, "swd".
     distance_kwargs : list[dict] | dict | None, optional
         Keyword arguments to pass to the distance function(s). If `distance_metric` is a list, this should be a list of

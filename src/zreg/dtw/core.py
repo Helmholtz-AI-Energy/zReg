@@ -12,6 +12,7 @@ import torch
 from .result import DTWResult
 from ..pairwise_distance_matrix import create_pairwise_distance_matrix
 from ..dataset import zRegPointCloud
+from ..distances import DistanceMetric
 
 
 log = logging.getLogger(__name__)
@@ -35,10 +36,11 @@ class DynamicTimeWarping:
         First trajectory (source) - dictionary mapping time indices to point clouds.
     y : dict[int, zRegPointCloud]
         Second trajectory (target) - dictionary mapping time indices to point clouds.
-    distance_metric : list[str] | str, optional
-        Distance metric(s) for point cloud comparison.
-        Supported: "swd", "aswd", "oswd", "gswd", "pswd", "euclidean",
-        "manhattan", "minkowski", "cpd". Default: "swd".
+    distance_metric : list[str | DistanceMetric] | str | DistanceMetric, optional
+        Distance metric(s) for point cloud comparison. Accepts string identifiers
+        ('swd', 'euclidean', 'manhattan', 'minkowski', 'cpd', 'aswd', 'oswd', 'gswd',
+        'pswd') or any callable conforming to the `DistanceMetric` protocol
+        (``zreg.distances.DistanceMetric``). Default: 'swd'.
     distance_kwargs : list[dict] | dict | None, optional
         Additional kwargs for distance functions. Default: None.
     downsample_method : str | None, optional
@@ -78,7 +80,7 @@ class DynamicTimeWarping:
         self,
         x: dict[int, zRegPointCloud],
         y: dict[int, zRegPointCloud],
-        distance_metric: list[str] | str = "swd",
+        distance_metric: list[str | DistanceMetric] | str | DistanceMetric = "swd",
         distance_kwargs: list[dict] | dict | None = None,
         downsample_method: str | None = "random",
         cpd_type: str | None = None,

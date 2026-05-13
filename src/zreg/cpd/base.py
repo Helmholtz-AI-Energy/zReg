@@ -1,7 +1,7 @@
 """Abstract base class for Coherent Point Drift algorithm."""
 
 from abc import ABC, abstractmethod
-from typing import Callable
+from collections.abc import Callable
 import logging
 
 import torch

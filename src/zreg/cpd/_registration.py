@@ -4,7 +4,8 @@ This module provides high-level functions for CPD registration that abstract
 away the class instantiation details.
 """
 
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 
 import torch
 try:

@@ -15,8 +15,9 @@
 ## Current State
 
 **Shipped:** v1.0 Consolidation — 2026-04-09 | v1.1 Code Quality & Refactoring — 2026-05-13
+**Active:** v1.2 Evaluation Framework & Debt Resolution — Phase 12 complete 2026-05-14
 
-zReg is a Python library for GPU-accelerated 3D point cloud registration, temporal alignment, and color (celltype) transfer using PyTorch. The v1.0 consolidation milestone addressed all concerns from codebase mapping: fixing 5 bugs, adding input validation across the public API, improving code quality and robustness, enhancing CPD with convergence diagnostics, and closing test gaps with 275 passing regression tests. The v1.1 milestone modernized the codebase to Python 3.12, restructured CPD/DTW/distance/transform modules, fixed silent failures, validated all refactoring with 391 passing tests, and exposed `DistanceMetric` Protocol with callable pass-through (DTW-02).
+zReg is a Python library for GPU-accelerated 3D point cloud registration, temporal alignment, and color (celltype) transfer using PyTorch. Phase 12 closed all v1.1 carry-forward debt: modernized Callable imports to `collections.abc`, converted absolute intra-package import in `color_transfer.py`, exposed `zreg.config` at top level, backfilled `VALIDATION.md`, and made all open3d imports lazy (no SIGABRT on macOS ARM). 391 tests pass, 8 skipped. Phase 13 (Core Metrics Library) is next.
 
 ## What This Is
 

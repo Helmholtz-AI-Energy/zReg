@@ -97,11 +97,11 @@ def cpd_registration(
     if callbacks is None:
         callbacks = []
 
-    o3d, HAS_OPEN3D = _get_open3d()
+    o3d, _has_open3d = _get_open3d()
     # Convert from Open3D if necessary
-    if HAS_OPEN3D and isinstance(source, o3d.t.geometry.PointCloud):
+    if _has_open3d and isinstance(source, o3d.t.geometry.PointCloud):
         source = open3d_to_zreg(source)
-    if HAS_OPEN3D and isinstance(target, o3d.t.geometry.PointCloud):
+    if _has_open3d and isinstance(target, o3d.t.geometry.PointCloud):
         target = open3d_to_zreg(target)
 
     # Prepare point data
@@ -184,11 +184,11 @@ def init_cpd_from_existing(
     if callbacks is None:
         callbacks = []
 
-    o3d, HAS_OPEN3D = _get_open3d()
+    o3d, _has_open3d = _get_open3d()
     # Convert from Open3D if necessary
-    if HAS_OPEN3D and isinstance(source, o3d.t.geometry.PointCloud):
+    if _has_open3d and isinstance(source, o3d.t.geometry.PointCloud):
         source = open3d_to_zreg(source)
-    if HAS_OPEN3D and isinstance(target, o3d.t.geometry.PointCloud):
+    if _has_open3d and isinstance(target, o3d.t.geometry.PointCloud):
         target = open3d_to_zreg(target)
 
     # Prepare point data

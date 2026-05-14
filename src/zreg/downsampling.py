@@ -1,4 +1,4 @@
-from .dataset import open3d_to_zreg, zreg_to_open3d, zRegPointCloud
+from .dataset import open3d_to_zreg, zreg_to_open3d, zRegPointCloud, HAS_OPEN3D
 import logging
 import torch
 import copy
@@ -9,6 +9,8 @@ from . import utils
 
 
 def _get_open3d():
+    if not HAS_OPEN3D:
+        return None, False
     try:
         import open3d as o3d
         return o3d, True

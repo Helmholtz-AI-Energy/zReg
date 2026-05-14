@@ -5,11 +5,16 @@ import csv
 from typing import Self
 
 from pathlib import Path
+import importlib.util
 
 import torch
 
+HAS_OPEN3D = importlib.util.find_spec("open3d") is not None
+
 
 def _import_open3d():
+    if not HAS_OPEN3D:
+        return None, None, False
     try:
         import open3d.t.geometry as o3dtgeo
         import open3d.core as o3c

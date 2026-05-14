@@ -2,10 +2,12 @@
 
 import torch
 
-from ..dataset import zRegPointCloud, open3d_to_zreg, zreg_to_open3d
+from ..dataset import zRegPointCloud, open3d_to_zreg, zreg_to_open3d, HAS_OPEN3D
 
 
 def _get_open3d():
+    if not HAS_OPEN3D:
+        return None, False
     try:
         import open3d as o3d
         return o3d, True

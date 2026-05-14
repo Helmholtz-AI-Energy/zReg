@@ -13,13 +13,15 @@ from ._types import MstepResult
 from .rigid import RigidCPD
 from .affine import AffineCPD
 from .nonrigid import NonRigidCPD, ConstrainedNonRigidCPD
-from ..dataset import zRegPointCloud, open3d_to_zreg
+from ..dataset import zRegPointCloud, open3d_to_zreg, HAS_OPEN3D
 from .. import transforms as tf
 
 __all__ = ["cpd_registration", "init_cpd_from_existing"]
 
 
 def _get_open3d():
+    if not HAS_OPEN3D:
+        return None, False
     try:
         import open3d as o3d
         return o3d, True

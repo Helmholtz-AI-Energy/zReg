@@ -18,6 +18,15 @@ def _get_open3d():
         return None, False
 
 
+def __getattr__(name: str):
+    if name == "o3d":
+        o3d_mod, _ = _get_open3d()
+        if o3d_mod is None:
+            raise AttributeError(f"module {__name__!r} has no attribute 'o3d' (open3d not installed)")
+        return o3d_mod
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 # Optional torch_cluster support for GPU-accelerated operations
 try:
     from torch_cluster import fps as torch_cluster_fps, knn_graph as torch_cluster_knn_graph

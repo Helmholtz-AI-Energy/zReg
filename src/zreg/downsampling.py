@@ -1,10 +1,4 @@
 from .dataset import open3d_to_zreg, zreg_to_open3d, zRegPointCloud
-try:
-    import open3d as o3d
-    HAS_OPEN3D = True
-except (ImportError, OSError):  # pragma: no cover
-    HAS_OPEN3D = False  # pragma: no cover
-    o3d = None  # pragma: no cover
 import logging
 import torch
 import copy
@@ -12,6 +6,15 @@ from scipy.spatial import cKDTree
 import numpy as np
 
 from . import utils
+
+
+def _get_open3d():
+    try:
+        import open3d as o3d
+        return o3d, True
+    except (ImportError, OSError):
+        return None, False
+
 
 # Optional torch_cluster support for GPU-accelerated operations
 try:
@@ -241,6 +244,7 @@ def farthest_point_down_sample(
     tuple[PointCloudType, PointCloudType]
         The downsampled point clouds.
     """
+    o3d, HAS_OPEN3D = _get_open3d()
     # o3d is slow, moving to torch cluster for this
     if HAS_OPEN3D and isinstance(x, o3d.t.geometry.PointCloud):
         x = open3d_to_zreg(x)
@@ -323,6 +327,7 @@ def random_down_sample(
     tuple[PointCloudType, PointCloudType]
         The downsampled point clouds.
     """
+    o3d, HAS_OPEN3D = _get_open3d()
     if HAS_OPEN3D and isinstance(x, o3d.t.geometry.PointCloud):
         x = open3d_to_zreg(x)
     if HAS_OPEN3D and isinstance(y, o3d.t.geometry.PointCloud):

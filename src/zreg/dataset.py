@@ -6,17 +6,16 @@ from typing import Self
 
 from pathlib import Path
 
-# open3d must be imported before torch to avoid libomp conflict on macOS ARM
-try:
-    import open3d.t.geometry as o3dtgeo
-    import open3d.core as o3c
-    HAS_OPEN3D = True
-except (ImportError, OSError):  # pragma: no cover
-    HAS_OPEN3D = False  # pragma: no cover
-    o3dtgeo = None  # pragma: no cover
-    o3c = None  # pragma: no cover
-
 import torch
+
+
+def _import_open3d():
+    try:
+        import open3d.t.geometry as o3dtgeo
+        import open3d.core as o3c
+        return o3dtgeo, o3c, True
+    except (ImportError, OSError):
+        return None, None, False
 
 
 log = logging.getLogger(__name__)
@@ -40,22 +39,11 @@ class zRegPointCloud(dict):  # dict[str, torch.Tensor]
         return self
 
     def get_open3d_pc(self):
-        if not HAS_OPEN3D:
+        o3dtgeo, o3c, has_open3d = _import_open3d()
+        if not has_open3d:
             raise RuntimeError("open3d is not available. Check your Python architecture and open3d installation.")
-        
-        # Create a dictionary to store the Open3D tensors
         map_to_tensors = {}
-
-        # Convert the tensors to Open3D tensors
         map_to_tensors["positions"] = o3c.Tensor.from_dlpack(torch.utils.dlpack.to_dlpack(self["pos"]))
-        # map_to_tensors["colors"] = o3c.Tensor.from_dlpack(torch.utils.dlpack.to_dlpack(self["color"]))
-        # map_to_tensors["labels"] = o3c.Tensor.from_dlpack(torch.utils.dlpack.to_dlpack(self["id"]))
-        # if self["fps-idx"] is not None:
-        #     map_to_tensors["fps_idx"] = o3c.Tensor.from_dlpack(torch.utils.dlpack.to_dlpack(self["fps-idx"]))
-        # else:
-        #     map_to_tensors["fps_idx"] = None
-
-        # Create and return the Open3D point cloud
         return o3dtgeo.PointCloud(map_to_tensors)
 
 
@@ -183,33 +171,24 @@ def zreg_to_open3d(pc: zRegPointCloud) -> "o3dtgeo.PointCloud":
                   and 'id'.
         RuntimeError: If open3d is not available.
     """
-    if not HAS_OPEN3D:
+    o3dtgeo, o3c, has_open3d = _import_open3d()
+    if not has_open3d:
         raise RuntimeError("open3d is not available. Check your Python architecture and open3d installation.")
 
-    # Check if the input is a PyTorch tensor
     from_torch = isinstance(pc["pos"], torch.Tensor)
-
-    # Create a dictionary to store the Open3D tensors
     map_to_tensors = {}
-
-    # Convert the tensors to Open3D tensors
     if from_torch:
         map_to_tensors["positions"] = o3c.Tensor.from_dlpack(torch.utils.dlpack.to_dlpack(pc["pos"]))
         map_to_tensors["colors"] = o3c.Tensor.from_dlpack(torch.utils.dlpack.to_dlpack(pc["color"]))
         map_to_tensors["labels"] = o3c.Tensor.from_dlpack(torch.utils.dlpack.to_dlpack(pc["id"]))
         if pc["fps-idx"] is not None:
             map_to_tensors["fps_idx"] = o3c.Tensor.from_dlpack(torch.utils.dlpack.to_dlpack(pc["fps-idx"]))
-        # Don't add fps_idx key if it's None - Open3D doesn't accept None values
     else:
-        # If the input is already an Open3D tensor, no conversion is needed
         map_to_tensors["positions"] = pc["pos"]
         map_to_tensors["colors"] = pc["color"]
         map_to_tensors["labels"] = pc["id"]
         if pc["fps-idx"] is not None:
             map_to_tensors["fps_idx"] = pc["fps-idx"]
-        # Don't add fps_idx key if it's None - Open3D doesn't accept None values
-
-    # Create and return the Open3D point cloud
     return o3dtgeo.PointCloud(map_to_tensors)
 
 
@@ -257,7 +236,8 @@ def open3d_to_zreg(
     Raises:
         RuntimeError: If open3d is not available.
     """
-    if not HAS_OPEN3D:
+    o3dtgeo, o3c, has_open3d = _import_open3d()
+    if not has_open3d:
         raise RuntimeError("open3d is not available. Check your Python architecture and open3d installation.")
 
     # Extract positions, colors, and labels as NumPy arrays

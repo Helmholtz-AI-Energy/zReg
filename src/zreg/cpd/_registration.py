@@ -8,12 +8,6 @@ from typing import Any
 from collections.abc import Callable
 
 import torch
-try:
-    import open3d as o3d
-    HAS_OPEN3D = True
-except (ImportError, OSError):  # pragma: no cover
-    HAS_OPEN3D = False  # pragma: no cover
-    o3d = None  # pragma: no cover
 
 from ._types import MstepResult
 from .rigid import RigidCPD
@@ -23,6 +17,14 @@ from ..dataset import zRegPointCloud, open3d_to_zreg
 from .. import transforms as tf
 
 __all__ = ["cpd_registration", "init_cpd_from_existing"]
+
+
+def _get_open3d():
+    try:
+        import open3d as o3d
+        return o3d, True
+    except (ImportError, OSError):
+        return None, False
 
 
 def cpd_registration(
@@ -93,6 +95,7 @@ def cpd_registration(
     if callbacks is None:
         callbacks = []
 
+    o3d, HAS_OPEN3D = _get_open3d()
     # Convert from Open3D if necessary
     if HAS_OPEN3D and isinstance(source, o3d.t.geometry.PointCloud):
         source = open3d_to_zreg(source)
@@ -179,6 +182,7 @@ def init_cpd_from_existing(
     if callbacks is None:
         callbacks = []
 
+    o3d, HAS_OPEN3D = _get_open3d()
     # Convert from Open3D if necessary
     if HAS_OPEN3D and isinstance(source, o3d.t.geometry.PointCloud):
         source = open3d_to_zreg(source)

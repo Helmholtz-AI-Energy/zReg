@@ -9,9 +9,11 @@ Read more about conftest.py under:
 
 import pytest
 
-import torch
-
+# zreg (and scipy) must be imported before torch on macOS ARM to avoid
+# duplicate libomp initialisation (SIGABRT). No open3d dependency.
 from zreg.dataset import zRegPointCloud
+
+import torch
 
 
 @pytest.fixture

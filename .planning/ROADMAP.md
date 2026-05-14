@@ -51,3 +51,4 @@ Full details: [.planning/milestones/v1.0-ROADMAP.md](.planning/milestones/v1.0-R
 | 10. Code Quality & Verification | v1.1 | 3/3 | Complete | 2026-04-29 |
 | 11. Validate Refactoring and Fix Coverage | v1.1 | 1/1 | Complete | 2026-05-12 |
 | 11.1. Close DTW-02: consistent metric variant interface | v1.1 | 1/1 | Complete | 2026-05-13 |
+| 12. Carry-Forward Debt Closure | v1.2 | 3/3 | Complete | 2026-05-14 |

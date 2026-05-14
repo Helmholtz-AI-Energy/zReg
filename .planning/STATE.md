@@ -1,33 +1,32 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.1
-milestone_name: Code Quality & Refactoring
-status: archived
-stopped_at: v1.1 milestone archived 2026-05-13
-last_updated: "2026-05-13T00:00:00Z"
-last_activity: 2026-05-13
+milestone: v1.2
+milestone_name: Evaluation Framework & Debt Resolution
+status: executing
+last_updated: "2026-05-14T00:00:00Z"
+last_activity: 2026-05-14 -- Phase 12 complete (all CARRY items closed)
 progress:
   total_phases: 7
-  completed_phases: 7
-  total_plans: 14
-  completed_plans: 14
-  percent: 100
+  completed_phases: 1
+  total_plans: 3
+  completed_plans: 3
+  percent: 14
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-13 after v1.1 milestone archive)
+See: .planning/PROJECT.md
 
 **Core value:** Every existing capability works correctly, fails informatively, and is covered by tests.
-**Current focus:** v1.1 archived — planning v1.2
+**Current focus:** v1.2 — Evaluation Framework & Debt Resolution
 
 ## Current Position
 
-Milestone v1.1 archived. Both shipped milestones (v1.0, v1.1) archived to `.planning/milestones/`.
-
-Run `/gsd-new-milestone` to start v1.2 planning.
+Phase: 12 (Carry-Forward Debt Closure) — COMPLETE
+Phase: 13 (Core Metrics Library) — next to execute
+Status: Ready for Phase 13
 
 ## Phase Overview
 
@@ -53,13 +52,19 @@ Run `/gsd-new-milestone` to start v1.2 planning.
 - [Phase 11.1-01]: Callable pass-through in _sanitize_pairwise_distance_matrix — any Callable[[Tensor, Tensor], Tensor] accepted without special-casing
 - [Phase 11.1-01]: DistanceMetric Protocol promoted to public API from zreg.distances
 
-### Open Blockers (carry to v1.2)
+### Phase 12 Decisions (v1.2)
 
-- `typing.Callable` retained in `cpd/base.py` and `cpd/_registration.py` (valid in 3.12, minor consistency issue)
-- `DistanceMetric` Protocol not imported by any consumer as annotation (documentary only)
-- `color_transfer.py` uses absolute intra-package import `from zreg.cpd import EstepResult`
-- `config` module not top-level (`import zreg; zreg.config` fails)
-- No VALIDATION.md for any v1.1 phase (Nyquist validation deferred)
+- CARRY-01 closed: `collections.abc.Callable` in cpd/base.py and _registration.py
+- CARRY-02 closed: DistanceMetric used as annotation in pairwise_distance_matrix.py and dtw/core.py (Phase 11.1)
+- CARRY-03 closed: color_transfer.py now uses `from .cpd import EstepResult`
+- CARRY-04 closed: `from . import config as config` added to __init__.py
+- CARRY-05 closed: VALIDATION.md at repo root with 7 v1.1 phase records
+- open3d imports made lazy throughout (dataset, downsampling, homogeneous, _registration) — no SIGABRT
+- All open3d imports are optional; HAS_OPEN3D computed via importlib.util.find_spec
+
+### Open Blockers
+
+None. Phase 13 ready to plan.
 
 ## Session Continuity
 

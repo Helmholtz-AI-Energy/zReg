@@ -9,15 +9,6 @@ Read more about conftest.py under:
 
 import pytest
 
-# open3d must be imported before torch to avoid libomp conflict on macOS ARM.
-# zreg.dataset triggers this import internally; doing it here at conftest import
-# time ensures the correct library initialisation order for the entire test session.
-try:
-    import open3d.t.geometry  # noqa: F401
-    import open3d.core  # noqa: F401
-except (ImportError, OSError):
-    pass
-
 import torch
 
 from zreg.dataset import zRegPointCloud

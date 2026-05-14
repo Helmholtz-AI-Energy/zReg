@@ -35,6 +35,7 @@ from . import dataset as dataset  # noqa: E402
 from . import transforms as transforms  # noqa: E402
 from . import downsampling as downsampling  # noqa: E402
 from . import utils as utils
+from . import config as config
 from . import cpd as cpd
 from . import distances as distances
 from . import pairwise_distance_matrix as pairwise_distance_matrix

@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Evaluation Framework & Debt Resolution
 status: executing
-last_updated: "2026-05-14T00:00:00Z"
-last_activity: 2026-05-14 -- Phase 12 complete (all CARRY items closed)
+last_updated: "2026-05-15T00:00:00Z"
+last_activity: 2026-05-15 -- Phase 13 complete (core metrics library: chamfer, hausdorff, path_smoothness, knn_consistency, temporal_stability, compute_f1)
 progress:
   total_phases: 7
-  completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
-  percent: 14
+  completed_phases: 2
+  total_plans: 6
+  completed_plans: 6
+  percent: 29
 ---
 
 # Project State
@@ -24,9 +24,9 @@ See: .planning/PROJECT.md
 
 ## Current Position
 
-Phase: 12 (Carry-Forward Debt Closure) — COMPLETE
-Phase: 13 (Core Metrics Library) — next to execute
-Status: Ready for Phase 13
+Phase: 13 (Core Metrics Library) — COMPLETE
+Phase: 14 (Synthetic Data Generators) — next to execute
+Status: Ready for Phase 14
 
 ## Phase Overview
 
@@ -62,9 +62,19 @@ Status: Ready for Phase 13
 - open3d imports made lazy throughout (dataset, downsampling, homogeneous, _registration) — no SIGABRT
 - All open3d imports are optional; HAS_OPEN3D computed via importlib.util.find_spec
 
+### Phase 13 Decisions (v1.2)
+
+- EVAL-01 closed: `src/zreg/metrics/alignment.py` — chamfer/hausdorff via torch.cdist+quantile (GPU-safe), knn_consistency via sklearn KDTree with .detach().cpu().numpy(), temporal_stability via manual 4×4 matrix construction from .rot/.t/.scale and .b/.t
+- EVAL-02 closed: `src/zreg/metrics/label_transfer.py` — compute_f1 with sentinel masking (y_true != -1), average="weighted" default (proto stub bug fixed), zero_division=0
+- temporal_stability([]) and temporal_stability([tf]) return torch.tensor(0.0) — no exception
+- path_smoothness returns variance of slope changes; short paths (< 4 points) return 0.0
+- `src/zreg/metrics/__init__.py` is the new package init — re-exports all 6 functions; src/zreg/eval/ is never created
+- Proto stubs (alignment_metrics.py, label_transfer_metrics.py) left as orphaned reference code per D-03
+- 480 tests pass after phase 13 (40 new in test_eval_metrics.py, 32 in test_alignment_metrics.py, 17 in test_label_transfer_metrics.py)
+
 ### Open Blockers
 
-None. Phase 13 ready to plan.
+None. Phase 14 ready to plan.
 
 ## Session Continuity
 

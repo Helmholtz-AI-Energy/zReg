@@ -12,6 +12,14 @@
 
 - [x] Phase 12: Carry-Forward Debt Closure (3/3 plans) — completed 2026-05-14
 - [x] Phase 13: Core Metrics Library (3/3 plans) — completed 2026-05-15
+- [x] Phase 14: Synthetic Data Generators (3/3 plans) — completed 2026-05-18
+  **Goal:** Deliver the `eval/generators/` package at the repo root with a from-scratch trajectory factory and immutable corruption wrappers (rigid/affine transforms, Gaussian noise, outlier injection, Voronoi label generation, label removal) — all seed-deterministic, immutable, and `dict[int, zRegPointCloud]`-shaped per EVAL-03.
+  **Requirements:** EVAL-03
+  **Plans:** 3 plans
+  Plans:
+  - [x] 14-01-PLAN.md — Package skeleton + `generate_trajectory` factory + rigid/affine transform wrappers
+  - [x] 14-02-PLAN.md — Corruption wrappers (Gaussian noise, outliers) + label utilities (Voronoi generate, remove) + extend `__init__.py`
+  - [x] 14-03-PLAN.md — `tests/conftest.py` sys.path extension + `tests/test_generators.py` (4 test classes covering all 7 public symbols)
 
 <details>
 <summary>✅ v1.1 Code Quality & Refactoring (Phases 6–11.1) — SHIPPED 2026-05-13</summary>
@@ -59,3 +67,4 @@ Full details: [.planning/milestones/v1.0-ROADMAP.md](.planning/milestones/v1.0-R
 | 11.1. Close DTW-02: consistent metric variant interface | v1.1 | 1/1 | Complete | 2026-05-13 |
 | 12. Carry-Forward Debt Closure | v1.2 | 3/3 | Complete | 2026-05-14 |
 | 13. Core Metrics Library | v1.2 | 3/3 | Complete | 2026-05-15 |
+| 14. Synthetic Data Generators | v1.2 | 3/3 | Complete | 2026-05-18 |

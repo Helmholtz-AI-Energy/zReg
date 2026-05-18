@@ -15,9 +15,9 @@
 ## Current State
 
 **Shipped:** v1.0 Consolidation — 2026-04-09 | v1.1 Code Quality & Refactoring — 2026-05-13
-**Active:** v1.2 Evaluation Framework & Debt Resolution — Phase 13 complete 2026-05-15
+**Active:** v1.2 Evaluation Framework & Debt Resolution — Phase 14 complete 2026-05-18
 
-zReg is a Python library for GPU-accelerated 3D point cloud registration, temporal alignment, and color (celltype) transfer using PyTorch. Phase 13 delivered the core metrics library at `src/zreg/metrics/`: chamfer, hausdorff, path_smoothness, knn_consistency, temporal_stability (alignment), and compute_f1 (label transfer) — all GPU-safe, sklearn via CPU entry, manual 4×4 matrix construction for transforms. 480 tests pass, 15 skipped. Phase 14 (Synthetic Data Generators at `eval/generators/`) is next.
+zReg is a Python library for GPU-accelerated 3D point cloud registration, temporal alignment, and color (celltype) transfer using PyTorch. Phase 14 delivered the `eval/generators/` package at repo root: 7 public symbols (`generate_trajectory`, `apply_rigid`, `apply_affine`, `add_gaussian_noise`, `add_outliers`, `generate_labels`, `remove_labels`) — all seed-deterministic, immutable (`copy.deepcopy`), and `dict[int, zRegPointCloud]`-shaped. 514 tests pass, 15 skipped. Phase 15 (Experiment Tracking at `eval/tracking/`) is next.
 
 ## What This Is
 
@@ -54,7 +54,12 @@ Every existing capability works correctly, fails informatively, and is covered b
 
 ### Active
 
-None — v1.1 milestone complete.
+None.
+
+### Validated in v1.2 (in progress)
+
+- ✓ Core alignment metrics (chamfer, hausdorff, path_smoothness, knn_consistency, temporal_stability) + label transfer (compute_f1) at `src/zreg/metrics/` — Phase 13
+- ✓ Synthetic data generators at `eval/generators/` (7 symbols, seed-deterministic, immutable, dict[int, zRegPointCloud]-shaped) — Phase 14
 
 ### Validated in v1.1 (2026-05-13)
 
@@ -135,4 +140,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-13 after v1.1 milestone complete*
+*Last updated: 2026-05-18 after Phase 14 (Synthetic Data Generators) complete*

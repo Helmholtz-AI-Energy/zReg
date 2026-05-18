@@ -17,7 +17,7 @@
 
 ### Category 3 — Synthetic Data Generators
 
-- [ ] **EVAL-03**: Synthetic data generators in `eval/generators/` at repo root: rigid/affine/noise transforms, label removal, synthetic label generation — all accept `seed: int | None = 42`, produce `dict[int, zRegPointCloud]`, support Gaussian noise and outlier injection corruption types
+- [x] **EVAL-03**: Synthetic data generators in `eval/generators/` at repo root: rigid/affine/noise transforms, label removal, synthetic label generation — all accept `seed: int | None = 42`, produce `dict[int, zRegPointCloud]`, support Gaussian noise and outlier injection corruption types — Validated in Phase 14: Synthetic Data Generators
 
 ### Category 4 — Experiment Tracking
 
@@ -74,7 +74,7 @@
 | CARRY-05 | Phase 12 | Complete | VALIDATION.md backfill for Phases 6–11.1 |
 | EVAL-01 | Phase 13 | Complete | `src/zreg/metrics/alignment.py` — chamfer, hausdorff, path_smoothness, knn_consistency, temporal_stability |
 | EVAL-02 | Phase 13 | Complete | `src/zreg/metrics/label_transfer.py` — compute_f1, average="weighted" default fixed |
-| EVAL-03 | Phase 14 | Pending | Depends on Phase 13; parallel with Phase 15 |
+| EVAL-03 | Phase 14 | Complete | Validated 2026-05-18 |
 | EVAL-04 | Phase 15 | Pending | Depends on Phase 13; parallel with Phase 14 |
 | EVAL-05 | Phase 16 | Pending | Depends on Phases 13+14+15 |
 | EVAL-06 | Phase 17 | Pending | Depends on Phase 16; parallel with Phase 18 |

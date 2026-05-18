@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Evaluation Framework & Debt Resolution
 status: executing
-last_updated: "2026-05-15T00:00:00Z"
-last_activity: 2026-05-15 -- Phase 13 complete (core metrics library: chamfer, hausdorff, path_smoothness, knn_consistency, temporal_stability, compute_f1)
+stopped_at: v1.1 milestone archived
+last_updated: "2026-05-18T09:00:00.000Z"
 progress:
-  total_phases: 7
-  completed_phases: 2
-  total_plans: 6
-  completed_plans: 6
-  percent: 29
+  total_phases: 10
+  completed_phases: 10
+  total_plans: 26
+  completed_plans: 23
+  percent: 88
 ---
 
 # Project State
@@ -24,9 +24,9 @@ See: .planning/PROJECT.md
 
 ## Current Position
 
-Phase: 13 (Core Metrics Library) — COMPLETE
-Phase: 14 (Synthetic Data Generators) — next to execute
-Status: Ready for Phase 14
+Phase: 14 (Synthetic Data Generators) — COMPLETE 2026-05-18
+Phase: 15 (Experiment Tracking) — next to execute
+Status: Ready to execute
 
 ## Phase Overview
 
@@ -72,12 +72,22 @@ Status: Ready for Phase 14
 - Proto stubs (alignment_metrics.py, label_transfer_metrics.py) left as orphaned reference code per D-03
 - 480 tests pass after phase 13 (40 new in test_eval_metrics.py, 32 in test_alignment_metrics.py, 17 in test_label_transfer_metrics.py)
 
+### Phase 14 Decisions (v1.2)
+
+- EVAL-03 closed: `eval/generators/` package at repo root — 5 files, 7 public symbols, no eval/__init__.py (namespace dir)
+- generate_trajectory uses independent Gaussian draws per frame (torch.randn per frame, not incremental perturbations)
+- AffineTransformation() default has t=[1,1,1] (NOT identity) — tests must use AffineTransformation(t=torch.zeros(3)) for identity verification
+- apply_rigid/apply_affine use shared _apply_matrix helper with defensive w-divide (matches homogeneous.py pattern; unreachable for rigid/affine but retained for consistency)
+- deepcopy precedes manual_seed in stochastic wrappers (add_gaussian_noise, add_outliers, generate_labels) — reproducible but values offset from naive seed expectation; documented in REVIEW.md WR-03
+- generate_labels uses torch.cdist Voronoi assignment with N(0,I) seed points — produces spatially coherent clusters compatible with compute_f1 without conversion
+- 514 tests pass after phase 14 (34 new in test_generators.py; 480 pre-existing unaffected)
+
 ### Open Blockers
 
-None. Phase 14 ready to plan.
+None. Phase 15 ready to plan.
 
 ## Session Continuity
 
-Last session: 2026-05-13
-Stopped at: v1.1 milestone archived
-Next action: `/gsd-new-milestone` to begin v1.2 planning
+Last session: 2026-05-18
+Stopped at: Phase 14 (Synthetic Data Generators) complete
+Next action: `/gsd-discuss-phase 15` or `/gsd-plan-phase 15`

@@ -68,3 +68,14 @@ Full details: [.planning/milestones/v1.0-ROADMAP.md](.planning/milestones/v1.0-R
 | 12. Carry-Forward Debt Closure | v1.2 | 3/3 | Complete | 2026-05-14 |
 | 13. Core Metrics Library | v1.2 | 3/3 | Complete | 2026-05-15 |
 | 14. Synthetic Data Generators | v1.2 | 3/3 | Complete | 2026-05-18 |
+
+### Phase 15: Experiment Tracking & Run Management
+
+**Goal:** Deliver the `eval/tracking/` package at the repo root with a single `log_run()` function that writes local JSON + CSV per run using stdlib only — capturing all 9 EVAL-04 required fields (6 caller-supplied + 3 auto-captured: git_hash, zreg_version, timestamp) — plus unit tests in `tests/test_tracking.py` with all auto-captured fields mocked.
+**Requirements:** EVAL-04
+**Depends on:** Phase 14
+**Plans:** 2 plans
+
+Plans:
+- [ ] 15-01-PLAN.md — `eval/tracking/__init__.py` + `eval/tracking/tracking.py` (`log_run()` implementation, stdlib-only)
+- [ ] 15-02-PLAN.md — `tests/test_tracking.py` (TestLogRun class: 13 tests covering all 9 fields, fallbacks, file output)

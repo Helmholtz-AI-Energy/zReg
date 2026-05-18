@@ -14,23 +14,23 @@ Create the installable metrics library at `src/zreg/eval/metrics/` with producti
 ## Implementation Decisions
 
 ### Temporal Stability
-- **D-01:** Temporal stability measures transformation smoothness across consecutive frames. Input: `list[RigidTransformation | AffineTransformation]`. Output: mean Frobenius norm of the matrix difference between consecutive transformations. Formula: `mean(||T_i.to_matrix() - T_{i-1}.to_matrix()||_F for i in 1..N)`.
-- **D-02:** Use the existing `zreg.transforms` homogeneous matrix representation. Call `.to_matrix()` (or equivalent) on each transform to get a 4×4 tensor, then compute Frobenius norm on GPU if available.
+- **D-01:** Temporal stability measures transformation smoothness across consecutive frames. Input: `list[RigidTransformation | AffineTransformation]`. Output: mean Frobenius norm of the matrix difference between consecutive transformations. Formula: `mean(||M_i - M_{i-1}||_F for i in 1..N)` where `M_i` is the 4×4 homogeneous matrix built from transform attributes.
+- **D-02:** Neither `RigidTransformation` nor `AffineTransformation` has a `.to_matrix()` method. Build 4×4 homogeneous matrices manually from attributes: `RigidTransformation` → top-left 3×3 = `scale * rot`, top-right 3×1 = `t`, bottom row = `[0,0,0,1]`; `AffineTransformation` → top-left 3×3 = `b`, top-right 3×1 = `t`, bottom row = `[0,0,0,1]`. Compute Frobenius norm on whichever device the tensors live on.
 
 ### Migration Strategy
-- **D-03:** Do NOT delete `src/zreg/metrics/`. Create fresh, correct implementations in `src/zreg/eval/metrics/alignment.py` and `src/zreg/eval/metrics/label_transfer.py`. The proto stubs remain as-is (orphaned, but not removed in this phase).
+- **D-03:** Do NOT delete `src/zreg/metrics/`. Create fresh, correct implementations in `src/zreg/metrics/alignment.py` and `src/zreg/metrics/label_transfer.py` alongside the existing proto stubs. The proto stubs (`alignment_metrics.py`, `label_transfer_metrics.py`) remain as-is (orphaned, not removed in this phase).
 
-### eval Package API
-- **D-04:** `src/zreg/eval/__init__.py` is minimal — does not re-export anything. Users import directly from submodules: `from zreg.eval.metrics.alignment import chamfer`. The `eval/` repo-root scripts (phase 16) are the primary consumers.
-- **D-05:** `src/zreg/eval/` is NOT added to `src/zreg/__init__.py`. Keep the core `zreg` namespace clean (evaluation utilities are separate from the registration API).
+### Metrics Package API
+- **D-04:** `src/zreg/metrics/__init__.py` is new (currently the directory has only proto stubs, no `__init__.py`). It re-exports all six metric functions for ergonomic imports: `from zreg.metrics import chamfer`. The `eval/` repo-root scripts (phase 16) are the primary downstream consumers.
+- **D-05:** `src/zreg/metrics/` is core library functionality. Whether to add `from . import metrics as metrics` to `src/zreg/__init__.py` is left to the planner's discretion — either is acceptable. `src/zreg/eval/` is NEVER created — the eval framework lives at `eval/` at the repo root (not in source), importing from the installed `zreg.metrics` package.
 
 ### Test Expectations
 - **D-06:** Phase 13 includes full unit tests in `tests/test_eval_metrics.py` covering each metric function: known-distance inputs with verified expected outputs, edge cases (single point, identical clouds, empty labels), sentinel masking for F1, and tensor shape/dtype validation.
 - **D-07:** GPU tests use `@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")`, following the existing test convention in `tests/conftest.py`. CPU-path correctness is always tested.
 
 ### Claude's Discretion
-- Package init file for `src/zreg/eval/metrics/__init__.py`: can re-export the key functions at the subpackage level (e.g., `from .alignment import chamfer, hausdorff, path_smoothness, knn_consistency, temporal_stability`) for ergonomic imports — final call to planner.
-- Whether `temporal_stability` should raise `ValueError` for a single-element list or return `0.0` — planner decides based on downstream HPO usage.
+- `temporal_stability` with a single-element list: return `torch.tensor(0.0)` (resolved: no exception).
+- Whether `src/zreg/__init__.py` exposes `metrics` at the top-level `zreg` namespace — planner decides.
 
 </decisions>
 

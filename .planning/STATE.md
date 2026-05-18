@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Evaluation Framework & Debt Resolution
 status: executing
-stopped_at: v1.1 milestone archived
-last_updated: "2026-05-18T09:00:00.000Z"
+stopped_at: Phase 15 context gathered
+last_updated: "2026-05-18T00:00:00.000Z"
 progress:
   total_phases: 10
   completed_phases: 10
@@ -41,6 +41,10 @@ Status: Ready to execute
 | 11.1 | Close DTW-02: consistent metric variant interface | DTW-02 | Complete |
 
 ## Accumulated Context
+
+### Roadmap Evolution
+
+- Phase 15 added: Experiment Tracking & Run Management
 
 ### Decisions (v1.1)
 
@@ -82,12 +86,20 @@ Status: Ready to execute
 - generate_labels uses torch.cdist Voronoi assignment with N(0,I) seed points — produces spatially coherent clusters compatible with compute_f1 without conversion
 - 514 tests pass after phase 14 (34 new in test_generators.py; 480 pre-existing unaffected)
 
+### Phase 15 Decisions (v1.2)
+
+- log_run() plain function (stateless) — returns run_id str, auto-captures git_hash/zreg_version/timestamp internally
+- run_id is caller-provided required str (no auto-generation)
+- Per-run output: evaluation/runs/{run_id}.json + evaluation/runs/{run_id}.csv (single-row CSV)
+- output_dir defaults to "evaluation/runs/"; auto-created via Path.mkdir(parents=True, exist_ok=True)
+- Unit tests in tests/test_tracking.py; auto-captured fields tested via unittest.mock.patch
+
 ### Open Blockers
 
-None. Phase 15 ready to plan.
+None. Phase 15 context complete — ready to plan.
 
 ## Session Continuity
 
 Last session: 2026-05-18
-Stopped at: Phase 14 (Synthetic Data Generators) complete
-Next action: `/gsd-discuss-phase 15` or `/gsd-plan-phase 15`
+Stopped at: Phase 15 context gathered
+Next action: `/gsd-plan-phase 15`

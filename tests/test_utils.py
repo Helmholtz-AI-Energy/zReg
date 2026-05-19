@@ -194,6 +194,14 @@ class TestNormalizePointCloud:
         assert torch.allclose(normalized.min(dim=0)[0], torch.tensor([-1.0, -1.0, -1.0]))
         assert torch.allclose(normalized.max(dim=0)[0], torch.tensor([1.0, 1.0, 1.0]))
 
+    def test_empty_input_returns_empty(self):
+        """normalize_point_cloud with 0 points returns empty tensor and zero dummy vals."""
+        points = torch.zeros(0, 3)
+        normalized, (min_vals, max_vals) = utils.normalize_point_cloud(points)
+        assert normalized.shape == (0, 3)
+        assert min_vals.shape == (3,)
+        assert max_vals.shape == (3,)
+
 
 class TestNormalizeToMostPoints:
     """Tests for normalize_to_pc_w_most_points function."""
@@ -214,6 +222,14 @@ class TestNormalizeToMostPoints:
         xi, yi, _ = utils.normalize_to_pc_w_most_points(pointx, pointy)
         assert xi.shape == pointx.shape
         assert yi.shape == pointy.shape
+
+    def test_y_larger_used_as_primary(self):
+        """When pointy has more points, its scale defines the normalization."""
+        pointx = torch.randn(30, 3)
+        pointy = torch.randn(80, 3) * 10
+        xi, yi, _ = utils.normalize_to_pc_w_most_points(pointx, pointy)
+        assert yi.min().item() >= -1.0 - 1e-5
+        assert yi.max().item() <= 1.0 + 1e-5
 
 
 class TestUndoNormalize:

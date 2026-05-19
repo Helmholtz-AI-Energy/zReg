@@ -411,3 +411,19 @@ class TestOpen3DToZRegNonPointCloud:
         result = open3d_to_zreg(mock_pc, device="cpu")
         assert result["id"] is None
         assert result["fps-idx"] is None
+
+
+class TestImportOpen3D:
+    """Tests for _import_open3d in dataset (lines 22-23)."""
+
+    def test_import_open3d_import_error(self):
+        """_import_open3d returns (None, None, False) when open3d import raises ImportError."""
+        import sys
+        from unittest.mock import patch
+        from zreg.dataset import _import_open3d
+        with patch("zreg.dataset.HAS_OPEN3D", True):
+            with patch.dict(sys.modules, {"open3d": None}):
+                o3dtgeo, o3c, flag = _import_open3d()
+        assert o3dtgeo is None
+        assert o3c is None
+        assert flag is False

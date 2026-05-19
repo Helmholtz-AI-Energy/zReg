@@ -556,3 +556,33 @@ class TestDownsamplingWithOpen3D:
         result = downsampling.uniform_down_sample(eq1, eq2, return_o3d=True)
         assert isinstance(result[0], downsampling.o3d.t.geometry.PointCloud)
         assert isinstance(result[1], downsampling.o3d.t.geometry.PointCloud)
+
+
+class TestGetOpen3DDownsampling:
+    """Tests for the _get_open3d helper in downsampling (lines 13, 17-18, 25)."""
+
+    def test_no_open3d(self):
+        """Returns (None, False) when HAS_OPEN3D is False."""
+        from unittest.mock import patch
+        from zreg.downsampling import _get_open3d
+        with patch("zreg.downsampling.HAS_OPEN3D", False):
+            o3d, flag = _get_open3d()
+        assert o3d is None and flag is False
+
+    def test_import_error(self):
+        """Returns (None, False) when open3d import raises ImportError."""
+        import sys
+        from unittest.mock import patch
+        from zreg.downsampling import _get_open3d
+        with patch("zreg.downsampling.HAS_OPEN3D", True):
+            with patch.dict(sys.modules, {"open3d": None}):
+                o3d, flag = _get_open3d()
+        assert o3d is None and flag is False
+
+    def test_getattr_o3d_no_open3d(self):
+        """downsampling.o3d raises AttributeError when HAS_OPEN3D is False."""
+        import zreg.downsampling
+        from unittest.mock import patch
+        with patch("zreg.downsampling.HAS_OPEN3D", False):
+            with pytest.raises(AttributeError, match="open3d not installed"):
+                _ = zreg.downsampling.o3d

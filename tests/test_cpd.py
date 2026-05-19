@@ -980,3 +980,25 @@ class TestCPDRegistrationCallbacksProvided:
             tf, source, target, callbacks=[], log_freq=-1
         )
         assert cpd_obj is not None
+
+
+class TestGetOpen3DRegistration:
+    """Tests for the _get_open3d helper in cpd._registration (lines 24, 28-29)."""
+
+    def test_no_open3d(self):
+        """Returns (None, False) when HAS_OPEN3D is False."""
+        from unittest.mock import patch
+        from zreg.cpd._registration import _get_open3d
+        with patch("zreg.cpd._registration.HAS_OPEN3D", False):
+            o3d, flag = _get_open3d()
+        assert o3d is None and flag is False
+
+    def test_import_error(self):
+        """Returns (None, False) when open3d import raises ImportError."""
+        import sys
+        from unittest.mock import patch
+        from zreg.cpd._registration import _get_open3d
+        with patch("zreg.cpd._registration.HAS_OPEN3D", True):
+            with patch.dict(sys.modules, {"open3d": None}):
+                o3d, flag = _get_open3d()
+        assert o3d is None and flag is False

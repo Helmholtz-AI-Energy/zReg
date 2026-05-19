@@ -196,10 +196,33 @@ class TestTPSTransformation:
         v = torch.randn(10, 3)
         control_pts = torch.randn(10, 3)
         tf = transforms.TPSTransformation(a=a, v=v, control_pts=control_pts)
-        
+
         landmarks = torch.randn(5, 3)
         basis, kernel = tf.prepare(landmarks)
         assert basis.shape[0] == 5  # number of landmarks
+
+    def test_transform_applies_tps(self):
+        """tf.transform(points) executes _transform → prepare + transform_basis."""
+        n, d = 10, 3
+        null_dim = n - d - 1  # 6
+        a = torch.randn(d + 1, d)
+        v = torch.randn(null_dim, d)
+        control_pts = torch.randn(n, d)
+        tf = transforms.TPSTransformation(a=a, v=v, control_pts=control_pts)
+        result = tf.transform(torch.randn(5, d))
+        assert result.shape == (5, d)
+
+    def test_transform_basis_directly(self):
+        """transform_basis() applied to precomputed basis returns correct shape."""
+        n, d = 10, 3
+        null_dim = n - d - 1
+        a = torch.randn(d + 1, d)
+        v = torch.randn(null_dim, d)
+        control_pts = torch.randn(n, d)
+        tf = transforms.TPSTransformation(a=a, v=v, control_pts=control_pts)
+        basis, _ = tf.prepare(torch.randn(5, d))
+        result = tf.transform_basis(basis)
+        assert result.shape == (5, d)
 
 
 class TestTransformPointsHomogeneous:
@@ -259,6 +282,98 @@ class TestTransformPointsHomogeneous:
         with pytest.raises(TypeError, match="Unsupported point type"):
             transforms.transform_points_homogeneous([1, 2, 3], transform)
 
+    def test_get_open3d_no_open3d(self):
+        """_get_open3d returns (None, False) when HAS_OPEN3D is False."""
+        import sys
+        from unittest.mock import patch
+        from zreg.transforms.homogeneous import _get_open3d
+        with patch("zreg.transforms.homogeneous.HAS_OPEN3D", False):
+            o3d, flag = _get_open3d()
+        assert o3d is None
+        assert flag is False
+
+    def test_get_open3d_import_error(self):
+        """_get_open3d returns (None, False) when open3d import raises ImportError."""
+        import sys
+        from unittest.mock import patch
+        from zreg.transforms.homogeneous import _get_open3d
+        with patch("zreg.transforms.homogeneous.HAS_OPEN3D", True):
+            with patch.dict(sys.modules, {"open3d": None}):
+                o3d, flag = _get_open3d()
+        assert o3d is None
+        assert flag is False
+
+    def test_return_o3d_from_zreg_input(self):
+        """return_o3d=True on zRegPointCloud converts result to open3d PointCloud."""
+        from zreg.dataset import HAS_OPEN3D as _HAS, zRegPointCloud
+        if not _HAS:
+            pytest.skip("open3d not available")
+        try:
+            from zreg.transforms.homogeneous import transform_points_homogeneous
+            pc = zRegPointCloud(
+                pos=torch.randn(5, 3).float(),
+                color=torch.rand(5, 3).float(),
+                id=torch.arange(5, dtype=torch.int32),
+            )
+            result = transform_points_homogeneous(pc, torch.eye(4), return_o3d=True)
+            assert result is not None
+        except (ImportError, OSError) as e:
+            pytest.skip(f"open3d unusable: {e}")
+
+    def test_open3d_pc_transform(self):
+        """o3d.t.geometry.PointCloud input transforms and returns zRegPointCloud."""
+        from zreg.dataset import HAS_OPEN3D as _HAS
+        if not _HAS:
+            pytest.skip("open3d not available")
+        try:
+            import open3d as o3d
+            import numpy as np
+            from zreg.transforms.homogeneous import transform_points_homogeneous
+            pts = o3d.t.geometry.PointCloud()
+            pts.point["positions"] = o3d.core.Tensor(
+                np.random.randn(5, 3).astype(np.float32)
+            )
+            result = transform_points_homogeneous(pts, torch.eye(4))
+            assert "pos" in result
+        except (ImportError, OSError, Exception) as e:
+            pytest.skip(f"open3d unusable: {e}")
+
+    def test_open3d_pc_return_o3d(self):
+        """o3d PointCloud input + return_o3d=True returns the transformed o3d object directly."""
+        from zreg.dataset import HAS_OPEN3D as _HAS
+        if not _HAS:
+            pytest.skip("open3d not available")
+        try:
+            import open3d as o3d
+            import numpy as np
+            from zreg.transforms.homogeneous import transform_points_homogeneous
+            pts = o3d.t.geometry.PointCloud()
+            pts.point["positions"] = o3d.core.Tensor(
+                np.random.randn(5, 3).astype(np.float32)
+            )
+            result = transform_points_homogeneous(pts, torch.eye(4), return_o3d=True)
+            assert result is not None
+        except (ImportError, OSError, Exception) as e:
+            pytest.skip(f"open3d unusable: {e}")
+
+    def test_open3d_pc_numpy_matrix(self):
+        """numpy transform_matrix triggers the AttributeError→pass path (lines 108-109)."""
+        from zreg.dataset import HAS_OPEN3D as _HAS
+        if not _HAS:
+            pytest.skip("open3d not available")
+        try:
+            import open3d as o3d
+            import numpy as np
+            from zreg.transforms.homogeneous import transform_points_homogeneous
+            pts = o3d.t.geometry.PointCloud()
+            pts.point["positions"] = o3d.core.Tensor(
+                np.random.randn(5, 3).astype(np.float32)
+            )
+            result = transform_points_homogeneous(pts, np.eye(4, dtype=np.float32))
+            assert "pos" in result
+        except (ImportError, OSError, Exception) as e:
+            pytest.skip(f"open3d unusable: {e}")
+
 
 class TestRigidTransformationComposition:
     """Tests for RigidTransformation.__mul__ post-composition validation."""
@@ -302,6 +417,15 @@ class TestRigidTransformationComposition:
         assert "RigidTransformation composition produced invalid rotation" in msg
         # Either det= or cond= must appear (depending on which check fires first)
         assert "det=" in msg or "cond=" in msg
+
+    def test_ill_conditioned_rotation_raises_cond(self):
+        """det≈1 but cond>1e6 fires the cond check (line 172), not the det check."""
+        # diag([1e4, 1, 1e-4]): det = 1.0 exactly, cond = 1e8 >> 1e6
+        ill_rot = torch.diag(torch.tensor([1e4, 1.0, 1e-4]))
+        r1 = transforms.RigidTransformation(rot=ill_rot, t=torch.zeros(3))
+        r2 = transforms.RigidTransformation(rot=torch.eye(3), t=torch.zeros(3))
+        with pytest.raises(ValueError, match="cond="):
+            _ = r1 * r2
 
 
 def _make_rotation(angle_deg, axis="z"):

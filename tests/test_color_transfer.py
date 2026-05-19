@@ -340,3 +340,33 @@ class TestColorTransferEdgeCases:
         with pytest.raises(ValueError, match="dimensionality"):
             transfer_colors(source_pos, target_pos, source_colors=source_colors)
 
+
+def test_cpd_weighted_transposed_pmat_raises():
+    """_transfer_colors_cpd_weighted raises ValueError when pmat shape looks transposed."""
+    import torch
+    from zreg.color_transfer import _transfer_colors_cpd_weighted
+    source_pos = torch.randn(4, 3)
+    target_pos = torch.randn(3, 3)
+    source_colors = torch.randn(4, 3)
+
+    class _Mock:
+        pmat = torch.ones(4, 3) / 3.0  # (n_source=4, n_target=3) → transposed
+
+    with pytest.raises(ValueError, match="transposed"):
+        _transfer_colors_cpd_weighted(source_pos, target_pos, source_colors, _Mock())
+
+
+def test_cpd_weighted_wrong_shape_pmat_raises():
+    """_transfer_colors_cpd_weighted raises ValueError for completely unexpected pmat shape."""
+    import torch
+    from zreg.color_transfer import _transfer_colors_cpd_weighted
+    source_pos = torch.randn(4, 3)
+    target_pos = torch.randn(3, 3)
+    source_colors = torch.randn(4, 3)
+
+    class _Mock:
+        pmat = torch.ones(5, 5)  # neither (n_target, n_source) nor (n_source, n_target)
+
+    with pytest.raises(ValueError, match="expected"):
+        _transfer_colors_cpd_weighted(source_pos, target_pos, source_colors, _Mock())
+

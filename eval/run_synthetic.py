@@ -69,6 +69,8 @@ def run_sweep(output_dir: str = "evaluation/runs") -> None:
                 n_points_before=N_POINTS,
                 n_points_after=int(traj_noisy[frame_idx]["pos"].shape[0]),
                 output_dir=output_dir,
+                chamfer=cd,
+                hausdorff=hd,
             )
             print(f"{run_id}: chamfer={cd:.4f}, hausdorff={hd:.4f}")
 

@@ -26,13 +26,15 @@ def log_run(
     n_points_before: int,
     n_points_after: int,
     output_dir: str = "evaluation/runs",
+    **extra_fields,
 ) -> str:
     """Persist all 9 EVAL-04 required fields for a single experiment run.
 
     Writes two files to *output_dir*:
 
-    - ``{run_id}.json`` — all 9 fields as a JSON object.
-    - ``{run_id}.csv`` — header row followed by one data row with the same 9
+    - ``{run_id}.json`` — all 9 required fields plus any *extra_fields* as a
+      JSON object.
+    - ``{run_id}.csv`` — header row followed by one data row with the same
       fields.
 
     Three fields are auto-captured internally:
@@ -62,6 +64,12 @@ def log_run(
     output_dir : str, optional
         Directory where output files are written.  Created automatically if
         it does not exist.  Default is ``"evaluation/runs"``.
+    **extra_fields
+        Any additional keyword arguments (e.g. ``chamfer=0.003``,
+        ``hausdorff=0.012``) are appended to the record after the 9 required
+        fields.  Keys must not collide with the 9 required field names or the
+        three auto-captured names (``git_hash``, ``zreg_version``,
+        ``timestamp``).
 
     Returns
     -------
@@ -100,7 +108,7 @@ def log_run(
     # --- auto-capture timestamp ---
     timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
-    # --- build record (field order matches EVAL-04 spec) ---
+    # --- build record (field order: 9 EVAL-04 required fields, then extras) ---
     record = {
         "run_id": run_id,
         "dataset_path": dataset_path,
@@ -111,6 +119,7 @@ def log_run(
         "git_hash": git_hash,
         "zreg_version": zreg_version,
         "timestamp": timestamp,
+        **extra_fields,
     }
 
     # --- ensure output directory exists ---

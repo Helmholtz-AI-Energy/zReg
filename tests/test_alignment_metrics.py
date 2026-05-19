@@ -57,6 +57,14 @@ class TestChamfer:
         with pytest.raises(ValueError):
             chamfer(x, y)
 
+    def test_invalid_target_shape_raises_value_error(self):
+        """Non-(M,3) target raises ValueError even when source is valid."""
+        from zreg.metrics.alignment import chamfer
+        x = torch.randn(5, 3)
+        y = torch.randn(5, 2)
+        with pytest.raises(ValueError):
+            chamfer(x, y)
+
     def test_nan_raises_value_error(self):
         """NaN in input raises ValueError (via _validate_tensors)."""
         from zreg.metrics.alignment import chamfer
@@ -117,6 +125,14 @@ class TestHausdorff:
         from zreg.metrics.alignment import hausdorff
         x = torch.randn(5, 2)
         y = torch.randn(5, 3)
+        with pytest.raises(ValueError):
+            hausdorff(x, y)
+
+    def test_invalid_target_shape_raises(self):
+        """Non-(M,3) target raises ValueError even when source is valid."""
+        from zreg.metrics.alignment import hausdorff
+        x = torch.randn(5, 3)
+        y = torch.randn(5, 4)
         with pytest.raises(ValueError):
             hausdorff(x, y)
 
@@ -207,6 +223,30 @@ class TestKnnConsistency:
         lbl = torch.zeros(5, dtype=torch.long)
         with pytest.raises(ValueError):
             knn_consistency(pts, lbl, k=5)  # k must be < N=5
+
+    def test_invalid_points_shape_raises(self):
+        """points not (N, 3) raises ValueError."""
+        from zreg.metrics.alignment import knn_consistency
+        pts = torch.randn(10, 2)
+        lbl = torch.zeros(10, dtype=torch.long)
+        with pytest.raises(ValueError):
+            knn_consistency(pts, lbl, k=3)
+
+    def test_invalid_labels_shape_raises(self):
+        """2D labels tensor raises ValueError."""
+        from zreg.metrics.alignment import knn_consistency
+        pts = torch.randn(10, 3)
+        lbl = torch.zeros(10, 10, dtype=torch.long)
+        with pytest.raises(ValueError):
+            knn_consistency(pts, lbl, k=3)
+
+    def test_k_zero_raises(self):
+        """k < 1 raises ValueError."""
+        from zreg.metrics.alignment import knn_consistency
+        pts = torch.randn(10, 3)
+        lbl = torch.zeros(10, dtype=torch.long)
+        with pytest.raises(ValueError):
+            knn_consistency(pts, lbl, k=0)
 
     def test_uses_detach_cpu_numpy(self):
         """alignment.py must contain .detach().cpu().numpy() for CPU entry."""

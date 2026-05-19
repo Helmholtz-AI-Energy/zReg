@@ -15,9 +15,9 @@
 ## Current State
 
 **Shipped:** v1.0 Consolidation — 2026-04-09 | v1.1 Code Quality & Refactoring — 2026-05-13
-**Active:** v1.2 Evaluation Framework & Debt Resolution — Phase 14 complete 2026-05-18
+**Active:** v1.2 Evaluation Framework & Debt Resolution — Phase 16 complete 2026-05-19
 
-zReg is a Python library for GPU-accelerated 3D point cloud registration, temporal alignment, and color (celltype) transfer using PyTorch. Phase 14 delivered the `eval/generators/` package at repo root: 7 public symbols (`generate_trajectory`, `apply_rigid`, `apply_affine`, `add_gaussian_noise`, `add_outliers`, `generate_labels`, `remove_labels`) — all seed-deterministic, immutable (`copy.deepcopy`), and `dict[int, zRegPointCloud]`-shaped. 514 tests pass, 15 skipped. Phase 15 (Experiment Tracking at `eval/tracking/`) is next.
+zReg is a Python library for GPU-accelerated 3D point cloud registration, temporal alignment, and color (celltype) transfer using PyTorch. Phase 16 delivered EVAL-05: `eval/run_synthetic.py` (12-cell noise/outlier sweep logging chamfer + hausdorff via zreg.metrics) and `eval/run_real.py` (scale/density sweep with graceful missing-data guard), plus `tests/test_runners.py` (9 functional tests). `log_run()` extended with `**extra_fields` for metric persistence. 536 tests pass, 15 skipped.
 
 ## What This Is
 
@@ -60,6 +60,7 @@ None.
 
 - ✓ Core alignment metrics (chamfer, hausdorff, path_smoothness, knn_consistency, temporal_stability) + label transfer (compute_f1) at `src/zreg/metrics/` — Phase 13
 - ✓ Synthetic data generators at `eval/generators/` (7 symbols, seed-deterministic, immutable, dict[int, zRegPointCloud]-shaped) — Phase 14
+- ✓ Experiment tracking at `eval/tracking/` (`log_run()` stdlib-only, 9 EVAL-04 fields, JSON+CSV output, auto-captures git_hash/zreg_version/timestamp) — Phase 15
 
 ### Validated in v1.1 (2026-05-13)
 
@@ -140,4 +141,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-18 after Phase 14 (Synthetic Data Generators) complete*
+*Last updated: 2026-05-18 after Phase 15 (Experiment Tracking & Run Management) complete*

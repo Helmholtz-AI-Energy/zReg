@@ -20,7 +20,7 @@ from eval.tracking import log_run
 from zreg.dataset import load_data_from_tracklets
 
 # --- Module-level sweep constants ---
-DATASET_PATH = "data/raw/example.mat"
+DATASET_PATH = str(_repo_root / "data" / "raw" / "example.mat")
 SCALES = [1.0, 0.5, 0.25]
 DENSITY_FRACTIONS = [1.0, 0.75, 0.5]
 SEED = 42

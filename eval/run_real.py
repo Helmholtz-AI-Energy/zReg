@@ -43,19 +43,20 @@ def run_sweep(output_dir: str = "evaluation/runs") -> None:
     n_points_base = int(next(iter(trajectory.values()))["pos"].shape[0])
 
     for scale in SCALES:
+        n_points_scaled = int(n_points_base * scale)
         for density in DENSITY_FRACTIONS:
             run_id = f"real_scale{scale}_density{density}_seed{SEED}"
-            n_after = int(n_points_base * density)
+            n_after = int(n_points_scaled * density)
             log_run(
                 run_id=run_id,
                 dataset_path=DATASET_PATH,
                 frame_indices=list(trajectory.keys()),
                 seed=SEED,
-                n_points_before=n_points_base,
+                n_points_before=n_points_scaled,
                 n_points_after=n_after,
                 output_dir=output_dir,
             )
-            print(f"{run_id}: n_before={n_points_base}, n_after={n_after}")
+            print(f"{run_id}: n_before={n_points_scaled}, n_after={n_after}")
 
 
 if __name__ == "__main__":

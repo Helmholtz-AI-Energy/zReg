@@ -200,5 +200,6 @@ class TestRunReal:
 
     def test_script_has_main_guard(self):
         """eval/run_real.py is executable as `python eval/run_real.py`."""
-        source_text = Path("eval/run_real.py").read_text()
+        import eval.run_real as rr
+        source_text = Path(inspect.getfile(rr)).read_text()
         assert 'if __name__ == "__main__"' in source_text

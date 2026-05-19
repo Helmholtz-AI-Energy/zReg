@@ -46,9 +46,9 @@ def run_sweep(output_dir: str = "evaluation/runs") -> None:
         Directory passed through to ``log_run`` for each cell. Tests redirect
         this to ``tmp_path`` to avoid polluting the real ``evaluation/runs/``.
     """
+    traj_clean = generate_trajectory(N_POINTS, N_FRAMES, seed=SEED)
     for sigma in SIGMAS:
         for n_out in N_OUTLIERS_LIST:
-            traj_clean = generate_trajectory(N_POINTS, N_FRAMES, seed=SEED)
             traj_noisy = add_gaussian_noise(traj_clean, sigma=sigma, seed=SEED)
             traj_noisy = add_outliers(traj_noisy, n_outliers=n_out, seed=SEED)
 

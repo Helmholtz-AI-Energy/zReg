@@ -69,7 +69,7 @@ Full details: [.planning/milestones/v1.0-ROADMAP.md](.planning/milestones/v1.0-R
 | 13. Core Metrics Library | v1.2 | 3/3 | Complete | 2026-05-15 |
 | 14. Synthetic Data Generators | v1.2 | 3/3 | Complete | 2026-05-18 |
 | 15. Experiment Tracking & Run Management | v1.2 | 2/2 | Complete | 2026-05-18 |
-| 16. Runner Scripts | v1.2 | 0/2 | In progress | — |
+| 16. Runner Scripts | v1.2 | 2/2 | Complete    | 2026-05-19 |
 
 ### Phase 15: Experiment Tracking & Run Management
 
@@ -87,8 +87,8 @@ Plans:
 **Goal:** Deliver `eval/run_synthetic.py` and `eval/run_real.py` as standalone (non-importable) scripts at the repo root that run noise/corruption sweeps and scale/density sweeps respectively — accepting `dict[int, zRegPointCloud]` inputs, importing metrics from `zreg.metrics` (installed package), and writing outputs to `evaluation/runs/` via `log_run()`.
 **Requirements:** EVAL-05
 **Depends on:** Phase 15
-**Plans:** 2 plans
+**Plans:** 2/2 plans complete
 
 Plans:
-- [ ] 16-01-PLAN.md — `eval/run_synthetic.py` (noise + outlier sweep) + `eval/run_real.py` (scale/density sweep with missing-data guard)
-- [ ] 16-02-PLAN.md — `tests/test_runners.py` (TestRunSynthetic + TestRunReal: file creation, field presence, missing-data skip, import path verification)
+- [x] 16-01-PLAN.md — `eval/run_synthetic.py` (noise + outlier sweep) + `eval/run_real.py` (scale/density sweep with missing-data guard)
+- [x] 16-02-PLAN.md — `tests/test_runners.py` (TestRunSynthetic + TestRunReal: file creation, field presence, missing-data skip, import path verification)

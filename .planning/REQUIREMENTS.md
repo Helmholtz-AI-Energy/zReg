@@ -25,7 +25,7 @@
 
 ### Category 5 — Evaluation Runners
 
-- [ ] **EVAL-05**: Evaluation runner scripts in `eval/` at repo root (not an importable package): `run_synthetic.py`, `run_real.py`, noise/corruption sweep, scale/density sweep — all include Open3D import guard, import metrics from `zreg.metrics` (installed source package), write outputs to `evaluation/runs/`
+- [x] **EVAL-05**: Evaluation runner scripts in `eval/` at repo root (not an importable package): `run_synthetic.py`, `run_real.py`, noise/corruption sweep, scale/density sweep — accept `dict[int, zRegPointCloud]` inputs, import metrics from `zreg.metrics` (installed source package), write outputs to `evaluation/runs/`
 
 ### Category 6 — Hyperparameter Optimisation
 
@@ -76,6 +76,6 @@
 | EVAL-02 | Phase 13 | Complete | `src/zreg/metrics/label_transfer.py` — compute_f1, average="weighted" default fixed |
 | EVAL-03 | Phase 14 | Complete | Validated 2026-05-18 |
 | EVAL-04 | Phase 15 | Pending | Depends on Phase 13; parallel with Phase 14 |
-| EVAL-05 | Phase 16 | Pending | Depends on Phases 13+14+15 |
+| EVAL-05 | Phase 16 | Complete | Depends on Phases 13+14+15 |
 | EVAL-06 | Phase 17 | Pending | Depends on Phase 16; parallel with Phase 18 |
 | EVAL-07 | Phase 18 | Pending | Depends on Phase 16; parallel with Phase 17 |

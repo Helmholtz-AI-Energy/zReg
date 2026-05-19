@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Evaluation Framework & Debt Resolution
 status: executing
-stopped_at: Phase 15 context gathered
-last_updated: "2026-05-18T00:00:00.000Z"
+stopped_at: Phase 16 planned (2/2 plans, ready to execute)
+last_updated: "2026-05-19T11:52:51.535Z"
 progress:
-  total_phases: 10
-  completed_phases: 10
-  total_plans: 26
-  completed_plans: 23
-  percent: 88
+  total_phases: 2
+  completed_phases: 2
+  total_plans: 4
+  completed_plans: 4
+  percent: 100
 ---
 
 # Project State
@@ -20,13 +20,14 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Every existing capability works correctly, fails informatively, and is covered by tests.
-**Current focus:** v1.2 — Evaluation Framework & Debt Resolution
+**Current focus:** Phase 16 — runner-scripts
 
 ## Current Position
 
-Phase: 14 (Synthetic Data Generators) — COMPLETE 2026-05-18
-Phase: 15 (Experiment Tracking) — next to execute
-Status: Ready to execute
+Phase: 16
+Plan: Not started
+Phase: 15 (Experiment Tracking) — COMPLETE 2026-05-18
+Status: Executing Phase 16
 
 ## Phase Overview
 
@@ -45,6 +46,7 @@ Status: Ready to execute
 ### Roadmap Evolution
 
 - Phase 15 added: Experiment Tracking & Run Management
+- Phase 16 added: Runner Scripts
 
 ### Decisions (v1.1)
 
@@ -96,10 +98,10 @@ Status: Ready to execute
 
 ### Open Blockers
 
-None. Phase 15 context complete — ready to plan.
+None.
 
 ## Session Continuity
 
 Last session: 2026-05-18
-Stopped at: Phase 15 context gathered
-Next action: `/gsd-plan-phase 15`
+Stopped at: Phase 16 planned (2/2 plans, ready to execute)
+Next action: `/gsd-execute-phase 16` (EVAL-05: run_synthetic.py + run_real.py + tests/test_runners.py)

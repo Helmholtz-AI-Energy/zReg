@@ -104,7 +104,8 @@ class TPSTransformation(TransformBase):
         n, _ = control_pts.shape
 
         # Concatenate tensors with homogeneous coordinate
-        pm = torch.cat([torch.ones((m, 1), **self.fact), torch.tensor(landmarks, **self.fact)], dim=1)
+        lm = landmarks.detach().clone().to(**self.fact)
+        pm = torch.cat([torch.ones((m, 1), **self.fact), lm], dim=1)
         pn = torch.cat([torch.ones((n, 1), **self.fact), control_pts], dim=1)
 
         # SVD decomposition to get null space of control points
@@ -113,7 +114,7 @@ class TPSTransformation(TransformBase):
 
         # Compute kernel matrices
         kk = self._kernel(control_pts, control_pts)
-        uu = self._kernel(torch.tensor(landmarks, **self.fact), control_pts).T
+        uu = self._kernel(lm, control_pts).T
 
         # Construct basis: [affine part | kernel part in null space]
         basis = torch.cat([pm, torch.matmul(uu, pp)], dim=1)

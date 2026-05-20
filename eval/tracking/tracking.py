@@ -1,7 +1,7 @@
 """Per-run experiment metadata writer for the zReg evaluation framework.
 
 Writes one JSON file and one single-row CSV file per call to ``log_run()``.
-Both files are persisted to ``output_dir`` (default ``evaluation/runs/``)
+Both files are persisted to ``output_dir`` (default ``experiments/runs/``)
 using stdlib modules only — no third-party dependencies are required.
 Auto-captured fields (``git_hash``, ``zreg_version``, ``timestamp``) are
 resolved at call time and silently fall back to ``"unknown"`` when the
@@ -25,7 +25,7 @@ def log_run(
     seed,
     n_points_before: int,
     n_points_after: int,
-    output_dir: str = "evaluation/runs",
+    output_dir: str = "experiments/runs",
     **extra_fields,
 ) -> str:
     """Persist all 9 EVAL-04 required fields for a single experiment run.
@@ -63,7 +63,7 @@ def log_run(
         Number of points in each point cloud after downsampling.
     output_dir : str, optional
         Directory where output files are written.  Created automatically if
-        it does not exist.  Default is ``"evaluation/runs"``.
+        it does not exist.  Default is ``"experiments/runs"``.
     **extra_fields
         Any additional keyword arguments (e.g. ``chamfer=0.003``,
         ``hausdorff=0.012``) are appended to the record after the 9 required

@@ -131,24 +131,110 @@ zreg.set_log_level("DEBUG")          # programmatic
 ```
 ├── AUTHORS.md
 ├── CHANGELOG.md
+├── COMPARISON.md           <- Side-by-side comparison of registration approaches.
+├── CONTRIBUTING.md
+├── Dockerfile
 ├── LICENSE.txt
 ├── README.md
+├── VALIDATION.md           <- Validation results and regression summaries.
 ├── configs                 <- Model and application configurations.
+├── conftest.py             <- Root-level pytest configuration.
 ├── data
 │   ├── external            <- Data from third party sources.
 │   ├── interim             <- Intermediate transformed data.
 │   ├── processed           <- Final canonical datasets.
-│   └── raw                 <- Original immutable data.
+│   ├── raw                 <- Original immutable data.
+│   └── synthetic           <- Generated synthetic point cloud data.
 ├── docs                    <- Sphinx documentation.
 ├── environment.yml         <- Conda environment for reproducibility.
+├── eval                    <- Sweep orchestrators and run-tracking support.
+│   ├── tracking            <- Per-run metadata writer (log_run → JSON + CSV).
+│   │   └── tracking.py
+│   ├── run_synthetic.py    <- Noise/outlier sweep script.
+│   └── run_real.py         <- Real-data scale/density sweep script.
+├── experiments             <- Experiment outputs (JSON + CSV logs per sweep cell).
+│   ├── datasets            <- Datasets used in experiments.
+│   └── runs                <- Per-run metadata files ({run_id}.json, {run_id}.csv).
 ├── models                  <- Trained models and predictions.
-├── notebooks               <- Jupyter notebooks (basics.ipynb, cpd.ipynb).
+├── notebooks               <- Jupyter notebooks.
+│   ├── basics.ipynb
+│   ├── cpd.ipynb
+│   └── debug.ipynb
 ├── pyproject.toml          <- Build configuration.
-├── scripts                 <- Analysis scripts (example_plots.py, dtw_testing.py, color_transfer_example.py).
+├── references              <- Papers, manuals, and reference material.
+├── reports
+│   └── figures             <- Generated figures and plots.
+├── scripts                 <- Standalone analysis and launch scripts.
+│   ├── color_transfer_example.py
+│   ├── dtw_testing.py
+│   ├── example_plots.py
+│   ├── launch.sbatch       <- SLURM batch job script.
+│   ├── launch_srun.sh      <- SLURM interactive launch script.
+│   └── train_model.py
 ├── setup.cfg               <- Declarative project configuration.
+├── setup.py
 ├── src
 │   └── zreg                <- Package source.
-├── tests                   <- Pytest test suite (275 regression tests).
+│       ├── cpd             <- CPD registration (rigid, affine, non-rigid).
+│       │   ├── base.py
+│       │   ├── rigid.py
+│       │   ├── affine.py
+│       │   ├── nonrigid.py
+│       │   ├── kernels.py
+│       │   ├── _registration.py
+│       │   └── _types.py
+│       ├── distances       <- Sliced Wasserstein variants and general distances.
+│       │   ├── sw_varients.py
+│       │   ├── general.py
+│       │   └── _protocol.py
+│       ├── dtw             <- Dynamic Time Warping (core, constraints, result).
+│       │   ├── core.py
+│       │   ├── constraints.py
+│       │   └── result.py
+│       ├── generators      <- Synthetic trajectory, corruption, and label generators.
+│       │   ├── generators.py
+│       │   ├── corruption.py
+│       │   ├── transforms.py
+│       │   └── labels.py
+│       ├── metrics         <- Alignment and label-transfer evaluation metrics.
+│       │   ├── alignment.py
+│       │   └── label_transfer.py
+│       ├── transforms      <- Transformation classes (rigid, affine, non-rigid, TPS, combined).
+│       │   ├── base.py
+│       │   ├── rigid.py
+│       │   ├── affine.py
+│       │   ├── nonrigid.py
+│       │   ├── tps.py
+│       │   ├── combined.py
+│       │   └── homogeneous.py
+│       ├── color_transfer.py           <- Label/color propagation (NN, CPD-weighted, KNN, Gaussian).
+│       ├── config.py                   <- Package-level configuration.
+│       ├── dataset.py                  <- Data loading from MATLAB/CSV formats.
+│       ├── downsampling.py             <- FPS, random, and uniform downsampling.
+│       ├── pairwise_distance_matrix.py <- Full matrix computation with optional MPI.
+│       ├── setup_log.py                <- Logging setup (set_log_level).
+│       ├── utils.py                    <- Shared utilities.
+│       └── validation.py              <- Input tensor validation used across the public API.
+├── tests                   <- Pytest test suite.
+│   ├── conftest.py
+│   ├── test_alignment_metrics.py
+│   ├── test_color_transfer.py
+│   ├── test_config.py
+│   ├── test_cpd.py
+│   ├── test_dataset.py
+│   ├── test_distances.py
+│   ├── test_downsampling.py
+│   ├── test_dtw.py
+│   ├── test_eval_metrics.py
+│   ├── test_generators.py
+│   ├── test_label_transfer_metrics.py
+│   ├── test_pairwise_distance_matrix.py
+│   ├── test_runners.py
+│   ├── test_tracking.py
+│   ├── test_transforms.py
+│   ├── test_utils.py
+│   └── test_validation.py
+├── tox.ini                 <- Tox test automation configuration.
 └── .pre-commit-config.yaml <- Pre-commit hook configuration.
 ```
 

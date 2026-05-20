@@ -1,4 +1,4 @@
-"""Tests for eval.generators module.
+"""Tests for zreg.generators module.
 
 Four test classes cover all seven public symbols across Plans 01 and 02:
 - TestGenerateTrajectory  — generate_trajectory factory
@@ -16,7 +16,7 @@ import copy
 import pytest
 import torch
 
-from eval.generators import (
+from zreg.generators import (
     generate_trajectory,
     apply_rigid,
     apply_affine,

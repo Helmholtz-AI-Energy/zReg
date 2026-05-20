@@ -10,7 +10,7 @@ Read more about conftest.py under:
 import sys
 from pathlib import Path
 
-# Allow `from eval.generators import ...` in all test files without per-file boilerplate
+# Allow `from eval.tracking import ...` in all test files without per-file boilerplate
 _repo_root = Path(__file__).parent.parent
 if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))

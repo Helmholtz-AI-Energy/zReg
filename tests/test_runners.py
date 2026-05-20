@@ -7,7 +7,7 @@ This module verifies the two sweep orchestrators created in Plan 16-01:
 
 Approach: tests import ``run_sweep()`` from each script and call it
 **directly** (no subprocess), redirecting all output via ``output_dir=str(tmp_path)``
-so the real ``evaluation/runs/`` is never written to. Auto-captured
+so the real ``experiments/runs/`` is never written to. Auto-captured
 ``log_run()`` fields (``git_hash``, ``zreg_version``) are patched at the same
 target points used by ``tests/test_tracking.py`` to keep runs deterministic.
 
@@ -76,7 +76,7 @@ class TestRunSynthetic:
     """Functional tests for eval/run_synthetic.py::run_sweep().
 
     All tests pass ``output_dir=str(tmp_path)`` so the real
-    ``evaluation/runs/`` directory is never touched. ``log_run()``'s
+    ``experiments/runs/`` directory is never touched. ``log_run()``'s
     auto-captured fields are patched at the same targets used in
     ``tests/test_tracking.py``.
     """
@@ -154,6 +154,7 @@ class TestRunSynthetic:
 
         source_text = Path(inspect.getfile(rs)).read_text()
         assert "from zreg.metrics import" in source_text
+        assert "from zreg.generators import" in source_text
 
 
 # ---------------------------------------------------------------------------

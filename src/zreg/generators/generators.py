@@ -27,7 +27,7 @@ def generate_trajectory(
     Each frame is an independent sample from a 3-D isotropic Gaussian
     distribution ``N(0, I)``.  The ``color`` and ``id`` fields of every
     returned ``zRegPointCloud`` are ``None``; use ``generate_labels`` from
-    ``eval.generators.labels`` to assign integer class labels afterwards.
+    ``zreg.generators.labels`` to assign integer class labels afterwards.
 
     Parameters
     ----------

@@ -7,20 +7,18 @@ that ``python eval/run_synthetic.py`` can be invoked directly without an
 The sweep iterates over Gaussian noise sigmas and outlier counts, generating a
 synthetic trajectory once per (sigma, n_outliers) cell, applying the
 corruption stack, computing chamfer/hausdorff against the clean reference,
-and persisting every run via ``eval.tracking.log_run``.
+and persisting every run via ``eval.tracking.log_run``. Generators are
+imported from ``zreg.generators``.
 """
 
 import sys
 from pathlib import Path
 
-# sys.path injection preamble — replicate tests/conftest.py lines 10-16 so
-# `from eval.generators import ...` resolves when this file is executed
-# directly (i.e. python eval/run_synthetic.py) rather than imported.
 _repo_root = Path(__file__).parent.parent
 if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))
 
-from eval.generators import generate_trajectory, add_gaussian_noise, add_outliers
+from zreg.generators import generate_trajectory, add_gaussian_noise, add_outliers
 from eval.tracking import log_run
 from zreg.metrics import chamfer, hausdorff
 
@@ -37,14 +35,14 @@ def _count_points(trajectory: dict) -> int:
     return int(next(iter(trajectory.values()))["pos"].shape[0])
 
 
-def run_sweep(output_dir: str = "evaluation/runs") -> None:
+def run_sweep(output_dir: str = "experiments/runs") -> None:
     """Run the synthetic noise + outlier sweep, logging every cell.
 
     Parameters
     ----------
     output_dir : str, optional
         Directory passed through to ``log_run`` for each cell. Tests redirect
-        this to ``tmp_path`` to avoid polluting the real ``evaluation/runs/``.
+        this to ``tmp_path`` to avoid polluting the real ``experiments/runs/``.
     """
     traj_clean = generate_trajectory(N_POINTS, N_FRAMES, seed=SEED)
     for sigma in SIGMAS:

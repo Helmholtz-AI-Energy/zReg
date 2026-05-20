@@ -26,14 +26,14 @@ DENSITY_FRACTIONS = [1.0, 0.75, 0.5]
 SEED = 42
 
 
-def run_sweep(output_dir: str = "evaluation/runs") -> None:
+def run_sweep(output_dir: str = "experiments/runs") -> None:
     """Run the real-data scale/density sweep, logging every cell.
 
     Parameters
     ----------
     output_dir : str, optional
         Directory passed through to ``log_run`` for each cell. Tests redirect
-        this to ``tmp_path`` to avoid polluting the real ``evaluation/runs/``.
+        this to ``tmp_path`` to avoid polluting the real ``experiments/runs/``.
     """
     if not Path(DATASET_PATH).exists():
         print(f"Dataset not found: {DATASET_PATH}. Skipping real sweep.")

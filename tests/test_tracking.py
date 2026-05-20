@@ -14,7 +14,7 @@ per decisions D-08 and D-09 in 15-CONTEXT.md:
 - frame_indices CSV serialisation as string
 
 Tests use tmp_path (built-in pytest fixture) as output_dir so no
-evaluation/runs/ directory is created on disk during test runs.
+experiments/runs/ directory is created on disk during test runs.
 """
 
 import csv

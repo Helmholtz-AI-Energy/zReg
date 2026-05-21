@@ -187,14 +187,14 @@ class TestKnnConsistency:
 
     def test_all_same_labels_returns_one(self):
         """All-same-label point cloud returns 1.0."""
-        from zreg.metrics.alignment import knn_consistency
+        from zreg.metrics.label_transfer import knn_consistency
         pts = torch.randn(50, 3)
         lbl = torch.zeros(50, dtype=torch.long)
         assert abs(knn_consistency(pts, lbl, k=5) - 1.0) < 1e-9
 
     def test_returns_float(self):
         """Must return a Python float."""
-        from zreg.metrics.alignment import knn_consistency
+        from zreg.metrics.label_transfer import knn_consistency
         pts = torch.randn(20, 3)
         lbl = torch.zeros(20, dtype=torch.long)
         result = knn_consistency(pts, lbl, k=3)
@@ -202,7 +202,7 @@ class TestKnnConsistency:
 
     def test_in_range_zero_to_one(self):
         """Score must be in [0, 1]."""
-        from zreg.metrics.alignment import knn_consistency
+        from zreg.metrics.label_transfer import knn_consistency
         pts = torch.randn(30, 3)
         lbl = torch.randint(0, 3, (30,))
         result = knn_consistency(pts, lbl, k=5)
@@ -210,7 +210,7 @@ class TestKnnConsistency:
 
     def test_shape_mismatch_raises(self):
         """points.shape[0] != labels.shape[0] raises ValueError."""
-        from zreg.metrics.alignment import knn_consistency
+        from zreg.metrics.label_transfer import knn_consistency
         pts = torch.randn(10, 3)
         lbl = torch.zeros(8, dtype=torch.long)
         with pytest.raises(ValueError):
@@ -218,7 +218,7 @@ class TestKnnConsistency:
 
     def test_k_too_large_raises(self):
         """k >= N raises ValueError."""
-        from zreg.metrics.alignment import knn_consistency
+        from zreg.metrics.label_transfer import knn_consistency
         pts = torch.randn(5, 3)
         lbl = torch.zeros(5, dtype=torch.long)
         with pytest.raises(ValueError):
@@ -226,7 +226,7 @@ class TestKnnConsistency:
 
     def test_invalid_points_shape_raises(self):
         """points not (N, 3) raises ValueError."""
-        from zreg.metrics.alignment import knn_consistency
+        from zreg.metrics.label_transfer import knn_consistency
         pts = torch.randn(10, 2)
         lbl = torch.zeros(10, dtype=torch.long)
         with pytest.raises(ValueError):
@@ -234,7 +234,7 @@ class TestKnnConsistency:
 
     def test_invalid_labels_shape_raises(self):
         """2D labels tensor raises ValueError."""
-        from zreg.metrics.alignment import knn_consistency
+        from zreg.metrics.label_transfer import knn_consistency
         pts = torch.randn(10, 3)
         lbl = torch.zeros(10, 10, dtype=torch.long)
         with pytest.raises(ValueError):
@@ -242,18 +242,18 @@ class TestKnnConsistency:
 
     def test_k_zero_raises(self):
         """k < 1 raises ValueError."""
-        from zreg.metrics.alignment import knn_consistency
+        from zreg.metrics.label_transfer import knn_consistency
         pts = torch.randn(10, 3)
         lbl = torch.zeros(10, dtype=torch.long)
         with pytest.raises(ValueError):
             knn_consistency(pts, lbl, k=0)
 
     def test_uses_detach_cpu_numpy(self):
-        """alignment.py must contain .detach().cpu().numpy() for CPU entry."""
+        """label_transfer.py must contain .detach().cpu().numpy() for CPU entry."""
         import pathlib
         src = pathlib.Path(
             __file__
-        ).parent.parent / "src" / "zreg" / "metrics" / "alignment.py"
+        ).parent.parent / "src" / "zreg" / "metrics" / "label_transfer.py"
         text = src.read_text()
         assert ".detach().cpu().numpy()" in text
 
@@ -263,28 +263,28 @@ class TestTemporalStability:
 
     def test_empty_list_returns_zero(self):
         """Empty transform list returns tensor(0.0)."""
-        from zreg.metrics.alignment import temporal_stability
+        from zreg.metrics.label_transfer import temporal_stability
         result = temporal_stability([])
         assert isinstance(result, torch.Tensor)
         assert result.item() == 0.0
 
     def test_single_transform_returns_zero(self):
         """Single transform returns tensor(0.0)."""
-        from zreg.metrics.alignment import temporal_stability
+        from zreg.metrics.label_transfer import temporal_stability
         tf = RigidTransformation()
         result = temporal_stability([tf])
         assert result.item() == 0.0
 
     def test_identical_transforms_zero(self):
         """Consecutive identical transforms produce zero Frobenius difference."""
-        from zreg.metrics.alignment import temporal_stability
+        from zreg.metrics.label_transfer import temporal_stability
         tf = RigidTransformation()
         result = temporal_stability([tf, tf])
         assert abs(result.item()) < 1e-5
 
     def test_known_translation_norm(self):
         """Two rigid transforms differing only by translation (1,0,0) => norm 1.0."""
-        from zreg.metrics.alignment import temporal_stability
+        from zreg.metrics.label_transfer import temporal_stability
         tf1 = RigidTransformation(t=torch.zeros(3))
         tf2 = RigidTransformation(t=torch.tensor([1.0, 0.0, 0.0]))
         result = temporal_stability([tf1, tf2])
@@ -292,7 +292,7 @@ class TestTemporalStability:
 
     def test_unsupported_type_raises_type_error(self):
         """Non-transform types raise TypeError mentioning 'Unsupported'."""
-        from zreg.metrics.alignment import temporal_stability
+        from zreg.metrics.label_transfer import temporal_stability
         with pytest.raises(TypeError, match="[Uu]nsupported"):
             temporal_stability([1, 2])
 
@@ -306,17 +306,17 @@ class TestTemporalStability:
         assert ".to_matrix(" not in text
 
     def test_uses_frobenius_norm(self):
-        """alignment.py must compute Frobenius norm via torch.norm(..., p='fro')."""
+        """label_transfer.py must compute Frobenius norm via torch.norm(..., p='fro')."""
         import pathlib
         src = pathlib.Path(
             __file__
-        ).parent.parent / "src" / "zreg" / "metrics" / "alignment.py"
+        ).parent.parent / "src" / "zreg" / "metrics" / "label_transfer.py"
         text = src.read_text()
         assert 'p="fro"' in text or "p='fro'" in text
 
     def test_affine_transform_accepted(self):
         """AffineTransformation is accepted without error."""
-        from zreg.metrics.alignment import temporal_stability
+        from zreg.metrics.label_transfer import temporal_stability
         tf = AffineTransformation()
         result = temporal_stability([tf, tf])
         assert abs(result.item()) < 1e-5

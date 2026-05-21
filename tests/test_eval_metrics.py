@@ -5,14 +5,8 @@ import inspect
 import pytest
 import torch
 
-from zreg.metrics.alignment import (
-    chamfer,
-    hausdorff,
-    path_smoothness,
-    knn_consistency,
-    temporal_stability,
-)
-from zreg.metrics.label_transfer import compute_f1
+from zreg.metrics.alignment import chamfer, hausdorff, path_smoothness
+from zreg.metrics.label_transfer import compute_f1, knn_consistency, temporal_stability
 from zreg.transforms import RigidTransformation, AffineTransformation
 
 

@@ -1,9 +1,12 @@
-"""Label transfer F1 metric with sentinel masking."""
+"""Label transfer metrics: F1 with sentinel masking, KNN consistency, temporal stability."""
 
 import torch
 from sklearn.metrics import f1_score as _sklearn_f1
+from sklearn.neighbors import KDTree
 
-__all__ = ["compute_f1"]
+from zreg.transforms import RigidTransformation, AffineTransformation
+
+__all__ = ["compute_f1", "knn_consistency", "temporal_stability"]
 
 
 def compute_f1(
@@ -93,3 +96,145 @@ def compute_f1(
 
     score = _sklearn_f1(y_true_np, y_pred_np, average=average, zero_division=zero_division)
     return float(score)
+
+
+def _rigid_to_matrix(tf: RigidTransformation) -> torch.Tensor:
+    device = tf.rot.device
+    dtype = tf.rot.dtype
+    M = torch.zeros(4, 4, device=device, dtype=dtype)
+    M[:3, :3] = tf.scale * tf.rot
+    M[:3, 3] = tf.t
+    M[3, 3] = 1.0
+    return M
+
+
+def _affine_to_matrix(tf: AffineTransformation) -> torch.Tensor:
+    device = tf.b.device
+    dtype = tf.b.dtype
+    M = torch.zeros(4, 4, device=device, dtype=dtype)
+    M[:3, :3] = tf.b
+    M[:3, 3] = tf.t
+    M[3, 3] = 1.0
+    return M
+
+
+def _to_matrix(tf) -> torch.Tensor:
+    if isinstance(tf, RigidTransformation):
+        return _rigid_to_matrix(tf)
+    elif isinstance(tf, AffineTransformation):
+        return _affine_to_matrix(tf)
+    else:
+        raise TypeError(f"Unsupported transformation type: {type(tf).__name__}")
+
+
+def knn_consistency(
+    points: torch.Tensor,
+    labels: torch.Tensor,
+    k: int = 10,
+) -> float:
+    """Compute k-nearest-neighbour label consistency for a labelled point cloud.
+
+    For each point, queries its k nearest neighbours and computes the fraction
+    that share the same label. Returns the mean fraction across all points.
+
+    Parameters
+    ----------
+    points : torch.Tensor
+        Point cloud of shape (N, 3).
+    labels : torch.Tensor
+        Integer label tensor of shape (N,).
+    k : int, optional
+        Number of nearest neighbours to query. Default: 10.
+
+    Returns
+    -------
+    float
+        Mean label consistency score in [0.0, 1.0].
+
+    Raises
+    ------
+    ValueError
+        If points is not shape (N, 3).
+        If labels is not shape (N,) or labels.shape[0] != points.shape[0].
+        If k < 1 or k >= N.
+
+    Notes
+    -----
+    Uses sklearn.neighbors.KDTree via .detach().cpu().numpy() CPU entry point
+    (GPU-safe: all KDTree operations run on CPU numpy arrays).
+    """
+    if points.ndim != 2 or points.shape[1] != 3:
+        raise ValueError(
+            f"points must be shape (N, 3), got {tuple(points.shape)}"
+        )
+    if labels.ndim != 1:
+        raise ValueError(
+            f"labels must be shape (N,), got {tuple(labels.shape)}"
+        )
+    if labels.shape[0] != points.shape[0]:
+        raise ValueError(
+            f"points and labels must have the same length: "
+            f"points.shape[0]={points.shape[0]}, labels.shape[0]={labels.shape[0]}"
+        )
+    n = points.shape[0]
+    if k < 1:
+        raise ValueError(f"k must be >= 1, got k={k}")
+    if k >= n:
+        raise ValueError(
+            f"k must be < N (number of points), got k={k}, N={n}"
+        )
+
+    points_np = points.detach().cpu().numpy()
+    labels_np = labels.detach().cpu().numpy()
+
+    tree = KDTree(points_np)
+    _, idx = tree.query(points_np, k=k + 1)
+
+    scores = []
+    for i in range(n):
+        neighbour_labels = labels_np[idx[i, 1:]]
+        match_count = (neighbour_labels == labels_np[i]).sum()
+        scores.append(match_count / k)
+
+    return float(sum(scores) / len(scores))
+
+
+def temporal_stability(
+    transforms: list[RigidTransformation | AffineTransformation],
+) -> torch.Tensor:
+    """Compute temporal stability as mean Frobenius norm of consecutive transform differences.
+
+    Measures how smoothly a sequence of transformations evolves over time.
+    A score of 0.0 indicates perfectly stable (identical) consecutive transforms.
+
+    Parameters
+    ----------
+    transforms : list[RigidTransformation | AffineTransformation]
+        Ordered sequence of transformations.
+
+    Returns
+    -------
+    torch.Tensor
+        Scalar tensor. Returns tensor(0.0) for lists of length 0 or 1.
+
+    Raises
+    ------
+    TypeError
+        If any element is not a RigidTransformation or AffineTransformation.
+
+    Notes
+    -----
+    Builds 4x4 homogeneous matrices manually from .rot/.t/.scale (Rigid) or
+    .b/.t (Affine). No .to_matrix method is called on any transform object.
+    Uses torch.norm(..., p="fro") for Frobenius norm computation.
+    """
+    if len(transforms) < 2:
+        return torch.tensor(0.0)
+
+    matrices = [_to_matrix(tf) for tf in transforms]
+
+    norms = []
+    for i in range(1, len(matrices)):
+        norms.append(torch.norm(matrices[i] - matrices[i - 1], p="fro"))
+
+    return torch.stack(norms).mean()

@@ -37,16 +37,13 @@
   - [x] 16-01-PLAN.md — `eval/run_synthetic.py` (noise + outlier sweep) + `eval/run_real.py` (scale/density sweep with missing-data guard)
   - [x] 16-02-PLAN.md — `tests/test_runners.py` (TestRunSynthetic + TestRunReal: file creation, field presence, missing-data skip, import path verification)
 
-- [ ] **Phase 17: Framework Config & DataFactory**
+- [x] **Phase 17: Framework Config & DataFactory** (2/2 plans) — completed 2026-05-27
   **Goal:** Deliver `eval/config.py` (`EvalConfig` dataclass with YAML loading/validation and `EvalConfigError`) and `eval/data_factory.py` (`DataFactory` wrapping existing `load_data_from_tracklets`, `load_shah_from_csv`, generators, and corruption functions) — the data foundation all downstream phases depend on.
   **Requirements:** FRAME-01, FRAME-02
   **Depends on:** Phase 16
-  **Success criteria:**
-  1. `EvalConfig` loads from YAML and raises `EvalConfigError` with readable message on invalid input
-  2. `DataFactory.prepare_split()` returns correctly shaped `(train, val)` tuple
-  3. `DataFactory.generate_synthetic()` delegates to existing generators without reimplementing them
-  4. `DataFactory.get_ground_truth()` returns cell `id` tensor or reads separate GT file per config
-  5. `tests/test_data_factory.py` passes all gate criteria
+  Plans:
+  - [x] 17-01-PLAN.md — `eval/config.py` (EvalConfig pydantic BaseModel + EvalConfigError + from_yaml) + setup.cfg pydantic/pyyaml deps + tests/test_data_factory.py TestEvalConfigFromYAML class (FRAME-01)
+  - [x] 17-02-PLAN.md — `eval/data_factory.py` (DataFactory class: load_real, generate_synthetic, augment, prepare_split, get_ground_truth) + 6 populated test classes in tests/test_data_factory.py (FRAME-02)
 
 - [ ] **Phase 18: MetricsEngine & Result Types**
   **Goal:** Deliver `eval/types.py` (six dataclasses: `AlignResult`, `LabelResult`, `StageMetrics`, `Trial`, `SearchResult`, `EvalReport`) and `eval/metrics.py` (`MetricsEngine` wrapping all existing `zreg.metrics.*` with normalization, aggregation, scoring, and sanity checking).
@@ -163,7 +160,7 @@ Full details: [.planning/milestones/v1.0-ROADMAP.md](.planning/milestones/v1.0-R
 | 14. Synthetic Data Generators | v1.2 | 3/3 | Complete | 2026-05-18 |
 | 15. Experiment Tracking & Run Management | v1.2 | 2/2 | Complete | 2026-05-18 |
 | 16. Runner Scripts | v1.2 | 2/2 | Complete | 2026-05-19 |
-| 17. Framework Config & DataFactory | v1.2 | 0/2 | Pending | — |
+| 17. Framework Config & DataFactory | v1.2 | 2/2 | Complete | 2026-05-27 |
 | 18. MetricsEngine & Result Types | v1.2 | 0/2 | Pending | — |
 | 19. AlignmentStage | v1.2 | 0/2 | Pending | — |
 | 20. LabelTransferStage | v1.2 | 0/2 | Pending | — |

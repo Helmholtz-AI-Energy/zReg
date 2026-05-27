@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Evaluation Framework & Debt Resolution
-status: planning
-stopped_at: Phase 17 context gathered 2026-05-27
-last_updated: "2026-05-27T00:00:00.000Z"
+status: in_progress
+stopped_at: Phase 17 complete 2026-05-27
+last_updated: "2026-05-27T12:30:00.000Z"
 progress:
   total_phases: 7
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 14
-  completed_plans: 0
-  percent: 0
+  completed_plans: 2
+  percent: 14
 ---
 
 # Project State
@@ -20,21 +20,21 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Every existing capability works correctly, fails informatively, and is covered by tests.
-**Current focus:** Phase 17 — Framework Config & DataFactory (planning)
+**Current focus:** Phase 18 — MetricsEngine & Result Types (next)
 
 ## Current Position
 
-Phase: Not started (Phases 17–23 roadmapped)
+Phase: 18 — MetricsEngine & Result Types
 Plan: —
-Status: Defining phase plans for eval framework
-Last activity: 2026-05-27 — Phases 17–23 roadmapped (FRAME-01 to FRAME-12)
+Status: Pending (phase 17 complete 2026-05-27)
+Last activity: 2026-05-27 — Phase 17 executed (FRAME-01: EvalConfig, FRAME-02: DataFactory — 21 tests green, 579 suite green)
 
 ## Phase Overview
 
 | Phase | Name | Requirements | Status |
 |-------|------|--------------|--------|
 | 16 | Runner Scripts | EVAL-05 | Complete 2026-05-19 |
-| 17 | Framework Config & DataFactory | FRAME-01, FRAME-02 | Pending |
+| 17 | Framework Config & DataFactory | FRAME-01, FRAME-02 | Complete 2026-05-27 |
 | 18 | MetricsEngine & Result Types | FRAME-03, FRAME-04 | Pending |
 | 19 | AlignmentStage | FRAME-05 | Pending |
 | 20 | LabelTransferStage | FRAME-06 | Pending |
@@ -98,6 +98,17 @@ Last activity: 2026-05-27 — Phases 17–23 roadmapped (FRAME-01 to FRAME-12)
 - output_dir defaults to "evaluation/runs/"; auto-created via Path.mkdir(parents=True, exist_ok=True)
 - Unit tests in tests/test_tracking.py; auto-captured fields tested via unittest.mock.patch
 
+### Phase 17 Decisions (v1.2)
+
+- FRAME-01 closed: `eval/config.py` — EvalConfig pydantic v2 BaseModel (16 fields, only data_path required, extra="forbid"), EvalConfigError(ValueError), from_yaml with safe_load + exception-handler MRO order (FileNotFoundError → YAMLError → ValidationError)
+- FRAME-02 closed: `eval/data_factory.py` — DataFactory with lazy init (D-08), by-reference cache (D-09), tracklets/CSV dispatch (Pitfalls 4+5), noise-then-outliers augment, sorted-key random split with single-frame guard (D-07), pc["id"] ground-truth extraction (D-10/D-11)
+- eval/ is a namespace directory (no __init__.py); conftest.py:16 inserts repo root for test discovery
+- pydantic 2.12.2 + pyyaml 6.0.3 installed; declared in setup.cfg install_requires
+- macOS ARM import order: zreg.dataset → zreg.generators → torch → eval.config (enforced in data_factory.py)
+- prepare_split non-reproducible by design (T-17-07 accepted; D-05 requires random.sample)
+- 579 tests pass after phase 17 (21 new in test_data_factory.py; 558 pre-existing unaffected)
+- CR-01 open: eval/ not pip-discoverable beyond conftest.py sys.path insertion — requires attention before Phase 23 CLI
+
 ### Open Blockers
 
 None.
@@ -105,5 +116,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-05-27
-Stopped at: Phase 17 context gathered — EvalConfig (pydantic), DataFactory (lazy+cache), prepare_split (random frame selection, sorted output), get_ground_truth (pc['id'] default)
-Next action: `/gsd-plan-phase 17` (FRAME-01/02: EvalConfig + DataFactory)
+Stopped at: Phase 17 complete — FRAME-01 (EvalConfig) + FRAME-02 (DataFactory), 16/16 verification passed
+Next action: `/gsd-discuss-phase 18` or `/gsd-plan-phase 18`

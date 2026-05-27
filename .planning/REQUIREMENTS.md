@@ -29,8 +29,8 @@
 
 ### Category 6 — Framework Config & Data Layer
 
-- [ ] **FRAME-01**: `eval/config.py` — `EvalConfig` dataclass with YAML loading/validation via `EvalConfigError`; fields: `data_path`, `data_format`, `ground_truth_path`, `n_synthetic`, `transform_degree`, `augmentation_params`, `run_alignment`, `run_label_transfer`, `search_space`, `search_strategy`, `tier`, `n_trials`, `output_dir`, `save_plots`, `verbose`
-- [ ] **FRAME-02**: `eval/data_factory.py` — `DataFactory` class; `load_real()` loads `.tracklets`/CSV via existing `load_data_from_tracklets`/`load_shah_from_csv`; `generate_synthetic()` wraps existing generators; `augment()` wraps existing corruption functions; `prepare_split()` → `(train, val)` tuple; `get_ground_truth()` extracts cell `id` or reads separate GT file per config; `tests/test_data_factory.py` with EvalConfig-from-YAML and split-shape gates
+- [x] **FRAME-01**: `eval/config.py` — `EvalConfig` dataclass with YAML loading/validation via `EvalConfigError`; fields: `data_path`, `data_format`, `ground_truth_path`, `n_synthetic`, `transform_degree`, `augmentation_params`, `run_alignment`, `run_label_transfer`, `search_space`, `search_strategy`, `tier`, `n_trials`, `output_dir`, `save_plots`, `verbose` — Complete Phase 17
+- [x] **FRAME-02**: `eval/data_factory.py` — `DataFactory` class; `load_real()` loads `.tracklets`/CSV via existing `load_data_from_tracklets`/`load_shah_from_csv`; `generate_synthetic()` wraps existing generators; `augment()` wraps existing corruption functions; `prepare_split()` → `(train, val)` tuple; `get_ground_truth()` extracts cell `id` or reads separate GT file per config; `tests/test_data_factory.py` with EvalConfig-from-YAML and split-shape gates — Complete Phase 17
 
 ### Category 7 — MetricsEngine & Result Types
 
@@ -110,8 +110,8 @@
 | EVAL-05 | Phase 16 | Complete | Validated 2026-05-19 |
 | EVAL-06 | — | Superseded | Replaced by FRAME-09 + FRAME-10 |
 | EVAL-07 | — | Superseded | Replaced by FRAME-07 + FRAME-08 |
-| FRAME-01 | Phase 17 | Pending | EvalConfig + YAML loading |
-| FRAME-02 | Phase 17 | Pending | DataFactory |
+| FRAME-01 | Phase 17 | Complete | EvalConfig + YAML loading — Validated 2026-05-27 |
+| FRAME-02 | Phase 17 | Complete | DataFactory — Validated 2026-05-27 |
 | FRAME-03 | Phase 18 | Pending | MetricsEngine |
 | FRAME-04 | Phase 18 | Pending | Result types |
 | FRAME-05 | Phase 19 | Pending | AlignmentStage |

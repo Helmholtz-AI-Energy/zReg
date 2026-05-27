@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Evaluation Framework & Debt Resolution
 status: planning
-stopped_at: Phase 16 complete; Phases 17-23 (eval framework) roadmapped 2026-05-27
+stopped_at: Phase 17 context gathered 2026-05-27
 last_updated: "2026-05-27T00:00:00.000Z"
 progress:
   total_phases: 7
@@ -105,5 +105,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-05-27
-Stopped at: Phases 17–23 roadmapped; Phase 17 ready to plan
-Next action: `/gsd-discuss-phase 17` or `/gsd-plan-phase 17` (FRAME-01/02: EvalConfig + DataFactory)
+Stopped at: Phase 17 context gathered — EvalConfig (pydantic), DataFactory (lazy+cache), prepare_split (random frame selection, sorted output), get_ground_truth (pc['id'] default)
+Next action: `/gsd-plan-phase 17` (FRAME-01/02: EvalConfig + DataFactory)

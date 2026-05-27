@@ -16,9 +16,9 @@
 ## Current State
 
 **Shipped:** v1.0 Consolidation — 2026-04-09 | v1.1 Code Quality & Refactoring — 2026-05-13
-**Active:** v1.2 Evaluation Framework & Debt Resolution — Phases 12–16 complete 2026-05-19; Phases 17–23 (eval framework) planning 2026-05-27
+**Active:** v1.2 Evaluation Framework & Debt Resolution — Phases 12–17 complete 2026-05-27; Phases 18–23 pending
 
-zReg is a Python library for GPU-accelerated 3D point cloud registration, temporal alignment, and color (celltype) transfer using PyTorch. Phase 16 delivered EVAL-05: `eval/run_synthetic.py` (12-cell noise/outlier sweep logging chamfer + hausdorff via zreg.metrics) and `eval/run_real.py` (scale/density sweep with graceful missing-data guard), plus `tests/test_runners.py` (9 functional tests). `log_run()` extended with `**extra_fields` for metric persistence. 536 tests pass, 15 skipped.
+zReg is a Python library for GPU-accelerated 3D point cloud registration, temporal alignment, and color (celltype) transfer using PyTorch. Phase 17 delivered FRAME-01 (`eval/config.py`: EvalConfig pydantic v2 BaseModel with `from_yaml` + EvalConfigError wrapping) and FRAME-02 (`eval/data_factory.py`: DataFactory with lazy init, by-reference cache, tracklets/CSV dispatch, augment, prepare_split, get_ground_truth). 579 tests pass, 17 skipped. Note: `eval/` is a namespace directory; `conftest.py:16` inserts repo root for test discovery — evaluate pip-discoverability before Phase 23 CLI (CR-01).
 
 ## What This Is
 
@@ -55,8 +55,6 @@ Every existing capability works correctly, fails informatively, and is covered b
 
 ### Active
 
-- [ ] FRAME-01: EvalConfig dataclass with YAML loading/validation (data, synthetic, pipeline, search, output fields)
-- [ ] FRAME-02: DataFactory — loads .tracklets/CSV real data and synthetic data, train/val split, GT extraction (cell id or separate file)
 - [ ] FRAME-03: MetricsEngine — wraps existing zreg.metrics.*, normalize [0,1], aggregate, compute_score, sanity_check
 - [ ] FRAME-04: Result types — AlignResult, LabelResult, StageMetrics, Trial, SearchResult, EvalReport dataclasses
 - [ ] FRAME-05: AlignmentStage — PipelineStage ABC, DTW + CPD, validate_params, standalone
@@ -73,6 +71,8 @@ Every existing capability works correctly, fails informatively, and is covered b
 - ✓ Core alignment metrics (chamfer, hausdorff, path_smoothness, knn_consistency, temporal_stability) + label transfer (compute_f1) at `src/zreg/metrics/` — Phase 13
 - ✓ Synthetic data generators at `eval/generators/` (7 symbols, seed-deterministic, immutable, dict[int, zRegPointCloud]-shaped) — Phase 14
 - ✓ Experiment tracking at `eval/tracking/` (`log_run()` stdlib-only, 9 EVAL-04 fields, JSON+CSV output, auto-captures git_hash/zreg_version/timestamp) — Phase 15
+- ✓ FRAME-01: EvalConfig (pydantic v2 BaseModel, 16 fields, `from_yaml` + EvalConfigError wrapping, extra="forbid") — Phase 17
+- ✓ FRAME-02: DataFactory (lazy+cached, tracklets/CSV dispatch, augment, prepare_split, get_ground_truth) — Phase 17
 
 ### Validated in v1.1 (2026-05-13)
 
@@ -153,4 +153,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-27 — v1.2 extended with Phases 17–23 (full eval framework, FRAME-01 to FRAME-12)*
+*Last updated: 2026-05-27 — Phase 17 complete (FRAME-01 + FRAME-02 validated)*

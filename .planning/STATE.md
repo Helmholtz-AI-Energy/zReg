@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Evaluation Framework & Debt Resolution
-status: executing
-stopped_at: Phase 16 planned (2/2 plans, ready to execute)
-last_updated: "2026-05-19T11:52:51.535Z"
+status: planning
+stopped_at: Phase 16 complete; Phases 17-23 (eval framework) roadmapped 2026-05-27
+last_updated: "2026-05-27T00:00:00.000Z"
 progress:
-  total_phases: 2
-  completed_phases: 2
-  total_plans: 4
-  completed_plans: 4
-  percent: 100
+  total_phases: 7
+  completed_phases: 0
+  total_plans: 14
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -20,26 +20,27 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Every existing capability works correctly, fails informatively, and is covered by tests.
-**Current focus:** Phase 16 — runner-scripts
+**Current focus:** Phase 17 — Framework Config & DataFactory (planning)
 
 ## Current Position
 
-Phase: 16
-Plan: Not started
-Phase: 15 (Experiment Tracking) — COMPLETE 2026-05-18
-Status: Executing Phase 16
+Phase: Not started (Phases 17–23 roadmapped)
+Plan: —
+Status: Defining phase plans for eval framework
+Last activity: 2026-05-27 — Phases 17–23 roadmapped (FRAME-01 to FRAME-12)
 
 ## Phase Overview
 
 | Phase | Name | Requirements | Status |
 |-------|------|--------------|--------|
-| 6 | Python 3.12 Migration | PY312-01 to PY312-05 | Complete |
-| 7 | CPD Deep Restructure | CPD-01 to CPD-05 | Complete |
-| 8 | DTW Deep Restructure | DTW-01 to DTW-05 | Complete |
-| 9 | Distance & Transform Restructure | DIST-01 to DIST-04, XFORM-01 to XFORM-04 | Complete |
-| 10 | Code Quality & Verification | QUAL-01 to QUAL-06 | Complete |
-| 11 | Validate Refactoring and Fix Coverage | QUAL-06 | Complete |
-| 11.1 | Close DTW-02: consistent metric variant interface | DTW-02 | Complete |
+| 16 | Runner Scripts | EVAL-05 | Complete 2026-05-19 |
+| 17 | Framework Config & DataFactory | FRAME-01, FRAME-02 | Pending |
+| 18 | MetricsEngine & Result Types | FRAME-03, FRAME-04 | Pending |
+| 19 | AlignmentStage | FRAME-05 | Pending |
+| 20 | LabelTransferStage | FRAME-06 | Pending |
+| 21 | EvaluationRunner & Visualisation | FRAME-07, FRAME-08 | Pending |
+| 22 | HyperparamOptimizer & Search Strategies | FRAME-09, FRAME-10 | Pending |
+| 23 | CLI Entrypoint & Scenario Configs | FRAME-11, FRAME-12 | Pending |
 
 ## Accumulated Context
 
@@ -47,6 +48,7 @@ Status: Executing Phase 16
 
 - Phase 15 added: Experiment Tracking & Run Management
 - Phase 16 added: Runner Scripts
+- Phases 17–23 added 2026-05-27: Full eval framework (config-driven, modular stages, optimizer, CLI) — EVAL-06 and EVAL-07 superseded by FRAME-09/10 and FRAME-07/08
 
 ### Decisions (v1.1)
 
@@ -102,6 +104,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-05-18
-Stopped at: Phase 16 planned (2/2 plans, ready to execute)
-Next action: `/gsd-execute-phase 16` (EVAL-05: run_synthetic.py + run_real.py + tests/test_runners.py)
+Last session: 2026-05-27
+Stopped at: Phases 17–23 roadmapped; Phase 17 ready to plan
+Next action: `/gsd-discuss-phase 17` or `/gsd-plan-phase 17` (FRAME-01/02: EvalConfig + DataFactory)

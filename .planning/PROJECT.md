@@ -1,21 +1,22 @@
 # zReg
 
-## Current Milestone: v1.1 Code Quality & Refactoring
+## Current Milestone: v1.2 Evaluation Framework & Debt Resolution
 
-**Goal:** Deep refactoring for maintainability, Python 3.12 update, and eliminating silent failures
+**Goal:** Deliver a complete, config-driven evaluation framework for the zReg point cloud pipeline — DataFactory, MetricsEngine, isolated pipeline stages (Alignment + LabelTransfer), EvaluationRunner with visualisation, 3-tier HyperparamOptimizer (sanity/dev/full via Optuna), and CLI entrypoint — all wrapping existing metrics and generators
 
 **Target features:**
-- Python 3.12 migration (type hints, syntax, stdlib updates)
-- CPD module deep restructure (primary focus)
-- DTW module deep restructure (primary focus)
-- All-files code quality review
-- Silent failure detection (lazy imports, swallowed exceptions)
-- Module reorganization and abstraction improvements
+- EvalConfig dataclass (YAML-driven) + DataFactory (loads .tracklets/CSV real data and synthetic data via existing generators)
+- MetricsEngine (wraps existing metrics, normalize/aggregate/score/sanity-check) + Result types (AlignResult, LabelResult, StageMetrics, Trial, SearchResult, EvalReport)
+- AlignmentStage (DTW + CPD, PipelineStage ABC, validate_params, runs standalone)
+- LabelTransferStage (kNN, accepts raw or aligned clouds, runs standalone)
+- EvaluationRunner (orchestrate stages → report) + viz.py (point cloud plots, metric summaries, matplotlib/Agg/PDF)
+- HyperparamOptimizer (sanity/dev/full tiers, pruning) + SearchStrategies (GridSearch, RandomSearch, Optuna Bayesian)
+- run_eval.py CLI (--config, --mode optimize/eval/full) + 5 scenario YAML configs
 
 ## Current State
 
 **Shipped:** v1.0 Consolidation — 2026-04-09 | v1.1 Code Quality & Refactoring — 2026-05-13
-**Active:** v1.2 Evaluation Framework & Debt Resolution — Phase 16 complete 2026-05-19
+**Active:** v1.2 Evaluation Framework & Debt Resolution — Phases 12–16 complete 2026-05-19; Phases 17–23 (eval framework) planning 2026-05-27
 
 zReg is a Python library for GPU-accelerated 3D point cloud registration, temporal alignment, and color (celltype) transfer using PyTorch. Phase 16 delivered EVAL-05: `eval/run_synthetic.py` (12-cell noise/outlier sweep logging chamfer + hausdorff via zreg.metrics) and `eval/run_real.py` (scale/density sweep with graceful missing-data guard), plus `tests/test_runners.py` (9 functional tests). `log_run()` extended with `**extra_fields` for metric persistence. 536 tests pass, 15 skipped.
 
@@ -54,7 +55,18 @@ Every existing capability works correctly, fails informatively, and is covered b
 
 ### Active
 
-None.
+- [ ] FRAME-01: EvalConfig dataclass with YAML loading/validation (data, synthetic, pipeline, search, output fields)
+- [ ] FRAME-02: DataFactory — loads .tracklets/CSV real data and synthetic data, train/val split, GT extraction (cell id or separate file)
+- [ ] FRAME-03: MetricsEngine — wraps existing zreg.metrics.*, normalize [0,1], aggregate, compute_score, sanity_check
+- [ ] FRAME-04: Result types — AlignResult, LabelResult, StageMetrics, Trial, SearchResult, EvalReport dataclasses
+- [ ] FRAME-05: AlignmentStage — PipelineStage ABC, DTW + CPD, validate_params, standalone
+- [ ] FRAME-06: LabelTransferStage — kNN, accepts raw or aligned clouds, standalone
+- [ ] FRAME-07: EvaluationRunner — orchestrates stages, reports JSON, plots, per-dataset + aggregated metrics
+- [ ] FRAME-08: viz.py — point cloud plots and metric summaries via matplotlib Agg backend, PDF-ready
+- [ ] FRAME-09: HyperparamOptimizer — sanity/dev/full tiers, prune_candidates, save_best_params
+- [ ] FRAME-10: SearchStrategies — GridSearch, RandomSearch, Optuna Bayesian (Optuna 4.x, SQLite storage)
+- [ ] FRAME-11: run_eval.py CLI — --config cfg.yaml --mode optimize/eval/full; clean error messages
+- [ ] FRAME-12: 5 scenario YAML configs (alignment sanity/dev, label-transfer sanity/dev, combined full)
 
 ### Validated in v1.2 (in progress)
 
@@ -141,4 +153,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-18 after Phase 15 (Experiment Tracking & Run Management) complete*
+*Last updated: 2026-05-27 — v1.2 extended with Phases 17–23 (full eval framework, FRAME-01 to FRAME-12)*

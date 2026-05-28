@@ -8,5 +8,6 @@ Phase 19 ships ``PipelineStage`` (this package's ABC) and
 """
 
 from .base import PipelineStage
+from .alignment import AlignmentStage
 
-__all__ = ["PipelineStage"]
+__all__ = ["PipelineStage", "AlignmentStage"]

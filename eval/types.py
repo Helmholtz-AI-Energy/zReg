@@ -98,7 +98,7 @@ class AlignResult(BaseModel):
 
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
 
-    aligned_cloud: dict[int, zRegPointCloud]
+    aligned_cloud: dict[int, zRegPointCloud]  # pass-through ref — callers must not mutate dataset after run() returns
     warp_path: list[tuple[int, int]]
     dtw_distance: float
     n_changepoints: int

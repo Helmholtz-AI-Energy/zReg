@@ -140,6 +140,7 @@ class TestAlignmentStageValidateParams:
         [
             ("window_size", 0, "window_size must be int > 0"),
             ("window_size", -1, "window_size must be int > 0"),
+            ("window_size", True, "window_size must be int > 0"),
             ("step", 0, "step must be int >= 1"),
             ("cpd_penalty", "bogus", "cpd_penalty must be one of"),
             ("dtw_dist_fn", "", "dtw_dist_fn must be non-empty"),

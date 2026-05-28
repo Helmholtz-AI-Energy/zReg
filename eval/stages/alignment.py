@@ -139,10 +139,14 @@ class AlignmentStage(PipelineStage):
             if key not in params:
                 raise ValueError(f"Missing required param: {key}")
 
-        if not (isinstance(params["window_size"], int) and params["window_size"] > 0):
+        if not (isinstance(params["window_size"], int)
+                and not isinstance(params["window_size"], bool)
+                and params["window_size"] > 0):
             raise ValueError(f"window_size must be int > 0; got {params['window_size']!r}")
 
-        if not (isinstance(params["step"], int) and params["step"] >= 1):
+        if not (isinstance(params["step"], int)
+                and not isinstance(params["step"], bool)
+                and params["step"] >= 1):
             raise ValueError(f"step must be int >= 1; got {params['step']!r}")
 
         if params["cpd_penalty"] not in self.VALID_CPD:
@@ -153,7 +157,9 @@ class AlignmentStage(PipelineStage):
         if not (isinstance(params["dtw_dist_fn"], str) and params["dtw_dist_fn"]):
             raise ValueError(f"dtw_dist_fn must be non-empty str; got {params['dtw_dist_fn']!r}")
 
-        if not (isinstance(params["n_breakpoints"], int) and params["n_breakpoints"] >= 0):
+        if not (isinstance(params["n_breakpoints"], int)
+                and not isinstance(params["n_breakpoints"], bool)
+                and params["n_breakpoints"] >= 0):
             raise ValueError(f"n_breakpoints must be int >= 0; got {params['n_breakpoints']!r}")
 
     def run(

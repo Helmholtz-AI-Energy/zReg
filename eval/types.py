@@ -41,7 +41,7 @@ tensors to lists; Phase 18 does NOT solve this — only ``StageMetrics``,
 absent) JSON-serialise cleanly.
 """
 
-from typing import Any
+from typing import Any, TypeAlias, Union
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -59,6 +59,7 @@ __all__ = [
     "Trial",
     "SearchResult",
     "EvalReport",
+    "StageResult",  # Phase 19 D-01
 ]
 
 
@@ -307,3 +308,13 @@ class EvalReport(BaseModel):
     per_dataset: dict[str, dict[str, float]]
     plot_paths: list[str] = Field(default_factory=list)
     sanity_flags: list[str] = Field(default_factory=list)
+
+
+StageResult: TypeAlias = Union[AlignResult, LabelResult]
+"""Union of the two stage-output types (Phase 19 D-01).
+
+Used by ``eval.stages.base.PipelineStage.run`` to type the return value uniformly
+across ``AlignmentStage`` (returns ``AlignResult``) and ``LabelTransferStage``
+(returns ``LabelResult``).  A TypeAlias declaration is used here for explicit
+IDE-friendly annotation and to signal intent to static type-checkers (mypy, pyright).
+"""

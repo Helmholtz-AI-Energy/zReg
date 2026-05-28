@@ -45,10 +45,13 @@
   - [x] 17-01-PLAN.md — `eval/config.py` (EvalConfig pydantic BaseModel + EvalConfigError + from_yaml) + setup.cfg pydantic/pyyaml deps + tests/test_data_factory.py TestEvalConfigFromYAML class (FRAME-01)
   - [x] 17-02-PLAN.md — `eval/data_factory.py` (DataFactory class: load_real, generate_synthetic, augment, prepare_split, get_ground_truth) + 6 populated test classes in tests/test_data_factory.py (FRAME-02)
 
-- [ ] **Phase 18: MetricsEngine & Result Types**
+- [ ] **Phase 18: MetricsEngine & Result Types** (1/2 plans)
   **Goal:** Deliver `eval/types.py` (six dataclasses: `AlignResult`, `LabelResult`, `StageMetrics`, `Trial`, `SearchResult`, `EvalReport`) and `eval/metrics.py` (`MetricsEngine` wrapping all existing `zreg.metrics.*` with normalization, aggregation, scoring, and sanity checking).
   **Requirements:** FRAME-03, FRAME-04
   **Depends on:** Phase 17
+  Plans:
+  - [x] 18-01-PLAN.md — `eval/types.py` (6 frozen pydantic result models per FRAME-04) + `tests/test_metrics.py` scaffold (2 populated + 4 stubbed test classes)
+  - [ ] 18-02-PLAN.md — `EvalConfig.metric_weights` extension + `eval/metrics.py` `MetricsEngine` + populate remaining 4 test classes (FRAME-03)
   **Success criteria:**
   1. All six dataclasses importable from `eval.types`
   2. `MetricsEngine.normalize()` maps every metric to [0,1] with correct direction (lower/higher is better)
@@ -161,7 +164,7 @@ Full details: [.planning/milestones/v1.0-ROADMAP.md](.planning/milestones/v1.0-R
 | 15. Experiment Tracking & Run Management | v1.2 | 2/2 | Complete | 2026-05-18 |
 | 16. Runner Scripts | v1.2 | 2/2 | Complete | 2026-05-19 |
 | 17. Framework Config & DataFactory | v1.2 | 2/2 | Complete | 2026-05-27 |
-| 18. MetricsEngine & Result Types | v1.2 | 0/2 | Pending | — |
+| 18. MetricsEngine & Result Types | v1.2 | 1/2 | In Progress | — |
 | 19. AlignmentStage | v1.2 | 0/2 | Pending | — |
 | 20. LabelTransferStage | v1.2 | 0/2 | Pending | — |
 | 21. EvaluationRunner & Visualisation | v1.2 | 0/2 | Pending | — |

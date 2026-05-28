@@ -2,15 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Evaluation Framework & Debt Resolution
-status: in_progress
-stopped_at: Phase 17 complete 2026-05-27
-last_updated: "2026-05-27T12:30:00.000Z"
+status: executing
+stopped_at: Phase 18 Plan 1 of 2 complete — FRAME-04 (eval/types.py: 6 frozen pydantic result models) + tests/test_metrics.py scaffold
+last_updated: "2026-05-28T06:43:53Z"
+last_activity: 2026-05-28 -- Plan 18-01 complete (eval/types.py + tests/test_metrics.py scaffold)
 progress:
-  total_phases: 7
-  completed_phases: 1
-  total_plans: 14
-  completed_plans: 2
-  percent: 14
+  total_phases: 14
+  completed_phases: 13
+  total_plans: 31
+  completed_plans: 30
+  percent: 97
 ---
 
 # Project State
@@ -20,14 +21,14 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Every existing capability works correctly, fails informatively, and is covered by tests.
-**Current focus:** Phase 18 — MetricsEngine & Result Types (next)
+**Current focus:** Phase 18 — MetricsEngine & Result Types
 
 ## Current Position
 
-Phase: 18 — MetricsEngine & Result Types
-Plan: —
-Status: Pending (phase 17 complete 2026-05-27)
-Last activity: 2026-05-27 — Phase 17 executed (FRAME-01: EvalConfig, FRAME-02: DataFactory — 21 tests green, 579 suite green)
+Phase: 18 (MetricsEngine & Result Types) — EXECUTING
+Plan: 2 of 2
+Status: Executing Phase 18 — Plan 18-01 complete (FRAME-04 ✓)
+Last activity: 2026-05-28 -- Plan 18-01 complete (eval/types.py + tests/test_metrics.py scaffold)
 
 ## Phase Overview
 
@@ -109,12 +110,21 @@ Last activity: 2026-05-27 — Phase 17 executed (FRAME-01: EvalConfig, FRAME-02:
 - 579 tests pass after phase 17 (21 new in test_data_factory.py; 558 pre-existing unaffected)
 - CR-01 open: eval/ not pip-discoverable beyond conftest.py sys.path insertion — requires attention before Phase 23 CLI
 
+### Phase 18 Decisions (v1.2)
+
+- [Phase 18-01]: FRAME-04 (result types) closed — `eval/types.py` defines 6 frozen pydantic v2 models (AlignResult, LabelResult, StageMetrics, Trial, SearchResult, EvalReport) with `ConfigDict(frozen=True, arbitrary_types_allowed=True)` per D-02
+- [Phase 18-01]: StageMetrics carries 6 raw float fields per D-03 plus `normalized: dict[str, float] = Field(default_factory=dict)`; canonical short-name key set documented in class docstring per Pitfall 4
+- [Phase 18-01]: Pitfall 1 (shallow frozen — `sm.normalized["x"] = 1.0` silently succeeds) and Pitfall 2 (`model_dump_json()` cannot serialise torch.Tensor) documented in `eval/types.py` module docstring so Plan 18-02 / Phase 21 consumers do not re-discover them
+- [Phase 18-01]: Trial.metrics typed as StageMetrics; SearchResult.history typed as list[Trial] (RESEARCH Q5/Q6 recommendations adopted)
+- [Phase 18-01]: tests/test_metrics.py scaffolded with 6 test classes — TestResultTypesImportable + TestStageMetricsFrozen populated (4 active tests), TestNormalize/TestComputeScore/TestSanityCheck/TestAggregate stubbed with `pytest.skip("populated in Plan 18-02")` so eval.metrics import is deferred and suite remains green
+- [Phase 18-01]: 583 tests pass after Plan 18-01 (+4 active vs Phase 17 baseline 579), 21 skipped (+4 stub placeholders)
+
 ### Open Blockers
 
 None.
 
 ## Session Continuity
 
-Last session: 2026-05-27
-Stopped at: Phase 17 complete — FRAME-01 (EvalConfig) + FRAME-02 (DataFactory), 16/16 verification passed
-Next action: `/gsd-discuss-phase 18` or `/gsd-plan-phase 18`
+Last session: 2026-05-28
+Stopped at: Phase 18 Plan 1 of 2 complete — FRAME-04 (eval/types.py: 6 frozen pydantic result models) + tests/test_metrics.py scaffold
+Next action: `/gsd-execute-phase 18` to continue with Plan 18-02 (MetricsEngine + EvalConfig.metric_weights + populate 4 stubbed test classes)

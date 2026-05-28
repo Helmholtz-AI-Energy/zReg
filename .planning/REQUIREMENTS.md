@@ -35,7 +35,7 @@
 ### Category 7 — MetricsEngine & Result Types
 
 - [ ] **FRAME-03**: `eval/metrics.py` — `MetricsEngine` class wrapping all existing `zreg.metrics.*` functions; adds `normalize(dict) → dict` mapping all scores to [0,1] with correct direction (lower/higher is better); `aggregate(list[StageMetrics]) → dict` returning mean/std/min/max; `compute_score(StageMetrics) → float` weighted scalar; `sanity_check(result) → list[str]` warning list for degenerate inputs
-- [ ] **FRAME-04**: `eval/types.py` — dataclasses: `AlignResult` (aligned_cloud, warp_path, dtw_distance, n_changepoints, params_used); `LabelResult` (transferred_labels, params_used); `StageMetrics` (alignment + label fields + normalized dict); `Trial` (params, score, metrics, tier); `SearchResult` (best_params, best_score, history, tier); `EvalReport` (params, metrics, aggregated_metrics, per_dataset, plot_paths, sanity_flags); `tests/test_metrics.py` covering normalize direction, sanity_check triggers, compute_score output
+- [x] **FRAME-04**: `eval/types.py` — dataclasses: `AlignResult` (aligned_cloud, warp_path, dtw_distance, n_changepoints, params_used); `LabelResult` (transferred_labels, params_used); `StageMetrics` (alignment + label fields + normalized dict); `Trial` (params, score, metrics, tier); `SearchResult` (best_params, best_score, history, tier); `EvalReport` (params, metrics, aggregated_metrics, per_dataset, plot_paths, sanity_flags); `tests/test_metrics.py` covering normalize direction, sanity_check triggers, compute_score output
 
 ### Category 8 — Pipeline Stages
 
@@ -113,7 +113,7 @@
 | FRAME-01 | Phase 17 | Complete | EvalConfig + YAML loading — Validated 2026-05-27 |
 | FRAME-02 | Phase 17 | Complete | DataFactory — Validated 2026-05-27 |
 | FRAME-03 | Phase 18 | Pending | MetricsEngine |
-| FRAME-04 | Phase 18 | Pending | Result types |
+| FRAME-04 | Phase 18 | Complete | Result types (6 frozen pydantic models) — Validated 2026-05-28 |
 | FRAME-05 | Phase 19 | Pending | AlignmentStage |
 | FRAME-06 | Phase 20 | Pending | LabelTransferStage |
 | FRAME-07 | Phase 21 | Pending | EvaluationRunner |

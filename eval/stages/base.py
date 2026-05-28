@@ -1,0 +1,110 @@
+"""PipelineStage abstract base class for evaluation-framework stages.
+
+Defines the contract every concrete stage (AlignmentStage in Phase 19,
+LabelTransferStage in Phase 20) must implement.  The single abstract
+method ``run`` is required; ``validate_params`` is a concrete default
+(no-op) that concrete subclasses override and that ``run`` calls as its
+first line (D-09 — guaranteed guard, callers cannot bypass validation by
+forgetting to call it explicitly).
+"""
+
+from abc import ABC, abstractmethod
+from typing import Any
+
+# zreg.dataset MUST precede any torch import (macOS-ARM libomp SIGABRT;
+# enforced in tests/conftest.py:20-24, eval/data_factory.py:18-35,
+# eval/metrics.py:53-67, eval/types.py:48-53).
+from zreg.dataset import zRegPointCloud
+
+from eval.config import EvalConfig
+from eval.types import StageResult
+
+__all__ = ["PipelineStage"]
+
+
+class PipelineStage(ABC):
+    """Abstract base class for evaluation-framework pipeline stages.
+
+    Subclasses implement a single computation step (alignment or label
+    transfer) over a dataset and produce a typed ``StageResult``.
+
+    Parameters
+    ----------
+    config : EvalConfig
+        Validated evaluation configuration.  Stored as ``self.config``
+        at construction; no I/O is performed.
+    """
+
+    def __init__(self, config: EvalConfig) -> None:
+        """Store the evaluation configuration.
+
+        Parameters
+        ----------
+        config : EvalConfig
+            Validated evaluation configuration.
+        """
+        self.config = config
+
+    @abstractmethod
+    def run(
+        self,
+        dataset: dict[int, zRegPointCloud],
+        params: dict[str, Any],
+    ) -> StageResult:
+        """Execute the stage and return a typed result.
+
+        Parameters
+        ----------
+        dataset : dict[int, zRegPointCloud]
+            Trajectory data keyed by integer frame index.  Mirrors the
+            shape returned by ``DataFactory.load_real()`` and
+            ``DataFactory.generate_synthetic()``.
+        params : dict[str, Any]
+            Hyperparameters for this stage.  Validated by
+            ``validate_params`` before use.
+
+        Returns
+        -------
+        StageResult
+            ``AlignResult`` or ``LabelResult`` depending on the concrete
+            stage implementation.
+
+        Notes
+        -----
+        Concrete subclasses MUST call ``self.validate_params(params)``
+        as the first line of ``run`` (D-09).  This guarantees that
+        validation fires even when the caller does not invoke
+        ``validate_params`` explicitly.
+        """
+        ...
+
+    def validate_params(self, params: dict[str, Any]) -> None:
+        """Validate the hyperparameter dict for this stage.
+
+        Default implementation is a no-op — subclasses that need
+        validation MUST override this method.
+
+        Parameters
+        ----------
+        params : dict[str, Any]
+            Hyperparameter dict to validate.  The default implementation
+            accepts any dict without inspection.
+
+        Returns
+        -------
+        None
+            Returns ``None`` implicitly on success.
+
+        Raises
+        ------
+        ValueError
+            On missing required keys or invalid values.  Raised by
+            concrete subclass implementations (subclass-defined).
+
+        Notes
+        -----
+        Default implementation is a no-op — subclasses that need
+        validation MUST override.  ``run()`` calls this as its first
+        line (D-09) so callers cannot bypass validation.
+        """
+        return None

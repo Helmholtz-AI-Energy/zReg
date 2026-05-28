@@ -215,6 +215,7 @@ class AlignmentStage(PipelineStage):
             distance_metric=params["dtw_dist_fn"],
             cpd_type=params["cpd_penalty"],
             window=params["window_size"],
+            downsample_method=None,  # disable random downsampling — works regardless of color field presence
         ).compute()
 
         n_jumps = self._count_jumps(result.warping_path)

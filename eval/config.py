@@ -74,6 +74,12 @@ class EvalConfig(BaseModel):
         Enable verbose logging (default False).
     val_split : float
         Fraction of frames to hold out as validation set (default 0.2).
+    metric_weights : dict[str, float]
+        Relative weights for ``MetricsEngine.compute_score``.  Auto-rescaled
+        by their sum so values need not sum to 1.0 exactly.  Default weights
+        sum to 1.0; users may override any subset via YAML.  Canonical short-
+        name keys: ``"chamfer"``, ``"hausdorff"``, ``"path_smoothness"``,
+        ``"temporal_stability"``, ``"f1"``, ``"knn_consistency"``.
 
     Notes
     -----
@@ -101,6 +107,16 @@ class EvalConfig(BaseModel):
     save_plots: bool = True
     verbose: bool = False
     val_split: float = 0.2
+    metric_weights: dict[str, float] = Field(
+        default_factory=lambda: {
+            "chamfer": 0.35,
+            "hausdorff": 0.15,
+            "path_smoothness": 0.10,
+            "temporal_stability": 0.10,
+            "f1": 0.20,
+            "knn_consistency": 0.10,
+        }
+    )
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "EvalConfig":

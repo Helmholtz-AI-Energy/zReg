@@ -4,8 +4,8 @@ Defines the contract every concrete stage (AlignmentStage in Phase 19,
 LabelTransferStage in Phase 20) must implement.  The single abstract
 method ``run`` is required; ``validate_params`` is a concrete default
 (no-op) that concrete subclasses override and that ``run`` calls as its
-first line (D-09 — guaranteed guard, callers cannot bypass validation by
-forgetting to call it explicitly).
+first line (D-09 — required by convention (D-09); not mechanically enforced
+by the ABC).
 """
 
 from abc import ABC, abstractmethod
@@ -72,9 +72,8 @@ class PipelineStage(ABC):
         Notes
         -----
         Concrete subclasses MUST call ``self.validate_params(params)``
-        as the first line of ``run`` (D-09).  This guarantees that
-        validation fires even when the caller does not invoke
-        ``validate_params`` explicitly.
+        as the first line of ``run`` (D-09).  This is required by
+        convention (D-09); not mechanically enforced by the ABC.
         """
         ...
 

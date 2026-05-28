@@ -181,10 +181,10 @@ class MetricsEngine:
             ASVS V11 business-logic guard).
         """
         w = self.config.metric_weights
-        total = sum(w.values())
+        norm = metrics.normalized
+        total = sum(w[k] for k in w if k in norm)
         if total == 0:
             raise ValueError("metric_weights sum to zero")
-        norm = metrics.normalized
         return sum(norm[k] * w[k] / total for k in w if k in norm)
 
     def aggregate(
@@ -297,6 +297,8 @@ class MetricsEngine:
             same_flagged = False
             sentinel_flagged = False
             for tensor in label.transferred_labels.values():
+                if tensor.numel() == 0:
+                    continue
                 if not sentinel_flagged and (tensor == -1).all().item():
                     flags.append(
                         "all-sentinel labels: compute_f1 returns 0"

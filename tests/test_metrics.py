@@ -281,9 +281,10 @@ class TestComputeScore:
         # Remove one canonical key to simulate a missing-key scenario.
         partial_norm = {k: v for k, v in full_norm.items() if k != "chamfer"}
         sm_partial = sm.model_copy(update={"normalized": partial_norm})
-        # Must not raise KeyError; returns a valid float.
+        # Must not raise KeyError; score re-normalised over present keys only → [0, 1].
         score = eng.compute_score(sm_partial)
         assert isinstance(score, float)
+        assert 0.0 <= score <= 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -340,9 +341,18 @@ class TestSanityCheck:
         flags = self._engine().sanity_check(label=lr)
         assert any("sentinel" in f for f in flags)
 
+    def test_empty_tensor_not_flagged_as_sentinel(self):
+        """CR-03: empty label tensor must not trigger the all-sentinel flag (vacuous truth)."""
+        lr = LabelResult(
+            transferred_labels={0: torch.tensor([], dtype=torch.long)},
+            params_used={},
+        )
+        flags = self._engine().sanity_check(label=lr)
+        assert not any("sentinel" in f for f in flags)
+
     def test_non_finite_metric_flagged(self):
         """Pitfall 3 case 5: NaN/Inf in a raw StageMetrics field is flagged."""
-        sm = StageMetrics(
+        sm = StageMetrics.model_construct(
             chamfer_distance=float("nan"),
             hausdorff_distance=0.0,
             path_smoothness=0.0,

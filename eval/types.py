@@ -180,10 +180,10 @@ class StageMetrics(BaseModel):
 
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
 
-    chamfer_distance: float
-    hausdorff_distance: float
-    path_smoothness: float
-    temporal_stability: float
+    chamfer_distance: float = Field(ge=0)
+    hausdorff_distance: float = Field(ge=0)
+    path_smoothness: float = Field(ge=0)
+    temporal_stability: float = Field(ge=0)
     f1_score: float
     knn_consistency: float
     normalized: dict[str, float] = Field(default_factory=dict)

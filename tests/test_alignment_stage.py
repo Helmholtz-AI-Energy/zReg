@@ -161,13 +161,13 @@ class TestAlignmentStageValidateParams:
 
 
 class TestAlignmentDistanceImproves:
-    """Gate 2: DTW distance after alignment measurably smaller on >=2 synthetic datasets (FRAME-05 success criterion 2).
+    """Gate 2: DTW distance after alignment does not increase by more than 1e-3 on >=2 synthetic datasets (FRAME-05 success criterion 2).
 
     Uses cpd_penalty='rigid' per Pitfall 3 (all non-None cpd_penalty values behave
     identically due to upstream bug in pairwise_distance_matrix.py:182-194).
     """
 
-    def test_cpd_reduces_dtw_distance_dataset_a(self, synthetic_dataset_a, default_params, eval_config):
+    def test_cpd_does_not_worsen_dtw_distance_dataset_a(self, synthetic_dataset_a, default_params, eval_config):
         """CPD should not increase DTW distance on dataset seed=0 (with 1e-3 tolerance for noise)."""
         stage = AlignmentStage(eval_config)
         params_no_cpd = {**default_params, "cpd_penalty": None}
@@ -181,7 +181,7 @@ class TestAlignmentDistanceImproves:
             f"r_cpd.dtw_distance={r_cpd.dtw_distance} > r_no.dtw_distance={r_no.dtw_distance}"
         )
 
-    def test_cpd_reduces_dtw_distance_dataset_b(self, synthetic_dataset_b, default_params, eval_config):
+    def test_cpd_does_not_worsen_dtw_distance_dataset_b(self, synthetic_dataset_b, default_params, eval_config):
         """CPD should not increase DTW distance on dataset seed=42 (second dataset for gate 2)."""
         stage = AlignmentStage(eval_config)
         params_no_cpd = {**default_params, "cpd_penalty": None}

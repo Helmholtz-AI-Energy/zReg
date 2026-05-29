@@ -89,10 +89,14 @@
   4. `tests/test_label_transfer_stage.py` passes all gate criteria
   5. No reimplementation of color transfer — delegates to `zreg.color_transfer`
 
-- [ ] **Phase 21: EvaluationRunner & Visualisation**
+- [x] **Phase 21: EvaluationRunner & Visualisation** (2/2 plans) — completed 2026-05-29
   **Goal:** Deliver `eval/runners/eval_runner.py` (`EvaluationRunner`) orchestrating DataFactory → stages → MetricsEngine → aggregation → sanity checks → plots → `eval_report.json`, plus `eval/viz.py` with matplotlib Agg backend point-cloud and metric-summary plots.
   **Requirements:** FRAME-07, FRAME-08
   **Depends on:** Phase 20
+  **Plans:** 2 plans
+  Plans:
+  - [x] 21-01-PLAN.md — `eval/runners/__init__.py` + `eval/runners/eval_runner.py` (EvaluationRunner orchestrator) + setup.cfg matplotlib in install_requires + `tests/test_eval_runner.py` (5 FRAME-07 gate test classes)
+  - [x] 21-02-PLAN.md — `eval/viz.py` (plot_point_cloud + plot_metrics_summary, FRAME-08 Agg backend) + wire save_plots branch in EvaluationRunner.run() + `tests/test_viz.py` + TestEvaluationRunnerSavePlots integration class
   **Success criteria:**
   1. `EvaluationRunner.run()` with fixed params produces complete report (JSON + plots) in `output_dir`
   2. `eval_report.json` contains both per-dataset metrics and aggregated overview
@@ -110,6 +114,10 @@
   3. Best params from optimizer improve score vs default params (verified via EvaluationRunner)
   4. `prune_candidates()` demonstrably reduces candidate count between tiers
   5. `tests/test_optimizer.py` passes all gate criteria; Optuna ≥4.0,<5 with TPE sampler
+  **Plans:** 2 plans
+  Plans:
+  - [ ] 22-01-PLAN.md — `optuna` dep + test scaffold (Wave 0) + `eval/search_strategies.py` (GridSearch, RandomSearch, BayesianSearch) + `eval/runners/optimizer.py` (HyperparamOptimizer)
+  - [ ] 22-02-PLAN.md — Populate `tests/test_optimizer.py` with all 5 FRAME-09+10 gate test classes
 
 - [ ] **Phase 23: CLI Entrypoint & Scenario Configs**
   **Goal:** Deliver `run_eval.py` CLI (`--config`, `--mode optimize|eval|full`) and 5 scenario YAML configs in `configs/`; `full` mode chains Optimizer → EvaluationRunner; all 5 configs run end-to-end without errors.
@@ -174,7 +182,7 @@ Full details: [.planning/milestones/v1.0-ROADMAP.md](.planning/milestones/v1.0-R
 | 17. Framework Config & DataFactory | v1.2 | 2/2 | Complete | 2026-05-27 |
 | 18. MetricsEngine & Result Types | v1.2 | 2/2 | Complete | 2026-05-28 |
 | 19. AlignmentStage | v1.2 | 2/2 | Complete | 2026-05-28 |
-| 20. LabelTransferStage | v1.2 | 0/2 | Pending | — |
-| 21. EvaluationRunner & Visualisation | v1.2 | 0/2 | Pending | — |
+| 20. LabelTransferStage | v1.2 | 2/2 | Complete | 2026-05-29 |
+| 21. EvaluationRunner & Visualisation | v1.2 | 2/2 | Complete | 2026-05-29 |
 | 22. HyperparamOptimizer & Search Strategies | v1.2 | 0/2 | Pending | — |
 | 23. CLI Entrypoint & Scenario Configs | v1.2 | 0/2 | Pending | — |

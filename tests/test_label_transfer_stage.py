@@ -293,10 +293,10 @@ class TestRunValidatesFirst:
         with pytest.raises(ValueError, match="Missing required param"):
             stage.run({}, {})
 
-    def test_run_empty_dataset_empty_params_raises_value_error(self, stage):
-        """run({}, {}) raises ValueError before touching the dataset — D-08 ordering."""
-        with pytest.raises(ValueError, match="Missing required param"):
-            stage.run({}, {})
+    def test_run_valid_params_empty_dataset_raises_value_error(self, stage, good_params):
+        """run({}, valid_params) raises ValueError before indexing empty sorted_keys."""
+        with pytest.raises(ValueError):
+            stage.run({}, good_params)
 
     def test_run_invalid_k_neighbours_raises_before_dataset_access(self, stage, good_params):
         """run with k_neighbours=True raises ValueError (not attribute error from dataset)."""

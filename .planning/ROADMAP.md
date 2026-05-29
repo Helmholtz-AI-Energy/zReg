@@ -45,13 +45,13 @@
   - [x] 17-01-PLAN.md — `eval/config.py` (EvalConfig pydantic BaseModel + EvalConfigError + from_yaml) + setup.cfg pydantic/pyyaml deps + tests/test_data_factory.py TestEvalConfigFromYAML class (FRAME-01)
   - [x] 17-02-PLAN.md — `eval/data_factory.py` (DataFactory class: load_real, generate_synthetic, augment, prepare_split, get_ground_truth) + 6 populated test classes in tests/test_data_factory.py (FRAME-02)
 
-- [ ] **Phase 18: MetricsEngine & Result Types** (1/2 plans)
+- [x] **Phase 18: MetricsEngine & Result Types** (2/2 plans) — Complete 2026-05-28
   **Goal:** Deliver `eval/types.py` (six dataclasses: `AlignResult`, `LabelResult`, `StageMetrics`, `Trial`, `SearchResult`, `EvalReport`) and `eval/metrics.py` (`MetricsEngine` wrapping all existing `zreg.metrics.*` with normalization, aggregation, scoring, and sanity checking).
   **Requirements:** FRAME-03, FRAME-04
   **Depends on:** Phase 17
   Plans:
   - [x] 18-01-PLAN.md — `eval/types.py` (6 frozen pydantic result models per FRAME-04) + `tests/test_metrics.py` scaffold (2 populated + 4 stubbed test classes)
-  - [ ] 18-02-PLAN.md — `EvalConfig.metric_weights` extension + `eval/metrics.py` `MetricsEngine` + populate remaining 4 test classes (FRAME-03)
+  - [x] 18-02-PLAN.md — `EvalConfig.metric_weights` extension + `eval/metrics.py` `MetricsEngine` + populate remaining 4 test classes (FRAME-03)
   **Success criteria:**
   1. All six dataclasses importable from `eval.types`
   2. `MetricsEngine.normalize()` maps every metric to [0,1] with correct direction (lower/higher is better)
@@ -59,7 +59,7 @@
   4. `MetricsEngine.compute_score()` returns a scalar in [0,1]
   5. `tests/test_metrics.py` passes all gate criteria on handcrafted fixtures
 
-- [ ] **Phase 19: AlignmentStage**
+- [x] **Phase 19: AlignmentStage** (2/2 plans) — Complete 2026-05-28
   **Goal:** Deliver `eval/stages/base.py` (`PipelineStage` ABC) and `eval/stages/alignment.py` (`AlignmentStage`) wrapping existing DTW + CPD code — standalone-runnable, `validate_params`-gated, with full test coverage.
   **Requirements:** FRAME-05
   **Depends on:** Phase 18
@@ -69,11 +69,19 @@
   3. `validate_params()` raises on missing/invalid params
   4. `tests/test_alignment_stage.py` passes all gate criteria
   5. No reimplementation of DTW or CPD — all calls delegate to `zreg.dtw.*` and `zreg.cpd.*`
+  **Plans:** 2 plans
+  Plans:
+  - [x] 19-01-PLAN.md — `StageResult` TypeAlias in `eval/types.py` + `eval/stages/base.py` (`PipelineStage` ABC) + `eval/stages/__init__.py` + test scaffold (2 populated + 4 stubbed)
+  - [x] 19-02-PLAN.md — `eval/stages/alignment.py` (`AlignmentStage`) + update `eval/stages/__init__.py` + populate 4 test stubs
 
 - [ ] **Phase 20: LabelTransferStage**
   **Goal:** Deliver `eval/stages/label_transfer.py` (`LabelTransferStage`) wrapping existing `color_transfer` code — accepts raw or aligned clouds, standalone-runnable, with tests proving accuracy beats random baseline and correct chaining with `AlignmentStage`.
   **Requirements:** FRAME-06
   **Depends on:** Phase 19
+  **Plans:** 2 plans
+  Plans:
+  - [ ] 20-01-PLAN.md — `eval/stages/label_transfer.py` (`LabelTransferStage`) + update `eval/stages/__init__.py`
+  - [ ] 20-02-PLAN.md — `tests/test_label_transfer_stage.py` (5 test classes covering all FRAME-06 gate criteria)
   **Success criteria:**
   1. `LabelTransferStage.run()` completes without `AlignmentStage` present (raw cloud input)
   2. Label accuracy on synthetic data beats random baseline
@@ -164,8 +172,8 @@ Full details: [.planning/milestones/v1.0-ROADMAP.md](.planning/milestones/v1.0-R
 | 15. Experiment Tracking & Run Management | v1.2 | 2/2 | Complete | 2026-05-18 |
 | 16. Runner Scripts | v1.2 | 2/2 | Complete | 2026-05-19 |
 | 17. Framework Config & DataFactory | v1.2 | 2/2 | Complete | 2026-05-27 |
-| 18. MetricsEngine & Result Types | v1.2 | 1/2 | In Progress | — |
-| 19. AlignmentStage | v1.2 | 0/2 | Pending | — |
+| 18. MetricsEngine & Result Types | v1.2 | 2/2 | Complete | 2026-05-28 |
+| 19. AlignmentStage | v1.2 | 2/2 | Complete | 2026-05-28 |
 | 20. LabelTransferStage | v1.2 | 0/2 | Pending | — |
 | 21. EvaluationRunner & Visualisation | v1.2 | 0/2 | Pending | — |
 | 22. HyperparamOptimizer & Search Strategies | v1.2 | 0/2 | Pending | — |

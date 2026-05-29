@@ -12,7 +12,7 @@ import pytest
 
 # zreg.* before torch — macOS-ARM libomp SIGABRT rule
 from zreg.dataset import zRegPointCloud
-from zreg.generators import generate_trajectory
+from zreg.generators import generate_trajectory, generate_labels
 
 import torch
 
@@ -52,8 +52,13 @@ def good_params() -> dict:
 
 @pytest.fixture
 def synthetic_dataset() -> dict[int, zRegPointCloud]:
-    """3-frame synthetic trajectory with color field for label transfer tests."""
-    return generate_trajectory(n_points=20, n_frames=3, seed=0)
+    """3-frame synthetic trajectory with color labels for label transfer tests.
+
+    generate_labels() populates the 'color' field (torch.long, shape (N,))
+    so transfer_colors KNN_VOTING has valid source_colors to unsqueeze.
+    """
+    traj = generate_trajectory(n_points=20, n_frames=3, seed=0)
+    return generate_labels(traj, n_classes=4, seed=0)
 
 
 # ---------------------------------------------------------------------------

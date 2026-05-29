@@ -200,6 +200,12 @@ class LabelTransferStage(PipelineStage):
 
         for k in range(1, len(sorted_keys)):
             src_frame = dataset[sorted_keys[k - 1]]
+            n_src = src_frame["pos"].shape[0]
+            if params["k_neighbours"] > n_src:
+                raise ValueError(
+                    f"k_neighbours={params['k_neighbours']} exceeds source frame "
+                    f"{sorted_keys[k - 1]} point count ({n_src})"
+                )
             tgt_frame = dataset[sorted_keys[k]]
             transferred[sorted_keys[k]] = transfer_colors(
                 src_frame["pos"],

@@ -164,11 +164,17 @@ class EvaluationRunner:
         result = self._run_single(dataset, self.params)
 
         agg = self.engine.aggregate([result["metrics"]])
+        # per_dataset expects dict[str, dict[str, float]] — inner dict must be
+        # flat metric-name → float mapping.  Extract mean values from agg for
+        # the single-dataset case (aggregate returns {metric: {mean, std, min, max}}).
+        per_dataset_flat: dict[str, float] = {
+            metric: stats["mean"] for metric, stats in agg.items()
+        }
         report = EvalReport(
             params=dict(self.params),
             metrics=result["metrics"],
             aggregated_metrics=agg,
-            per_dataset={"dataset": agg},
+            per_dataset={"dataset": per_dataset_flat},
             plot_paths=[],
             sanity_flags=result["sanity_flags"],
         )

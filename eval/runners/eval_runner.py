@@ -55,6 +55,7 @@ from eval.data_factory import DataFactory
 from eval.metrics import MetricsEngine
 from eval.stages import AlignmentStage, LabelTransferStage
 from eval.types import AlignResult, EvalReport, LabelResult, StageMetrics
+from eval.viz import plot_metrics_summary, plot_point_cloud
 
 __all__ = ["EvaluationRunner"]
 
@@ -147,14 +148,35 @@ class EvaluationRunner:
         -------
         EvalReport
             Populated report with ``params``, ``metrics``, ``aggregated_metrics``,
-            ``per_dataset``, ``plot_paths`` (empty — populated in Plan 21-02),
-            and ``sanity_flags``.
+            ``per_dataset``, ``plot_paths`` (populated when
+            ``config.save_plots=True``), and ``sanity_flags``.
 
         Notes
         -----
-        ``plot_paths`` is always ``[]`` in Plan 21-01.  Plan 21-02 wires
-        ``eval/viz.py`` calls and populates this field when
-        ``config.save_plots=True``.
+        **save_plots branch (D-09, D-12, FRAME-08):**
+        When ``config.save_plots=True``, ``run()`` calls ``plot_point_cloud``
+        and ``plot_metrics_summary`` from ``eval.viz`` after building a
+        preliminary ``EvalReport``.  Because ``EvalReport`` is frozen (Pitfall
+        6), the final report is constructed via
+        ``preliminary_report.model_copy(update={"plot_paths": plot_paths})``
+        rather than re-constructing from scratch.
+
+        Two PDFs are produced when ``save_plots=True``:
+
+        - ``point_cloud.pdf`` — written only when ``run_alignment=True``
+          (requires ``AlignResult`` for 3D scatter; skipped when
+          ``run_alignment=False`` because no ``AlignResult`` is available).
+        - ``metrics_summary.pdf`` — always written when ``save_plots=True``,
+          regardless of which stages ran.
+
+        Both files are written to ``config.output_dir`` alongside
+        ``eval_report.json``.  ``save_report`` is called AFTER ``plot_paths``
+        is finalised so the persisted JSON reflects the final ``plot_paths``
+        list.
+
+        ``D-12``: ``Path(config.output_dir).mkdir(...)`` is the first line of
+        ``run()`` — the viz parent directory is guaranteed to exist when the
+        save_plots branch executes.
         """
         Path(self.config.output_dir).mkdir(parents=True, exist_ok=True)  # D-12
 
@@ -170,7 +192,9 @@ class EvaluationRunner:
         per_dataset_flat: dict[str, float] = {
             metric: stats["mean"] for metric, stats in agg.items()
         }
-        report = EvalReport(
+
+        # Step 1: Build a preliminary report (plot_paths=[]; populated below).
+        preliminary_report = EvalReport(
             params=dict(self.params),
             metrics=result["metrics"],
             aggregated_metrics=agg,
@@ -179,6 +203,23 @@ class EvaluationRunner:
             sanity_flags=result["sanity_flags"],
         )
 
+        # Step 2: Conditionally render plots and collect paths.
+        output_dir_path = Path(self.config.output_dir)
+        plot_paths: list[str] = []
+        if self.config.save_plots:
+            if result["align"] is not None:
+                pc_path = output_dir_path / "point_cloud.pdf"
+                plot_point_cloud(result["align"], pc_path)
+                plot_paths.append(str(pc_path))
+            summary_path = output_dir_path / "metrics_summary.pdf"
+            plot_metrics_summary(preliminary_report, summary_path)
+            plot_paths.append(str(summary_path))
+
+        # Step 3: Build the final frozen report with the resolved plot_paths list.
+        # EvalReport is frozen (Pitfall 6) — must use model_copy to update.
+        report = preliminary_report.model_copy(update={"plot_paths": plot_paths})
+
+        # Step 4: Persist JSON and return.
         self.save_report(report, self.config.output_dir)
         return report
 

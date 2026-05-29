@@ -9,5 +9,6 @@ Phase 19 ships ``PipelineStage`` (this package's ABC) and
 
 from .base import PipelineStage
 from .alignment import AlignmentStage
+from .label_transfer import LabelTransferStage
 
-__all__ = ["PipelineStage", "AlignmentStage"]
+__all__ = ["PipelineStage", "AlignmentStage", "LabelTransferStage"]

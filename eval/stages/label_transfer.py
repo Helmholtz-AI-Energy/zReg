@@ -191,6 +191,9 @@ class LabelTransferStage(PipelineStage):
         """
         self.validate_params(params)
 
+        if not dataset:
+            raise ValueError("dataset must be non-empty; got 0 frames")
+
         sorted_keys = sorted(dataset.keys())
         transferred: dict[int, torch.Tensor] = {}
         transferred[sorted_keys[0]] = dataset[sorted_keys[0]]["color"]  # D-02 pass-through

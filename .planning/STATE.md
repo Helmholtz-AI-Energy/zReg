@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Evaluation Framework & Debt Resolution
 status: executing
-stopped_at: Phase 19 context gathered — StageResult type, n_changepoints heuristic, validate_params contract, eval/stages/ package structure decided
-last_updated: "2026-05-28T00:00:00Z"
-last_activity: 2026-05-28 -- Phase 19 context captured (19-CONTEXT.md)
+stopped_at: Phase 22 context gathered — HyperparamOptimizer & Search Strategies; ready for planning
+last_updated: "2026-05-29T11:00:00Z"
+last_activity: 2026-05-29 -- Phase 22 context captured (4 areas: tier flow, search space format, objective weight, Optuna lifecycle)
 progress:
   total_phases: 14
-  completed_phases: 14
-  total_plans: 31
-  completed_plans: 31
-  percent: 100
+  completed_phases: 16
+  total_plans: 35
+  completed_plans: 35
+  percent: 97
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Every existing capability works correctly, fails informatively, and is covered by tests.
-**Current focus:** Phase 19 — AlignmentStage
+**Current focus:** Phase 22 — HyperparamOptimizer & Search Strategies (ready to plan)
 
 ## Current Position
 
-Phase: 19 (AlignmentStage) — CONTEXT READY
-Plan: 0 of 2
-Status: Context gathered — ready for planning
-Last activity: 2026-05-28 -- Phase 19 context captured (19-CONTEXT.md)
+Phase: 21 (EvaluationRunner & Visualisation) — COMPLETE
+Plan: 2 of 2 (2 executed)
+Status: Phase 21 complete — FRAME-07 + FRAME-08 closed; 718 tests pass (+28 vs Phase 20)
+Last activity: 2026-05-29 -- Phase 21 complete (2/2 plans, 18/18 must-haves verified, verification passed)
 
 ## Phase Overview
 
@@ -36,10 +36,10 @@ Last activity: 2026-05-28 -- Phase 19 context captured (19-CONTEXT.md)
 |-------|------|--------------|--------|
 | 16 | Runner Scripts | EVAL-05 | Complete 2026-05-19 |
 | 17 | Framework Config & DataFactory | FRAME-01, FRAME-02 | Complete 2026-05-27 |
-| 18 | MetricsEngine & Result Types | FRAME-03, FRAME-04 | Pending |
-| 19 | AlignmentStage | FRAME-05 | Pending |
-| 20 | LabelTransferStage | FRAME-06 | Pending |
-| 21 | EvaluationRunner & Visualisation | FRAME-07, FRAME-08 | Pending |
+| 18 | MetricsEngine & Result Types | FRAME-03, FRAME-04 | Complete 2026-05-28 |
+| 19 | AlignmentStage | FRAME-05 | Complete 2026-05-28 |
+| 20 | LabelTransferStage | FRAME-06 | Complete 2026-05-29 |
+| 21 | EvaluationRunner & Visualisation | FRAME-07, FRAME-08 | Complete 2026-05-29 |
 | 22 | HyperparamOptimizer & Search Strategies | FRAME-09, FRAME-10 | Pending |
 | 23 | CLI Entrypoint & Scenario Configs | FRAME-11, FRAME-12 | Pending |
 
@@ -118,6 +118,43 @@ Last activity: 2026-05-28 -- Phase 19 context captured (19-CONTEXT.md)
 - [Phase 18-01]: Trial.metrics typed as StageMetrics; SearchResult.history typed as list[Trial] (RESEARCH Q5/Q6 recommendations adopted)
 - [Phase 18-01]: tests/test_metrics.py scaffolded with 6 test classes — TestResultTypesImportable + TestStageMetricsFrozen populated (4 active tests), TestNormalize/TestComputeScore/TestSanityCheck/TestAggregate stubbed with `pytest.skip("populated in Plan 18-02")` so eval.metrics import is deferred and suite remains green
 - [Phase 18-01]: 583 tests pass after Plan 18-01 (+4 active vs Phase 17 baseline 579), 21 skipped (+4 stub placeholders)
+- [Phase 18 gap closure]: CR-01: Field(ge=0) added to StageMetrics lower-is-better fields; CR-02: compute_score() normalises over present keys only; CR-03: empty tensor guard before all-sentinel check
+
+### Phase 19 Decisions (v1.2)
+
+- FRAME-05 closed: `eval/stages/base.py` — PipelineStage ABC with @abstractmethod run() and concrete no-op validate_params(); `eval/stages/__init__.py` — regular package exporting PipelineStage + AlignmentStage; `eval/stages/alignment.py` — AlignmentStage delegates entirely to DynamicTimeWarping(...).compute()
+- StageResult TypeAlias (D-01): `StageResult: TypeAlias = Union[AlignResult, LabelResult]` added to eval/types.py; in __all__
+- eval/stages/ is a regular package (not namespace dir) — required for `from eval.stages import PipelineStage` to work (D-11)
+- D-09: run() calls validate_params() as first line; confirmed via test_run_calls_validate_first (empty params raises ValueError not KeyError)
+- D-04/D-05: _count_jumps staticmethod counts diagonal-to-non-diagonal transitions; n_breakpoints cap applied in run(), not in _count_jumps
+- Pydantic v2 validates typed dicts into new objects — `aligned_cloud is dataset` identity test replaced with `==` equality (shallow dict comparison); pass-through documented in run() docstring
+- DynamicTimeWarping called with `downsample_method=None` to avoid crash on `color=None` in generate_trajectory fixtures (pre-existing upstreamissue in pairwise_distance_matrix.py — out of scope for Phase 19)
+- Known upstream limitation documented in alignment.py module docstring: pairwise_distance_matrix.py:182-194 hardcodes RigidCPD whenever cpd_type is not None; cpd_penalty string is a binary toggle, not a dispatcher
+- 628 tests pass after Phase 19 (24 new in test_alignment_stage.py; 604 pre-existing unaffected)
+- WR-01 open (CR): bool subclass of int allows window_size=True/False — fix: add `not isinstance(x, bool)` guards in validate_params
+- WR-02 open (CR): aligned_cloud=dataset stores caller's dict by reference; shallow frozen hazard not documented on AlignResult field
+
+### Phase 20 Decisions (v1.2)
+
+- FRAME-06 closed: `eval/stages/label_transfer.py` — LabelTransferStage(PipelineStage) with KNN_VOTING delegation, 4-param validation + bool exclusion guards, frame-0 pass-through (D-02), source_colors.unsqueeze(-1) / [:, 0] squeeze (D-12)
+- `eval/stages/__init__.py` — __all__ extended to ["PipelineStage", "AlignmentStage", "LabelTransferStage"]
+- 5 FRAME-06 gate test classes: TestLabelTransferStageRunStandalone, TestLabelTransferStageLabelAccuracy, TestLabelTransferStageChainedRun, TestLabelTransferStageValidateParams, TestLabelTransferStageOutputShape — all passing
+- D-09 fixture pattern: 1-frame generate_labels + add_gaussian_noise for frame 1 (not 2-frame generate_labels — avoids independent RNG pitfall)
+- compute_f1(y_true, y_pred) positional order enforced in test: ground_truth_labels first (Pitfall 5 from RESEARCH.md)
+- Manual AlignResult construction for chained-run test (D-11) — no DTW end-to-end needed
+- 690 tests pass after Phase 20 (17 new in Plan 20-02; 673 pre-existing unaffected); 17 skipped
+
+### Phase 21 Decisions (v1.2)
+
+- FRAME-07 closed: `eval/runners/eval_runner.py` — EvaluationRunner orchestrates DataFactory → AlignmentStage → LabelTransferStage → MetricsEngine → EvalReport; D-06 fail-fast guard, D-12 mkdir-first, D-10 model_dump+json.dump, transforms=[] for compute_stage_metrics
+- FRAME-08 closed: `eval/viz.py` — plot_point_cloud (3D scatter, ≤4 frames, AlignResult-only) + plot_metrics_summary (6 horizontal bars, [0,1] x-axis); all figure code inside matplotlib.rc_context({"backend":"Agg"}); plt.close(fig) after every savefig
+- Ground truth in tests: dataset[k]["color"] (torch.long, populated by generate_labels) — id=None in generate_trajectory output
+- per_dataset: flat metric→mean-float dict extracted from aggregate() output, not nested agg itself
+- preliminary_report + model_copy(update={"plot_paths": ...}) pattern to mutate frozen EvalReport (Pitfall 6)
+- point_cloud.pdf only when run_alignment=True (align result available); metrics_summary.pdf always when save_plots=True
+- WR-01 open (CR): matplotlib.rc_context backend Agg leaks permanently — interactive callers get broken display after calling viz functions
+- WR-05 open (CR): eval/ excluded from --cov in setup.cfg; coverage of eval/runners/ and eval/viz.py is untracked
+- 718 tests pass after Phase 21 (+28 vs Phase 20 baseline 690); 17 skipped unchanged
 
 ### Open Blockers
 
@@ -125,6 +162,7 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-05-28
-Stopped at: Phase 19 context gathered — 4 gray areas discussed (StageResult type, n_changepoints heuristic, validate_params contract, eval/stages/ structure)
-Next action: `/gsd-plan-phase 19` to create the phase plan
+Last session: 2026-05-29
+Stopped at: Phase 22 context gathered — 4 areas discussed, CONTEXT.md written
+Resume file: .planning/phases/22-hyperparam-optimizer-search-strategies/22-CONTEXT.md
+Next action: `/gsd-plan-phase 22` — HyperparamOptimizer & Search Strategies (FRAME-09, FRAME-10)

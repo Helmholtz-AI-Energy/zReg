@@ -433,3 +433,115 @@ class TestEvaluationRunnerConditionalStages:
                 ),
                 {},
             )
+
+
+# ---------------------------------------------------------------------------
+# TestEvaluationRunnerSavePlots — FRAME-07 plot-path integration
+# ---------------------------------------------------------------------------
+
+
+class TestEvaluationRunnerSavePlots:
+    """FRAME-07 plot-path integration: save_plots=True populates report.plot_paths."""
+
+    @patch("eval.runners.eval_runner.DataFactory")
+    def test_save_plots_true_populates_plot_paths(
+        self,
+        mock_factory_cls,
+        eval_config,
+        full_params,
+        synthetic_dataset,
+    ) -> None:
+        """save_plots=True (default): report.plot_paths has at least 2 entries."""
+        mock_factory = mock_factory_cls.return_value
+        mock_factory.load_real.return_value = synthetic_dataset
+        mock_factory.get_ground_truth.return_value = {
+            k: synthetic_dataset[k]["color"] for k in synthetic_dataset
+        }
+        runner = EvaluationRunner(eval_config, full_params)
+        report = runner.run()
+        assert len(report.plot_paths) >= 2
+
+    @patch("eval.runners.eval_runner.DataFactory")
+    def test_save_plots_true_creates_point_cloud_pdf(
+        self,
+        mock_factory_cls,
+        eval_config,
+        full_params,
+        synthetic_dataset,
+    ) -> None:
+        """save_plots=True with run_alignment=True: point_cloud.pdf exists on disk."""
+        mock_factory = mock_factory_cls.return_value
+        mock_factory.load_real.return_value = synthetic_dataset
+        mock_factory.get_ground_truth.return_value = {
+            k: synthetic_dataset[k]["color"] for k in synthetic_dataset
+        }
+        runner = EvaluationRunner(eval_config, full_params)
+        runner.run()
+        assert (Path(eval_config.output_dir) / "point_cloud.pdf").exists()
+
+    @patch("eval.runners.eval_runner.DataFactory")
+    def test_save_plots_true_creates_metrics_summary_pdf(
+        self,
+        mock_factory_cls,
+        eval_config,
+        full_params,
+        synthetic_dataset,
+    ) -> None:
+        """save_plots=True: metrics_summary.pdf exists on disk."""
+        mock_factory = mock_factory_cls.return_value
+        mock_factory.load_real.return_value = synthetic_dataset
+        mock_factory.get_ground_truth.return_value = {
+            k: synthetic_dataset[k]["color"] for k in synthetic_dataset
+        }
+        runner = EvaluationRunner(eval_config, full_params)
+        runner.run()
+        assert (Path(eval_config.output_dir) / "metrics_summary.pdf").exists()
+
+    @patch("eval.runners.eval_runner.DataFactory")
+    def test_save_plots_false_leaves_plot_paths_empty(
+        self,
+        mock_factory_cls,
+        tmp_path,
+        full_params,
+        synthetic_dataset,
+    ) -> None:
+        """save_plots=False: report.plot_paths == []."""
+        eval_config_no_plots = EvalConfig(
+            data_path=str(tmp_path / "x"),
+            output_dir=str(tmp_path / "out"),
+            save_plots=False,
+        )
+        mock_factory = mock_factory_cls.return_value
+        mock_factory.load_real.return_value = synthetic_dataset
+        mock_factory.get_ground_truth.return_value = {
+            k: synthetic_dataset[k]["color"] for k in synthetic_dataset
+        }
+        runner = EvaluationRunner(eval_config_no_plots, full_params)
+        report = runner.run()
+        assert report.plot_paths == []
+
+    @patch("eval.runners.eval_runner.DataFactory")
+    def test_run_alignment_false_omits_point_cloud_pdf(
+        self,
+        mock_factory_cls,
+        tmp_path,
+        full_params,
+        synthetic_dataset,
+    ) -> None:
+        """run_alignment=False: point_cloud.pdf absent; metrics_summary.pdf present."""
+        eval_config_no_align = EvalConfig(
+            data_path=str(tmp_path / "x"),
+            output_dir=str(tmp_path / "out"),
+            run_alignment=False,
+            run_label_transfer=True,
+            save_plots=True,
+        )
+        mock_factory = mock_factory_cls.return_value
+        mock_factory.load_real.return_value = synthetic_dataset
+        mock_factory.get_ground_truth.return_value = {
+            k: synthetic_dataset[k]["color"] for k in synthetic_dataset
+        }
+        runner = EvaluationRunner(eval_config_no_align, full_params)
+        report = runner.run()
+        assert not any("point_cloud.pdf" in p for p in report.plot_paths)
+        assert any("metrics_summary.pdf" in p for p in report.plot_paths)

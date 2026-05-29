@@ -13,13 +13,15 @@ import pytest
 # zreg.* before torch — macOS-ARM libomp SIGABRT rule
 from zreg.dataset import zRegPointCloud
 from zreg.generators import generate_trajectory, generate_labels
+from zreg.generators import add_gaussian_noise
+from zreg.metrics.label_transfer import compute_f1
 
 import torch
 
 from eval.config import EvalConfig
 from eval.stages import LabelTransferStage, PipelineStage
 from eval.stages.label_transfer import LabelTransferStage as LabelTransferStageDirect
-from eval.types import LabelResult
+from eval.types import LabelResult, AlignResult
 
 
 # ---------------------------------------------------------------------------
@@ -359,12 +361,6 @@ class TestRunOutput:
 # ---------------------------------------------------------------------------
 # FRAME-06 Gate classes — Plan 20-02
 # ---------------------------------------------------------------------------
-
-# Additional imports needed for the 5 FRAME-06 gate classes below
-from zreg.generators import add_gaussian_noise  # noqa: E402
-from zreg.metrics.label_transfer import compute_f1  # noqa: E402
-from eval.types import AlignResult  # noqa: E402
-
 
 # ---------------------------------------------------------------------------
 # TestLabelTransferStageRunStandalone — FRAME-06 Gate 1

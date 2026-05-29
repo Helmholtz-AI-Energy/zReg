@@ -354,3 +354,189 @@ class TestRunOutput:
         params = {**good_params, "k_neighbours": 1}
         result = stage.run(synthetic_dataset, params)
         assert isinstance(result, LabelResult)
+
+
+# ---------------------------------------------------------------------------
+# FRAME-06 Gate classes — Plan 20-02
+# ---------------------------------------------------------------------------
+
+# Additional imports needed for the 5 FRAME-06 gate classes below
+from zreg.generators import add_gaussian_noise  # noqa: E402
+from zreg.metrics.label_transfer import compute_f1  # noqa: E402
+from eval.types import AlignResult  # noqa: E402
+
+
+# ---------------------------------------------------------------------------
+# TestLabelTransferStageRunStandalone — FRAME-06 Gate 1
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def synthetic_dataset_d09() -> dict[int, zRegPointCloud]:
+    """2-frame dataset: labeled frame 0 + noisy frame 1 per D-09."""
+    seed_traj = generate_trajectory(n_points=50, n_frames=1, seed=0)
+    labeled_traj = generate_labels(seed_traj, n_classes=3, seed=0)
+    noisy_frame = add_gaussian_noise(labeled_traj, sigma=0.01, seed=1)[0]
+    return {0: labeled_traj[0], 1: noisy_frame}
+
+
+@pytest.fixture
+def default_params_lts() -> dict:
+    """Valid hyperparams that pass LabelTransferStage.validate_params."""
+    return {
+        "k_neighbours": 5,
+        "dist_metric": "euclidean",
+        "smoothing": 0.0,
+        "threshold": 0.0,
+    }
+
+
+class TestLabelTransferStageRunStandalone:
+    """Gate 1: LabelTransferStage.run() completes without AlignmentStage present (FRAME-06)."""
+
+    def test_run_returns_label_result(
+        self, synthetic_dataset_d09, default_params_lts, eval_config
+    ) -> None:
+        """run() returns LabelResult; keys match dataset; params_used is a shallow copy."""
+        stage = LabelTransferStage(eval_config)
+        result = stage.run(synthetic_dataset_d09, default_params_lts)
+        assert isinstance(result, LabelResult)
+        assert set(result.transferred_labels.keys()) == set(synthetic_dataset_d09.keys())
+        assert result.params_used == default_params_lts
+        assert result.params_used is not default_params_lts  # shallow copy — Pitfall 7
+
+
+# ---------------------------------------------------------------------------
+# TestLabelTransferStageLabelAccuracy — FRAME-06 Gate 2
+# ---------------------------------------------------------------------------
+
+
+class TestLabelTransferStageLabelAccuracy:
+    """Gate 2: transferred labels beat random baseline F1 (FRAME-06)."""
+
+    def test_label_accuracy_beats_random(self, eval_config) -> None:
+        """compute_f1(transferred) > compute_f1(shuffled) on D-09 fixture."""
+        # D-09: 1-frame generate then manual frame 1
+        seed_traj = generate_trajectory(n_points=50, n_frames=1, seed=0)
+        labeled_traj = generate_labels(seed_traj, n_classes=3, seed=0)
+        ground_truth_labels = labeled_traj[0]["color"]  # shape (50,), torch.long
+        noisy_frame = add_gaussian_noise(labeled_traj, sigma=0.01, seed=1)[0]
+        dataset = {0: labeled_traj[0], 1: noisy_frame}
+
+        stage = LabelTransferStage(eval_config)
+        result = stage.run(
+            dataset,
+            {"k_neighbours": 5, "dist_metric": "euclidean", "smoothing": 0.0, "threshold": 0.0},
+        )
+
+        # D-10: random baseline = shuffled ground truth (same class distribution)
+        torch.manual_seed(0)
+        shuffled = ground_truth_labels[torch.randperm(len(ground_truth_labels))]
+        # CRITICAL: compute_f1(y_true, y_pred) — ground_truth_labels FIRST (Pitfall 5)
+        f1_transferred = compute_f1(ground_truth_labels, result.transferred_labels[1])
+        f1_random = compute_f1(ground_truth_labels, shuffled)
+        assert f1_transferred > f1_random, (
+            f"Expected F1(transferred)={f1_transferred:.4f} > F1(random)={f1_random:.4f}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# TestLabelTransferStageChainedRun — FRAME-06 Gate 3
+# ---------------------------------------------------------------------------
+
+
+class TestLabelTransferStageChainedRun:
+    """Gate 3: stage accepts AlignResult.aligned_cloud as input (FRAME-06)."""
+
+    def test_accepts_align_result_aligned_cloud(
+        self, synthetic_dataset_d09, default_params_lts, eval_config
+    ) -> None:
+        """D-11: construct AlignResult manually — no DTW end-to-end needed."""
+        align_result = AlignResult(
+            aligned_cloud=synthetic_dataset_d09,
+            warp_path=[(0, 0), (1, 1)],
+            dtw_distance=0.0,
+            n_changepoints=0,
+            params_used={
+                "window_size": 10,
+                "step": 1,
+                "cpd_penalty": None,
+                "dtw_dist_fn": "euclidean",
+                "n_breakpoints": 5,
+            },
+        )
+        stage = LabelTransferStage(eval_config)
+        result = stage.run(align_result.aligned_cloud, default_params_lts)
+        assert isinstance(result, LabelResult)
+        assert set(result.transferred_labels.keys()) == set(synthetic_dataset_d09.keys())
+
+
+# ---------------------------------------------------------------------------
+# TestLabelTransferStageValidateParams — FRAME-06 Gate 4
+# ---------------------------------------------------------------------------
+
+
+class TestLabelTransferStageValidateParams:
+    """Gate 4: validate_params raises on missing/invalid params (D-07, D-08)."""
+
+    @pytest.mark.parametrize("missing_key", LabelTransferStage.REQUIRED_PARAMS)
+    def test_missing_param_raises(self, missing_key, default_params_lts, eval_config) -> None:
+        """Each of the 4 required keys raises ValueError when absent."""
+        partial = {k: v for k, v in default_params_lts.items() if k != missing_key}
+        stage = LabelTransferStage(eval_config)
+        dataset = {0: generate_trajectory(n_points=5, n_frames=1, seed=0)[0]}
+        with pytest.raises(ValueError, match=f"Missing required param: {missing_key}"):
+            stage.run(dataset, partial)
+
+    def test_run_calls_validate_first(self, eval_config) -> None:
+        """D-08: run() calls validate_params before computation so empty params raises ValueError not KeyError."""
+        stage = LabelTransferStage(eval_config)
+        with pytest.raises(ValueError, match="Missing required param"):
+            stage.run({}, {})
+
+    @pytest.mark.parametrize(
+        "key,bad_value,match_str",
+        [
+            ("k_neighbours", 0, "k_neighbours must be int >= 1"),
+            ("k_neighbours", -1, "k_neighbours must be int >= 1"),
+            ("k_neighbours", True, "k_neighbours must be int >= 1"),
+            ("dist_metric", "", "dist_metric must be non-empty"),
+            ("smoothing", -1.0, "smoothing must be float >= 0.0"),
+            ("smoothing", True, "smoothing must be float >= 0.0"),
+            ("threshold", -1.0, "threshold must be float >= 0.0"),
+            ("threshold", True, "threshold must be float >= 0.0"),
+        ],
+    )
+    def test_invalid_value_raises(
+        self, key, bad_value, match_str, default_params_lts, eval_config
+    ) -> None:
+        """D-08: invalid values for each param raise descriptive ValueError."""
+        params = {**default_params_lts, key: bad_value}
+        stage = LabelTransferStage(eval_config)
+        with pytest.raises(ValueError, match=match_str):
+            stage.validate_params(params)
+
+
+# ---------------------------------------------------------------------------
+# TestLabelTransferStageOutputShape — FRAME-06 Gate 5
+# ---------------------------------------------------------------------------
+
+
+class TestLabelTransferStageOutputShape:
+    """Gate 5: transferred_labels are 1D torch.long tensors — no reimplementation (FRAME-06)."""
+
+    def test_transferred_labels_are_1d_long(
+        self, synthetic_dataset_d09, default_params_lts, eval_config
+    ) -> None:
+        """All transferred_labels values are 1D torch.long tensors of shape (N_points,)."""
+        stage = LabelTransferStage(eval_config)
+        result = stage.run(synthetic_dataset_d09, default_params_lts)
+        for key, tensor in result.transferred_labels.items():
+            assert tensor.ndim == 1, f"Frame {key}: expected 1D tensor, got {tensor.ndim}D"
+            assert tensor.dtype == torch.long, (
+                f"Frame {key}: expected torch.long, got {tensor.dtype}"
+            )
+            assert tensor.shape[0] == synthetic_dataset_d09[key]["pos"].shape[0], (
+                f"Frame {key}: point count mismatch — "
+                f"expected {synthetic_dataset_d09[key]['pos'].shape[0]}, got {tensor.shape[0]}"
+            )

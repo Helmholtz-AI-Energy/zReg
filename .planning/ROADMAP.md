@@ -74,14 +74,14 @@
   - [x] 19-01-PLAN.md — `StageResult` TypeAlias in `eval/types.py` + `eval/stages/base.py` (`PipelineStage` ABC) + `eval/stages/__init__.py` + test scaffold (2 populated + 4 stubbed)
   - [x] 19-02-PLAN.md — `eval/stages/alignment.py` (`AlignmentStage`) + update `eval/stages/__init__.py` + populate 4 test stubs
 
-- [ ] **Phase 20: LabelTransferStage**
+- [x] **Phase 20: LabelTransferStage** (2/2 plans) — completed 2026-05-29
   **Goal:** Deliver `eval/stages/label_transfer.py` (`LabelTransferStage`) wrapping existing `color_transfer` code — accepts raw or aligned clouds, standalone-runnable, with tests proving accuracy beats random baseline and correct chaining with `AlignmentStage`.
   **Requirements:** FRAME-06
   **Depends on:** Phase 19
   **Plans:** 2 plans
   Plans:
-  - [ ] 20-01-PLAN.md — `eval/stages/label_transfer.py` (`LabelTransferStage`) + update `eval/stages/__init__.py`
-  - [ ] 20-02-PLAN.md — `tests/test_label_transfer_stage.py` (5 test classes covering all FRAME-06 gate criteria)
+  - [x] 20-01-PLAN.md — `eval/stages/label_transfer.py` (`LabelTransferStage`) + update `eval/stages/__init__.py`
+  - [x] 20-02-PLAN.md — `tests/test_label_transfer_stage.py` (5 test classes covering all FRAME-06 gate criteria)
   **Success criteria:**
   1. `LabelTransferStage.run()` completes without `AlignmentStage` present (raw cloud input)
   2. Label accuracy on synthetic data beats random baseline

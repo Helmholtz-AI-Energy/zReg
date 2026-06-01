@@ -1,0 +1,7 @@
+data_path: data/external/sample/kobitski_data/12_11_15_embryo_ew_06_Cleaned_BackTracked_Oriented.tracklets
+data_format: tracklets
+tier: sanity
+n_trials: 3
+n_synthetic: 20
+run_alignment: false
+run_label_transfer: true

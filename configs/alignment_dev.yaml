@@ -5,3 +5,9 @@ n_trials: 10
 n_synthetic: 50
 run_alignment: true
 run_label_transfer: false
+default_params:
+  window_size: 10
+  step: 1
+  cpd_penalty: null
+  dtw_dist_fn: euclidean
+  n_breakpoints: 5

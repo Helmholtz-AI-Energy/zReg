@@ -99,6 +99,7 @@ class EvalConfig(BaseModel):
     augmentation_params: dict = Field(default_factory=dict)
     run_alignment: bool = True
     run_label_transfer: bool = True
+    default_params: dict = Field(default_factory=dict)
     search_space: dict = Field(default_factory=dict)
     search_strategy: str = "grid"
     tier: str = "sanity"

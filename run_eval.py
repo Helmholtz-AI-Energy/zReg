@@ -103,12 +103,12 @@ def _write_run_config(config_path: str, output_dir: str) -> None:
     shutil.copy(config_path, dst)
 
 
-def _load_best_params(output_dir: str) -> dict:
+def _load_best_params(output_dir: str, fallback: dict | None = None) -> dict:
     """Load best_params.json from output_dir if it exists (D-01).
 
     Returns the flat dict written by ``HyperparamOptimizer.save_best_params``,
-    or an empty dict when the file is absent (EvalConfig defaults apply
-    downstream).  Logs which source was used at INFO level (D-02).
+    or ``fallback`` (defaults to ``{}``) when the file is absent.  Logs which
+    source was used at INFO level (D-02).
     """
     path = Path(output_dir) / "best_params.json"
     if path.exists():
@@ -117,7 +117,7 @@ def _load_best_params(output_dir: str) -> dict:
         log.info("Loaded optimized params from %s", path)
         return params
     log.info("No best_params.json found — using config defaults")
-    return {}
+    return fallback if fallback is not None else {}
 
 
 # ---------------------------------------------------------------------------
@@ -171,7 +171,7 @@ def main(argv=None) -> int:
     if args.mode == "optimize":
         HyperparamOptimizer(config).run()
     elif args.mode == "eval":
-        params = _load_best_params(config.output_dir)
+        params = _load_best_params(config.output_dir, fallback=config.default_params)
         EvaluationRunner(config, params).run()
     elif args.mode == "full":
         # Pitfall 5: optimizer writes best_params.json; read it AFTER

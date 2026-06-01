@@ -5,3 +5,8 @@ n_trials: 3
 n_synthetic: 20
 run_alignment: false
 run_label_transfer: true
+default_params:
+  k_neighbours: 5
+  dist_metric: euclidean
+  smoothing: 0.0
+  threshold: 0.0

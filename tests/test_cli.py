@@ -247,12 +247,44 @@ class TestCLIParamSource:
         )
 
 
+_REPO_ROOT = Path(__file__).parent.parent
+
+# D-04 scenario differentiation table: (filename, tier, n_trials, n_synthetic, run_alignment, run_label_transfer)
+_SCENARIO_TABLE = [
+    ("alignment_sanity.yaml", "sanity", 3, 20, True, False),
+    ("alignment_dev.yaml", "dev", 10, 50, True, False),
+    ("label_transfer_sanity.yaml", "sanity", 3, 20, False, True),
+    ("label_transfer_dev.yaml", "dev", 10, 50, False, True),
+    ("combined_full.yaml", "full", 20, 100, True, True),
+]
+
+_SCENARIO_IDS = [row[0].replace(".yaml", "") for row in _SCENARIO_TABLE]
+
+
 class TestScenarioConfigs:
-    """FRAME-12: all 5 scenario YAML configs load without EvalConfigError.
+    """FRAME-12: all 5 scenario YAML configs load without EvalConfigError."""
 
-    Populated by Plan 02 Task 2 — placeholder below keeps the test suite
-    collection count stable during Plan 01 execution.
-    """
+    @pytest.mark.parametrize("scenario", _SCENARIO_TABLE, ids=_SCENARIO_IDS)
+    def test_config_loads_without_error(self, scenario) -> None:
+        """Each scenario YAML loads via EvalConfig.from_yaml without raising EvalConfigError.
 
-    def test_placeholder(self):
-        pytest.skip("populated in Plan 02 (FRAME-12)")
+        Also asserts cfg.data_path ends with the kobitski tracklets filename (D-03).
+        """
+        filename = scenario[0]
+        cfg = EvalConfig.from_yaml(_REPO_ROOT / "configs" / filename)
+        assert isinstance(cfg, EvalConfig)
+        assert cfg.data_path.endswith(
+            "12_11_15_embryo_ew_06_Cleaned_BackTracked_Oriented.tracklets"
+        )
+
+    @pytest.mark.parametrize("scenario", _SCENARIO_TABLE, ids=_SCENARIO_IDS)
+    def test_config_has_d04_values(self, scenario) -> None:
+        """Each scenario config has exactly the D-04 tier/stage-flag/trial/synthetic values."""
+        filename, expected_tier, expected_n_trials, expected_n_synthetic, expected_run_alignment, expected_run_label_transfer = scenario
+        cfg = EvalConfig.from_yaml(_REPO_ROOT / "configs" / filename)
+        assert cfg.tier == expected_tier
+        assert cfg.n_trials == expected_n_trials
+        assert cfg.n_synthetic == expected_n_synthetic
+        assert cfg.run_alignment is expected_run_alignment
+        assert cfg.run_label_transfer is expected_run_label_transfer
+        assert cfg.data_format == "tracklets"

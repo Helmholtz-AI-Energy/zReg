@@ -195,8 +195,14 @@ class LabelTransferStage(PipelineStage):
             raise ValueError("dataset must be non-empty; got 0 frames")
 
         sorted_keys = sorted(dataset.keys())
+
+        # Real data has multi-channel RGB colors (N, C); synthetic data has
+        # single-channel class indices (N,). Use "id" for real, "color" for synthetic.
+        sample_color = dataset[sorted_keys[0]]["color"]
+        label_key = "id" if sample_color.dim() > 1 else "color"
+
         transferred: dict[int, torch.Tensor] = {}
-        transferred[sorted_keys[0]] = dataset[sorted_keys[0]]["color"]  # D-02 pass-through
+        transferred[sorted_keys[0]] = dataset[sorted_keys[0]][label_key]  # D-02 pass-through
 
         for k in range(1, len(sorted_keys)):
             src_frame = dataset[sorted_keys[k - 1]]
@@ -211,7 +217,7 @@ class LabelTransferStage(PipelineStage):
                 src_frame["pos"],
                 tgt_frame["pos"],
                 method=ColorTransferMethod.KNN_VOTING,
-                source_colors=src_frame["color"].unsqueeze(-1),
+                source_colors=src_frame[label_key].unsqueeze(-1),
                 k=params["k_neighbours"],
             )[:, 0]
 

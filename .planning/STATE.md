@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Evaluation Framework & Debt Resolution
-status: executing
-stopped_at: Phase 22 context gathered — HyperparamOptimizer & Search Strategies; ready for planning
-last_updated: "2026-05-29T11:00:00Z"
-last_activity: 2026-05-29 -- Phase 22 context captured (4 areas: tier flow, search space format, objective weight, Optuna lifecycle)
+status: complete
+stopped_at: Phase 23 complete — CLI Entrypoint & Scenario Configs; milestone v1.2 done
+last_updated: "2026-06-02T00:00:00Z"
+last_activity: 2026-06-02 -- Phase 23 complete (2/2 plans, smoke tests passed, FRAME-11+12 closed)
 progress:
   total_phases: 14
-  completed_phases: 16
-  total_plans: 35
-  completed_plans: 35
-  percent: 97
+  completed_phases: 17
+  total_plans: 41
+  completed_plans: 37
+  percent: 100
 ---
 
 # Project State
@@ -21,7 +21,7 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Every existing capability works correctly, fails informatively, and is covered by tests.
-**Current focus:** Phase 22 — HyperparamOptimizer & Search Strategies (ready to plan)
+**Current focus:** Phase 22 — HyperparamOptimizer & Search Strategies (ready to execute)
 
 ## Current Position
 

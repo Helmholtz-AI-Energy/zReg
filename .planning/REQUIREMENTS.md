@@ -54,8 +54,8 @@
 
 ### Category 11 — CLI & Scenario Configs
 
-- [ ] **FRAME-11**: `run_eval.py` CLI entrypoint — `--config cfg.yaml --mode optimize|eval|full`; loads and validates EvalConfig; `full` mode: Optimizer → reads `best_params.json` → EvaluationRunner; clean error messages for config errors (`EvalConfigError` → readable message, no stacktrace); `run_config.yaml` copy written to `output_dir` for reproducibility
-- [ ] **FRAME-12**: 5 scenario YAML configs in `configs/`: `alignment_sanity.yaml`, `alignment_dev.yaml`, `label_transfer_sanity.yaml`, `label_transfer_dev.yaml`, `combined_full.yaml`; all 5 run without errors end-to-end
+- [x] **FRAME-11**: `run_eval.py` CLI entrypoint — `--config cfg.yaml --mode optimize|eval|full`; loads and validates EvalConfig; `full` mode: Optimizer → reads `best_params.json` → EvaluationRunner; clean error messages for config errors (`EvalConfigError` → readable message, no stacktrace); `run_config.yaml` copy written to `output_dir` for reproducibility
+- [x] **FRAME-12**: 5 scenario YAML configs in `configs/`: `alignment_sanity.yaml`, `alignment_dev.yaml`, `label_transfer_sanity.yaml`, `label_transfer_dev.yaml`, `combined_full.yaml`; all 5 run without errors end-to-end
 
 ---
 
@@ -120,5 +120,5 @@
 | FRAME-08 | Phase 21 | Pending | viz.py |
 | FRAME-09 | Phase 22 | Pending | HyperparamOptimizer |
 | FRAME-10 | Phase 22 | Pending | SearchStrategies |
-| FRAME-11 | Phase 23 | Pending | CLI entrypoint |
-| FRAME-12 | Phase 23 | Pending | 5 scenario YAML configs |
+| FRAME-11 | Phase 23 | Complete | CLI entrypoint |
+| FRAME-12 | Phase 23 | Complete | 5 scenario YAML configs |

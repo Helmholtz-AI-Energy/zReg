@@ -119,7 +119,7 @@
   - [ ] 22-01-PLAN.md — `optuna` dep + test scaffold (Wave 0) + `eval/search_strategies.py` (GridSearch, RandomSearch, BayesianSearch) + `eval/runners/optimizer.py` (HyperparamOptimizer)
   - [ ] 22-02-PLAN.md — Populate `tests/test_optimizer.py` with all 5 FRAME-09+10 gate test classes
 
-- [ ] **Phase 23: CLI Entrypoint & Scenario Configs**
+- [x] **Phase 23: CLI Entrypoint & Scenario Configs** (2/2 plans) — completed 2026-06-02
   **Goal:** Deliver `run_eval.py` CLI (`--config`, `--mode optimize|eval|full`) and 5 scenario YAML configs in `configs/`; `full` mode chains Optimizer → EvaluationRunner; all 5 configs run end-to-end without errors.
   **Requirements:** FRAME-11, FRAME-12
   **Depends on:** Phase 22
@@ -129,6 +129,10 @@
   3. Config validation errors produce readable messages — no raw stacktraces
   4. `run_config.yaml` copy written to `output_dir` for each run (reproducibility)
   5. `run_eval.py --help` shows all flags with descriptions
+  **Plans:** 2 plans
+  Plans:
+  - [x] 23-01-PLAN.md — `run_eval.py` CLI entrypoint (argparse, 4 flags, EvalConfigError clean message, run_config.yaml exact-copy before pipeline, mode dispatch) + `tests/test_cli.py` with FRAME-11 unit tests populated (8 tests)
+  - [x] 23-02-PLAN.md — 5 scenario YAML configs in `configs/` (alignment_sanity, alignment_dev, label_transfer_sanity, label_transfer_dev, combined_full) + populate `TestScenarioConfigs` (FRAME-12)
 
 <details>
 <summary>✅ v1.1 Code Quality & Refactoring (Phases 6–11.1) — SHIPPED 2026-05-13</summary>

@@ -104,7 +104,7 @@
   4. All figure code runs inside `matplotlib.rc_context`; `plt.close(fig)` called; Agg backend used
   5. `tests/test_eval_runner.py` passes all gate criteria
 
-- [ ] **Phase 22: HyperparamOptimizer & Search Strategies**
+- [x] **Phase 22: HyperparamOptimizer & Search Strategies** (2/2 plans) — completed 2026-05-29
   **Goal:** Deliver `eval/search_strategies.py` (GridSearch, RandomSearch, Optuna Bayesian via Optuna 4.x with SQLite storage) and `eval/runners/optimizer.py` (`HyperparamOptimizer`) with sanity/dev/full tier logic, candidate pruning, and JSON output.
   **Requirements:** FRAME-09, FRAME-10
   **Depends on:** Phase 21
@@ -116,8 +116,8 @@
   5. `tests/test_optimizer.py` passes all gate criteria; Optuna ≥4.0,<5 with TPE sampler
   **Plans:** 2 plans
   Plans:
-  - [ ] 22-01-PLAN.md — `optuna` dep + test scaffold (Wave 0) + `eval/search_strategies.py` (GridSearch, RandomSearch, BayesianSearch) + `eval/runners/optimizer.py` (HyperparamOptimizer)
-  - [ ] 22-02-PLAN.md — Populate `tests/test_optimizer.py` with all 5 FRAME-09+10 gate test classes
+  - [x] 22-01-PLAN.md — `optuna` dep + test scaffold (Wave 0) + `eval/search_strategies.py` (GridSearch, RandomSearch, BayesianSearch) + `eval/runners/optimizer.py` (HyperparamOptimizer)
+  - [x] 22-02-PLAN.md — Populate `tests/test_optimizer.py` with all 5 FRAME-09+10 gate test classes
 
 - [x] **Phase 23: CLI Entrypoint & Scenario Configs** (2/2 plans) — completed 2026-06-02
   **Goal:** Deliver `run_eval.py` CLI (`--config`, `--mode optimize|eval|full`) and 5 scenario YAML configs in `configs/`; `full` mode chains Optimizer → EvaluationRunner; all 5 configs run end-to-end without errors.

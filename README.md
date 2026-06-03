@@ -103,6 +103,8 @@ colors = transfer_colors(
 | `zreg.color_transfer` | `transfer_colors()` — four label propagation methods |
 | `zreg.downsampling` | `farthest_point_down_sample()`, `random_down_sample()`, `uniform_down_sample()` |
 | `zreg.dataset` | `zRegPointCloud`, data loading from MATLAB/CSV formats |
+| `zreg.metrics.alignment` | Geometric alignment metrics — `chamfer`, `hausdorff`, `path_smoothness` |
+| `zreg.metrics.label_transfer` | Label transfer metrics — `compute_f1`, `knn_consistency`, `temporal_stability` |
 | `zreg.validation` | Input tensor validation (NaN/inf, device mismatch) used across the public API |
 
 ## Dependencies
@@ -196,9 +198,9 @@ zreg.set_log_level("DEBUG")          # programmatic
 │       │   ├── corruption.py
 │       │   ├── transforms.py
 │       │   └── labels.py
-│       ├── metrics         <- Alignment and label-transfer evaluation metrics.
-│       │   ├── alignment.py
-│       │   └── label_transfer.py
+│       ├── metrics         <- Evaluation metrics.
+│       │   ├── alignment.py      <- Geometric metrics: chamfer, hausdorff, path_smoothness.
+│       │   └── label_transfer.py <- Label transfer metrics: compute_f1, knn_consistency, temporal_stability.
 │       ├── transforms      <- Transformation classes (rigid, affine, non-rigid, TPS, combined).
 │       │   ├── base.py
 │       │   ├── rigid.py

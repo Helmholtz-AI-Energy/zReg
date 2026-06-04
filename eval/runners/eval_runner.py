@@ -56,7 +56,7 @@ from eval.metrics import MetricsEngine
 from eval.stages import AlignmentStage, LabelTransferStage
 from eval.tracking import export_trajectory
 from eval.types import AlignResult, EvalReport, LabelResult, StageMetrics
-from eval.viz import plot_metrics_summary, plot_point_cloud
+from eval.viz import plot_metrics, plot_trajectory
 
 __all__ = ["EvaluationRunner"]
 
@@ -154,23 +154,23 @@ class EvaluationRunner:
 
         Notes
         -----
-        **save_plots branch (D-09, D-12, FRAME-08):**
-        When ``config.save_plots=True``, ``run()`` calls ``plot_point_cloud``
-        and ``plot_metrics_summary`` from ``eval.viz`` after building a
-        preliminary ``EvalReport``.  Because ``EvalReport`` is frozen (Pitfall
-        6), the final report is constructed via
+        **save_plots branch (D-09, D-10, D-12, FRAME-08, Phase 25):**
+        When ``config.save_plots=True``, ``run()`` calls ``plot_trajectory``
+        and ``plot_metrics`` from ``eval.viz`` after building a preliminary
+        ``EvalReport``.  Because ``EvalReport`` is frozen (Pitfall 6), the
+        final report is constructed via
         ``preliminary_report.model_copy(update={"plot_paths": plot_paths})``
         rather than re-constructing from scratch.
 
-        Two PDFs are produced when ``save_plots=True``:
+        Up to three files are produced when ``save_plots=True``:
 
-        - ``point_cloud.pdf`` — written only when ``run_alignment=True``
-          (requires ``AlignResult`` for 3D scatter; skipped when
-          ``run_alignment=False`` because no ``AlignResult`` is available).
-        - ``metrics_summary.pdf`` — always written when ``save_plots=True``,
-          regardless of which stages ran.
+        - ``alignment_trajectory.pdf/.png`` — written by ``plot_trajectory``
+          only when ``result["align"] is not None``.
+        - ``label_trajectory.pdf/.png`` — written by ``plot_trajectory``
+          only when ``result["label"] is not None``.
+        - ``metrics_summary.pdf`` — always written when ``save_plots=True``.
 
-        Both files are written to ``config.output_dir`` alongside
+        All files are written to ``config.output_dir`` alongside
         ``eval_report.json``.  ``save_report`` is called AFTER ``plot_paths``
         is finalised so the persisted JSON reflects the final ``plot_paths``
         list.
@@ -209,12 +209,19 @@ class EvaluationRunner:
         output_dir_path = Path(self.config.output_dir)
         plot_paths: list[str] = []
         if self.config.save_plots:
-            if result["align"] is not None:
-                pc_path = output_dir_path / "point_cloud.pdf"
-                plot_point_cloud(result["align"], pc_path)
-                plot_paths.append(str(pc_path))
+            # D-10 (Phase 25): plot_trajectory handles both stages internally;
+            # guard is inside plot_trajectory — returns [] when both are None.
+            plot_paths.extend(
+                plot_trajectory(
+                    result["align"],
+                    result["label"],
+                    dataset,
+                    self.config.label_names,
+                    output_dir_path,
+                )
+            )
             summary_path = output_dir_path / "metrics_summary.pdf"
-            plot_metrics_summary(preliminary_report, summary_path)
+            plot_metrics(preliminary_report, summary_path)
             plot_paths.append(str(summary_path))
 
         # Step 2b: Export trajectories unconditionally (D-13 / EXT-01).

@@ -189,19 +189,38 @@ class TestPlotTrajectory:
     """EXT-02: plot_trajectory produces correct files for all 4 stage combinations."""
 
     def test_align_only_writes_alignment_files(self, fake_align_result, synthetic_dataset_3, tmp_path):
-        pytest.skip('stub — implement in Plan 25-01 Task 2')
+        result = plot_trajectory(fake_align_result, None, synthetic_dataset_3, None, tmp_path)
+        assert len(result) == 2
+        assert (tmp_path / "alignment_trajectory.pdf").exists()
+        assert (tmp_path / "alignment_trajectory.png").exists()
+        assert not (tmp_path / "label_trajectory.pdf").exists()
 
     def test_label_only_writes_label_files(self, fake_label_result, synthetic_dataset_3, tmp_path):
-        pytest.skip('stub — implement in Plan 25-01 Task 2')
+        result = plot_trajectory(None, fake_label_result, synthetic_dataset_3, None, tmp_path)
+        assert len(result) == 2
+        assert (tmp_path / "label_trajectory.pdf").exists()
+        assert (tmp_path / "label_trajectory.png").exists()
+        assert not (tmp_path / "alignment_trajectory.pdf").exists()
 
     def test_both_stages_writes_four_files(self, fake_align_result, fake_label_result, synthetic_dataset_3, tmp_path):
-        pytest.skip('stub — implement in Plan 25-01 Task 2')
+        result = plot_trajectory(fake_align_result, fake_label_result, synthetic_dataset_3, None, tmp_path)
+        assert len(result) == 4
+        assert (tmp_path / "alignment_trajectory.pdf").exists()
+        assert (tmp_path / "label_trajectory.pdf").exists()
 
     def test_neither_stage_returns_empty_list(self, synthetic_dataset_3, tmp_path):
-        pytest.skip('stub — implement in Plan 25-01 Task 2')
+        result = plot_trajectory(None, None, synthetic_dataset_3, None, tmp_path)
+        assert result == []
 
     def test_label_names_used_when_provided(self, fake_align_result, fake_label_result, synthetic_dataset_3, tmp_path):
-        pytest.skip('stub — implement in Plan 25-01 Task 2')
+        label_names = {0: "T cell", 1: "B cell", 2: "NK cell", 3: "Monocyte"}
+        result = plot_trajectory(fake_align_result, fake_label_result, synthetic_dataset_3, label_names, tmp_path)
+        assert len(result) == 4
+        assert (tmp_path / "label_trajectory.pdf").exists()
+        assert (tmp_path / "label_trajectory.pdf").stat().st_size > 0
 
     def test_no_figure_leak(self, fake_align_result, fake_label_result, synthetic_dataset_3, tmp_path):
-        pytest.skip('stub — implement in Plan 25-01 Task 2')
+        before = len(plt.get_fignums())
+        plot_trajectory(fake_align_result, fake_label_result, synthetic_dataset_3, None, tmp_path)
+        after = len(plt.get_fignums())
+        assert after == before

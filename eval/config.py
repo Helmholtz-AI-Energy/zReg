@@ -80,6 +80,10 @@ class EvalConfig(BaseModel):
         sum to 1.0; users may override any subset via YAML.  Canonical short-
         name keys: ``"chamfer"``, ``"hausdorff"``, ``"path_smoothness"``,
         ``"temporal_stability"``, ``"f1"``, ``"knn_consistency"``.
+    label_names : dict[int, str] or None
+        Optional mapping of integer label IDs to descriptive names (e.g.
+        ``{0: 'T cell', 1: 'B cell'}``).  Used by ``plot_trajectory`` for
+        legend labels in the label-trajectory figure.  Default ``None``.
 
     Notes
     -----
@@ -118,6 +122,7 @@ class EvalConfig(BaseModel):
             "knn_consistency": 0.10,
         }
     )
+    label_names: dict[int, str] | None = None
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "EvalConfig":

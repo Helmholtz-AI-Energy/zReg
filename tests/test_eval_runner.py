@@ -462,14 +462,18 @@ class TestEvaluationRunnerSavePlots:
         assert len(report.plot_paths) >= 2
 
     @patch("eval.runners.eval_runner.DataFactory")
-    def test_save_plots_true_creates_point_cloud_pdf(
+    def test_save_plots_true_creates_alignment_trajectory_pdf(
         self,
         mock_factory_cls,
         eval_config,
         full_params,
         synthetic_dataset,
     ) -> None:
-        """save_plots=True with run_alignment=True: point_cloud.pdf exists on disk."""
+        """save_plots=True with run_alignment=True: alignment_trajectory.pdf exists on disk.
+
+        Phase 25 replaces point_cloud.pdf with alignment_trajectory.pdf/.png
+        produced by plot_trajectory (D-10).
+        """
         mock_factory = mock_factory_cls.return_value
         mock_factory.load_real.return_value = synthetic_dataset
         mock_factory.get_ground_truth.return_value = {
@@ -477,7 +481,7 @@ class TestEvaluationRunnerSavePlots:
         }
         runner = EvaluationRunner(eval_config, full_params)
         runner.run()
-        assert (Path(eval_config.output_dir) / "point_cloud.pdf").exists()
+        assert (Path(eval_config.output_dir) / "alignment_trajectory.pdf").exists()
 
     @patch("eval.runners.eval_runner.DataFactory")
     def test_save_plots_true_creates_metrics_summary_pdf(

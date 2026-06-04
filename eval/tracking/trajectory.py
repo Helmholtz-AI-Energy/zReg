@@ -115,9 +115,13 @@ def export_trajectory(
     # 4. Initialise return path list
     paths: list[str] = []
 
+    # 4a. Extract stage results safely — guards against callers that omit a key
+    align_result_val = result.get("align")
+    label_result_val = result.get("label")
+
     # 5. Align stage output
-    if result["align"] is not None:
-        align_result = result["align"]
+    if align_result_val is not None:
+        align_result = align_result_val
 
         # 5a. Write align_trajectory.csv
         align_csv_path = output_dir / "align_trajectory.csv"
@@ -154,8 +158,8 @@ def export_trajectory(
         paths.extend([str(align_csv_path), str(align_meta_path)])
 
     # 6. Label stage output
-    if result["label"] is not None:
-        label_result = result["label"]
+    if label_result_val is not None:
+        label_result = label_result_val
 
         # 6a. Write label_trajectory.csv
         label_csv_path = output_dir / "label_trajectory.csv"
@@ -164,8 +168,8 @@ def export_trajectory(
             writer.writerow(["frame_idx", "point_idx", "x", "y", "z", "label"])
             for frame_idx in sorted(dataset.keys()):
                 # D-07: use aligned pos when align stage ran; D-08: else use raw dataset
-                if result["align"] is not None:
-                    pos = result["align"].aligned_cloud[frame_idx]["pos"]
+                if align_result_val is not None:
+                    pos = align_result_val.aligned_cloud[frame_idx]["pos"]
                 else:
                     pos = dataset[frame_idx]["pos"]
                 labels = label_result.transferred_labels[frame_idx]

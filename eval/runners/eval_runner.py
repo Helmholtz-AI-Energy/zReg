@@ -54,6 +54,7 @@ from eval.config import EvalConfig
 from eval.data_factory import DataFactory
 from eval.metrics import MetricsEngine
 from eval.stages import AlignmentStage, LabelTransferStage
+from eval.tracking import export_trajectory
 from eval.types import AlignResult, EvalReport, LabelResult, StageMetrics
 from eval.viz import plot_metrics_summary, plot_point_cloud
 
@@ -193,13 +194,14 @@ class EvaluationRunner:
             metric: stats["mean"] for metric, stats in agg.items()
         }
 
-        # Step 1: Build a preliminary report (plot_paths=[]; populated below).
+        # Step 1: Build a preliminary report (plot_paths=[], trajectory_paths=[] populated below).
         preliminary_report = EvalReport(
             params=dict(self.params),
             metrics=result["metrics"],
             aggregated_metrics=agg,
             per_dataset={"dataset": per_dataset_flat},
             plot_paths=[],
+            trajectory_paths=[],
             sanity_flags=result["sanity_flags"],
         )
 
@@ -215,9 +217,15 @@ class EvaluationRunner:
             plot_metrics_summary(preliminary_report, summary_path)
             plot_paths.append(str(summary_path))
 
-        # Step 3: Build the final frozen report with the resolved plot_paths list.
+        # Step 2b: Export trajectories unconditionally (D-13 / EXT-01).
+        trajectory_paths = export_trajectory(result, dataset, self.config, output_dir_path)
+
+        # Step 3: Build the final frozen report with both plot_paths and trajectory_paths.
         # EvalReport is frozen (Pitfall 6) — must use model_copy to update.
-        report = preliminary_report.model_copy(update={"plot_paths": plot_paths})
+        # Single model_copy call handles both fields (D-14).
+        report = preliminary_report.model_copy(
+            update={"plot_paths": plot_paths, "trajectory_paths": trajectory_paths}
+        )
 
         # Step 4: Persist JSON and return.
         self.save_report(report, self.config.output_dir)

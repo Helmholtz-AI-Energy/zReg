@@ -2,7 +2,7 @@
 
 ## Milestones
 
-- 🚧 **v1.2 Evaluation Framework & Debt Resolution** — Phases 12–23 (in progress)
+- 🚧 **v1.2 Evaluation Framework & Debt Resolution** — Phases 12–26 (in progress)
 - ✅ **v1.1 Code Quality & Refactoring** — Phases 6–11.1 (shipped 2026-05-13) — [archive](.planning/milestones/v1.1-ROADMAP.md)
 - ✅ **v1.0 Consolidation** — Phases 1-5 (shipped 2026-04-09) — [archive](.planning/milestones/v1.0-ROADMAP.md)
 
@@ -134,6 +134,53 @@
   - [x] 23-01-PLAN.md — `run_eval.py` CLI entrypoint (argparse, 4 flags, EvalConfigError clean message, run_config.yaml exact-copy before pipeline, mode dispatch) + `tests/test_cli.py` with FRAME-11 unit tests populated (8 tests)
   - [x] 23-02-PLAN.md — 5 scenario YAML configs in `configs/` (alignment_sanity, alignment_dev, label_transfer_sanity, label_transfer_dev, combined_full) + populate `TestScenarioConfigs` (FRAME-12)
 
+- [x] **Phase 24: Trajectory Export** (2/2 plans) — completed 2026-06-04
+  **Goal:** Export `AlignResult` and/or `LabelResult` as point-per-row CSV files (`align_trajectory.csv`, `label_trajectory.csv`) with accompanying `metadata.json`, written automatically from `EvaluationRunner.run()` conditional on which stages ran. CSV columns: `frame_idx, point_idx, x, y, z, label` — optimised for LaTeX/pgfplots reuse.
+  **Requirements:** EXT-01
+  **Depends on:** Phase 21
+  **Success criteria:**
+  1. `align_trajectory.csv` written when `run_alignment=True`; absent otherwise
+  2. `label_trajectory.csv` written when `run_label_transfer=True`; absent otherwise
+  3. CSV has correct header and one row per point per frame
+  4. `align_metadata.json` / `label_metadata.json` contain all required fields (run_id, frame_count, frame_indices, data_path, params_used, tier, n_trials, n_synthetic, git_hash, zreg_version, timestamp)
+  5. `EvalReport.trajectory_paths` list reflects written files
+  **Plans:** 2 plans
+  Plans:
+  - [x] 24-01-PLAN.md — `eval/tracking/trajectory.py` (`export_trajectory` + CSV/JSON helpers) + update `eval/tracking/__init__.py`
+  - [x] 24-02-PLAN.md — Wire into `EvaluationRunner.run()` + `EvalReport.trajectory_paths` field + `tests/test_trajectory_export.py`
+
+- [ ] **Phase 25: Visualisation Refactor**
+  **Goal:** Replace `plot_point_cloud` with `plot_trajectory` — a 3-frame (first/middle/last), 2×3 grid figure saved as PDF + PNG. Row 1: pre-alignment source vs. target frame superposition. Row 2: labelled result cloud with legend using descriptive names from new `EvalConfig.label_names` field.
+  **Requirements:** EXT-02
+  **Depends on:** Phase 21, Phase 17
+  **Success criteria:**
+  1. `plot_trajectory` produces `trajectory.pdf` + `trajectory.png` in output_dir
+  2. Figure has exactly 2 rows × 3 columns; frames are first, middle, last of trajectory
+  3. Row 1 shows two distinct-colour clouds (original dataset frame vs. aligned frame)
+  4. Row 2 shows labelled result with legend; `label_names` values used when provided
+  5. `plot_point_cloud` no longer importable from `eval.viz`
+  6. All four stage-combination cases (align-only, label-only, both, neither) produce valid figure
+  **Plans:** 2 plans
+  Plans:
+  - [ ] 25-01-PLAN.md — `label_names: dict[int, str]` in `EvalConfig` + implement `plot_trajectory` in `eval/viz.py` (remove `plot_point_cloud`)
+  - [ ] 25-02-PLAN.md — Update `EvaluationRunner.run()` save_plots branch + update `tests/test_viz.py` + update `TestEvaluationRunnerSavePlots`
+
+- [ ] **Phase 26: Propulate Optimizer**
+  **Goal:** Add `PropulateSearch` as a selectable optimizer backend alongside Optuna. `HyperparamOptimizer` auto-selects Propulate when `SLURM_JOB_ID` is set or MPI world size > 1; defaults to Optuna otherwise. Users override via `optimiser: auto|optuna|propulate` in config.
+  **Requirements:** EXT-03
+  **Depends on:** Phase 22, Phase 17
+  **Success criteria:**
+  1. `optimiser: propulate` selects `PropulateSearch` unconditionally
+  2. `optimiser: auto` selects Propulate when `SLURM_JOB_ID` set or MPI world size > 1
+  3. Missing propulate install raises `ImportError` with install instructions
+  4. `PropulateSearch.search` produces valid `Trial` objects (integration test via `mpirun -n 2`)
+  5. Existing Optuna path unaffected — all Phase 22 tests still pass
+  6. Docstrings explain when to prefer each backend
+  **Plans:** 2 plans
+  Plans:
+  - [ ] 26-01-PLAN.md — `optimiser` field in `EvalConfig` + `PropulateSearch` in `eval/search_strategies.py` + propulate optional extra in `setup.cfg`
+  - [ ] 26-02-PLAN.md — `_detect_backend()` + dispatch in `HyperparamOptimizer.run()` + `tests/test_propulate.py` (unit + MPI integration)
+
 <details>
 <summary>✅ v1.1 Code Quality & Refactoring (Phases 6–11.1) — SHIPPED 2026-05-13</summary>
 
@@ -188,5 +235,8 @@ Full details: [.planning/milestones/v1.0-ROADMAP.md](.planning/milestones/v1.0-R
 | 19. AlignmentStage | v1.2 | 2/2 | Complete | 2026-05-28 |
 | 20. LabelTransferStage | v1.2 | 2/2 | Complete | 2026-05-29 |
 | 21. EvaluationRunner & Visualisation | v1.2 | 2/2 | Complete | 2026-05-29 |
-| 22. HyperparamOptimizer & Search Strategies | v1.2 | 0/2 | Pending | — |
-| 23. CLI Entrypoint & Scenario Configs | v1.2 | 0/2 | Pending | — |
+| 22. HyperparamOptimizer & Search Strategies | v1.2 | 2/2 | Complete | 2026-05-29 |
+| 23. CLI Entrypoint & Scenario Configs | v1.2 | 2/2 | Complete | 2026-06-02 |
+| 24. Trajectory Export | v1.2 | 2/2 | Complete | 2026-06-04 |
+| 25. Visualisation Refactor | v1.2 | 0/2 | Pending | — |
+| 26. Propulate Optimizer | v1.2 | 0/2 | Pending | — |

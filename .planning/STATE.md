@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Evaluation Framework & Debt Resolution
-status: complete
-stopped_at: Phase 23 complete — CLI Entrypoint & Scenario Configs; milestone v1.2 done
-last_updated: "2026-06-02T00:00:00Z"
-last_activity: 2026-06-02 -- Phase 23 complete (2/2 plans, smoke tests passed, FRAME-11+12 closed)
+status: ready_to_execute
+stopped_at: Phase 24 complete — ready to plan Phase 25
+last_updated: "2026-06-04T00:00:00.000Z"
+last_activity: 2026-06-04 -- Phase 24 complete (2/2 plans, 5/5 must-haves verified, 787 tests)
 progress:
-  total_phases: 14
-  completed_phases: 17
-  total_plans: 41
-  completed_plans: 37
-  percent: 100
+  total_phases: 20
+  completed_phases: 20
+  total_plans: 45
+  completed_plans: 43
+  percent: 97
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Every existing capability works correctly, fails informatively, and is covered by tests.
-**Current focus:** Phase 22 — HyperparamOptimizer & Search Strategies (ready to execute)
+**Current focus:** Phase 25 — Visualisation Refactor (ready to plan)
 
 ## Current Position
 
-Phase: 21 (EvaluationRunner & Visualisation) — COMPLETE
+Phase: 24 (Trajectory Export) — COMPLETE
 Plan: 2 of 2 (2 executed)
-Status: Phase 21 complete — FRAME-07 + FRAME-08 closed; 718 tests pass (+28 vs Phase 20)
-Last activity: 2026-05-29 -- Phase 21 complete (2/2 plans, 18/18 must-haves verified, verification passed)
+Status: Phase 24 complete — EXT-01 closed; 787 tests pass (+46 vs Phase 23)
+Last activity: 2026-06-04 -- Phase 24 complete (2/2 plans, 5/5 must-haves verified, verification passed)
 
 ## Phase Overview
 
@@ -156,13 +156,27 @@ Last activity: 2026-05-29 -- Phase 21 complete (2/2 plans, 18/18 must-haves veri
 - WR-05 open (CR): eval/ excluded from --cov in setup.cfg; coverage of eval/runners/ and eval/viz.py is untracked
 - 718 tests pass after Phase 21 (+28 vs Phase 20 baseline 690); 17 skipped unchanged
 
+### Phase 24 Decisions (v1.2)
+
+- EXT-01 closed: `eval/tracking/trajectory.py` — export_trajectory writes align_trajectory.csv (5 cols) + align_metadata.json and label_trajectory.csv (6 cols) + label_metadata.json; stdlib-only (csv, json, uuid, subprocess, importlib.metadata)
+- aligned_cloud uses zRegPointCloud instances (not plain dicts) — pydantic AlignResult validates; test fixtures must use zRegPointCloud
+- D-07/D-08: label_trajectory.csv uses aligned_cloud["pos"] when align ran, else dataset["pos"]
+- Single run_id UUID generated once per export_trajectory call; shared across both metadata files when both stages ran
+- trajectory_paths: list[str] = Field(default_factory=list) added to EvalReport between plot_paths and sanity_flags
+- EvaluationRunner.run(): unconditional export (D-13), single model_copy for both plot_paths + trajectory_paths (D-14)
+- 787 tests pass after Phase 24 (+46 vs Phase 23 baseline 741); 17 skipped unchanged
+- WR-01 open (CR): subprocess.run missing timeout= in trajectory.py git hash capture
+- WR-02 open (CR): no length guard for labels vs pos mismatch in label CSV loop
+- WR-03 open (CR): bare dict access result["align"]/result["label"] raises KeyError on malformed input
+- WR-04 open (CR): three test classes make live git subprocess calls (should patch)
+
 ### Open Blockers
 
 None.
 
 ## Session Continuity
 
-Last session: 2026-05-29
-Stopped at: Phase 22 context gathered — 4 areas discussed, CONTEXT.md written
-Resume file: .planning/phases/22-hyperparam-optimizer-search-strategies/22-CONTEXT.md
+Last session: 2026-06-03T17:54:22.501Z
+Stopped at: Phase 24 context gathered
+Resume file: .planning/phases/24-trajectory-export/24-CONTEXT.md
 Next action: `/gsd-plan-phase 22` — HyperparamOptimizer & Search Strategies (FRAME-09, FRAME-10)

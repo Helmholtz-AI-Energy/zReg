@@ -150,20 +150,20 @@
   - [x] 24-02-PLAN.md — Wire into `EvaluationRunner.run()` + `EvalReport.trajectory_paths` field + `tests/test_trajectory_export.py`
 
 - [ ] **Phase 25: Visualisation Refactor**
-  **Goal:** Replace `plot_point_cloud` with `plot_trajectory` — a 3-frame (first/middle/last), 2×3 grid figure saved as PDF + PNG. Row 1: pre-alignment source vs. target frame superposition. Row 2: labelled result cloud with legend using descriptive names from new `EvalConfig.label_names` field.
+  **Goal:** Replace `plot_point_cloud` with `plot_trajectory` — two independent 1×3 figures (first/middle/last frame), each saved as PDF + PNG. `alignment_trajectory.pdf/png` shows source (blue) vs. aligned (orange) point clouds per frame. `label_trajectory.pdf/png` shows label-coloured clouds with a legend using `EvalConfig.label_names` when provided. Rename `plot_metrics_summary` → `plot_metrics`. Each file is written only when the corresponding stage ran (D-03).
   **Requirements:** EXT-02
   **Depends on:** Phase 21, Phase 17
   **Success criteria:**
-  1. `plot_trajectory` produces `trajectory.pdf` + `trajectory.png` in output_dir
-  2. Figure has exactly 2 rows × 3 columns; frames are first, middle, last of trajectory
-  3. Row 1 shows two distinct-colour clouds (original dataset frame vs. aligned frame)
-  4. Row 2 shows labelled result with legend; `label_names` values used when provided
+  1. `plot_trajectory` produces `alignment_trajectory.pdf/png` and/or `label_trajectory.pdf/png` — filenames depend on which stages ran
+  2. Each figure is a 1×3 grid; columns are first, middle, last frame of the trajectory
+  3. `alignment_trajectory` subplots show source (blue) and aligned (orange) clouds superimposed; shared legend identifies "Source" and "Aligned"
+  4. `label_trajectory` subplots show label-coloured clouds; `label_names` values used in legend when provided, raw int-as-string otherwise
   5. `plot_point_cloud` no longer importable from `eval.viz`
-  6. All four stage-combination cases (align-only, label-only, both, neither) produce valid figure
+  6. All four stage-combination cases (align-only, label-only, both, neither) produce correct output (2 files, 2 files, 4 files, [])
   **Plans:** 2 plans
   Plans:
-  - [ ] 25-01-PLAN.md — `label_names: dict[int, str]` in `EvalConfig` + implement `plot_trajectory` in `eval/viz.py` (remove `plot_point_cloud`)
-  - [ ] 25-02-PLAN.md — Update `EvaluationRunner.run()` save_plots branch + update `tests/test_viz.py` + update `TestEvaluationRunnerSavePlots`
+  - [ ] 25-01-PLAN.md — Wave 0 TDD stubs in `tests/test_viz.py` + implement `plot_trajectory` + rename `plot_metrics_summary` → `plot_metrics` in `eval/viz.py` + add `label_names` to `EvalConfig`
+  - [ ] 25-02-PLAN.md — Update `EvaluationRunner.run()` save_plots branch (D-10) + update `TestEvaluationRunnerSavePlots` assertions
 
 - [ ] **Phase 26: Propulate Optimizer**
   **Goal:** Add `PropulateSearch` as a selectable optimizer backend alongside Optuna. `HyperparamOptimizer` auto-selects Propulate when `SLURM_JOB_ID` is set or MPI world size > 1; defaults to Optuna otherwise. Users override via `optimiser: auto|optuna|propulate` in config.

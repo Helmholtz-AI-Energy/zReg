@@ -41,7 +41,7 @@ __all__ = ["plot_trajectory", "plot_metrics"]
 def plot_trajectory(
     align_result: "AlignResult | None",
     label_result: "LabelResult | None",
-    dataset: dict,
+    dataset: "dict[int, zRegPointCloud]",
     label_names: "dict[int, str] | None",
     output_dir: Path,
 ) -> list[str]:
@@ -68,8 +68,8 @@ def plot_trajectory(
     label_result : LabelResult or None
         Label-transfer result carrying ``transferred_labels: dict[int, torch.Tensor]``.
         Pass ``None`` to skip the label figure.
-    dataset : dict
-        Raw dataset mapping integer frame indices to ``zRegPointCloud``-like
+    dataset : dict[int, zRegPointCloud]
+        Raw dataset mapping integer frame indices to ``zRegPointCloud``
         dicts.  Must contain ``pos`` tensors of shape ``(N, 3)``.
     label_names : dict[int, str] or None
         Optional mapping of integer label IDs to descriptive names (D-06).

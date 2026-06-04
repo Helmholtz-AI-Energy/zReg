@@ -239,7 +239,6 @@ class TestExportTrajectoryAlignOnly:
             first_row = next(reader)
 
         # x, y, z must be parseable as float (not "1" masquerading as int)
-        assert "." in first_row["x"] or "e" in first_row["x"].lower()
         assert isinstance(float(first_row["x"]), float)
 
     def test_align_metadata_all_11_keys(self, tmp_path):

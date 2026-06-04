@@ -53,6 +53,22 @@ EXPECTED_META_FIELDS = {
 _MOCK_GIT_RESULT = MagicMock(stdout="deadbeef\n", returncode=0)
 
 # ---------------------------------------------------------------------------
+# Module-level auto-patch fixture
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def patch_auto_capture():
+    """Patch subprocess.run and importlib.metadata.version for every test in
+    this module, preventing live git calls and missing-package errors in CI."""
+    with (
+        patch("eval.tracking.trajectory.subprocess.run", return_value=_MOCK_GIT_RESULT),
+        patch("eval.tracking.trajectory.importlib.metadata.version", return_value="0.0.1"),
+    ):
+        yield
+
+
+# ---------------------------------------------------------------------------
 # Shared fixtures
 # ---------------------------------------------------------------------------
 

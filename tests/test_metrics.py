@@ -463,3 +463,49 @@ class TestAggregate:
         agg = self._engine().aggregate([sm])
         for name in agg:
             assert set(agg[name].keys()) == {"mean", "std", "min", "max"}
+
+
+# ---------------------------------------------------------------------------
+# TestEvalReportTrajectoryPaths — Phase 24 EXT-01 Task 1 (RED gate)
+# ---------------------------------------------------------------------------
+
+
+class TestEvalReportTrajectoryPaths:
+    """Phase 24 EXT-01: EvalReport.trajectory_paths field existence and ordering."""
+
+    def _make_report(self) -> EvalReport:
+        """Minimal EvalReport with all required fields."""
+        sm = StageMetrics(
+            chamfer_distance=0.0,
+            hausdorff_distance=0.0,
+            path_smoothness=0.0,
+            temporal_stability=0.0,
+            f1_score=0.0,
+            knn_consistency=0.0,
+        )
+        return EvalReport(
+            params={},
+            metrics=sm,
+            aggregated_metrics={},
+            per_dataset={},
+        )
+
+    def test_trajectory_paths_defaults_to_empty_list(self):
+        """EvalReport.trajectory_paths defaults to [] when not provided."""
+        report = self._make_report()
+        assert report.trajectory_paths == []
+
+    def test_trajectory_paths_field_order_after_plot_paths(self):
+        """trajectory_paths appears immediately after plot_paths in model_fields."""
+        fields = list(EvalReport.model_fields.keys())
+        assert "trajectory_paths" in fields, "trajectory_paths field not found in EvalReport"
+        assert fields.index("trajectory_paths") == fields.index("plot_paths") + 1, (
+            f"trajectory_paths not immediately after plot_paths; fields: {fields}"
+        )
+
+    def test_trajectory_paths_field_order_before_sanity_flags(self):
+        """trajectory_paths appears before sanity_flags in model_fields."""
+        fields = list(EvalReport.model_fields.keys())
+        assert fields.index("trajectory_paths") < fields.index("sanity_flags"), (
+            f"trajectory_paths not before sanity_flags; fields: {fields}"
+        )

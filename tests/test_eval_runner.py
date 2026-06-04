@@ -318,7 +318,7 @@ class TestEvaluationRunnerSaveReport:
             data = json.load(f)
         expected_keys = {
             "params", "metrics", "aggregated_metrics",
-            "per_dataset", "plot_paths", "sanity_flags",
+            "per_dataset", "plot_paths", "trajectory_paths", "sanity_flags",
         }
         assert expected_keys.issubset(data.keys()), (
             f"Missing keys: {expected_keys - data.keys()}"

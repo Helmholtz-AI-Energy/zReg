@@ -132,9 +132,11 @@ def plot_trajectory(
                 ax.set_title(f"Frame {fk}")
             fig.legend([source_h, aligned_h], ["Source", "Aligned"], loc="center right", bbox_to_anchor=(1.12, 0.5))
             base = Path(output_dir) / "alignment_trajectory"
-            fig.savefig(base.with_suffix(".pdf"), bbox_inches="tight")
-            fig.savefig(base.with_suffix(".png"), bbox_inches="tight")
-            plt.close(fig)
+            try:
+                fig.savefig(base.with_suffix(".pdf"), bbox_inches="tight")
+                fig.savefig(base.with_suffix(".png"), bbox_inches="tight")
+            finally:
+                plt.close(fig)
         paths.extend([str(base.with_suffix(".pdf")), str(base.with_suffix(".png"))])
 
     # ------------------------------------------------------------------
@@ -176,9 +178,11 @@ def plot_trajectory(
             ]
             fig.legend(handles=patches, loc="center right", bbox_to_anchor=(1.15, 0.5))
             base2 = Path(output_dir) / "label_trajectory"
-            fig.savefig(base2.with_suffix(".pdf"), bbox_inches="tight")
-            fig.savefig(base2.with_suffix(".png"), bbox_inches="tight")
-            plt.close(fig)
+            try:
+                fig.savefig(base2.with_suffix(".pdf"), bbox_inches="tight")
+                fig.savefig(base2.with_suffix(".png"), bbox_inches="tight")
+            finally:
+                plt.close(fig)
         paths.extend([str(base2.with_suffix(".pdf")), str(base2.with_suffix(".png"))])
 
     return paths
@@ -242,5 +246,7 @@ def plot_metrics(report: EvalReport, path: Union[str, Path]) -> None:
         ax.barh(labels, values)
         ax.set_xlim(0, 1)
         ax.set_xlabel("Normalised Score")
-        fig.savefig(path, bbox_inches="tight")
-        plt.close(fig)
+        try:
+            fig.savefig(path, bbox_inches="tight")
+        finally:
+            plt.close(fig)

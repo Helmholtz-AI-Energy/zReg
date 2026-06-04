@@ -94,6 +94,7 @@ def export_trajectory(
             ["git", "rev-parse", "HEAD"],
             capture_output=True,
             text=True,
+            timeout=5,  # seconds — fall through to "unknown" on TimeoutExpired
         )
         if _git_result.returncode == 0:
             git_hash = _git_result.stdout.strip()

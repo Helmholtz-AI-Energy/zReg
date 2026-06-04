@@ -169,6 +169,11 @@ def export_trajectory(
                 else:
                     pos = dataset[frame_idx]["pos"]
                 labels = label_result.transferred_labels[frame_idx]
+                if len(labels) != len(pos):
+                    raise ValueError(
+                        f"frame {frame_idx}: transferred_labels length {len(labels)} "
+                        f"!= pos length {len(pos)}"
+                    )
                 for i in range(len(pos)):
                     x, y, z = pos[i].tolist()
                     label = int(labels[i].item())

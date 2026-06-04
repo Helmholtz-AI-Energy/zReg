@@ -89,9 +89,16 @@ def fake_align_result_5frames(synthetic_dataset_5) -> AlignResult:
 
 @pytest.fixture
 def fake_label_result(synthetic_dataset_3) -> LabelResult:
-    """LabelResult constructed from synthetic_dataset_3 with 1-D long tensors."""
+    """LabelResult constructed from synthetic_dataset_3 with 1-D long tensors.
+
+    generate_labels produces color tensors of shape (N,) with dtype torch.int64,
+    so we use them directly as 1-D long tensors.
+    """
     return LabelResult(
-        transferred_labels={k: synthetic_dataset_3[k]['color'][:, 0].long() for k in synthetic_dataset_3},
+        transferred_labels={
+            k: synthetic_dataset_3[k]['color'].long()
+            for k in synthetic_dataset_3
+        },
         params_used={},
     )
 

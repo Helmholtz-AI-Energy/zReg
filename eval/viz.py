@@ -106,7 +106,12 @@ def plot_trajectory(
 
     # D-04: first / middle / last frame selection
     sorted_keys = sorted(dataset.keys())
-    frame_indices = [sorted_keys[0], sorted_keys[len(sorted_keys) // 2], sorted_keys[-1]]
+    if not sorted_keys:
+        return paths  # no frames to plot
+    candidates = [sorted_keys[0], sorted_keys[len(sorted_keys) // 2], sorted_keys[-1]]
+    # Preserve order but deduplicate (handles 1- and 2-frame datasets)
+    seen: set = set()
+    frame_indices = [k for k in candidates if not (k in seen or seen.add(k))]
 
     # ------------------------------------------------------------------
     # ALIGNMENT FIGURE — written only when align_result is not None

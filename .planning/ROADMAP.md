@@ -149,7 +149,7 @@
   - [x] 24-01-PLAN.md — `eval/tracking/trajectory.py` (`export_trajectory` + CSV/JSON helpers) + update `eval/tracking/__init__.py`
   - [x] 24-02-PLAN.md — Wire into `EvaluationRunner.run()` + `EvalReport.trajectory_paths` field + `tests/test_trajectory_export.py`
 
-- [ ] **Phase 25: Visualisation Refactor**
+- [x] **Phase 25: Visualisation Refactor** (completed 2026-06-04)
   **Goal:** Replace `plot_point_cloud` with `plot_trajectory` — two independent 1×3 figures (first/middle/last frame), each saved as PDF + PNG. `alignment_trajectory.pdf/png` shows source (blue) vs. aligned (orange) point clouds per frame. `label_trajectory.pdf/png` shows label-coloured clouds with a legend using `EvalConfig.label_names` when provided. Rename `plot_metrics_summary` → `plot_metrics`. Each file is written only when the corresponding stage ran (D-03).
   **Requirements:** EXT-02
   **Depends on:** Phase 21, Phase 17
@@ -162,8 +162,8 @@
   6. All four stage-combination cases (align-only, label-only, both, neither) produce correct output (2 files, 2 files, 4 files, [])
   **Plans:** 2 plans
   Plans:
-  - [ ] 25-01-PLAN.md — Wave 0 TDD stubs in `tests/test_viz.py` + implement `plot_trajectory` + rename `plot_metrics_summary` → `plot_metrics` in `eval/viz.py` + add `label_names` to `EvalConfig`
-  - [ ] 25-02-PLAN.md — Update `EvaluationRunner.run()` save_plots branch (D-10) + update `TestEvaluationRunnerSavePlots` assertions
+  - [x] 25-01-PLAN.md — Wave 0 TDD stubs in `tests/test_viz.py` + implement `plot_trajectory` + rename `plot_metrics_summary` → `plot_metrics` in `eval/viz.py` + add `label_names` to `EvalConfig`
+  - [x] 25-02-PLAN.md — Update `EvaluationRunner.run()` save_plots branch (D-10) + update `TestEvaluationRunnerSavePlots` assertions
 
 - [ ] **Phase 26: Propulate Optimizer**
   **Goal:** Add `PropulateSearch` as a selectable optimizer backend alongside Optuna. `HyperparamOptimizer` auto-selects Propulate when `SLURM_JOB_ID` is set or MPI world size > 1; defaults to Optuna otherwise. Users override via `optimiser: auto|optuna|propulate` in config.
@@ -238,5 +238,5 @@ Full details: [.planning/milestones/v1.0-ROADMAP.md](.planning/milestones/v1.0-R
 | 22. HyperparamOptimizer & Search Strategies | v1.2 | 2/2 | Complete | 2026-05-29 |
 | 23. CLI Entrypoint & Scenario Configs | v1.2 | 2/2 | Complete | 2026-06-02 |
 | 24. Trajectory Export | v1.2 | 2/2 | Complete | 2026-06-04 |
-| 25. Visualisation Refactor | v1.2 | 0/2 | Pending | — |
+| 25. Visualisation Refactor | v1.2 | 2/2 | Complete    | 2026-06-04 |
 | 26. Propulate Optimizer | v1.2 | 0/2 | Pending | — |

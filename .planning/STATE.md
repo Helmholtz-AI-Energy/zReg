@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Evaluation Framework & Debt Resolution
-status: ready_to_execute
-stopped_at: Phase 24 complete — ready to plan Phase 25
-last_updated: "2026-06-04T00:00:00.000Z"
-last_activity: 2026-06-04 -- Phase 24 complete (2/2 plans, 5/5 must-haves verified, 787 tests)
+status: executing
+stopped_at: Phase 24 context gathered
+last_updated: "2026-06-04T13:37:26.371Z"
+last_activity: 2026-06-04
 progress:
-  total_phases: 20
-  completed_phases: 20
+  total_phases: 21
+  completed_phases: 21
   total_plans: 45
-  completed_plans: 43
-  percent: 97
+  completed_plans: 45
+  percent: 100
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Every existing capability works correctly, fails informatively, and is covered by tests.
-**Current focus:** Phase 25 — Visualisation Refactor (ready to plan)
+**Current focus:** Phase 25 — Visualisation Refactor
 
 ## Current Position
 
-Phase: 24 (Trajectory Export) — COMPLETE
-Plan: 2 of 2 (2 executed)
-Status: Phase 24 complete — EXT-01 closed; 787 tests pass (+46 vs Phase 23)
-Last activity: 2026-06-04 -- Phase 24 complete (2/2 plans, 5/5 must-haves verified, verification passed)
+Phase: 25
+Plan: Not started
+Status: Executing Phase 25
+Last activity: 2026-06-04
 
 ## Phase Overview
 

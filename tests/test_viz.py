@@ -1,4 +1,4 @@
-"""Tests for eval.viz — plot_point_cloud and plot_metrics_summary (FRAME-08)."""
+"""Tests for eval.viz — plot_trajectory and plot_metrics (FRAME-08)."""
 
 from pathlib import Path
 
@@ -12,8 +12,8 @@ import torch
 
 import matplotlib.pyplot as plt
 
-from eval.types import AlignResult, EvalReport, StageMetrics
-from eval.viz import plot_point_cloud, plot_metrics_summary
+from eval.types import AlignResult, EvalReport, LabelResult, StageMetrics
+from eval.viz import plot_metrics, plot_trajectory
 
 
 # ---------------------------------------------------------------------------
@@ -88,6 +88,15 @@ def fake_align_result_5frames(synthetic_dataset_5) -> AlignResult:
 
 
 @pytest.fixture
+def fake_label_result(synthetic_dataset_3) -> LabelResult:
+    """LabelResult constructed from synthetic_dataset_3 with 1-D long tensors."""
+    return LabelResult(
+        transferred_labels={k: synthetic_dataset_3[k]['color'][:, 0].long() for k in synthetic_dataset_3},
+        params_used={},
+    )
+
+
+@pytest.fixture
 def fake_report() -> EvalReport:
     """EvalReport with all 6 normalized metric keys populated."""
     metrics = StageMetrics(
@@ -117,59 +126,17 @@ def fake_report() -> EvalReport:
 
 
 # ---------------------------------------------------------------------------
-# TestPlotPointCloud — FRAME-08 G1
+# TestPlotMetrics — FRAME-08 G2
 # ---------------------------------------------------------------------------
 
 
-class TestPlotPointCloud:
-    """FRAME-08 G1: plot_point_cloud produces non-empty PDF without figure leaks."""
-
-    def test_creates_pdf_file_at_path(self, fake_align_result, tmp_path) -> None:
-        """PDF is created at the given path with size > 0."""
-        out = tmp_path / "cloud.pdf"
-        plot_point_cloud(fake_align_result, out)
-        assert out.exists()
-        assert out.suffix == ".pdf"
-        assert out.stat().st_size > 0
-
-    def test_no_figure_leak(self, fake_align_result, tmp_path) -> None:
-        """plt.close(fig) is called — no leaked figure handles after return."""
-        before = len(plt.get_fignums())
-        plot_point_cloud(fake_align_result, tmp_path / "leak.pdf")
-        after = len(plt.get_fignums())
-        assert after == before
-
-    def test_one_frame_dataset_one_subplot_produced(
-        self, fake_align_result_1frame, tmp_path
-    ) -> None:
-        """1-frame dataset: function does not raise and produces a PDF."""
-        out = tmp_path / "one_frame.pdf"
-        plot_point_cloud(fake_align_result_1frame, out)
-        assert out.exists()
-        assert out.stat().st_size > 0
-
-    def test_five_frames_capped_at_four(
-        self, fake_align_result_5frames, tmp_path
-    ) -> None:
-        """5-frame dataset: D-08 cap — function slices to 4 and produces a PDF."""
-        out = tmp_path / "five_frames.pdf"
-        plot_point_cloud(fake_align_result_5frames, out)
-        assert out.exists()
-        assert out.stat().st_size > 0
-
-
-# ---------------------------------------------------------------------------
-# TestPlotMetricsSummary — FRAME-08 G2
-# ---------------------------------------------------------------------------
-
-
-class TestPlotMetricsSummary:
-    """FRAME-08 G2: plot_metrics_summary produces non-empty PDF without figure leaks."""
+class TestPlotMetrics:
+    """FRAME-08 G2: plot_metrics produces non-empty PDF without figure leaks."""
 
     def test_creates_pdf_file_at_path(self, fake_report, tmp_path) -> None:
         """PDF is created at the given path with size > 0."""
         out = tmp_path / "summary.pdf"
-        plot_metrics_summary(fake_report, out)
+        plot_metrics(fake_report, out)
         assert out.exists()
         assert out.suffix == ".pdf"
         assert out.stat().st_size > 0
@@ -177,7 +144,7 @@ class TestPlotMetricsSummary:
     def test_no_figure_leak(self, fake_report, tmp_path) -> None:
         """plt.close(fig) is called — no leaked figure handles after return."""
         before = len(plt.get_fignums())
-        plot_metrics_summary(fake_report, tmp_path / "summary_leak.pdf")
+        plot_metrics(fake_report, tmp_path / "summary_leak.pdf")
         after = len(plt.get_fignums())
         assert after == before
 
@@ -201,6 +168,33 @@ class TestPlotMetricsSummary:
             sanity_flags=[],
         )
         out = tmp_path / "partial.pdf"
-        plot_metrics_summary(partial_report, out)
+        plot_metrics(partial_report, out)
         assert out.exists()
         assert out.stat().st_size > 0
+
+
+# ---------------------------------------------------------------------------
+# TestPlotTrajectory — EXT-02
+# ---------------------------------------------------------------------------
+
+
+class TestPlotTrajectory:
+    """EXT-02: plot_trajectory produces correct files for all 4 stage combinations."""
+
+    def test_align_only_writes_alignment_files(self, fake_align_result, synthetic_dataset_3, tmp_path):
+        pytest.skip('stub — implement in Plan 25-01 Task 2')
+
+    def test_label_only_writes_label_files(self, fake_label_result, synthetic_dataset_3, tmp_path):
+        pytest.skip('stub — implement in Plan 25-01 Task 2')
+
+    def test_both_stages_writes_four_files(self, fake_align_result, fake_label_result, synthetic_dataset_3, tmp_path):
+        pytest.skip('stub — implement in Plan 25-01 Task 2')
+
+    def test_neither_stage_returns_empty_list(self, synthetic_dataset_3, tmp_path):
+        pytest.skip('stub — implement in Plan 25-01 Task 2')
+
+    def test_label_names_used_when_provided(self, fake_align_result, fake_label_result, synthetic_dataset_3, tmp_path):
+        pytest.skip('stub — implement in Plan 25-01 Task 2')
+
+    def test_no_figure_leak(self, fake_align_result, fake_label_result, synthetic_dataset_3, tmp_path):
+        pytest.skip('stub — implement in Plan 25-01 Task 2')

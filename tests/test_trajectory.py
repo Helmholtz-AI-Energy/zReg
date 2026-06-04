@@ -56,19 +56,22 @@ def _make_config():
 
 
 def _make_zreg_pc(n_points: int, seed: int = 0):
-    """Return a minimal zRegPointCloud-like dict with a 'pos' tensor."""
-    # Use a plain dict — export_trajectory only reads dataset[frame]["pos"]
+    """Return a zRegPointCloud instance with a 'pos' tensor."""
+    from zreg.dataset import zRegPointCloud
+
     torch.manual_seed(seed)
     pos = torch.randn(n_points, 3)
-    return {"pos": pos}
+    pc = zRegPointCloud()
+    pc["pos"] = pos
+    return pc
 
 
 def _make_align_result(dataset: dict):
     """Return an AlignResult whose aligned_cloud mirrors the dataset."""
     from eval.types import AlignResult
 
-    # Copy the dataset as aligned_cloud (same frames, same pos tensors)
-    aligned_cloud = {k: dict(v) for k, v in dataset.items()}
+    # Use the dataset directly as aligned_cloud (same zRegPointCloud instances)
+    aligned_cloud = dict(dataset)
     return AlignResult(
         aligned_cloud=aligned_cloud,
         warp_path=[(0, 0), (1, 1)],

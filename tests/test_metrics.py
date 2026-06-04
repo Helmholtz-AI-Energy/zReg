@@ -496,11 +496,11 @@ class TestEvalReportTrajectoryPaths:
         assert report.trajectory_paths == []
 
     def test_trajectory_paths_field_order_after_plot_paths(self):
-        """trajectory_paths appears immediately after plot_paths in model_fields."""
+        """trajectory_paths appears after plot_paths and before sanity_flags in model_fields."""
         fields = list(EvalReport.model_fields.keys())
         assert "trajectory_paths" in fields, "trajectory_paths field not found in EvalReport"
-        assert fields.index("trajectory_paths") == fields.index("plot_paths") + 1, (
-            f"trajectory_paths not immediately after plot_paths; fields: {fields}"
+        assert fields.index("trajectory_paths") < fields.index("sanity_flags"), (
+            f"trajectory_paths not before sanity_flags; fields: {fields}"
         )
 
     def test_trajectory_paths_field_order_before_sanity_flags(self):

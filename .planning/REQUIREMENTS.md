@@ -34,23 +34,23 @@
 
 ### Category 7 — MetricsEngine & Result Types
 
-- [ ] **FRAME-03**: `eval/metrics.py` — `MetricsEngine` class wrapping all existing `zreg.metrics.*` functions; adds `normalize(dict) → dict` mapping all scores to [0,1] with correct direction (lower/higher is better); `aggregate(list[StageMetrics]) → dict` returning mean/std/min/max; `compute_score(StageMetrics) → float` weighted scalar; `sanity_check(result) → list[str]` warning list for degenerate inputs
+- [x] **FRAME-03**: `eval/metrics.py` — `MetricsEngine` class wrapping all existing `zreg.metrics.*` functions; adds `normalize(dict) → dict` mapping all scores to [0,1] with correct direction (lower/higher is better); `aggregate(list[StageMetrics]) → dict` returning mean/std/min/max; `compute_score(StageMetrics) → float` weighted scalar; `sanity_check(result) → list[str]` warning list for degenerate inputs
 - [x] **FRAME-04**: `eval/types.py` — dataclasses: `AlignResult` (aligned_cloud, warp_path, dtw_distance, n_changepoints, params_used); `LabelResult` (transferred_labels, params_used); `StageMetrics` (alignment + label fields + normalized dict); `Trial` (params, score, metrics, tier); `SearchResult` (best_params, best_score, history, tier); `EvalReport` (params, metrics, aggregated_metrics, per_dataset, plot_paths, sanity_flags); `tests/test_metrics.py` covering normalize direction, sanity_check triggers, compute_score output
 
 ### Category 8 — Pipeline Stages
 
-- [ ] **FRAME-05**: `eval/stages/base.py` — `PipelineStage` ABC with `run(dataset, params) → StageResult` abstractmethod and `validate_params(params) → bool`; `eval/stages/alignment.py` — `AlignmentStage(PipelineStage)` using existing DTW + CPD code; hyperparams: `window_size`, `step`, `cpd_penalty`, `dtw_dist_fn`, `n_breakpoints`; runs without LabelTransferStage; `tests/test_alignment_stage.py` with standalone-run and validate_params gates
-- [ ] **FRAME-06**: `eval/stages/label_transfer.py` — `LabelTransferStage(PipelineStage)` using existing color_transfer code; hyperparams: `k_neighbours`, `dist_metric`, `smoothing`, `threshold`; accepts raw or aligned clouds (output of AlignmentStage); `tests/test_label_transfer_stage.py` with standalone-run, chained-run, and label-accuracy-beats-random gates
+- [x] **FRAME-05**: `eval/stages/base.py` — `PipelineStage` ABC with `run(dataset, params) → StageResult` abstractmethod and `validate_params(params) → bool`; `eval/stages/alignment.py` — `AlignmentStage(PipelineStage)` using existing DTW + CPD code; hyperparams: `window_size`, `step`, `cpd_penalty`, `dtw_dist_fn`, `n_breakpoints`; runs without LabelTransferStage; `tests/test_alignment_stage.py` with standalone-run and validate_params gates
+- [x] **FRAME-06**: `eval/stages/label_transfer.py` — `LabelTransferStage(PipelineStage)` using existing color_transfer code; hyperparams: `k_neighbours`, `dist_metric`, `smoothing`, `threshold`; accepts raw or aligned clouds (output of AlignmentStage); `tests/test_label_transfer_stage.py` with standalone-run, chained-run, and label-accuracy-beats-random gates
 
 ### Category 9 — Runners & Visualisation
 
-- [ ] **FRAME-07**: `eval/runners/eval_runner.py` — `EvaluationRunner(config, params)`; `run() → EvalReport` orchestrating DataFactory → stages → MetricsEngine → aggregation → sanity checks → plots → `eval_report.json`; `_run_single(ds, params) → dict`; `save_report(report, path)`; `tests/test_eval_runner.py` with fixed-params full-report and sanity-flag-on-bad-input gates
-- [ ] **FRAME-08**: `eval/viz.py` — `plot_point_cloud(result, path)` and `plot_metrics_summary(report, path)`; all figure code inside `matplotlib.rc_context`; Agg backend; `plt.close(fig)` enforced; PDF output with `bbox_inches="tight"`; mathtext only (no system TeX)
+- [x] **FRAME-07**: `eval/runners/eval_runner.py` — `EvaluationRunner(config, params)`; `run() → EvalReport` orchestrating DataFactory → stages → MetricsEngine → aggregation → sanity checks → plots → `eval_report.json`; `_run_single(ds, params) → dict`; `save_report(report, path)`; `tests/test_eval_runner.py` with fixed-params full-report and sanity-flag-on-bad-input gates
+- [x] **FRAME-08**: `eval/viz.py` — `plot_trajectory(align_result, label_result, dataset, label_names, output_dir)` and `plot_metrics(report, path)`; all figure code inside `matplotlib.rc_context`; Agg backend; `plt.close(fig)` enforced; PDF+PNG output with `bbox_inches="tight"`; mathtext only (no system TeX)
 
 ### Category 10 — Hyperparameter Optimisation
 
-- [ ] **FRAME-09**: `eval/runners/optimizer.py` — `HyperparamOptimizer(config)`; `run() → SearchResult` with sanity → dev → full tier logic; `_objective(params) → float`; `_tier_dataset(tier) → Dataset`; `prune_candidates(history, keep_top_k) → list[dict]`; `save_best_params(result, path)` writing `best_params.json` + `search_history.json`
-- [ ] **FRAME-10**: `eval/search_strategies.py` — `GridSearch`, `RandomSearch` strategy classes; Optuna 4.x Bayesian search via `optuna.create_study` with TPE sampler (`n_startup_trials >= 2×N_params`) and SQLite storage (`load_if_exists=True`); `tests/test_optimizer.py` with sanity-tier under-2-min, pruning-reduces-candidates, best-params-improve-default gates
+- [x] **FRAME-09**: `eval/runners/optimizer.py` — `HyperparamOptimizer(config)`; `run() → SearchResult` with sanity → dev → full tier logic; `_objective(params) → float`; `_tier_dataset(tier) → Dataset`; `prune_candidates(history, keep_top_k) → list[dict]`; `save_best_params(result, path)` writing `best_params.json` + `search_history.json`
+- [x] **FRAME-10**: `eval/search_strategies.py` — `GridSearch`, `RandomSearch` strategy classes; Optuna 4.x Bayesian search via `optuna.create_study` with TPE sampler (`n_startup_trials >= 2×N_params`) and SQLite storage (`load_if_exists=True`); `tests/test_optimizer.py` with sanity-tier under-2-min, pruning-reduces-candidates, best-params-improve-default gates
 
 ### Category 11 — CLI & Scenario Configs
 
@@ -112,13 +112,13 @@
 | EVAL-07 | — | Superseded | Replaced by FRAME-07 + FRAME-08 |
 | FRAME-01 | Phase 17 | Complete | EvalConfig + YAML loading — Validated 2026-05-27 |
 | FRAME-02 | Phase 17 | Complete | DataFactory — Validated 2026-05-27 |
-| FRAME-03 | Phase 18 | Pending | MetricsEngine |
+| FRAME-03 | Phase 18 | Complete | MetricsEngine — Validated 2026-05-28 |
 | FRAME-04 | Phase 18 | Complete | Result types (6 frozen pydantic models) — Validated 2026-05-28 |
-| FRAME-05 | Phase 19 | Pending | AlignmentStage |
-| FRAME-06 | Phase 20 | Pending | LabelTransferStage |
-| FRAME-07 | Phase 21 | Pending | EvaluationRunner |
-| FRAME-08 | Phase 21 | Pending | viz.py |
-| FRAME-09 | Phase 22 | Pending | HyperparamOptimizer |
-| FRAME-10 | Phase 22 | Pending | SearchStrategies |
+| FRAME-05 | Phase 19 | Complete | AlignmentStage — Validated 2026-05-28 |
+| FRAME-06 | Phase 20 | Complete | LabelTransferStage — Validated 2026-05-29 |
+| FRAME-07 | Phase 21 | Complete | EvaluationRunner — Validated 2026-05-29 |
+| FRAME-08 | Phase 21 | Complete | viz.py (plot_trajectory + plot_metrics, refactored Phase 25) — Validated 2026-06-04 |
+| FRAME-09 | Phase 22 | Complete | HyperparamOptimizer — Validated 2026-05-29 |
+| FRAME-10 | Phase 22 | Complete | SearchStrategies — Validated 2026-05-29 |
 | FRAME-11 | Phase 23 | Complete | CLI entrypoint |
 | FRAME-12 | Phase 23 | Complete | 5 scenario YAML configs |

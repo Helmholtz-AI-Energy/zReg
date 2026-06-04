@@ -79,6 +79,11 @@ def export_trajectory(
 
     A single UUID ``run_id`` is generated once per call; both metadata files
     share the same UUID when both stages ran.
+
+    When *dataset* is empty (``{}``), the write loops never execute and the
+    resulting CSV files contain only the header row (no data rows).  The
+    function still returns the path list and reports ``frame_count=0`` in the
+    metadata JSON — this is intentional and not treated as an error.
     """
     # 1. Ensure output directory exists
     output_dir = Path(output_dir)

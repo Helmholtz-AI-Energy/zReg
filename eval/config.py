@@ -58,6 +58,9 @@ class EvalConfig(BaseModel):
         Whether the AlignmentStage should be executed (default True).
     run_label_transfer : bool
         Whether the LabelTransferStage should be executed (default True).
+    default_params : dict
+        Fallback hyperparameter values merged with search-space trial params
+        by ``HyperparamOptimizer._objective`` (Pitfall 4).  Default empty dict.
     search_space : dict
         Hyper-parameter grid / search space for the optimizer.
     search_strategy : str

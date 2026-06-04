@@ -471,8 +471,8 @@ class TestEvaluationRunnerSavePlots:
     ) -> None:
         """save_plots=True with run_alignment=True: alignment_trajectory.pdf exists on disk.
 
-        Phase 25 replaces point_cloud.pdf with alignment_trajectory.pdf/.png
-        produced by plot_trajectory (D-10).
+        plot_trajectory (D-10) produces alignment_trajectory.pdf and
+        alignment_trajectory.png in the output directory.
         """
         mock_factory = mock_factory_cls.return_value
         mock_factory.load_real.return_value = synthetic_dataset
@@ -525,14 +525,14 @@ class TestEvaluationRunnerSavePlots:
         assert report.plot_paths == []
 
     @patch("eval.runners.eval_runner.DataFactory")
-    def test_run_alignment_false_omits_point_cloud_pdf(
+    def test_run_alignment_false_omits_alignment_trajectory_pdf(
         self,
         mock_factory_cls,
         tmp_path,
         full_params,
         synthetic_dataset,
     ) -> None:
-        """run_alignment=False: point_cloud.pdf absent; metrics_summary.pdf present."""
+        """run_alignment=False: alignment_trajectory.pdf absent; metrics_summary.pdf present."""
         eval_config_no_align = EvalConfig(
             data_path=str(tmp_path / "x"),
             output_dir=str(tmp_path / "out"),
@@ -547,5 +547,5 @@ class TestEvaluationRunnerSavePlots:
         }
         runner = EvaluationRunner(eval_config_no_align, full_params)
         report = runner.run()
-        assert not any("point_cloud.pdf" in p for p in report.plot_paths)
+        assert not any("alignment_trajectory.pdf" in p for p in report.plot_paths)
         assert any("metrics_summary.pdf" in p for p in report.plot_paths)

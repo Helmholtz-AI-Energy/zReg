@@ -224,3 +224,28 @@ class TestPlotTrajectory:
         plot_trajectory(fake_align_result, fake_label_result, synthetic_dataset_3, None, tmp_path)
         after = len(plt.get_fignums())
         assert after == before
+
+    # D-08 lower-bound: 1-frame dataset — frame_indices must deduplicate to [0]
+    def test_1frame_dataset_returns_two_files_no_index_error(
+        self, fake_align_result_1frame, synthetic_dataset_1, tmp_path
+    ):
+        """D-08: 1-frame dataset produces exactly 2 output files (PDF + PNG) without IndexError."""
+        result = plot_trajectory(fake_align_result_1frame, None, synthetic_dataset_1, None, tmp_path)
+        assert len(result) == 2
+        assert (tmp_path / "alignment_trajectory.pdf").exists()
+        assert (tmp_path / "alignment_trajectory.png").exists()
+
+    # D-08 cap: 5-frame dataset — frame_indices selects first/middle/last (no duplicates)
+    def test_5frame_dataset_returns_two_files_no_index_error(
+        self, fake_align_result_5frames, synthetic_dataset_5, tmp_path
+    ):
+        """D-08: 5-frame dataset produces exactly 2 output files (PDF + PNG) without IndexError."""
+        result = plot_trajectory(fake_align_result_5frames, None, synthetic_dataset_5, None, tmp_path)
+        assert len(result) == 2
+        assert (tmp_path / "alignment_trajectory.pdf").exists()
+        assert (tmp_path / "alignment_trajectory.png").exists()
+
+    def test_empty_dataset_returns_empty_list(self, tmp_path):
+        """CR-01: empty dataset returns [] immediately without IndexError."""
+        result = plot_trajectory(None, None, {}, None, tmp_path)
+        assert result == []

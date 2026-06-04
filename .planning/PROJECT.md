@@ -16,9 +16,9 @@
 ## Current State
 
 **Shipped:** v1.0 Consolidation — 2026-04-09 | v1.1 Code Quality & Refactoring — 2026-05-13
-**Active:** v1.2 Evaluation Framework & Debt Resolution — Phases 12–20 complete 2026-05-29; Phases 21–23 pending
+**Active:** v1.2 Evaluation Framework & Debt Resolution — Phases 12–24 complete 2026-06-04; Phases 25–26 pending
 
-zReg is a Python library for GPU-accelerated 3D point cloud registration, temporal alignment, and color (celltype) transfer using PyTorch. Phase 20 delivered FRAME-06 (`eval/stages/label_transfer.py`: LabelTransferStage wrapping transfer_colors via KNN_VOTING; validate_params with bool guards; 5 FRAME-06 gate test classes). 690 tests pass, 17 skipped. Note: `eval/` is a namespace directory; `conftest.py:16` inserts repo root for test discovery — evaluate pip-discoverability before Phase 23 CLI (CR-01).
+zReg is a Python library for GPU-accelerated 3D point cloud registration, temporal alignment, and color (celltype) transfer using PyTorch. Phase 24 delivered EXT-01 (`eval/tracking/trajectory.py`: stdlib-only export_trajectory writing point-per-row CSV trajectory files + 11-field metadata JSON; EvalReport.trajectory_paths field; EvaluationRunner.run() unconditional wiring; 787 tests pass, 17 skipped). Validated in Phase 24: EXT-01.
 
 ## What This Is
 
@@ -153,4 +153,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-29 — Phase 20 complete (FRAME-06 validated: LabelTransferStage + 5 gate test classes, 690 tests pass)*
+*Last updated: 2026-06-04 — Phase 24 complete (EXT-01 validated: export_trajectory + EvalReport.trajectory_paths + EvaluationRunner wiring, 787 tests pass)*

@@ -286,6 +286,9 @@ class EvalReport(BaseModel):
     plot_paths : list[str]
         Filesystem paths to figures written by Phase 21 ``viz`` helpers.
         Default empty list.
+    trajectory_paths : list[str]
+        Filesystem paths to CSV and metadata JSON files written by
+        eval.tracking.export_trajectory (Phase 24 EXT-01). Default empty list.
     sanity_flags : list[str]
         Warning strings emitted by ``MetricsEngine.sanity_check`` for
         degenerate inputs (Plan 18-02).  Default empty list.
@@ -297,6 +300,7 @@ class EvalReport(BaseModel):
     aggregated_metrics : dict[str, dict[str, float]]
     per_dataset : dict[str, dict[str, float]]
     plot_paths : list[str]
+    trajectory_paths : list[str]
     sanity_flags : list[str]
     """
 
@@ -307,6 +311,7 @@ class EvalReport(BaseModel):
     aggregated_metrics: dict[str, dict[str, float]]
     per_dataset: dict[str, dict[str, float]]
     plot_paths: list[str] = Field(default_factory=list)
+    trajectory_paths: list[str] = Field(default_factory=list)
     sanity_flags: list[str] = Field(default_factory=list)
 
 

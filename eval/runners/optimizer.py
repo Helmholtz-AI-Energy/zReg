@@ -227,16 +227,20 @@ class HyperparamOptimizer:
                     warm_start=warm_start,
                 )
             elif strategy_name == "propulate":
+                # CR-01 fix: use a throwaway list so _objective does not append to
+                # all_history — propulate runs evaluations internally and returns the
+                # survivors via results; the explicit loop below is the single writer.
+                _propulate_sink: list[Trial] = []
+                propulate_obj = make_objective(tier_dataset, tier_name, _propulate_sink)
                 results = PropulateSearch().search(
                     self.config.search_space,
-                    obj,
+                    propulate_obj,
                     n_trials=n_trials,
                     output_dir=str(output_dir),
                     warm_start=warm_start,  # D-09: silently ignored by PropulateSearch
                 )
-                # D-11: PropulateSearch returns (params, score) pairs because the loss
-                # closure does not append to history_out; minimal_metrics is a
-                # zero-filled placeholder (Open Question 2 — option a).
+                # D-11: PropulateSearch returns (params, score) pairs; construct Trials
+                # here with zero-filled StageMetrics placeholder (Open Question 2 / option a).
                 minimal_metrics = StageMetrics(
                     chamfer_distance=0.0,
                     hausdorff_distance=0.0,

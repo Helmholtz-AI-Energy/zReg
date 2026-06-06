@@ -87,16 +87,10 @@ class TestRunDispatchPropulate:
         pass
 
 
-# Guard: determine if MPI integration tests can run.
-# Must appear IMMEDIATELY before TestPropulateMPIIntegration per plan spec.
-# Uses importorskip so that when propulate IS installed all 5 classes collect;
-# when it is NOT installed the module is skipped (exit code 0 — no failure).
-propulate = pytest.importorskip("propulate")
-mpi4py = pytest.importorskip("mpi4py")
-
-
 class TestPropulateMPIIntegration:
     """End-to-end: mpirun -n 2 produces non-empty results on rank 0."""
 
     def test_mpirun_n2_returns_results(self, tmp_path):
+        pytest.importorskip("propulate")
+        pytest.importorskip("mpi4py")
         pytest.skip("populated in Plan 26-02")

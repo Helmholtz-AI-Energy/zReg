@@ -64,7 +64,14 @@ class EvalConfig(BaseModel):
     search_space : dict
         Hyper-parameter grid / search space for the optimizer.
     search_strategy : str
-        Optimizer strategy: ``"grid"``, ``"random"``, or ``"bayesian"``.
+        Optimizer strategy: ``"grid"``, ``"random"``, ``"bayesian"``,
+        ``"propulate"`` (MPI-parallel evolutionary search via the propulate
+        library; requires the ``zreg[propulate]`` optional extra), or
+        ``"auto"`` (resolved at run-time by
+        ``HyperparamOptimizer._detect_backend`` based on MPI world size and
+        the ``SLURM_JOB_ID`` environment variable — returns ``"propulate"``
+        when running under MPI with world_size > 1 or when ``SLURM_JOB_ID``
+        is set, otherwise ``"bayesian"``).  EXT-03.
     tier : str
         Search tier: ``"sanity"``, ``"dev"``, or ``"full"``.
     n_trials : int

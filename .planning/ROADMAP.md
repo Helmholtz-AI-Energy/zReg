@@ -165,7 +165,7 @@
   - [x] 25-01-PLAN.md — Wave 0 TDD stubs in `tests/test_viz.py` + implement `plot_trajectory` + rename `plot_metrics_summary` → `plot_metrics` in `eval/viz.py` + add `label_names` to `EvalConfig`
   - [x] 25-02-PLAN.md — Update `EvaluationRunner.run()` save_plots branch (D-10) + update `TestEvaluationRunnerSavePlots` assertions
 
-- [ ] **Phase 26: Propulate Optimizer**
+- [x] **Phase 26: Propulate Optimizer** (2/2 plans) — completed 2026-06-06
   **Goal:** Add `PropulateSearch` as a selectable optimizer backend alongside Optuna. `HyperparamOptimizer` auto-selects Propulate when `SLURM_JOB_ID` is set or MPI world size > 1; defaults to Optuna otherwise. Users override via `optimiser: auto|optuna|propulate` in config.
   **Requirements:** EXT-03
   **Depends on:** Phase 22, Phase 17
@@ -178,8 +178,8 @@
   6. Docstrings explain when to prefer each backend
   **Plans:** 2 plans
   Plans:
-  - [ ] 26-01-PLAN.md — `optimiser` field in `EvalConfig` + `PropulateSearch` in `eval/search_strategies.py` + propulate optional extra in `setup.cfg`
-  - [ ] 26-02-PLAN.md — `_detect_backend()` + dispatch in `HyperparamOptimizer.run()` + `tests/test_propulate.py` (unit + MPI integration)
+  - [x] 26-01-PLAN.md — Test scaffold (`tests/test_propulate.py` + `tests/_propulate_mwe.py`) + `search_strategy` docstring extension in `eval/config.py` (D-01: no new field) + `PropulateSearch` in `eval/search_strategies.py` (D-12 lazy import) + `_detect_backend()` + auto/propulate dispatch in `eval/runners/optimizer.py` + propulate optional extra in `setup.cfg` (`propulate>=1.0,<2` per Pitfall 3)
+  - [x] 26-02-PLAN.md — Populate 5 test classes in `tests/test_propulate.py` (TestPropulateImportGuard, TestEvalConfigAcceptsPropulate, TestDetectBackend, TestRunDispatchPropulate, TestPropulateMPIIntegration) + verify Phase 22 regression + full suite green
 
 <details>
 <summary>✅ v1.1 Code Quality & Refactoring (Phases 6–11.1) — SHIPPED 2026-05-13</summary>
@@ -239,4 +239,4 @@ Full details: [.planning/milestones/v1.0-ROADMAP.md](.planning/milestones/v1.0-R
 | 23. CLI Entrypoint & Scenario Configs | v1.2 | 2/2 | Complete | 2026-06-02 |
 | 24. Trajectory Export | v1.2 | 2/2 | Complete | 2026-06-04 |
 | 25. Visualisation Refactor | v1.2 | 2/2 | Complete    | 2026-06-04 |
-| 26. Propulate Optimizer | v1.2 | 0/2 | Pending | — |
+| 26. Propulate Optimizer | v1.2 | 2/2 | Complete | 2026-06-06 |

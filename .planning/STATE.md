@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Evaluation Framework & Debt Resolution
-status: executing
-stopped_at: Phase 24 context gathered
-last_updated: "2026-06-04T13:37:26.371Z"
-last_activity: 2026-06-04
+status: complete
+stopped_at: Phase 26 complete
+last_updated: "2026-06-06T12:00:00.000Z"
+last_activity: 2026-06-06 -- Phase 26 complete (Propulate Optimizer)
 progress:
-  total_phases: 21
-  completed_phases: 21
-  total_plans: 45
-  completed_plans: 45
+  total_phases: 22
+  completed_phases: 22
+  total_plans: 47
+  completed_plans: 47
   percent: 100
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Every existing capability works correctly, fails informatively, and is covered by tests.
-**Current focus:** Phase 25 — Visualisation Refactor
+**Current focus:** v1.2 milestone complete
 
 ## Current Position
 
 Phase: 25
 Plan: Not started
-Status: Executing Phase 25
-Last activity: 2026-06-04
+Status: Ready to execute
+Last activity: 2026-06-06 -- Phase 26 planning complete
 
 ## Phase Overview
 
@@ -176,7 +176,7 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-06-03T17:54:22.501Z
-Stopped at: Phase 24 context gathered
-Resume file: .planning/phases/24-trajectory-export/24-CONTEXT.md
+Last session: 2026-06-06T10:06:10.647Z
+Stopped at: Phase 26 context gathered
+Resume file: .planning/phases/26-propulate-optimizer/26-CONTEXT.md
 Next action: `/gsd-plan-phase 22` — HyperparamOptimizer & Search Strategies (FRAME-09, FRAME-10)

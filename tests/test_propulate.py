@@ -51,33 +51,61 @@ class TestPropulateImportGuard:
     """D-12: lazy ImportError raises friendly ImportError when propulate is missing."""
 
     def test_propulate_missing_raises_helpful_error(self, monkeypatch, tmp_path):
-        pass
+        # Pitfall 8: monkeypatch.setitem with None → next `import propulate` fails.
+        # Must patch BEFORE importing PropulateSearch so the lazy import sees None.
+        monkeypatch.setitem(sys.modules, "propulate", None)
+        # Also patch propulate.utils which is imported alongside propulate
+        monkeypatch.setitem(sys.modules, "propulate.utils", None)
+
+        from eval.search_strategies import PropulateSearch
+
+        with pytest.raises(ImportError, match=r"pip install zreg\[propulate\]"):
+            PropulateSearch().search(
+                search_space={"x": [1, 2]},
+                objective_fn=lambda p: 0.5,
+                n_trials=2,
+                output_dir=str(tmp_path),
+            )
 
 
 class TestEvalConfigAcceptsPropulate:
     """D-01: EvalConfig accepts 'propulate' and 'auto' as valid search_strategy values."""
 
     def test_propulate_value_accepted(self):
-        pass
+        cfg = EvalConfig(data_path="unused.mat", search_strategy="propulate")
+        assert cfg.search_strategy == "propulate"
 
     def test_auto_value_accepted(self):
-        pass
+        cfg = EvalConfig(data_path="unused.mat", search_strategy="auto")
+        assert cfg.search_strategy == "auto"
 
 
 class TestDetectBackend:
     """D-04 / D-05: backend auto-detection from environment."""
 
     def test_fallback_to_bayesian_when_no_mpi_no_slurm(self, optimizer_auto, monkeypatch):
-        pass
+        monkeypatch.delenv("SLURM_JOB_ID", raising=False)
+        with patch("mpi4py.MPI.COMM_WORLD") as mock_comm:
+            mock_comm.Get_size.return_value = 1
+            assert optimizer_auto._detect_backend() == "bayesian"
 
     def test_slurm_job_id_returns_propulate(self, optimizer_auto, monkeypatch):
-        pass
+        monkeypatch.setenv("SLURM_JOB_ID", "12345")
+        with patch("mpi4py.MPI.COMM_WORLD") as mock_comm:
+            mock_comm.Get_size.return_value = 1
+            assert optimizer_auto._detect_backend() == "propulate"
 
     def test_mpi_world_size_gt_one_returns_propulate(self, optimizer_auto, monkeypatch):
-        pass
+        monkeypatch.delenv("SLURM_JOB_ID", raising=False)
+        with patch("mpi4py.MPI.COMM_WORLD") as mock_comm:
+            mock_comm.Get_size.return_value = 2
+            assert optimizer_auto._detect_backend() == "propulate"
 
     def test_mpi4py_missing_falls_through(self, optimizer_auto, monkeypatch):
-        pass
+        monkeypatch.delenv("SLURM_JOB_ID", raising=False)
+        monkeypatch.setitem(sys.modules, "mpi4py", None)
+        # Should not raise; falls through to bayesian because mpi4py import fails
+        assert optimizer_auto._detect_backend() == "bayesian"
 
 
 class TestRunDispatchPropulate:

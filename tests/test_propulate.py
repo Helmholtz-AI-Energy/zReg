@@ -8,7 +8,9 @@ Covers decisions:
   - D-12: lazy ImportError raises 'pip install zreg[propulate]' message
 """
 
+import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -112,7 +114,56 @@ class TestRunDispatchPropulate:
     """D-11: propulate dispatch branch constructs Trial objects with minimal StageMetrics."""
 
     def test_propulate_dispatch_writes_best_params(self, tmp_path):
-        pass
+        # Build EvalConfig with search_strategy="propulate" and minimal search_space.
+        # run_alignment=True, run_label_transfer=True keeps __init__ guard satisfied;
+        # PropulateSearch is mocked away so _objective is never actually called.
+        cfg = EvalConfig(
+            data_path=str(tmp_path / "unused.mat"),
+            output_dir=str(tmp_path / "out"),
+            search_strategy="propulate",
+            tier="sanity",
+            n_trials=2,
+            run_alignment=True,
+            run_label_transfer=True,
+            search_space={"window_size": [3, 5]},
+        )
+
+        fake_results = [({"window_size": 3}, 0.7), ({"window_size": 5}, 0.5)]
+
+        with patch("eval.runners.optimizer.PropulateSearch") as mock_cls:
+            mock_cls.return_value.search.return_value = fake_results
+            result = HyperparamOptimizer(cfg).run()
+
+        # Best result is the one with highest score (window_size=3, score=0.7)
+        assert result.best_params == {"window_size": 3}, (
+            f"Expected best_params={{'window_size': 3}}, got {result.best_params}"
+        )
+        assert result.best_score == pytest.approx(0.7), (
+            f"Expected best_score=0.7, got {result.best_score}"
+        )
+
+        # Output files must exist
+        out_dir = tmp_path / "out"
+        assert (out_dir / "best_params.json").exists(), "best_params.json not written"
+        assert (out_dir / "search_history.json").exists(), "search_history.json not written"
+
+        # Validate best_params.json content
+        with open(out_dir / "best_params.json") as f:
+            bp = json.load(f)
+        assert bp == {"window_size": 3}, f"best_params.json content mismatch: {bp}"
+
+        # Mock was called with expected kwargs
+        mock_cls.return_value.search.assert_called_once()
+        call_kwargs = mock_cls.return_value.search.call_args
+        assert "n_trials" in call_kwargs.kwargs or len(call_kwargs.args) >= 3, (
+            "search() must be called with n_trials"
+        )
+        assert "output_dir" in call_kwargs.kwargs or len(call_kwargs.args) >= 4, (
+            "search() must be called with output_dir"
+        )
+        assert "warm_start" in call_kwargs.kwargs or len(call_kwargs.args) >= 5, (
+            "search() must be called with warm_start"
+        )
 
 
 class TestPropulateMPIIntegration:
@@ -121,4 +172,30 @@ class TestPropulateMPIIntegration:
     def test_mpirun_n2_returns_results(self, tmp_path):
         pytest.importorskip("propulate")
         pytest.importorskip("mpi4py")
-        pytest.skip("populated in Plan 26-02")
+
+        helper = Path(__file__).parent / "_propulate_mwe.py"
+        assert helper.exists(), f"MPI helper script not found at {helper}"
+
+        mpirun = shutil.which("mpirun")
+        if mpirun is None:
+            pytest.skip("mpirun not found on PATH")
+
+        out_file = tmp_path / "mpi_result.json"
+
+        result = subprocess.run(
+            [mpirun, "-n", "2", sys.executable, str(helper), str(out_file)],
+            capture_output=True,
+            timeout=60,  # T-26-06: bounded subprocess prevents DoS from runaway MPI
+        )
+
+        assert result.returncode == 0, (
+            f"mpirun failed: stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
+        assert out_file.exists(), "rank 0 did not write results.json"
+
+        results = json.loads(out_file.read_text())
+        assert len(results) > 0, "PropulateSearch returned empty results on rank 0"
+        # JSON round-trip: tuples → lists; each element is [params_dict, score]
+        assert all(
+            isinstance(r, list) and len(r) == 2 for r in results
+        ), f"Expected list of [params, score] pairs, got: {results[:2]}"

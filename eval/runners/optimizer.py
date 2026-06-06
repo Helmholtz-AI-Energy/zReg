@@ -29,6 +29,11 @@ Key design decisions implemented here:
 - **D-11** SQLite at ``{output_dir}/optuna.db``.
 - **D-12** ``GridSearch`` and ``RandomSearch`` are stateless; ``save_best_params``
   writes JSON at the end of ``run()``.
+- **D-04** ``_detect_backend()`` resolves ``search_strategy="auto"`` → ``"propulate"``
+  (MPI world_size > 1 or SLURM_JOB_ID set) or ``"bayesian"`` (fallback). EXT-03.
+- **D-11** Propulate dispatch branch constructs ``Trial`` objects from the
+  ``(params, score)`` pairs returned by ``PropulateSearch.search()`` because
+  Propulate's loss closure does not append to ``history_out``.
 
 Security mitigations:
 
@@ -62,6 +67,7 @@ shortcut raises for ``torch.Tensor`` fields (Pitfall 2 from eval/types.py).
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -78,7 +84,7 @@ import optuna
 from eval.config import EvalConfig
 from eval.data_factory import DataFactory
 from eval.metrics import MetricsEngine
-from eval.search_strategies import BayesianSearch, GridSearch, RandomSearch
+from eval.search_strategies import BayesianSearch, GridSearch, PropulateSearch, RandomSearch
 from eval.stages import AlignmentStage, LabelTransferStage
 from eval.types import SearchResult, StageMetrics, Trial
 
@@ -186,6 +192,8 @@ class HyperparamOptimizer:
                 n_trials = self.config.n_trials
 
             strategy_name = self.config.search_strategy
+            if strategy_name == "auto":
+                strategy_name = self._detect_backend()  # D-03: resolved per-tier, not persisted
 
             # Closure captures tier_dataset and tier_name to avoid late-binding issues
             def make_objective(
@@ -218,6 +226,32 @@ class HyperparamOptimizer:
                     output_dir=str(output_dir),
                     warm_start=warm_start,
                 )
+            elif strategy_name == "propulate":
+                results = PropulateSearch().search(
+                    self.config.search_space,
+                    obj,
+                    n_trials=n_trials,
+                    output_dir=str(output_dir),
+                    warm_start=warm_start,  # D-09: silently ignored by PropulateSearch
+                )
+                # D-11: PropulateSearch returns (params, score) pairs because the loss
+                # closure does not append to history_out; minimal_metrics is a
+                # zero-filled placeholder (Open Question 2 — option a).
+                minimal_metrics = StageMetrics(
+                    chamfer_distance=0.0,
+                    hausdorff_distance=0.0,
+                    path_smoothness=0.0,
+                    temporal_stability=0.0,
+                    f1_score=0.0,
+                    knn_consistency=0.0,
+                )
+                for params, score in results:
+                    all_history.append(Trial(
+                        params=dict(params),
+                        score=score,
+                        metrics=minimal_metrics,
+                        tier=tier_name,
+                    ))
             else:
                 raise ValueError(f"Unknown search_strategy: {strategy_name!r}")
 
@@ -415,3 +449,49 @@ class HyperparamOptimizer:
         history_dicts = [t.model_dump() for t in result.history]
         with open(out / "search_history.json", "w") as f:
             json.dump(history_dicts, f, indent=2)
+
+    def _detect_backend(self) -> str:
+        """Resolve search_strategy='auto' to 'propulate' or 'bayesian' (D-04).
+
+        Detection order (strict, D-04):
+          1. mpi4py importable AND MPI.COMM_WORLD.Get_size() > 1  → "propulate"
+          2. SLURM_JOB_ID set in os.environ                       → "propulate"
+          3. Fallback                                              → "bayesian"
+
+        Parameters
+        ----------
+        (none — instance method for logging access)
+
+        Returns
+        -------
+        str
+            One of ``"propulate"`` or ``"bayesian"``.
+
+        Notes
+        -----
+        **D-05:** mpi4py ImportError is silently caught — it means the user is
+        not in an MPI environment.  No log warning is emitted.
+
+        **Pitfall 6:** mpi4py initialisation errors (e.g., MPI not available on
+        a SLURM login node) are caught by the broad ``except Exception`` and
+        logged at DEBUG level to avoid masking real failures.
+        """
+        # D-04 step 1: check mpi4py world size
+        try:
+            from mpi4py import MPI
+            if MPI.COMM_WORLD.Get_size() > 1:
+                _log.info("Auto-detected backend: propulate (world_size > 1)")
+                return "propulate"
+        except ImportError:
+            pass  # D-05: silent — not an MPI environment
+        except Exception as exc:  # Pitfall 6: MPI init failures are not always ImportError
+            _log.debug("MPI init probe failed: %s", exc)
+
+        # D-04 step 2: check SLURM_JOB_ID (cluster intent)
+        if "SLURM_JOB_ID" in os.environ:
+            _log.info("Auto-detected backend: propulate (SLURM_JOB_ID set)")
+            return "propulate"
+
+        # D-04 step 3: fallback
+        _log.info("Auto-detected backend: bayesian (fallback)")
+        return "bayesian"

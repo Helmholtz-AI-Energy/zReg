@@ -13,12 +13,21 @@ Key design decisions implemented here:
 - **FRAME-10** TPE sampler with ``n_startup_trials >= 2 * N_params`` (clamped for
   sanity tier to avoid exhausting the entire trial budget in the random startup phase;
   Pitfall 3 from RESEARCH).
+- **D-12 (PropulateSearch)** ``propulate`` library import is lazy inside
+  ``PropulateSearch.search()`` — this module remains importable without propulate
+  installed.  Raises ``ImportError`` with a friendly ``pip install zreg[propulate]``
+  message when propulate is absent.
+- **D-13 (corrected)** Propulate optional extra pin is ``propulate>=1.0,<2`` (not
+  ``>=0.4`` as in the original CONTEXT — see Pitfall 3 in RESEARCH: no 0.4 release
+  exists on PyPI).  EXT-03.
 
 Notes
 -----
 **Import order — macOS-ARM SIGABRT (Pitfall 7):**
 ``zreg.*`` imports MUST precede ``torch``, and ``torch`` MUST precede ``optuna``.
 Interleaving these on macOS ARM (Apple Silicon) triggers a libomp SIGABRT.
+``propulate`` is imported lazily inside ``PropulateSearch.search()`` — after all
+module-level imports are already done, so the order constraint is naturally satisfied.
 
 **Anti-pattern:** Do NOT call ``EvaluationRunner`` inside ``objective_fn`` (D-07).
 Keep each trial lightweight — instantiate stages directly.
@@ -26,6 +35,7 @@ Keep each trial lightweight — instantiate stages directly.
 
 import itertools
 import logging
+import math
 import random
 from pathlib import Path
 from typing import Any
@@ -40,7 +50,7 @@ import optuna
 
 from eval.types import Trial, SearchResult
 
-__all__ = ["GridSearch", "RandomSearch", "BayesianSearch"]
+__all__ = ["GridSearch", "RandomSearch", "BayesianSearch", "PropulateSearch"]
 
 _log = logging.getLogger(__name__)
 
@@ -244,3 +254,135 @@ class BayesianSearch:
 
         # Guard (Pitfall 1): t.value is None for enqueued-but-not-evaluated trials
         return [(t.params, t.value) for t in study.trials if t.value is not None]
+
+
+class PropulateSearch:
+    """MPI-parallel evolutionary search via the propulate library.
+
+    Mirrors BayesianSearch.search() signature.  Internally runs a single-island
+    ``Propulator`` with ``island_comm=MPI.COMM_WORLD`` and gathers all evaluated
+    ``Individual`` objects on rank 0.
+
+    Approximate trial count: total evaluations = generations × world_size, so
+    actual count may exceed ``n_trials`` by up to (world_size - 1).  Use
+    ``mpirun -n N`` to control parallelism.
+
+    ``warm_start`` is accepted but silently ignored — Propulate's evolutionary
+    model manages its own population and does not accept warm-start seeds in
+    the same way (D-09).
+
+    Checkpoints are written to ``checkpoint_path=Path(output_dir)`` (same
+    directory passed as ``output_dir``).
+
+    .. warning::
+        Do not load checkpoints from untrusted sources — Propulate uses pickle
+        internally (T-26-03).
+    """
+
+    def search(
+        self,
+        search_space: dict[str, list],
+        objective_fn,
+        n_trials: int,
+        output_dir: str | Path,
+        warm_start: list[dict] | None = None,
+    ) -> list[tuple[dict, float]]:
+        """Run MPI-parallel evolutionary optimisation and return all evaluated results.
+
+        Parameters
+        ----------
+        search_space:
+            Dict mapping param name → list of candidate values.  Values are
+            converted to tuples internally for Propulate's limits format (D-07).
+        objective_fn:
+            Callable accepting a params dict and returning a float score.
+            Score inversion is handled internally (D-08 — Propulate minimises).
+        n_trials:
+            Approximate total number of trials.  Converted to per-worker
+            generations via ``max(1, ceil(n_trials / world_size))`` (Pitfall 4).
+        output_dir:
+            Directory where Propulate checkpoint files are written.
+        warm_start:
+            Accepted but silently ignored (D-09 — log only).
+
+        Returns
+        -------
+        list[tuple[dict, float]]
+            On rank 0: list of (params_dict, score) for each evaluated
+            ``Individual`` with finite loss.  On all other ranks: empty list.
+        """
+        # D-12: lazy import with friendly ImportError (T-26-05 / Pitfall 8)
+        try:
+            from mpi4py import MPI
+            from propulate import Propulator
+            from propulate.utils import get_default_propagator, set_logger_config
+        except ImportError as e:
+            raise ImportError(
+                "propulate is not installed. Install it with:\n"
+                "  pip install zreg[propulate]"
+            ) from e
+
+        comm = MPI.COMM_WORLD
+        rank = comm.Get_rank()
+        world_size = comm.Get_size()
+
+        # D-09: warm_start silently ignored — log and continue
+        if warm_start:
+            _log.info("PropulateSearch: warm_start ignored (D-09)")
+
+        # D-07: convert lists → tuples for Propulate's limits format
+        limits = {k: tuple(v) for k, v in search_space.items()}
+
+        # D-08: closure inverts sign because Propulate minimises; framework maximises
+        def _loss(ind) -> float:
+            # Use explicit comprehension — Individual is not a dict subclass (Pitfall 1)
+            params = {k: ind[k] for k in search_space}
+            return -objective_fn(params)
+
+        # Per-rank reproducibility: deterministic seed offset keeps ranks independent
+        rng = random.Random(42 + rank)
+
+        # Pitfall 4: convert n_trials → per-worker generations so total ≈ n_trials
+        generations = max(1, math.ceil(n_trials / world_size))
+
+        # T-26-05: configure propulate logger on rank 0 only (avoid duplicate files)
+        if rank == 0:
+            set_logger_config(level=logging.WARNING, log_to_stdout=False)
+
+        propagator = get_default_propagator(
+            pop_size=max(4, len(search_space)),
+            limits=limits,
+            rng=rng,
+        )
+
+        propulator = Propulator(
+            loss_fn=_loss,
+            propagator=propagator,
+            rng=rng,
+            island_comm=comm,           # single-island per RESEARCH Finding 3
+            generations=generations,
+            checkpoint_path=Path(output_dir),
+        )
+
+        try:
+            propulator.propulate(logging_interval=max(1, generations // 5))
+        finally:
+            # Pitfall 5: keep all ranks in sync even on exception (avoid deadlock)
+            comm.Barrier()
+
+        # D-10: rank 0 only — non-rank-0 processes return empty list
+        if rank != 0:
+            return []
+
+        # Iterate propulator.population directly (not summarize() — see RESEARCH
+        # Finding 3 + anti-pattern note: summarize() performs allgather and returns
+        # only top-N; population holds every evaluated individual on the current rank)
+        results: list[tuple[dict, float]] = []
+        for ind in propulator.population:
+            # Pitfall 2: skip unevaluated stragglers (loss defaults to float("inf"))
+            if ind.loss == float("inf"):
+                continue
+            params = {k: ind[k] for k in search_space}
+            score = -ind.loss  # D-08: invert sign back to maximisation scale
+            results.append((params, score))
+        return results

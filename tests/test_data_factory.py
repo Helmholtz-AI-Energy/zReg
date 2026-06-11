@@ -316,3 +316,260 @@ class TestGetGroundTruth:
         m.assert_called_once_with("gt.mat", device="cpu")
         for i in external_ds:
             assert torch.equal(gt[i], external_ds[i]["id"])
+
+
+# ---------------------------------------------------------------------------
+# TestScale — scale(dataset, factor) (Plan 27-01)
+# ---------------------------------------------------------------------------
+
+
+class TestScale:
+    """scale(dataset, factor) multiplies pos and preserves other fields."""
+
+    def _make_ds(self):
+        """3-frame dataset with known pos values and fps-idx populated."""
+        ds = {}
+        for i in range(3):
+            pc = zRegPointCloud(
+                pos=torch.ones(4, 3) * (i + 1),
+                color=None,
+                id=torch.arange(4),
+            )
+            pc["fps-idx"] = torch.arange(4)
+            ds[i] = pc
+        return ds
+
+    def test_pos_scaled(self):
+        """pos tensors are multiplied by factor in every frame."""
+        cfg = EvalConfig(data_path="x", augmentation_params={})
+        factory = DataFactory(cfg)
+        ds = self._make_ds()
+        out = factory.scale(ds, 2.0)
+        for i in ds:
+            assert torch.allclose(out[i]["pos"], ds[i]["pos"] * 2.0)
+
+    def test_input_not_mutated(self):
+        """Input dataset pos tensors are not modified in place."""
+        cfg = EvalConfig(data_path="x", augmentation_params={})
+        factory = DataFactory(cfg)
+        ds = self._make_ds()
+        original_pos = {i: ds[i]["pos"].clone() for i in ds}
+        factory.scale(ds, 3.0)
+        for i in ds:
+            assert torch.equal(ds[i]["pos"], original_pos[i])
+
+    def test_factor_zero(self):
+        """scale(ds, 0.0) produces all-zero pos tensors."""
+        cfg = EvalConfig(data_path="x", augmentation_params={})
+        factory = DataFactory(cfg)
+        ds = self._make_ds()
+        out = factory.scale(ds, 0.0)
+        for i in ds:
+            assert torch.allclose(out[i]["pos"], torch.zeros_like(ds[i]["pos"]))
+
+    def test_fps_idx_preserved(self):
+        """fps-idx field is passed through unchanged after scale."""
+        cfg = EvalConfig(data_path="x", augmentation_params={})
+        factory = DataFactory(cfg)
+        ds = self._make_ds()
+        out = factory.scale(ds, 2.0)
+        for i in ds:
+            assert torch.equal(out[i]["fps-idx"], ds[i]["fps-idx"])
+
+
+# ---------------------------------------------------------------------------
+# TestRotate — rotate(dataset, rotation_matrix) (Plan 27-01)
+# ---------------------------------------------------------------------------
+
+
+class TestRotate:
+    """rotate(dataset, R) applies rigid rotation via apply_rigid."""
+
+    def _make_ds(self):
+        """Single-frame dataset with two known points."""
+        return {
+            0: zRegPointCloud(
+                pos=torch.tensor([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]),
+                color=None,
+                id=torch.arange(2),
+            )
+        }
+
+    def _identity_R(self):
+        """Return 3x3 identity rotation matrix."""
+        return torch.eye(3, dtype=torch.float32)
+
+    def _rot90z(self):
+        """Return 90-degree rotation around Z axis: [[0,-1,0],[1,0,0],[0,0,1]]."""
+        return torch.tensor([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]], dtype=torch.float32)
+
+    def test_identity_is_noop(self):
+        """rotate(ds, I) leaves pos unchanged (identity rotation)."""
+        cfg = EvalConfig(data_path="x", augmentation_params={})
+        factory = DataFactory(cfg)
+        ds = self._make_ds()
+        out = factory.rotate(ds, self._identity_R())
+        assert torch.allclose(out[0]["pos"], ds[0]["pos"], atol=1e-5)
+
+    def test_rotation_changes_pos(self):
+        """rotate(ds, R_90z) changes pos of non-origin points."""
+        cfg = EvalConfig(data_path="x", augmentation_params={})
+        factory = DataFactory(cfg)
+        ds = self._make_ds()
+        out = factory.rotate(ds, self._rot90z())
+        assert not torch.allclose(out[0]["pos"], ds[0]["pos"], atol=1e-5)
+
+    def test_deep_copy_contract(self):
+        """rotate returns a new dict — out[0] is not ds[0]."""
+        cfg = EvalConfig(data_path="x", augmentation_params={})
+        factory = DataFactory(cfg)
+        ds = self._make_ds()
+        out = factory.rotate(ds, self._identity_R())
+        assert out[0] is not ds[0]
+
+    def test_rotation_correctness(self):
+        """90-degree Z rotation maps (1,0,0) -> (0,1,0) within atol=1e-5."""
+        cfg = EvalConfig(data_path="x", augmentation_params={})
+        factory = DataFactory(cfg)
+        single_pt = {0: zRegPointCloud(pos=torch.tensor([[1.0, 0.0, 0.0]]), color=None, id=torch.arange(1))}
+        out = factory.rotate(single_pt, self._rot90z())
+        expected = torch.tensor([[0.0, 1.0, 0.0]])
+        assert torch.allclose(out[0]["pos"], expected, atol=1e-5)
+
+
+# ---------------------------------------------------------------------------
+# TestDropPoints — drop_points(dataset, fraction, seed) (Plan 27-01)
+# ---------------------------------------------------------------------------
+
+
+class TestDropPoints:
+    """drop_points(dataset, fraction) removes fraction of points per frame."""
+
+    def _make_ds_100pts(self):
+        """2-frame dataset, each with 100 points, populated fps-idx."""
+        ds = {}
+        for i in range(2):
+            pc = zRegPointCloud(
+                pos=torch.zeros(100, 3),
+                color=torch.zeros(100, dtype=torch.long),
+                id=torch.arange(100),
+            )
+            pc["fps-idx"] = torch.arange(100)
+            ds[i] = pc
+        return ds
+
+    def test_removes_fraction(self):
+        """drop_points(ds, 0.3, seed=42) keeps round(100*0.7)=70 points per frame."""
+        cfg = EvalConfig(data_path="x", augmentation_params={})
+        factory = DataFactory(cfg)
+        ds = self._make_ds_100pts()
+        out = factory.drop_points(ds, 0.3, seed=42)
+        for i in ds:
+            assert out[i]["pos"].shape[0] == 70
+
+    def test_fraction_zero_noop(self):
+        """drop_points(ds, 0.0) returns same point count as input."""
+        cfg = EvalConfig(data_path="x", augmentation_params={})
+        factory = DataFactory(cfg)
+        ds = self._make_ds_100pts()
+        out = factory.drop_points(ds, 0.0)
+        for i in ds:
+            assert out[i]["pos"].shape[0] == 100
+
+    def test_id_shape_consistent(self):
+        """id field shape matches pos shape after drop_points."""
+        cfg = EvalConfig(data_path="x", augmentation_params={})
+        factory = DataFactory(cfg)
+        ds = self._make_ds_100pts()
+        out = factory.drop_points(ds, 0.3, seed=42)
+        for i in ds:
+            assert out[i]["id"].shape[0] == out[i]["pos"].shape[0]
+
+    def test_fps_idx_shape_consistent(self):
+        """fps-idx field shape matches pos shape after drop_points."""
+        cfg = EvalConfig(data_path="x", augmentation_params={})
+        factory = DataFactory(cfg)
+        ds = self._make_ds_100pts()
+        out = factory.drop_points(ds, 0.3, seed=42)
+        for i in ds:
+            assert out[i]["fps-idx"].shape[0] == out[i]["pos"].shape[0]
+
+    def test_input_not_mutated(self):
+        """Input dataset remains at 100 points after drop_points call."""
+        cfg = EvalConfig(data_path="x", augmentation_params={})
+        factory = DataFactory(cfg)
+        ds = self._make_ds_100pts()
+        factory.drop_points(ds, 0.3, seed=42)
+        assert ds[0]["pos"].shape[0] == 100
+
+
+# ---------------------------------------------------------------------------
+# TestSampleNewPoints — sample_new_points(dataset, n_extra, seed) (Plan 27-01)
+# ---------------------------------------------------------------------------
+
+
+class TestSampleNewPoints:
+    """sample_new_points(dataset, n_extra) appends n_extra uniform-in-bbox points per frame."""
+
+    def _make_ds_100pts(self):
+        """2-frame dataset, each with 100 uniform random points, fps-idx populated."""
+        torch.manual_seed(0)
+        ds = {}
+        for i in range(2):
+            pc = zRegPointCloud(
+                pos=torch.rand(100, 3),
+                color=torch.zeros(100, dtype=torch.long),
+                id=torch.arange(100),
+            )
+            pc["fps-idx"] = torch.arange(100)
+            ds[i] = pc
+        return ds
+
+    def test_adds_n_extra(self):
+        """sample_new_points(ds, 10, seed=42) produces 110 points per frame."""
+        cfg = EvalConfig(data_path="x", augmentation_params={})
+        factory = DataFactory(cfg)
+        ds = self._make_ds_100pts()
+        out = factory.sample_new_points(ds, 10, seed=42)
+        for i in ds:
+            assert out[i]["pos"].shape[0] == 110
+
+    def test_new_pts_within_bbox(self):
+        """New points lie within the per-frame bounding box."""
+        cfg = EvalConfig(data_path="x", augmentation_params={})
+        factory = DataFactory(cfg)
+        ds = self._make_ds_100pts()
+        out = factory.sample_new_points(ds, 10, seed=42)
+        for i in ds:
+            bbox_min = ds[i]["pos"].min(dim=0).values
+            bbox_max = ds[i]["pos"].max(dim=0).values
+            new_pts = out[i]["pos"][100:]
+            assert (new_pts >= bbox_min - 1e-6).all()
+            assert (new_pts <= bbox_max + 1e-6).all()
+
+    def test_id_shape_consistent(self):
+        """id field has correct length; new entries are sentinel -1."""
+        cfg = EvalConfig(data_path="x", augmentation_params={})
+        factory = DataFactory(cfg)
+        ds = self._make_ds_100pts()
+        out = factory.sample_new_points(ds, 10, seed=42)
+        for i in ds:
+            assert out[i]["id"].shape[0] == 110
+            assert (out[i]["id"][100:] == -1).all()
+
+    def test_input_not_mutated(self):
+        """Input dataset remains at 100 points after sample_new_points call."""
+        cfg = EvalConfig(data_path="x", augmentation_params={})
+        factory = DataFactory(cfg)
+        ds = self._make_ds_100pts()
+        factory.sample_new_points(ds, 10, seed=42)
+        assert ds[0]["pos"].shape[0] == 100
+
+    def test_fps_idx_extended(self):
+        """fps-idx field length matches pos length after sample_new_points."""
+        cfg = EvalConfig(data_path="x", augmentation_params={})
+        factory = DataFactory(cfg)
+        ds = self._make_ds_100pts()
+        out = factory.sample_new_points(ds, 10, seed=42)
+        for i in ds:
+            assert out[i]["fps-idx"].shape[0] == 110

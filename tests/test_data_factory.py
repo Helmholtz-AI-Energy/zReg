@@ -573,3 +573,113 @@ class TestSampleNewPoints:
         out = factory.sample_new_points(ds, 10, seed=42)
         for i in ds:
             assert out[i]["fps-idx"].shape[0] == 110
+
+
+# ---------------------------------------------------------------------------
+# TestAugmentExtended — augment() with four new dispatch keys (Plan 27-02)
+# ---------------------------------------------------------------------------
+
+
+class TestAugmentExtended:
+    """augment() extended dispatch: scale_factor, rotation_deg, dropout_fraction, n_new_points."""
+
+    def _make_ds_100pts(self):
+        """2-frame dataset, each with 100 random points, fps-idx set to None."""
+        torch.manual_seed(99)
+        ds = {}
+        for i in range(2):
+            pc = zRegPointCloud(
+                pos=torch.rand(100, 3),
+                color=torch.zeros(100, dtype=torch.long),
+                id=torch.arange(100),
+            )
+            pc["fps-idx"] = None
+            ds[i] = pc
+        return ds
+
+    def test_scale_factor_key(self):
+        """augment({'scale_factor': 2.0}) multiplies every frame's pos by 2.0."""
+        cfg = EvalConfig(data_path="x", augmentation_params={"scale_factor": 2.0})
+        factory = DataFactory(cfg)
+        ds = self._make_ds_100pts()
+        original_pos = {i: ds[i]["pos"].clone() for i in ds}
+        out = factory.augment(ds)
+        for i in ds:
+            assert torch.allclose(out[i]["pos"], original_pos[i] * 2.0)
+
+    def test_rotation_deg_zero_noop(self):
+        """augment({'rotation_deg': 0.0}) leaves pos unchanged (zero rotation is identity)."""
+        cfg = EvalConfig(data_path="x", augmentation_params={"rotation_deg": 0.0})
+        factory = DataFactory(cfg)
+        ds = self._make_ds_100pts()
+        original_pos = {i: ds[i]["pos"].clone() for i in ds}
+        out = factory.augment(ds)
+        for i in ds:
+            assert torch.allclose(out[i]["pos"], original_pos[i], atol=1e-5)
+
+    def test_dropout_fraction_key(self):
+        """augment({'dropout_fraction': 0.5}) on 100-point frames produces 50 points per frame."""
+        cfg = EvalConfig(data_path="x", augmentation_params={"dropout_fraction": 0.5})
+        factory = DataFactory(cfg)
+        ds = self._make_ds_100pts()
+        out = factory.augment(ds)
+        for i in ds:
+            assert out[i]["pos"].shape[0] == 50
+
+    def test_n_new_points_key(self):
+        """augment({'n_new_points': 10}) on 100-point frames produces 110 points per frame."""
+        cfg = EvalConfig(data_path="x", augmentation_params={"n_new_points": 10})
+        factory = DataFactory(cfg)
+        ds = self._make_ds_100pts()
+        out = factory.augment(ds)
+        for i in ds:
+            assert out[i]["pos"].shape[0] == 110
+
+    def test_scale_then_dropout_chain(self):
+        """augment({'scale_factor': 2.0, 'dropout_fraction': 0.5}): scale applied first, then dropout."""
+        cfg = EvalConfig(data_path="x", augmentation_params={"scale_factor": 2.0, "dropout_fraction": 0.5})
+        factory = DataFactory(cfg)
+        ds = self._make_ds_100pts()
+        out = factory.augment(ds)
+        for i in ds:
+            # Dropout: 50 points remain
+            assert out[i]["pos"].shape[0] == 50
+            # Scale was applied: out positions != original positions (scale 2.0 applied before dropout)
+            assert not torch.allclose(out[i]["pos"], ds[i]["pos"][:50])
+
+    def test_all_four_new_keys(self):
+        """augment with all four new keys: final count == round(100*0.8)+5 == 85."""
+        cfg = EvalConfig(
+            data_path="x",
+            augmentation_params={
+                "scale_factor": 1.5,
+                "rotation_deg": 45.0,
+                "dropout_fraction": 0.2,
+                "n_new_points": 5,
+            },
+        )
+        factory = DataFactory(cfg)
+        ds = self._make_ds_100pts()
+        out = factory.augment(ds)
+        expected_count = round(100 * 0.8) + 5  # 80 + 5 = 85
+        for i in ds:
+            assert out[i]["pos"].shape[0] == expected_count
+
+    def test_existing_sigma_unaffected(self):
+        """augment({'sigma': 0.01}) still applies gaussian noise — existing path unaffected."""
+        cfg = EvalConfig(data_path="x", augmentation_params={"sigma": 0.01})
+        factory = DataFactory(cfg)
+        ds = self._make_ds_100pts()
+        original_pos = {i: ds[i]["pos"].clone() for i in ds}
+        out = factory.augment(ds)
+        for i in ds:
+            assert not torch.equal(out[i]["pos"], original_pos[i])
+
+    def test_existing_outliers_unaffected(self):
+        """augment({'n_outliers': 5}) on 100-point frames produces 105 points — existing path unaffected."""
+        cfg = EvalConfig(data_path="x", augmentation_params={"n_outliers": 5})
+        factory = DataFactory(cfg)
+        ds = self._make_ds_100pts()
+        out = factory.augment(ds)
+        for i in ds:
+            assert out[i]["pos"].shape[0] == 105

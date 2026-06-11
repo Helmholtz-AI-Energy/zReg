@@ -2,13 +2,58 @@
 
 ## Milestones
 
-- 🚧 **v1.2 Evaluation Framework & Debt Resolution** — Phases 12–26 (in progress)
+- 🚧 **v1.2 Evaluation Framework & Debt Resolution** — Phases 12–29 (in progress)
 - ✅ **v1.1 Code Quality & Refactoring** — Phases 6–11.1 (shipped 2026-05-13) — [archive](.planning/milestones/v1.1-ROADMAP.md)
 - ✅ **v1.0 Consolidation** — Phases 1-5 (shipped 2026-04-09) — [archive](.planning/milestones/v1.0-ROADMAP.md)
 
 ## Phases
 
 ### v1.2 Evaluation Framework & Debt Resolution (in progress)
+
+- [x] **Phase 27: DataFactory Geometric Augmentation Methods** (2/2 plans) — completed 2026-06-11
+  **Goal:** Add four standalone augmentation methods to `DataFactory` in `eval/data_factory.py`: `rotate(dataset, rotation_matrix)`, `drop_points(dataset, fraction, seed)`, `sample_new_points(dataset, n_extra, seed)`, and `scale(dataset, factor)`. Port `_augment_scaling` and `_augment_dropout` logic from `scripts/generate_datasets.py`; rotation delegates to the already-imported `apply_rigid` from `zreg.generators`; `sample_new_points` adds uniformly-random points in the per-frame bounding box. Extend `augment()` dict dispatch to recognise new keys: `"scale_factor"`, `"dropout_fraction"`, `"rotation_deg"` (+ optional `"rotation_axis"`), `"n_new_points"` — applied in a fixed order after existing noise/outlier steps. Extend `tests/test_data_factory.py` with a new test class per method.
+  **Requirements:** DF-01
+  **Depends on:** Phase 17
+  **Success criteria:**
+  1. `DataFactory.rotate(dataset, R)` applies rotation matrix R to every frame's `pos` tensor
+  2. `DataFactory.drop_points(dataset, 0.3)` removes ≈30 % of points per frame, preserving `id` and `color`
+  3. `DataFactory.sample_new_points(dataset, n_extra)` appends `n_extra` uniform-in-bbox points to each frame
+  4. `DataFactory.scale(dataset, factor)` multiplies all `pos` tensors by `factor`
+  5. `augment({"scale_factor": 1.2, "dropout_fraction": 0.1})` chains scale then dropout correctly
+  6. All new methods deep-copy their inputs (no in-place mutation)
+  7. Tests green; existing 789 tests unaffected
+  **Plans:** 2 plans
+  Plans:
+  - [x] 27-01-PLAN.md — Implement `rotate`, `drop_points`, `sample_new_points`, `scale` as `DataFactory` instance methods + unit tests for each
+  - [x] 27-02-PLAN.md — Extend `augment()` dispatch to handle `"scale_factor"`, `"dropout_fraction"`, `"rotation_deg"`/`"rotation_axis"`, `"n_new_points"` keys + integration tests covering multi-key compositions
+
+- [ ] **Phase 28: Script Integration — generate_datasets uses DataFactory** (0/1 plans)
+  **Goal:** Refactor `scripts/generate_datasets.py` to import `DataFactory` from `eval.data_factory` and replace the local `_augment_scaling`, `_augment_dropout`, and `apply_augmentation` dispatcher with calls to `DataFactory` methods. The geometry helpers (`in_bowl`, `sample_ball_shell`, `sample_bowl_frame`, `sample_bowl_shell`, `_make_trajectory`) and CSV I/O (`_frame_to_df`, `save_as_csv`) remain unchanged. `_augment_noise` is replaced by a direct `DataFactory.augment(dataset, {"sigma": value})` call (or equivalent). The script's external behaviour (generated files, output paths) must be identical before and after.
+  **Requirements:** DF-02
+  **Depends on:** Phase 27
+  **Success criteria:**
+  1. `scripts/generate_datasets.py` imports `DataFactory` and uses it for scaling, dropout, and noise augmentations
+  2. `_augment_scaling`, `_augment_dropout`, and `apply_augmentation` functions removed from the script
+  3. Running the script produces bit-identical output to the pre-refactor version (same CSV content, same augmentation values)
+  4. No new duplicate augmentation logic introduced
+  **Plans:** 1 plan
+  Plans:
+  - [ ] 28-01-PLAN.md — Replace local augmentation functions in `scripts/generate_datasets.py` with `DataFactory` method calls; verify output parity
+
+- [ ] **Phase 29: Viz Unification** (0/2 plans)
+  **Goal:** (1) Update the point cloud scatter style in `eval/viz.py` to match `scripts/visualize_datasets.py`: `s=1.5`, `alpha=0.45`, subsampling at 4 000 pts, DPI=150 for PNG saves, smaller tick/label fonts (`fontsize=6` ticks, `fontsize=7` axis labels, `labelpad=2`), `ax.{x,y,z}axis.pane.fill = False`. All existing public API (`plot_trajectory`, `plot_metrics`) and PDF+PNG output are preserved. (2) Add a new public function `render_dataset_triptych(csv_path, name, output_dir, dpi=150)` to `eval/viz.py` that chunk-reads a CSV and renders a 1×3 3D triptych PNG — consolidating the logic currently duplicated in `scripts/visualize_datasets.py`. (3) Refactor `scripts/visualize_datasets.py` to import `render_dataset_triptych` from `eval.viz` and remove the local `_scatter3` and `render_dataset` functions.
+  **Requirements:** VIZ-01
+  **Depends on:** Phase 25
+  **Success criteria:**
+  1. `plot_trajectory` PNG output uses `s=1.5, alpha=0.45` scatter style and DPI=150
+  2. `render_dataset_triptych` in `eval/viz.py` produces the same triptych as the old `render_dataset` in the script
+  3. `scripts/visualize_datasets.py` delegates entirely to `eval.viz.render_dataset_triptych`; `_scatter3` and `render_dataset` are removed
+  4. PDF+PNG output from `plot_trajectory` and `plot_metrics` still written correctly
+  5. Existing `tests/test_viz.py` tests pass; new smoke test for `render_dataset_triptych` added
+  **Plans:** 2 plans
+  Plans:
+  - [ ] 29-01-PLAN.md — Update scatter style in `plot_trajectory` + add `render_dataset_triptych` to `eval/viz.py` + smoke test
+  - [ ] 29-02-PLAN.md — Refactor `scripts/visualize_datasets.py` to use `render_dataset_triptych`; remove `_scatter3`, `render_dataset`
 
 - [x] Phase 12: Carry-Forward Debt Closure (3/3 plans) — completed 2026-05-14
 - [x] Phase 13: Core Metrics Library (3/3 plans) — completed 2026-05-15
@@ -240,3 +285,6 @@ Full details: [.planning/milestones/v1.0-ROADMAP.md](.planning/milestones/v1.0-R
 | 24. Trajectory Export | v1.2 | 2/2 | Complete | 2026-06-04 |
 | 25. Visualisation Refactor | v1.2 | 2/2 | Complete    | 2026-06-04 |
 | 26. Propulate Optimizer | v1.2 | 2/2 | Complete | 2026-06-06 |
+| 27. DataFactory Geometric Augmentation Methods | v1.2 | 2/2 | Complete | 2026-06-11 |
+| 28. Script Integration — generate_datasets uses DataFactory | v1.2 | 0/1 | Not started | — |
+| 29. Viz Unification | v1.2 | 0/2 | Not started | — |

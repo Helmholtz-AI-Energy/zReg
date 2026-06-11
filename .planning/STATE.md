@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Evaluation Framework & Debt Resolution
-status: complete
-stopped_at: Phase 26 complete
-last_updated: "2026-06-06T12:00:00.000Z"
-last_activity: 2026-06-06 -- Phase 26 complete (Propulate Optimizer)
+status: in_progress
+stopped_at: Phase 27 complete; Phases 28–29 pending
+last_updated: "2026-06-11T00:00:00.000Z"
+last_activity: 2026-06-11 -- Phase 27 complete (DataFactory geometric augmentation methods, DF-01 closed, 826 tests)
 progress:
-  total_phases: 22
-  completed_phases: 22
-  total_plans: 47
-  completed_plans: 47
-  percent: 100
+  total_phases: 25
+  completed_phases: 23
+  total_plans: 52
+  completed_plans: 49
+  percent: 90
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Every existing capability works correctly, fails informatively, and is covered by tests.
-**Current focus:** v1.2 milestone complete
+**Current focus:** v1.2 milestone — Phases 28–29 pending
 
 ## Current Position
 
-Phase: 25
+Phase: 28
 Plan: Not started
-Status: Ready to execute
-Last activity: 2026-06-06 -- Phase 26 planning complete
+Status: Ready to plan
+Last activity: 2026-06-11 -- Phase 27 complete (DataFactory geometric augmentation, DF-01)
 
 ## Phase Overview
 
@@ -41,7 +41,13 @@ Last activity: 2026-06-06 -- Phase 26 planning complete
 | 20 | LabelTransferStage | FRAME-06 | Complete 2026-05-29 |
 | 21 | EvaluationRunner & Visualisation | FRAME-07, FRAME-08 | Complete 2026-05-29 |
 | 22 | HyperparamOptimizer & Search Strategies | FRAME-09, FRAME-10 | Pending |
-| 23 | CLI Entrypoint & Scenario Configs | FRAME-11, FRAME-12 | Pending |
+| 23 | CLI Entrypoint & Scenario Configs | FRAME-11, FRAME-12 | Complete 2026-06-02 |
+| 24 | Trajectory Export | EXT-01 | Complete 2026-06-04 |
+| 25 | Visualisation Refactor | EXT-02 | Complete 2026-06-04 |
+| 26 | Propulate Optimizer | EXT-03 | Complete 2026-06-06 |
+| 27 | DataFactory Geometric Augmentation Methods | DF-01 | Complete 2026-06-11 |
+| 28 | Script Integration — generate_datasets uses DataFactory | DF-02 | Not started |
+| 29 | Viz Unification | VIZ-01 | Not started |
 
 ## Accumulated Context
 
@@ -50,6 +56,7 @@ Last activity: 2026-06-06 -- Phase 26 planning complete
 - Phase 15 added: Experiment Tracking & Run Management
 - Phase 16 added: Runner Scripts
 - Phases 17–23 added 2026-05-27: Full eval framework (config-driven, modular stages, optimizer, CLI) — EVAL-06 and EVAL-07 superseded by FRAME-09/10 and FRAME-07/08
+- Phases 27–29 added 2026-06-09: DataFactory augmentation methods, script integration, viz unification
 
 ### Decisions (v1.1)
 
@@ -176,7 +183,7 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-06-06T10:06:10.647Z
-Stopped at: Phase 26 context gathered
-Resume file: .planning/phases/26-propulate-optimizer/26-CONTEXT.md
-Next action: `/gsd-plan-phase 22` — HyperparamOptimizer & Search Strategies (FRAME-09, FRAME-10)
+Last session: 2026-06-11T00:00:00.000Z
+Stopped at: Phase 27 complete (DF-01 closed)
+Resume file: .planning/phases/27-datafactory-geometric-augmentation-methods/27-VERIFICATION.md
+Next action: `/gsd-plan-phase 28` — Script Integration: generate_datasets uses DataFactory (DF-02)

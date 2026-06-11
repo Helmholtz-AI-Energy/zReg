@@ -148,23 +148,33 @@ class DataFactory:
         return traj
 
     def augment(self, dataset: dict[int, zRegPointCloud]) -> dict[int, zRegPointCloud]:
-        """Apply Gaussian noise and/or outlier injection per config.augmentation_params.
+        """Apply augmentations per ``config.augmentation_params``.
 
         Reads ``self.config.augmentation_params`` (a plain dict).  Recognised
-        keys:
+        keys (in dispatch order):
 
         - ``"sigma"`` (float): applies ``add_gaussian_noise(dataset, sigma=..., seed=42)``
         - ``"n_outliers"`` (int): applies ``add_outliers(dataset, n_outliers=..., seed=42)``
-        - ``"scale"`` (float, optional): outlier scale, default 3.0
+        - ``"scale"`` (float, optional): outlier scale for ``add_outliers``, default 3.0
+        - ``"scale_factor"`` (float): ``self.scale`` — multiplies every frame's pos by
+          ``scale_factor``; applied after noise/outliers
+        - ``"rotation_deg"`` (float): ``self.rotate`` via Rodrigues' rotation formula;
+          optional ``"rotation_axis"`` (list[float], default [0, 0, 1]) selects the
+          axis of rotation; applied after scale_factor
+        - ``"dropout_fraction"`` (float): ``self.drop_points`` — randomly removes the
+          specified fraction of points per frame; applied after scale/rotate
+        - ``"n_new_points"`` (int): ``self.sample_new_points`` — appends uniform-in-bbox
+          points per frame; applied last
+
+        Dispatch order: sigma → n_outliers → scale_factor → rotation_deg →
+        dropout_fraction → n_new_points.
 
         Missing keys skip the corresponding step.  An empty dict is a no-op
-        and returns the input dataset unchanged.  When both keys are present,
-        noise is applied **first**, outliers **second** — composition order
-        matters because outliers are appended on top of the noisy positions.
+        and returns the input dataset unchanged.
 
-        Both underlying functions deep-copy their inputs (verified in
-        ``src/zreg/generators/corruption.py``), so the input ``dataset`` is
-        never mutated.
+        Both ``add_gaussian_noise`` and ``add_outliers`` deep-copy their inputs
+        (verified in ``src/zreg/generators/corruption.py``), so the input
+        ``dataset`` is never mutated.
 
         Parameters
         ----------
@@ -179,8 +189,10 @@ class DataFactory:
         """
         params = self.config.augmentation_params
         result = dataset
+        # Step 1: Gaussian noise
         if "sigma" in params:
             result = add_gaussian_noise(result, sigma=params["sigma"], seed=42)
+        # Step 2: outlier injection
         if "n_outliers" in params:
             result = add_outliers(
                 result,
@@ -188,6 +200,30 @@ class DataFactory:
                 scale=params.get("scale", 3.0),
                 seed=42,
             )
+        # Step 3: uniform scaling
+        if "scale_factor" in params:
+            result = self.scale(result, params["scale_factor"])
+        # Step 4: rotation via Rodrigues' rotation formula
+        if "rotation_deg" in params:
+            axis = torch.tensor(
+                params.get("rotation_axis", [0.0, 0.0, 1.0]),
+                dtype=torch.float32,
+            )
+            angle_rad = math.radians(params["rotation_deg"])
+            axis = axis / (axis.norm() + 1e-8)
+            # Rodrigues' formula: R = I + sin(θ)·K + (1−cos(θ))·K²
+            K = torch.zeros(3, 3)
+            K[0, 1] = -axis[2]; K[0, 2] = axis[1]   # noqa: E702
+            K[1, 0] = axis[2];  K[1, 2] = -axis[0]   # noqa: E702
+            K[2, 0] = -axis[1]; K[2, 1] = axis[0]    # noqa: E702
+            R = torch.eye(3) + math.sin(angle_rad) * K + (1 - math.cos(angle_rad)) * (K @ K)
+            result = self.rotate(result, R)
+        # Step 5: point dropout
+        if "dropout_fraction" in params:
+            result = self.drop_points(result, params["dropout_fraction"])
+        # Step 6: new point sampling
+        if "n_new_points" in params:
+            result = self.sample_new_points(result, params["n_new_points"])
         return result
 
     def prepare_split(

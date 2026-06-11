@@ -27,7 +27,7 @@
   - [x] 27-01-PLAN.md — Implement `rotate`, `drop_points`, `sample_new_points`, `scale` as `DataFactory` instance methods + unit tests for each
   - [x] 27-02-PLAN.md — Extend `augment()` dispatch to handle `"scale_factor"`, `"dropout_fraction"`, `"rotation_deg"`/`"rotation_axis"`, `"n_new_points"` keys + integration tests covering multi-key compositions
 
-- [ ] **Phase 28: Script Integration — generate_datasets uses DataFactory** (0/1 plans)
+- [x] **Phase 28: Script Integration — generate_datasets uses DataFactory** (1/1 plans) — completed 2026-06-11
   **Goal:** Refactor `scripts/generate_datasets.py` to import `DataFactory` from `eval.data_factory` and replace the local `_augment_scaling`, `_augment_dropout`, and `apply_augmentation` dispatcher with calls to `DataFactory` methods. The geometry helpers (`in_bowl`, `sample_ball_shell`, `sample_bowl_frame`, `sample_bowl_shell`, `_make_trajectory`) and CSV I/O (`_frame_to_df`, `save_as_csv`) remain unchanged. `_augment_noise` is replaced by a direct `DataFactory.augment(dataset, {"sigma": value})` call (or equivalent). The script's external behaviour (generated files, output paths) must be identical before and after.
   **Requirements:** DF-02
   **Depends on:** Phase 27
@@ -38,7 +38,7 @@
   4. No new duplicate augmentation logic introduced
   **Plans:** 1 plan
   Plans:
-  - [ ] 28-01-PLAN.md — Replace local augmentation functions in `scripts/generate_datasets.py` with `DataFactory` method calls; verify output parity
+  - [x] 28-01-PLAN.md — Replace local augmentation functions in `scripts/generate_datasets.py` with `DataFactory` method calls; verify output parity
 
 - [ ] **Phase 29: Viz Unification** (0/2 plans)
   **Goal:** (1) Update the point cloud scatter style in `eval/viz.py` to match `scripts/visualize_datasets.py`: `s=1.5`, `alpha=0.45`, subsampling at 4 000 pts, DPI=150 for PNG saves, smaller tick/label fonts (`fontsize=6` ticks, `fontsize=7` axis labels, `labelpad=2`), `ax.{x,y,z}axis.pane.fill = False`. All existing public API (`plot_trajectory`, `plot_metrics`) and PDF+PNG output are preserved. (2) Add a new public function `render_dataset_triptych(csv_path, name, output_dir, dpi=150)` to `eval/viz.py` that chunk-reads a CSV and renders a 1×3 3D triptych PNG — consolidating the logic currently duplicated in `scripts/visualize_datasets.py`. (3) Refactor `scripts/visualize_datasets.py` to import `render_dataset_triptych` from `eval.viz` and remove the local `_scatter3` and `render_dataset` functions.

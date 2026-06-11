@@ -16,9 +16,9 @@
 ## Current State
 
 **Shipped:** v1.0 Consolidation — 2026-04-09 | v1.1 Code Quality & Refactoring — 2026-05-13
-**Active:** v1.2 Evaluation Framework & Debt Resolution — Phases 12–27 complete 2026-06-11; Phases 28–29 pending
+**Active:** v1.2 Evaluation Framework & Debt Resolution — Phases 12–28 complete 2026-06-11; Phase 29 pending
 
-zReg is a Python library for GPU-accelerated 3D point cloud registration, temporal alignment, and color (celltype) transfer using PyTorch. Phase 27 delivered DF-01 (DataFactory geometric augmentation methods: `scale`, `rotate`, `drop_points`, `sample_new_points` as DataFactory instance methods; `augment()` extended with 6-step dispatch including Rodrigues' rotation formula; 826 tests pass, 18 skipped). Validated in Phase 27: DF-01.
+zReg is a Python library for GPU-accelerated 3D point cloud registration, temporal alignment, and color (celltype) transfer using PyTorch. Phase 28 delivered DF-02 (`scripts/generate_datasets.py` refactored to delegate all semi-synthetic augmentations to `DataFactory(EvalConfig(...)).augment(dataset)`; four local helpers removed; noise/scaling bit-identity and dropout row-count parity verified; 826 tests pass, 18 skipped). Validated in Phase 28: DF-02.
 
 ## What This Is
 
@@ -153,4 +153,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-04 — Phase 24 complete (EXT-01 validated: export_trajectory + EvalReport.trajectory_paths + EvaluationRunner wiring, 787 tests pass)*
+*Last updated: 2026-06-11 — Phase 28 complete (DF-02 validated: generate_datasets.py delegates to DataFactory, 826 tests pass)*

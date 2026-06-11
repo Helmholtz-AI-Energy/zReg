@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Evaluation Framework & Debt Resolution
-status: in_progress
-stopped_at: Phase 27 complete; Phases 28–29 pending
-last_updated: "2026-06-11T00:00:00.000Z"
-last_activity: 2026-06-11 -- Phase 27 complete (DataFactory geometric augmentation methods, DF-01 closed, 826 tests)
+status: executing
+stopped_at: Phase 28 complete (DF-02 closed)
+last_updated: "2026-06-11T14:50:00.000Z"
+last_activity: 2026-06-11 -- Phase 28 complete
 progress:
   total_phases: 25
-  completed_phases: 23
-  total_plans: 52
-  completed_plans: 49
-  percent: 90
+  completed_phases: 24
+  total_plans: 50
+  completed_plans: 50
+  percent: 96
 ---
 
 # Project State
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md
 
 ## Current Position
 
-Phase: 28
+Phase: 29
 Plan: Not started
 Status: Ready to plan
-Last activity: 2026-06-11 -- Phase 27 complete (DataFactory geometric augmentation, DF-01)
+Last activity: 2026-06-11 -- Phase 28 complete (DF-02 closed)
 
 ## Phase Overview
 
@@ -46,7 +46,7 @@ Last activity: 2026-06-11 -- Phase 27 complete (DataFactory geometric augmentati
 | 25 | Visualisation Refactor | EXT-02 | Complete 2026-06-04 |
 | 26 | Propulate Optimizer | EXT-03 | Complete 2026-06-06 |
 | 27 | DataFactory Geometric Augmentation Methods | DF-01 | Complete 2026-06-11 |
-| 28 | Script Integration — generate_datasets uses DataFactory | DF-02 | Not started |
+| 28 | Script Integration — generate_datasets uses DataFactory | DF-02 | Complete 2026-06-11 |
 | 29 | Viz Unification | VIZ-01 | Not started |
 
 ## Accumulated Context

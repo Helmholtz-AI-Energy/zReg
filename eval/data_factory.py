@@ -12,6 +12,7 @@ inputs, so chaining ``augment(load_real())`` is inherently safe.
 """
 
 # stdlib first
+import math
 import random
 from pathlib import Path  # noqa: F401  (available for future use)
 
@@ -26,10 +27,11 @@ from zreg.generators import (
     add_gaussian_noise,
     add_outliers,
     apply_affine,  # noqa: F401  (available; not used in Phase 17 minimal generate_synthetic)
-    apply_rigid,   # noqa: F401  (available; not used in Phase 17 minimal generate_synthetic)
+    apply_rigid,
     generate_labels,  # noqa: F401  (available; not used in Phase 17 minimal generate_synthetic)
     generate_trajectory,
 )
+from zreg.transforms import RigidTransformation
 
 # torch AFTER zreg.* imports
 import torch
@@ -270,3 +272,175 @@ class DataFactory:
                 gt_ds = load_shah_from_csv(self.config.ground_truth_path, device="cpu")
             return {i: pc["id"] for i, pc in gt_ds.items()}
         return {i: pc["id"] for i, pc in dataset.items()}
+
+    def scale(
+        self,
+        dataset: dict[int, zRegPointCloud],
+        factor: float,
+    ) -> dict[int, zRegPointCloud]:
+        """Scale every frame's pos by ``factor`` and return a new dataset.
+
+        Immutability contract: the input ``dataset`` is never mutated.
+        ``pos * factor`` creates a new tensor, so color and id shared
+        references are acceptable — they are passed through as-is.
+        ``fps-idx`` is preserved per-frame (passed through by reference;
+        it is never indexed or modified).
+
+        Parameters
+        ----------
+        dataset : dict[int, zRegPointCloud]
+            Input trajectory.  Not modified.
+        factor : float
+            Scalar multiplier applied to each frame's ``pos`` field.
+
+        Returns
+        -------
+        dict[int, zRegPointCloud]
+            New trajectory with scaled ``pos``; all other fields preserved.
+        """
+        result: dict[int, zRegPointCloud] = {}
+        for i, pc in dataset.items():
+            result[i] = zRegPointCloud(
+                pos=pc["pos"] * factor,
+                color=pc["color"],
+                id=pc["id"],
+            )
+            result[i]["fps-idx"] = pc["fps-idx"]
+        return result
+
+    def rotate(
+        self,
+        dataset: dict[int, zRegPointCloud],
+        rotation_matrix: torch.Tensor,
+    ) -> dict[int, zRegPointCloud]:
+        """Rotate every frame's pos by ``rotation_matrix`` and return a new dataset.
+
+        Delegates to ``apply_rigid`` which calls ``copy.deepcopy`` internally
+        via ``_apply_matrix``.  The deep-copy contract is therefore guaranteed
+        by the underlying function — no additional copying is required here.
+
+        Parameters
+        ----------
+        dataset : dict[int, zRegPointCloud]
+            Input trajectory.  Not modified.
+        rotation_matrix : torch.Tensor
+            3x3 rotation matrix (float32).
+
+        Returns
+        -------
+        dict[int, zRegPointCloud]
+            Deep-copied trajectory with rotated ``pos``; all other fields preserved.
+        """
+        tf = RigidTransformation(
+            rot=rotation_matrix,
+            t=torch.zeros(3, dtype=rotation_matrix.dtype),
+            scale=1.0,
+        )
+        return apply_rigid(dataset, tf)
+
+    def drop_points(
+        self,
+        dataset: dict[int, zRegPointCloud],
+        fraction: float,
+        seed: int = 42,
+    ) -> dict[int, zRegPointCloud]:
+        """Remove a random fraction of points from every frame.
+
+        Uses ``torch.randperm`` (device-safe) seeded once before the loop so
+        different frames receive different random subsets while the overall
+        result is reproducible given the same ``seed``.
+
+        Immutability contract: the input ``dataset`` is never mutated.
+        All fields (``id``, ``color``, ``fps-idx``) are indexed with the
+        same permutation-derived index as ``pos``.
+
+        Parameters
+        ----------
+        dataset : dict[int, zRegPointCloud]
+            Input trajectory.  Not modified.
+        fraction : float
+            Fraction of points to drop.  ``0.0`` is a no-op; ``0.3`` drops
+            30 % of points (keeping ``round(n * 0.7)``).
+        seed : int, optional
+            RNG seed for reproducibility (default 42).  Seeded once before
+            the loop — NOT inside the loop.
+
+        Returns
+        -------
+        dict[int, zRegPointCloud]
+            New trajectory with fewer points per frame.
+        """
+        torch.manual_seed(seed)
+        result: dict[int, zRegPointCloud] = {}
+        for i, pc in dataset.items():
+            n = pc["pos"].shape[0]
+            keep = max(1, round(n * (1.0 - fraction)))
+            idx = torch.randperm(n, device=pc["pos"].device)[:keep].sort().values
+            result[i] = zRegPointCloud(
+                pos=pc["pos"][idx],
+                color=pc["color"][idx] if pc["color"] is not None else None,
+                id=pc["id"][idx] if pc["id"] is not None else None,
+            )
+            result[i]["fps-idx"] = pc["fps-idx"][idx] if pc["fps-idx"] is not None else None
+        return result
+
+    def sample_new_points(
+        self,
+        dataset: dict[int, zRegPointCloud],
+        n_extra: int,
+        seed: int = 42,
+    ) -> dict[int, zRegPointCloud]:
+        """Append ``n_extra`` uniform-in-bbox points to every frame.
+
+        Per-frame bounding box (not dataset-global) is used so each frame's
+        new points are consistent with its own point cloud extent.
+        ``torch.manual_seed`` is called once before the loop — seeding inside
+        the loop would make all frames receive identical points.
+
+        Sentinel fill convention (mirrors ``add_outliers`` in
+        ``src/zreg/generators/corruption.py``):
+        - 1-D fields (``id``, 1-D ``color``, ``fps-idx``): sentinel -1
+        - 2-D fields (RGB ``color``): zero rows
+
+        Immutability contract: the input ``dataset`` is never mutated.
+
+        Parameters
+        ----------
+        dataset : dict[int, zRegPointCloud]
+            Input trajectory.  Not modified.
+        n_extra : int
+            Number of new uniform-random points to append per frame.
+        seed : int, optional
+            RNG seed for reproducibility (default 42).  Seeded once before
+            the loop.
+
+        Returns
+        -------
+        dict[int, zRegPointCloud]
+            New trajectory with ``n_extra`` additional points per frame.
+        """
+        torch.manual_seed(seed)
+        result: dict[int, zRegPointCloud] = {}
+        for i, pc in dataset.items():
+            pos = pc["pos"]
+            bbox_min = pos.min(dim=0).values
+            bbox_max = pos.max(dim=0).values
+            rand = torch.rand(n_extra, 3, dtype=pos.dtype, device=pos.device)
+            new_pts = bbox_min + rand * (bbox_max - bbox_min)
+            new_pos = torch.cat([pos, new_pts], dim=0)
+
+            def _extend(t, fill=-1):
+                if t is None:
+                    return None
+                if t.dim() == 1:
+                    return torch.cat([t, torch.full((n_extra,), fill, dtype=t.dtype, device=t.device)])
+                else:  # 2-D (RGB color)
+                    return torch.cat([t, torch.zeros((n_extra, t.shape[1]), dtype=t.dtype, device=t.device)])
+
+            result[i] = zRegPointCloud(
+                pos=new_pos,
+                color=_extend(pc["color"]),
+                id=_extend(pc["id"]),
+            )
+            result[i]["fps-idx"] = _extend(pc["fps-idx"])
+        return result

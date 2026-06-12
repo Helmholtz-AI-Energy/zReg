@@ -35,8 +35,10 @@ None) for ``save_report`` to succeed.  If any value is a ``torch.Tensor``,
 Pitfall 2).
 
 **Frame selection for ``compute_stage_metrics``.**
-Source frame = ``sorted_keys[0]`` (first), target frame = ``sorted_keys[-1]``
-(last).  This gives the maximum temporal span (RESEARCH Assumption A2, Open Q3).
+Source frame = ``source[source_sorted_keys[0]]`` (source's first frame), target
+frame = ``target[target_sorted_keys[-1]]`` (target's last frame).  This gives
+maximum temporal span across two distinct trajectories — Phase 30 cross-trajectory
+interpretation of Open Q3.
 """
 
 import json
@@ -182,9 +184,10 @@ class EvaluationRunner:
         Path(self.config.output_dir).mkdir(parents=True, exist_ok=True)  # D-12
 
         self.factory = DataFactory(self.config)
-        dataset = self.factory.load_real()
+        source = self.factory.load_real()
+        target = self.factory.load_target()
 
-        result = self._run_single(dataset, self.params)
+        result = self._run_single(source, target, self.params)
 
         agg = self.engine.aggregate([result["metrics"]])
         # per_dataset expects dict[str, dict[str, float]] — inner dict must be
@@ -215,7 +218,7 @@ class EvaluationRunner:
                 plot_trajectory(
                     result["align"],
                     result["label"],
-                    dataset,
+                    source,
                     self.config.label_names,
                     output_dir_path,
                 )
@@ -225,7 +228,7 @@ class EvaluationRunner:
             plot_paths.append(str(summary_path))
 
         # Step 2b: Export trajectories unconditionally (D-13 / EXT-01).
-        trajectory_paths = export_trajectory(result, dataset, self.config, output_dir_path)
+        trajectory_paths = export_trajectory(result, source, self.config, output_dir_path)
 
         # Step 3: Build the final frozen report with both plot_paths and trajectory_paths.
         # EvalReport is frozen (Pitfall 6) — must use model_copy to update.
@@ -240,19 +243,24 @@ class EvaluationRunner:
 
     def _run_single(
         self,
-        dataset: dict[int, zRegPointCloud],
+        source: dict[int, zRegPointCloud],
+        target: dict[int, zRegPointCloud],
         params: dict[str, Any],
     ) -> dict[str, Any]:
-        """Execute stages and compute metrics for a single dataset.
+        """Execute stages and compute metrics for a single source/target pair.
 
-        Implements the argument assembly recipe from 21-RESEARCH.md §_run_single.
+        Implements the argument assembly recipe from 21-RESEARCH.md §_run_single,
+        updated in Phase 30 to accept distinct source and target datasets.
         Stage execution is conditional on ``config.run_alignment`` /
         ``config.run_label_transfer``; skipped stages are zero-filled per D-04.
 
         Parameters
         ----------
-        dataset : dict[int, zRegPointCloud]
-            Full trajectory as returned by ``DataFactory.load_real()``, keyed
+        source : dict[int, zRegPointCloud]
+            Source trajectory as returned by ``DataFactory.load_real()``, keyed
+            by integer frame index.
+        target : dict[int, zRegPointCloud]
+            Target trajectory as returned by ``DataFactory.load_target()``, keyed
             by integer frame index.
         params : dict[str, Any]
             Flat hyperparameter dict.  Passed verbatim to both stages; each
@@ -274,8 +282,10 @@ class EvaluationRunner:
         **``transforms=[]``:** ``AlignResult`` has no transforms field.
         ``temporal_stability([])`` returns 0.0 — intentional (RESEARCH Pitfall 3).
 
-        **Source/target frame selection:** source = ``sorted_keys[0]``,
-        target = ``sorted_keys[-1]`` — maximum temporal span (RESEARCH A2).
+        **Source/target frame selection:** source_frame = ``source[source_sorted_keys[0]]``
+        (source's first frame), target_frame = ``target[target_sorted_keys[-1]]``
+        (target's last frame) — maximum temporal span across two distinct trajectories
+        (Phase 30 cross-trajectory interpretation of Open Q3).
 
         **Zero-fill (D-04):** Skipped-stage metrics are zeroed via
         ``model_copy(update={...})`` because ``StageMetrics`` is a frozen
@@ -286,37 +296,40 @@ class EvaluationRunner:
 
         # --- Stage execution ---
         if self.config.run_alignment:
-            align_result = AlignmentStage(self.config).run(dataset, params)
+            align_result = AlignmentStage(self.config).run(source, target, params)
             stage_input = align_result.aligned_cloud
         else:
-            stage_input = dataset  # D-05
+            stage_input = source  # D-05 — use source as fallback
 
         if self.config.run_label_transfer:
-            label_result = LabelTransferStage(self.config).run(stage_input, params)
+            label_result = LabelTransferStage(self.config).run(stage_input, target, params)
 
         # --- Argument assembly for compute_stage_metrics (8 positional args) ---
-        sorted_keys = sorted(dataset.keys())
-        source_frame = dataset[sorted_keys[0]]
-        target_frame = dataset[sorted_keys[-1]]
-        source = source_frame["pos"]   # shape (N, 3)
-        target = target_frame["pos"]   # shape (M, 3)
+        # Pitfall 4 — local source_pos/target_pos avoid shadowing the source/target parameters
+        source_sorted_keys = sorted(source.keys())
+        target_sorted_keys = sorted(target.keys())
+        source_frame = source[source_sorted_keys[0]]
+        target_frame = target[target_sorted_keys[-1]]
+        source_pos = source_frame["pos"]   # shape (N, 3)
+        target_pos = target_frame["pos"]   # shape (M, 3)
 
         warp_path = align_result.warp_path if align_result else []
         transforms = []  # AlignResult has no transform objects — temporal_stability([]) returns 0.0
 
-        # Ground truth for target frame
-        gt = self.factory.get_ground_truth(dataset)  # {frame_key: id_tensor}
-        y_true = gt[sorted_keys[-1]]
+        # Ground truth from source (canonical source dataset reference for GT)
+        gt = self.factory.get_ground_truth(source)  # {frame_key: id_tensor}
+        y_true = gt[source_sorted_keys[-1]]
         if label_result is not None:
-            y_pred = label_result.transferred_labels[sorted_keys[-1]]
+            # Label keys are TARGET frames per Plan 30-01 LabelTransferStage contract
+            y_pred = label_result.transferred_labels[target_sorted_keys[-1]]
         else:
             y_pred = torch.zeros_like(y_true)  # zero-fill D-04
 
-        points_for_knn = target
+        points_for_knn = target_pos
         labels_for_knn = y_pred
 
         metrics = self.engine.compute_stage_metrics(
-            source, target, warp_path, transforms,
+            source_pos, target_pos, warp_path, transforms,
             y_true, y_pred, points_for_knn, labels_for_knn,
             k_neighbours=params.get("k_neighbours", 10),
         )

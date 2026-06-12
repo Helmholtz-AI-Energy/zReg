@@ -161,6 +161,7 @@ class TestEvaluationRunnerRunFixedParams:
         """run() returns an EvalReport instance."""
         mock_factory = mock_factory_cls.return_value
         mock_factory.load_real.return_value = synthetic_dataset
+        mock_factory.load_target.return_value = synthetic_dataset
         # generate_labels populates 'color' (torch.long) not 'id' (None)
         mock_factory.get_ground_truth.return_value = {
             k: synthetic_dataset[k]["color"] for k in synthetic_dataset
@@ -176,6 +177,7 @@ class TestEvaluationRunnerRunFixedParams:
         """report.metrics is a StageMetrics instance."""
         mock_factory = mock_factory_cls.return_value
         mock_factory.load_real.return_value = synthetic_dataset
+        mock_factory.load_target.return_value = synthetic_dataset
         mock_factory.get_ground_truth.return_value = {
             k: synthetic_dataset[k]["color"] for k in synthetic_dataset
         }
@@ -190,6 +192,7 @@ class TestEvaluationRunnerRunFixedParams:
         """All 6 StageMetrics float fields are present and are floats."""
         mock_factory = mock_factory_cls.return_value
         mock_factory.load_real.return_value = synthetic_dataset
+        mock_factory.load_target.return_value = synthetic_dataset
         mock_factory.get_ground_truth.return_value = {
             k: synthetic_dataset[k]["color"] for k in synthetic_dataset
         }
@@ -214,6 +217,7 @@ class TestEvaluationRunnerRunFixedParams:
         """report.aggregated_metrics is a non-empty dict."""
         mock_factory = mock_factory_cls.return_value
         mock_factory.load_real.return_value = synthetic_dataset
+        mock_factory.load_target.return_value = synthetic_dataset
         mock_factory.get_ground_truth.return_value = {
             k: synthetic_dataset[k]["color"] for k in synthetic_dataset
         }
@@ -229,6 +233,7 @@ class TestEvaluationRunnerRunFixedParams:
         """report.per_dataset contains the 'dataset' key."""
         mock_factory = mock_factory_cls.return_value
         mock_factory.load_real.return_value = synthetic_dataset
+        mock_factory.load_target.return_value = synthetic_dataset
         mock_factory.get_ground_truth.return_value = {
             k: synthetic_dataset[k]["color"] for k in synthetic_dataset
         }
@@ -252,6 +257,7 @@ class TestEvaluationRunnerSanityFlags:
         """1-frame dataset: report.sanity_flags is non-empty and contains 'single-frame'."""
         mock_factory = mock_factory_cls.return_value
         mock_factory.load_real.return_value = single_frame_dataset
+        mock_factory.load_target.return_value = single_frame_dataset
         # generate_labels populates 'color' (torch.long) not 'id' (None)
         mock_factory.get_ground_truth.return_value = {
             0: single_frame_dataset[0]["color"]
@@ -279,6 +285,7 @@ class TestEvaluationRunnerSaveReport:
         """eval_report.json exists after run()."""
         mock_factory = mock_factory_cls.return_value
         mock_factory.load_real.return_value = synthetic_dataset
+        mock_factory.load_target.return_value = synthetic_dataset
         mock_factory.get_ground_truth.return_value = {
             k: synthetic_dataset[k]["color"] for k in synthetic_dataset
         }
@@ -293,6 +300,7 @@ class TestEvaluationRunnerSaveReport:
         """eval_report.json parses as valid JSON dict."""
         mock_factory = mock_factory_cls.return_value
         mock_factory.load_real.return_value = synthetic_dataset
+        mock_factory.load_target.return_value = synthetic_dataset
         mock_factory.get_ground_truth.return_value = {
             k: synthetic_dataset[k]["color"] for k in synthetic_dataset
         }
@@ -309,6 +317,7 @@ class TestEvaluationRunnerSaveReport:
         """eval_report.json has all 6 top-level expected keys."""
         mock_factory = mock_factory_cls.return_value
         mock_factory.load_real.return_value = synthetic_dataset
+        mock_factory.load_target.return_value = synthetic_dataset
         mock_factory.get_ground_truth.return_value = {
             k: synthetic_dataset[k]["color"] for k in synthetic_dataset
         }
@@ -331,6 +340,7 @@ class TestEvaluationRunnerSaveReport:
         """save_report() returns Path to eval_report.json and file exists."""
         mock_factory = mock_factory_cls.return_value
         mock_factory.load_real.return_value = synthetic_dataset
+        mock_factory.load_target.return_value = synthetic_dataset
         mock_factory.get_ground_truth.return_value = {
             k: synthetic_dataset[k]["color"] for k in synthetic_dataset
         }
@@ -342,6 +352,7 @@ class TestEvaluationRunnerSaveReport:
 
         # Build a minimal valid report via run() output
         mock_factory.load_real.return_value = synthetic_dataset
+        mock_factory.load_target.return_value = synthetic_dataset
         mock_factory.get_ground_truth.return_value = {
             k: synthetic_dataset[k]["color"] for k in synthetic_dataset
         }
@@ -378,6 +389,7 @@ class TestEvaluationRunnerConditionalStages:
         )
         mock_factory = mock_factory_cls.return_value
         mock_factory.load_real.return_value = synthetic_dataset
+        mock_factory.load_target.return_value = synthetic_dataset
         mock_factory.get_ground_truth.return_value = {
             k: synthetic_dataset[k]["color"] for k in synthetic_dataset
         }
@@ -404,6 +416,7 @@ class TestEvaluationRunnerConditionalStages:
         )
         mock_factory = mock_factory_cls.return_value
         mock_factory.load_real.return_value = synthetic_dataset
+        mock_factory.load_target.return_value = synthetic_dataset
         mock_factory.get_ground_truth.return_value = {
             k: synthetic_dataset[k]["color"] for k in synthetic_dataset
         }
@@ -454,6 +467,7 @@ class TestEvaluationRunnerSavePlots:
         """save_plots=True (default): report.plot_paths has at least 2 entries."""
         mock_factory = mock_factory_cls.return_value
         mock_factory.load_real.return_value = synthetic_dataset
+        mock_factory.load_target.return_value = synthetic_dataset
         mock_factory.get_ground_truth.return_value = {
             k: synthetic_dataset[k]["color"] for k in synthetic_dataset
         }
@@ -476,6 +490,7 @@ class TestEvaluationRunnerSavePlots:
         """
         mock_factory = mock_factory_cls.return_value
         mock_factory.load_real.return_value = synthetic_dataset
+        mock_factory.load_target.return_value = synthetic_dataset
         mock_factory.get_ground_truth.return_value = {
             k: synthetic_dataset[k]["color"] for k in synthetic_dataset
         }
@@ -494,6 +509,7 @@ class TestEvaluationRunnerSavePlots:
         """save_plots=True: metrics_summary.pdf exists on disk."""
         mock_factory = mock_factory_cls.return_value
         mock_factory.load_real.return_value = synthetic_dataset
+        mock_factory.load_target.return_value = synthetic_dataset
         mock_factory.get_ground_truth.return_value = {
             k: synthetic_dataset[k]["color"] for k in synthetic_dataset
         }
@@ -517,6 +533,7 @@ class TestEvaluationRunnerSavePlots:
         )
         mock_factory = mock_factory_cls.return_value
         mock_factory.load_real.return_value = synthetic_dataset
+        mock_factory.load_target.return_value = synthetic_dataset
         mock_factory.get_ground_truth.return_value = {
             k: synthetic_dataset[k]["color"] for k in synthetic_dataset
         }
@@ -542,6 +559,7 @@ class TestEvaluationRunnerSavePlots:
         )
         mock_factory = mock_factory_cls.return_value
         mock_factory.load_real.return_value = synthetic_dataset
+        mock_factory.load_target.return_value = synthetic_dataset
         mock_factory.get_ground_truth.return_value = {
             k: synthetic_dataset[k]["color"] for k in synthetic_dataset
         }

@@ -298,3 +298,14 @@ class TestScenarioConfigs:
         assert cfg.run_alignment is expected_run_alignment
         assert cfg.run_label_transfer is expected_run_label_transfer
         assert cfg.data_format == "tracklets"
+
+    def test_paired_alignment_yaml_loads_and_declares_paired_mode(self) -> None:
+        """Phase 30 D-03: paired_alignment.yaml loads via EvalConfig.from_yaml with
+        pipeline_mode='paired', Kobitski as both source and target, tracklets format,
+        alignment enabled, label transfer disabled."""
+        cfg = EvalConfig.from_yaml(_REPO_ROOT / "configs" / "paired_alignment.yaml")
+        assert cfg.pipeline_mode == "paired"
+        assert cfg.target_data_path == cfg.data_path
+        assert cfg.data_format == "tracklets"
+        assert cfg.run_alignment is True
+        assert cfg.run_label_transfer is False

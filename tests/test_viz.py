@@ -12,8 +12,11 @@ import torch
 
 import matplotlib.pyplot as plt
 
+import numpy as np
+import pandas as pd
+
 from eval.types import AlignResult, EvalReport, LabelResult, StageMetrics
-from eval.viz import plot_metrics, plot_trajectory
+from eval.viz import plot_metrics, plot_trajectory, render_dataset_triptych
 
 
 # ---------------------------------------------------------------------------
@@ -249,3 +252,56 @@ class TestPlotTrajectory:
         """CR-01: empty dataset returns [] immediately without IndexError."""
         result = plot_trajectory(None, None, {}, None, tmp_path)
         assert result == []
+
+
+# ---------------------------------------------------------------------------
+# triptych_csv fixture
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def triptych_csv(tmp_path):
+    """Minimal 3-frame CSV with 50 points per frame (x, y, z, t columns)."""
+    rng = np.random.default_rng(42)
+    rows = []
+    for t in [1, 2, 3]:
+        for _ in range(50):
+            rows.append({
+                "x": float(rng.random()),
+                "y": float(rng.random()),
+                "z": float(rng.random()),
+                "t": t,
+            })
+    df = pd.DataFrame(rows)
+    csv_path = tmp_path / "test_dataset.csv"
+    df.to_csv(csv_path, index=False)
+    return csv_path
+
+
+# ---------------------------------------------------------------------------
+# TestRenderDatasetTriptych — VIZ-01
+# ---------------------------------------------------------------------------
+
+
+class TestRenderDatasetTriptych:
+    """VIZ-01c/d/g: render_dataset_triptych smoke tests."""
+
+    def test_creates_png_file(self, triptych_csv, tmp_path) -> None:
+        """VIZ-01c: PNG written at output_dir/name.png with size > 0."""
+        out = render_dataset_triptych(triptych_csv, "test_dataset", tmp_path)
+        assert (tmp_path / "test_dataset.png").exists()
+        assert (tmp_path / "test_dataset.png").stat().st_size > 0
+
+    def test_returns_path(self, triptych_csv, tmp_path) -> None:
+        """VIZ-01d: Return value is a pathlib.Path pointing to the PNG."""
+        result = render_dataset_triptych(triptych_csv, "test_dataset", tmp_path / "sub")
+        assert isinstance(result, Path)
+        assert result.suffix == ".png"
+        assert result.exists()
+
+    def test_no_figure_leak(self, triptych_csv, tmp_path) -> None:
+        """VIZ-01g: plt.close(fig) called — no leaked figure handles."""
+        before = len(plt.get_fignums())
+        render_dataset_triptych(triptych_csv, "test_dataset", tmp_path)
+        after = len(plt.get_fignums())
+        assert after == before

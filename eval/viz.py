@@ -29,13 +29,15 @@ from zreg.dataset import zRegPointCloud  # noqa: F401 — ensures import order
 
 import torch  # noqa: F401 — must follow zreg.* (libomp SIGABRT rule)
 
+import numpy as np
+
 import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 
 from eval.types import AlignResult, EvalReport, LabelResult
 
-__all__ = ["plot_trajectory", "plot_metrics"]
+__all__ = ["plot_trajectory", "plot_metrics", "render_dataset_triptych"]
 
 
 def plot_trajectory(
@@ -125,16 +127,33 @@ def plot_trajectory(
                 ax = fig.add_subplot(1, 3, idx + 1, projection="3d")
                 source_pos = dataset[fk]["pos"].detach().cpu().numpy()
                 aligned_pos = align_result.aligned_cloud[fk]["pos"].detach().cpu().numpy()
-                s = ax.scatter(source_pos[:, 0], source_pos[:, 1], source_pos[:, 2], c="blue", s=5)
-                a = ax.scatter(aligned_pos[:, 0], aligned_pos[:, 1], aligned_pos[:, 2], c="orange", s=5)
+                # Per-cloud subsampling — each cloud gets its own default_rng(0) instance (D-01)
+                rng = np.random.default_rng(0)
+                if len(source_pos) > 4000:
+                    source_pos = source_pos[rng.choice(len(source_pos), 4000, replace=False)]
+                rng = np.random.default_rng(0)
+                if len(aligned_pos) > 4000:
+                    aligned_pos = aligned_pos[rng.choice(len(aligned_pos), 4000, replace=False)]
+                s = ax.scatter(source_pos[:, 0], source_pos[:, 1], source_pos[:, 2],
+                               c="blue", s=1.5, alpha=0.45, linewidths=0)
+                a = ax.scatter(aligned_pos[:, 0], aligned_pos[:, 1], aligned_pos[:, 2],
+                               c="orange", s=1.5, alpha=0.45, linewidths=0)
                 if idx == 0:
                     source_h, aligned_h = s, a
-                ax.set_title(f"Frame {fk}")
+                ax.set_title(f"Frame {fk}", fontsize=9, pad=4)
+                for lbl in (ax.get_xticklabels() + ax.get_yticklabels() + ax.get_zticklabels()):
+                    lbl.set_fontsize(6)
+                ax.set_xlabel("x", fontsize=7, labelpad=2)
+                ax.set_ylabel("y", fontsize=7, labelpad=2)
+                ax.set_zlabel("z", fontsize=7, labelpad=2)
+                ax.xaxis.pane.fill = False
+                ax.yaxis.pane.fill = False
+                ax.zaxis.pane.fill = False
             fig.legend([source_h, aligned_h], ["Source", "Aligned"], loc="center right", bbox_to_anchor=(1.12, 0.5))
             base = Path(output_dir) / "alignment_trajectory"
             try:
                 fig.savefig(base.with_suffix(".pdf"), bbox_inches="tight")
-                fig.savefig(base.with_suffix(".png"), bbox_inches="tight")
+                fig.savefig(base.with_suffix(".png"), dpi=150, bbox_inches="tight")
             finally:
                 plt.close(fig)
         paths.extend([str(base.with_suffix(".pdf")), str(base.with_suffix(".png"))])
@@ -166,8 +185,23 @@ def plot_trajectory(
                 )
                 t = label_result.transferred_labels[fk]
                 c_vals = [color_for_label[int(v)] for v in t.tolist()]
-                ax.scatter(pos[:, 0], pos[:, 1], pos[:, 2], c=c_vals, s=5)
-                ax.set_title(f"Frame {fk}")
+                # Per-cloud subsampling — subsample pos and c_vals in sync (D-03)
+                rng = np.random.default_rng(0)
+                if len(pos) > 4000:
+                    keep = rng.choice(len(pos), 4000, replace=False)
+                    pos = pos[keep]
+                    c_vals = [c_vals[i] for i in keep]
+                ax.scatter(pos[:, 0], pos[:, 1], pos[:, 2],
+                           c=c_vals, s=1.5, alpha=0.45, linewidths=0)
+                ax.set_title(f"Frame {fk}", fontsize=9, pad=4)
+                for lbl in (ax.get_xticklabels() + ax.get_yticklabels() + ax.get_zticklabels()):
+                    lbl.set_fontsize(6)
+                ax.set_xlabel("x", fontsize=7, labelpad=2)
+                ax.set_ylabel("y", fontsize=7, labelpad=2)
+                ax.set_zlabel("z", fontsize=7, labelpad=2)
+                ax.xaxis.pane.fill = False
+                ax.yaxis.pane.fill = False
+                ax.zaxis.pane.fill = False
             # Build legend patches
             patches = [
                 mpatches.Patch(
@@ -180,7 +214,7 @@ def plot_trajectory(
             base2 = Path(output_dir) / "label_trajectory"
             try:
                 fig.savefig(base2.with_suffix(".pdf"), bbox_inches="tight")
-                fig.savefig(base2.with_suffix(".png"), bbox_inches="tight")
+                fig.savefig(base2.with_suffix(".png"), dpi=150, bbox_inches="tight")
             finally:
                 plt.close(fig)
         paths.extend([str(base2.with_suffix(".pdf")), str(base2.with_suffix(".png"))])
@@ -250,3 +284,105 @@ def plot_metrics(report: EvalReport, path: Union[str, Path]) -> None:
             fig.savefig(path, bbox_inches="tight")
         finally:
             plt.close(fig)
+
+
+def render_dataset_triptych(
+    csv_path: "str | Path",
+    name: str,
+    output_dir: "str | Path",
+    dpi: int = 150,
+) -> Path:
+    """Render a 1×3 triptych PNG for a synthetic dataset CSV (VIZ-01).
+
+    Self-contains all CSV I/O and rendering. Returns the Path to the
+    written PNG. All figure code inside matplotlib.rc_context (FRAME-08).
+
+    Parameters
+    ----------
+    csv_path : str or Path
+        Path to a CSV with columns x, y, z, t.
+    name : str
+        Dataset name — used as figure suptitle and PNG filename stem.
+    output_dir : str or Path
+        Directory where <name>.png is written. Created if absent (D-08).
+    dpi : int
+        Raster resolution of the PNG (default 150).
+
+    Returns
+    -------
+    Path
+        Path to the written PNG (D-06).
+    """
+    import pandas as pd  # D-05: lazy import — keeps module lightweight
+
+    csv_path = Path(csv_path)
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)  # D-08
+
+    # --- _frame_indices logic ---
+    frames = sorted(
+        pd.read_csv(csv_path, usecols=["t"])["t"].unique()
+    )
+    n = len(frames)
+    t_first, t_mid, t_last = frames[0], frames[n // 2], frames[-1]
+
+    # --- _load_three_frames logic (D-09) ---
+    wanted = {t_first, t_mid, t_last}
+    parts = []
+    for chunk in pd.read_csv(
+        csv_path, usecols=["x", "y", "z", "t"], chunksize=60_000
+    ):
+        sub = chunk[chunk["t"].isin(wanted)]
+        if len(sub):
+            parts.append(sub)
+    df = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
+    data = {
+        t: df.loc[df["t"] == t, ["x", "y", "z"]].values for t in wanted
+    }
+
+    COLOR = "#2a6496"  # D-07: hardcoded colour
+    MAX_PTS = 4_000
+
+    # --- render inside rc_context (D-12) ---
+    with matplotlib.rc_context({"backend": "Agg"}):
+        fig = plt.figure(figsize=(13, 4.2))
+        fig.suptitle(name, fontsize=12, fontweight="bold", y=1.01)
+
+        for col, (t, label) in enumerate(
+            [(t_first, "first"), (t_mid, "mid"), (t_last, "last")]
+        ):
+            ax = fig.add_subplot(1, 3, col + 1, projection="3d")
+            pts = data.get(t, np.empty((0, 3)))
+
+            # Subsampling (D-01)
+            rng = np.random.default_rng(0)
+            if len(pts) > MAX_PTS:
+                idx = rng.choice(len(pts), MAX_PTS, replace=False)
+                pts = pts[idx]
+
+            ax.scatter(pts[:, 0], pts[:, 1], pts[:, 2],
+                       s=1.5, alpha=0.45, c=COLOR, linewidths=0)
+
+            # Style block
+            ax.set_title(f"t = {t}  ({label})\nn = {len(pts):,}",
+                         fontsize=9, pad=4)
+            for lbl in (
+                ax.get_xticklabels()
+                + ax.get_yticklabels()
+                + ax.get_zticklabels()
+            ):
+                lbl.set_fontsize(6)
+            ax.set_xlabel("x", fontsize=7, labelpad=2)
+            ax.set_ylabel("y", fontsize=7, labelpad=2)
+            ax.set_zlabel("z", fontsize=7, labelpad=2)
+            ax.xaxis.pane.fill = False
+            ax.yaxis.pane.fill = False
+            ax.zaxis.pane.fill = False
+
+        out_path = output_dir / f"{name}.png"
+        try:
+            fig.savefig(out_path, dpi=dpi, bbox_inches="tight")
+        finally:
+            plt.close(fig)  # D-12: mandatory
+
+    return out_path  # D-06: returns Path

@@ -57,7 +57,7 @@
   **Wave 2** *(blocked on Wave 1 completion)*
   - [x] 29-02-PLAN.md — Refactor `scripts/visualize_datasets.py` to use `render_dataset_triptych`; remove `_scatter3`, `render_dataset`
 
-- [ ] **Phase 30: Two-Dataset Paired Alignment Architecture** — in progress (1/3 plans complete)
+- [ ] **Phase 30: Two-Dataset Paired Alignment Architecture** — in progress (2/3 plans complete)
   **Goal:** Fix `AlignmentStage` to always align two distinct trajectories — source and target — so DTW is never run on a single trajectory against itself. Change `AlignmentStage.run(source, target, params)` to accept two `dict[int, zRegPointCloud]` arguments. Add `pipeline_mode: Literal["paired", "synthetic"] = "paired"` and `target_data_path: str | None = None` to `EvalConfig`. Add `DataFactory.load_target()` that loads the second dataset using `target_data_path` following the same tracklets/CSV dispatch as `load_real()`. Update `EvaluationRunner` to load source and target separately in paired mode and pass both to `AlignmentStage.run()`. Add a `paired_alignment.yaml` scenario config. Update `LabelTransferStage` and `EvaluationRunner._run_single()` signatures where needed so source/target propagate cleanly through the pipeline.
   **Requirements:** MODE-01
   **Depends on:** Phase 21 (EvaluationRunner), Phase 19 (AlignmentStage), Phase 17 (EvalConfig + DataFactory)
@@ -73,7 +73,7 @@
   **Wave 1**
   - [x] 30-01-PLAN.md — Add pipeline_mode + target_data_path to EvalConfig; add DataFactory.load_target(); change PipelineStage/AlignmentStage/LabelTransferStage to run(source, target, params); update stage + DataFactory tests
   **Wave 2** *(blocked on Wave 1 completion)*
-  - [ ] 30-02-PLAN.md — Update EvaluationRunner.run() + _run_single + HyperparamOptimizer._objective for source/target propagation; resolve variable shadowing (source_pos/target_pos); update test_eval_runner and test_optimizer mocks
+  - [x] 30-02-PLAN.md — Update EvaluationRunner.run() + _run_single + HyperparamOptimizer._objective for source/target propagation; resolve variable shadowing (source_pos/target_pos); update test_eval_runner and test_optimizer mocks
   **Wave 3** *(blocked on Wave 2 completion)*
   - [ ] 30-03-PLAN.md — Add configs/paired_alignment.yaml (Kobitski as both source and target); update tests/test_trajectory_export.py mocks; add tests/test_cli.py smoke-test for paired_alignment.yaml
 
@@ -324,5 +324,5 @@ Full details: [.planning/milestones/v1.0-ROADMAP.md](.planning/milestones/v1.0-R
 | 27. DataFactory Geometric Augmentation Methods | v1.2 | 2/2 | Complete | 2026-06-11 |
 | 28. Script Integration — generate_datasets uses DataFactory | v1.2 | 0/1 | Not started | — |
 | 29. Viz Unification | v1.2 | 2/2 | Complete | 2026-06-12 |
-| 30. Two-Dataset Paired Alignment Architecture | v1.2 | 1/3 | Executing | — |
+| 30. Two-Dataset Paired Alignment Architecture | v1.2 | 2/3 | Executing | — |
 | 31. Synthetic Pipeline Mode — Transform-Spec Target & GT-Aware HPO | v1.2 | 0/0 | Not started | — |

@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Evaluation Framework & Debt Resolution
 status: executing
-stopped_at: Phase 30 Plan 01 complete; Wave 2 (30-02) ready
-last_updated: "2026-06-12T15:05:31Z"
-last_activity: 2026-06-12 -- Phase 30-01 complete (contract layer: EvalConfig + DataFactory + stage signatures)
+stopped_at: Phase 30 Plan 02 complete; Wave 3 (30-03) ready
+last_updated: "2026-06-12T17:13:00Z"
+last_activity: 2026-06-12 -- Phase 30-02 complete (EvaluationRunner + HyperparamOptimizer source/target propagation; 26 tests pass)
 progress:
   total_phases: 25
   completed_phases: 24
   total_plans: 55
-  completed_plans: 51
+  completed_plans: 52
   percent: 96
 ---
 
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md
 ## Current Position
 
 Phase: 30
-Plan: 02 (Wave 2 — EvaluationRunner + HyperparamOptimizer source/target propagation)
-Status: Executing
-Last activity: 2026-06-12 -- Phase 30-01 complete (contract layer landed; 142 tests pass)
+Plan: 03 (Wave 3 — paired_alignment.yaml + trajectory export test mocks + CLI smoke test)
+Status: Ready to execute
+Last activity: 2026-06-12 -- Phase 30-02 complete (EvaluationRunner + HyperparamOptimizer source/target propagation; 26 tests pass)
 
 ## Phase Overview
 
@@ -48,7 +48,7 @@ Last activity: 2026-06-12 -- Phase 30-01 complete (contract layer landed; 142 te
 | 27 | DataFactory Geometric Augmentation Methods | DF-01 | Complete 2026-06-11 |
 | 28 | Script Integration — generate_datasets uses DataFactory | DF-02 | Complete 2026-06-11 |
 | 29 | Viz Unification | VIZ-01 | Ready to execute (2 plans) |
-| 30 | Two-Dataset Paired Alignment Architecture | MODE-01 | Executing (30-01 complete, 30-02 pending) |
+| 30 | Two-Dataset Paired Alignment Architecture | MODE-01 | Executing (30-01, 30-02 complete; 30-03 pending) |
 
 ## Accumulated Context
 
@@ -185,6 +185,9 @@ Last activity: 2026-06-12 -- Phase 30-01 complete (contract layer landed; 142 te
 - [Phase 30-01]: D-02 — Frame-0 pass-through deleted from LabelTransferStage; sequential source[k]->target[k] pairing replaces it; test_run_frame0_passthrough deleted
 - [Phase 30-01]: Rule 1 fix — test_run_with_distinct_source_target_returns_align_result uses torch.equal() instead of dict != operator to avoid RuntimeError on ambiguous tensor boolean comparison in zRegPointCloud dicts
 - [Phase 30-01]: 142 tests pass in three-file scope; test_eval_runner/test_optimizer/test_trajectory_export now fail (EvaluationRunner.run() not yet updated — Plan 30-02 territory)
+- [Phase 30-02]: Pitfall 4 resolved — source_pos/target_pos and source_sorted_keys/target_sorted_keys in both eval_runner._run_single and optimizer._objective
+- [Phase 30-02]: Pitfall 7 implemented per recommendation (a)+(b) — sanity reuses tier_dataset; dev/full call load_target()
+- [Phase 30-02]: 18 test_eval_runner.py mock blocks and 3 test_optimizer.py mock blocks updated; 26 tests pass; trajectory_export still failing (Plan 30-03 territory)
 
 ### Open Blockers
 
@@ -192,7 +195,7 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-06-12T15:05:31Z
-Stopped at: Phase 30-01 complete (contract layer: EvalConfig + DataFactory + stage signatures)
-Resume file: .planning/phases/30-two-dataset-paired-alignment-architecture/30-01-SUMMARY.md
-Next action: Execute 30-02-PLAN.md — EvaluationRunner + HyperparamOptimizer source/target propagation
+Last session: 2026-06-12T17:13:00Z
+Stopped at: Phase 30-02 complete (EvaluationRunner + HyperparamOptimizer source/target propagation; 26 tests pass)
+Resume file: .planning/phases/30-two-dataset-paired-alignment-architecture/30-02-SUMMARY.md
+Next action: Execute 30-03-PLAN.md — paired_alignment.yaml config; trajectory export test mocks; CLI smoke test

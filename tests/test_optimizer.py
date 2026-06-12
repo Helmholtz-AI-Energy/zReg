@@ -107,6 +107,7 @@ class TestHyperparamOptimizerSanityTier:
         mock_factory = mock_factory_cls.return_value
         mock_factory.generate_synthetic.return_value = synthetic_dataset
         mock_factory.load_real.return_value = synthetic_dataset
+        mock_factory.load_target.return_value = synthetic_dataset
         # get_ground_truth is called inside _objective with the tier_dataset;
         # return the color labels for the last frame key of whatever is passed.
         mock_factory.get_ground_truth.side_effect = (
@@ -133,6 +134,7 @@ class TestHyperparamOptimizerOutputFiles:
         mock_factory = mock_factory_cls.return_value
         mock_factory.generate_synthetic.return_value = synthetic_dataset
         mock_factory.load_real.return_value = synthetic_dataset
+        mock_factory.load_target.return_value = synthetic_dataset
         mock_factory.get_ground_truth.side_effect = (
             lambda ds: {k: ds[k]["color"] for k in ds}
         )
@@ -195,6 +197,7 @@ class TestBestParamsImproveDefault:
         mock_factory = mock_factory_cls.return_value
         mock_factory.generate_synthetic.return_value = synthetic_dataset
         mock_factory.load_real.return_value = synthetic_dataset
+        mock_factory.load_target.return_value = synthetic_dataset
         mock_factory.get_ground_truth.side_effect = (
             lambda ds: {k: ds[k]["color"] for k in ds}
         )

@@ -63,6 +63,11 @@ never fails when the search space covers only a subset of required keys.
 
 **JSON serialisation:** Always ``model_dump()`` + ``json.dump()``.  The JSON
 shortcut raises for ``torch.Tensor`` fields (Pitfall 2 from eval/types.py).
+
+**Phase 30 source/target dispatch (Pitfall 7):** sanity tier reuses
+``tier_dataset`` as both source and target (D-03 smoke-test parity); dev/full
+tiers call ``self._factory.load_target()`` to obtain the target trajectory from
+``config.target_data_path``.
 """
 
 import json
@@ -323,39 +328,50 @@ class HyperparamOptimizer:
             # Pitfall 4: merge defaults first, trial params override
             merged = {**self._default_params, **params}
 
+            # Phase 30 source/target dispatch — Pitfall 7 + CONTEXT D-03
+            # sanity tier reuses tier_dataset as both source and target (D-03 smoke-test parity)
+            # dev/full tiers call load_target() to obtain the target trajectory
+            if tier_name == "sanity":
+                tier_target = tier_dataset  # Pitfall 7(a) — sanity reuses same dataset
+            else:
+                tier_target = self._factory.load_target()  # Pitfall 7(b) — dev/full call load_target
+
             align_result = None
             label_result = None
             stage_input = tier_dataset
 
             if self.config.run_alignment:
-                align_result = AlignmentStage(self.config).run(tier_dataset, merged)
+                align_result = AlignmentStage(self.config).run(tier_dataset, tier_target, merged)
                 stage_input = align_result.aligned_cloud
 
             if self.config.run_label_transfer:
-                label_result = LabelTransferStage(self.config).run(stage_input, merged)
+                label_result = LabelTransferStage(self.config).run(stage_input, tier_target, merged)
 
-            # Argument assembly — mirrors eval_runner._run_single lines 283-307 exactly
-            sorted_keys = sorted(tier_dataset.keys())
-            source = tier_dataset[sorted_keys[0]]["pos"]
-            target = tier_dataset[sorted_keys[-1]]["pos"]
+            # Argument assembly — mirrors eval_runner._run_single exactly (Phase 30 Pitfall 4 rename)
+            # Pitfall 4 — source_pos/target_pos avoid shadowing tier_dataset/tier_target parameters
+            source_sorted_keys = sorted(tier_dataset.keys())
+            target_sorted_keys = sorted(tier_target.keys())
+            source_pos = tier_dataset[source_sorted_keys[0]]["pos"]
+            target_pos = tier_target[target_sorted_keys[-1]]["pos"]
             warp_path = align_result.warp_path if align_result else []
             transforms: list = []
 
             gt = self._factory.get_ground_truth(tier_dataset)
-            y_true = gt[sorted_keys[-1]]
+            y_true = gt[source_sorted_keys[-1]]
             if label_result is not None:
-                y_pred = label_result.transferred_labels[sorted_keys[-1]]
+                # Label keys are TARGET frames per Plan 30-01 LabelTransferStage contract
+                y_pred = label_result.transferred_labels[target_sorted_keys[-1]]
             else:
                 y_pred = torch.zeros_like(y_true)
 
             metrics = self._engine.compute_stage_metrics(
-                source,
-                target,
+                source_pos,
+                target_pos,
                 warp_path,
                 transforms,
                 y_true,
                 y_pred,
-                target,
+                target_pos,
                 y_pred,
                 k_neighbours=merged.get("k_neighbours", 10),
             )

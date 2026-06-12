@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Evaluation Framework & Debt Resolution
 status: executing
-stopped_at: Phase 28 complete (DF-02 closed)
-last_updated: "2026-06-11T14:50:00.000Z"
-last_activity: 2026-06-11 -- Phase 28 complete
+stopped_at: Phase 30 Plan 01 complete; Wave 2 (30-02) ready
+last_updated: "2026-06-12T15:05:31Z"
+last_activity: 2026-06-12 -- Phase 30-01 complete (contract layer: EvalConfig + DataFactory + stage signatures)
 progress:
   total_phases: 25
   completed_phases: 24
-  total_plans: 50
-  completed_plans: 50
+  total_plans: 55
+  completed_plans: 51
   percent: 96
 ---
 
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md
 
 ## Current Position
 
-Phase: 29
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-06-11 -- Phase 28 complete (DF-02 closed)
+Phase: 30
+Plan: 02 (Wave 2 — EvaluationRunner + HyperparamOptimizer source/target propagation)
+Status: Executing
+Last activity: 2026-06-12 -- Phase 30-01 complete (contract layer landed; 142 tests pass)
 
 ## Phase Overview
 
@@ -47,7 +47,8 @@ Last activity: 2026-06-11 -- Phase 28 complete (DF-02 closed)
 | 26 | Propulate Optimizer | EXT-03 | Complete 2026-06-06 |
 | 27 | DataFactory Geometric Augmentation Methods | DF-01 | Complete 2026-06-11 |
 | 28 | Script Integration — generate_datasets uses DataFactory | DF-02 | Complete 2026-06-11 |
-| 29 | Viz Unification | VIZ-01 | Not started |
+| 29 | Viz Unification | VIZ-01 | Ready to execute (2 plans) |
+| 30 | Two-Dataset Paired Alignment Architecture | MODE-01 | Executing (30-01 complete, 30-02 pending) |
 
 ## Accumulated Context
 
@@ -177,13 +178,21 @@ Last activity: 2026-06-11 -- Phase 28 complete (DF-02 closed)
 - WR-03 open (CR): bare dict access result["align"]/result["label"] raises KeyError on malformed input
 - WR-04 open (CR): three test classes make live git subprocess calls (should patch)
 
+### Phase 30 Decisions (v1.2)
+
+- [Phase 30-01]: D-05 — EvalConfigError at load_target() call time, not at EvalConfig construction; consistent with existing error-at-use-time pattern
+- [Phase 30-01]: D-06 — AlignResult.aligned_cloud = source pass-through; target consumed by DTW but not returned; no new fields added to AlignResult in Phase 30
+- [Phase 30-01]: D-02 — Frame-0 pass-through deleted from LabelTransferStage; sequential source[k]->target[k] pairing replaces it; test_run_frame0_passthrough deleted
+- [Phase 30-01]: Rule 1 fix — test_run_with_distinct_source_target_returns_align_result uses torch.equal() instead of dict != operator to avoid RuntimeError on ambiguous tensor boolean comparison in zRegPointCloud dicts
+- [Phase 30-01]: 142 tests pass in three-file scope; test_eval_runner/test_optimizer/test_trajectory_export now fail (EvaluationRunner.run() not yet updated — Plan 30-02 territory)
+
 ### Open Blockers
 
 None.
 
 ## Session Continuity
 
-Last session: 2026-06-11T00:00:00.000Z
-Stopped at: Phase 27 complete (DF-01 closed)
-Resume file: .planning/phases/27-datafactory-geometric-augmentation-methods/27-VERIFICATION.md
-Next action: `/gsd-plan-phase 28` — Script Integration: generate_datasets uses DataFactory (DF-02)
+Last session: 2026-06-12T15:05:31Z
+Stopped at: Phase 30-01 complete (contract layer: EvalConfig + DataFactory + stage signatures)
+Resume file: .planning/phases/30-two-dataset-paired-alignment-architecture/30-01-SUMMARY.md
+Next action: Execute 30-02-PLAN.md — EvaluationRunner + HyperparamOptimizer source/target propagation

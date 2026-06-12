@@ -98,6 +98,38 @@ class TestEvalConfigFromYAML:
         with pytest.raises(EvalConfigError, match="not found"):
             EvalConfig.from_yaml(p)
 
+    def test_pipeline_mode_literal_accepts_paired_and_synthetic(self, tmp_path):
+        """pipeline_mode='paired' and 'synthetic' both round-trip without error."""
+        p = tmp_path / "paired.yaml"
+        p.write_text("data_path: x.mat\npipeline_mode: paired\n")
+        cfg = EvalConfig.from_yaml(p)
+        assert cfg.pipeline_mode == "paired"
+
+        p2 = tmp_path / "synthetic.yaml"
+        p2.write_text("data_path: x.mat\npipeline_mode: synthetic\n")
+        cfg2 = EvalConfig.from_yaml(p2)
+        assert cfg2.pipeline_mode == "synthetic"
+
+    def test_pipeline_mode_rejects_invalid_string(self, tmp_path):
+        """pipeline_mode: Paired (capital P) is rejected with EvalConfigError (Pitfall 2)."""
+        p = tmp_path / "bad_mode.yaml"
+        p.write_text("data_path: x.mat\npipeline_mode: Paired\n")
+        with pytest.raises(EvalConfigError, match="pipeline_mode"):
+            EvalConfig.from_yaml(p)
+
+    def test_target_data_path_optional_and_round_trips(self, tmp_path):
+        """target_data_path round-trips from YAML; default is None."""
+        p = tmp_path / "with_target.yaml"
+        p.write_text("data_path: x.mat\ntarget_data_path: y.mat\n")
+        cfg = EvalConfig.from_yaml(p)
+        assert cfg.target_data_path == "y.mat"
+
+        # Default (field absent): target_data_path is None
+        p2 = tmp_path / "no_target.yaml"
+        p2.write_text("data_path: x.mat\n")
+        cfg2 = EvalConfig.from_yaml(p2)
+        assert cfg2.target_data_path is None
+
 
 # ---------------------------------------------------------------------------
 # TestDataFactoryConstruction — D-08 lazy init (Plan 17-02)
@@ -113,6 +145,7 @@ class TestDataFactoryConstruction:
         factory = DataFactory(cfg)
         assert factory._real_dataset is None
         assert factory._synthetic_dataset is None
+        assert factory._target_dataset is None
         assert factory.config is cfg
 
 
@@ -157,6 +190,56 @@ class TestLoadReal:
             second = factory.load_real()
         assert first is second
         assert m.call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# TestLoadTarget — D-09 caching + dispatch by data_format for target (Plan 30-01)
+# ---------------------------------------------------------------------------
+
+
+class TestLoadTarget:
+    """load_target() caching, format dispatch, and EvalConfigError guard (D-05)."""
+
+    def _make_mock_ds(self):
+        """Build a minimal mock dataset for patching."""
+        return {0: zRegPointCloud(pos=torch.zeros(3, 3), color=None, id=torch.arange(3))}
+
+    def test_dispatches_tracklets(self):
+        """data_format='tracklets' calls load_data_from_tracklets with target_data_path and device='cpu'."""
+        cfg = EvalConfig(data_path="x.mat", target_data_path="y.mat", data_format="tracklets")
+        factory = DataFactory(cfg)
+        mock_ds = self._make_mock_ds()
+        with patch("eval.data_factory.load_data_from_tracklets", return_value=(mock_ds, {})) as m:
+            result = factory.load_target()
+        m.assert_called_once_with("y.mat", device="cpu")
+        assert result is mock_ds
+
+    def test_dispatches_csv(self):
+        """data_format='csv' calls load_shah_from_csv with target_data_path and device='cpu' (Pitfall 5)."""
+        cfg = EvalConfig(data_path="x.csv", target_data_path="y.csv", data_format="csv")
+        factory = DataFactory(cfg)
+        mock_ds = self._make_mock_ds()
+        with patch("eval.data_factory.load_shah_from_csv", return_value=mock_ds) as m:
+            factory.load_target()
+        m.assert_called_once_with("y.csv", device="cpu")
+
+    def test_caches(self):
+        """D-09: second load_target() call returns same reference; loader invoked exactly once."""
+        cfg = EvalConfig(data_path="x.mat", target_data_path="y.mat", data_format="tracklets")
+        factory = DataFactory(cfg)
+        mock_ds = self._make_mock_ds()
+        with patch("eval.data_factory.load_data_from_tracklets", return_value=(mock_ds, {})) as m:
+            first = factory.load_target()
+            second = factory.load_target()
+        assert first is second
+        assert m.call_count == 1
+
+    def test_raises_eval_config_error_when_target_path_none(self):
+        """D-05: load_target() raises EvalConfigError (not ValueError) when target_data_path is None."""
+        cfg = EvalConfig(data_path="x.mat", target_data_path=None)
+        factory = DataFactory(cfg)
+        with pytest.raises(EvalConfigError, match="target_data_path"):
+            factory.load_target()
 
 
 # ---------------------------------------------------------------------------

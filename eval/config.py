@@ -8,6 +8,7 @@ that the Phase 23 CLI can display a single readable line without a stacktrace
 """
 
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -94,6 +95,16 @@ class EvalConfig(BaseModel):
         Optional mapping of integer label IDs to descriptive names (e.g.
         ``{0: 'T cell', 1: 'B cell'}``).  Used by ``plot_trajectory`` for
         legend labels in the label-trajectory figure.  Default ``None``.
+    pipeline_mode : str
+        Pipeline mode: ``'paired'`` loads ``target_data_path`` via
+        ``DataFactory.load_target()``; ``'synthetic'`` is reserved for Phase 31
+        and is currently a no-op.  Default ``'paired'``.
+    target_data_path : str or None
+        Optional path to the second dataset.  Required (non-None) when
+        ``pipeline_mode='paired'`` and ``DataFactory.load_target()`` is
+        invoked; ignored otherwise.  ``EvalConfigError`` is raised at
+        ``load_target()`` call time, not at ``EvalConfig`` construction (D-05).
+        Default ``None``.
 
     Notes
     -----
@@ -133,6 +144,8 @@ class EvalConfig(BaseModel):
         }
     )
     label_names: dict[int, str] | None = None
+    pipeline_mode: Literal["paired", "synthetic"] = "paired"
+    target_data_path: str | None = None
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "EvalConfig":

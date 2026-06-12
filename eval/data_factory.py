@@ -37,7 +37,7 @@ from zreg.transforms import RigidTransformation
 import torch
 
 # local sibling module last
-from eval.config import EvalConfig
+from eval.config import EvalConfig, EvalConfigError
 
 __all__ = ["DataFactory"]
 
@@ -78,6 +78,7 @@ class DataFactory:
         self.config = config
         self._real_dataset: dict[int, zRegPointCloud] | None = None
         self._synthetic_dataset: dict[int, zRegPointCloud] | None = None
+        self._target_dataset: dict[int, zRegPointCloud] | None = None
 
     def load_real(self) -> dict[int, zRegPointCloud]:
         """Load the real dataset from disk (lazy, cached).
@@ -113,6 +114,59 @@ class DataFactory:
             )
 
         self._real_dataset = dataset
+        return dataset
+
+    def load_target(self) -> dict[int, zRegPointCloud]:
+        """Load the target dataset from disk (lazy, cached).
+
+        Mirrors ``load_real()`` exactly, reading from ``config.target_data_path``
+        instead of ``config.data_path``.  Dispatches to
+        ``load_data_from_tracklets`` or ``load_shah_from_csv`` depending on
+        ``config.data_format``.  The loaded dict is cached; every subsequent
+        call returns the same object reference (D-09).
+
+        Uses ``config.data_format`` for both source and target — a separate
+        ``target_data_format`` field is deferred to a future phase
+        (Phase 30 deferred ideas).
+
+        Returns
+        -------
+        dict[int, zRegPointCloud]
+            Target dataset keyed by integer frame index.  Cached by
+            reference — do not mutate in place.
+
+        Raises
+        ------
+        EvalConfigError
+            If ``config.target_data_path is None`` — raised at call time
+            per D-05.  Message contains ``"target_data_path"`` as a
+            substring so callers can grep for it.
+        ValueError
+            If ``config.data_format`` is neither ``"tracklets"`` nor
+            ``"csv"``.
+        """
+        if self._target_dataset is not None:
+            return self._target_dataset
+
+        if self.config.target_data_path is None:
+            raise EvalConfigError(
+                "DataFactory.load_target: target_data_path is required in paired mode "
+                "but was None. Set target_data_path in the YAML config."
+            )
+
+        if self.config.data_format == "tracklets":
+            # Pitfall 4: discard raw tracklets dict (second tuple element)
+            dataset, _ = load_data_from_tracklets(self.config.target_data_path, device="cpu")
+        elif self.config.data_format == "csv":
+            # Pitfall 5: device has NO default in load_shah_from_csv
+            dataset = load_shah_from_csv(self.config.target_data_path, device="cpu")
+        else:
+            raise ValueError(
+                f"DataFactory: unknown data_format {self.config.data_format!r}; "
+                f"expected 'tracklets' or 'csv'"
+            )
+
+        self._target_dataset = dataset
         return dataset
 
     def generate_synthetic(self) -> dict[int, zRegPointCloud]:

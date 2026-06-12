@@ -25,8 +25,9 @@ Hyperparam mapping (D-07):
 Notes
 -----
 **aligned_cloud semantics:**
-``AlignResult.aligned_cloud`` is the input ``dataset`` reference unchanged
-(pass-through).  DTW alignment is captured in ``warp_path``; spatial
+``AlignResult.aligned_cloud`` is the ``source`` argument reference unchanged
+(pass-through; D-06 from Phase 30).  The target trajectory is consumed by
+DTW but is not returned.  DTW alignment is captured in ``warp_path``; spatial
 registration (when ``cpd_penalty`` is set) modifies points only inside
 ``pairwise_distance_matrix.py`` and is not exposed as a transformed dataset
 by the current ``zreg.dtw`` API.  Flagged as Open Question 1 in 19-RESEARCH.md
@@ -156,19 +157,25 @@ class AlignmentStage(PipelineStage):
 
     def run(
         self,
-        dataset: dict[int, zRegPointCloud],
+        source: dict[int, zRegPointCloud],
+        target: dict[int, zRegPointCloud],
         params: dict[str, Any],
     ) -> AlignResult:
-        """Run DTW + CPD alignment on ``dataset`` and return an ``AlignResult``.
+        """Run DTW + CPD alignment from ``source`` to ``target`` and return an ``AlignResult``.
 
         Calls ``self.validate_params(params)`` as the first line (D-09 guarantee).
 
         Parameters
         ----------
-        dataset : dict[int, zRegPointCloud]
-            Trajectory keyed by integer frame index.  Mirrors the shape
-            returned by ``DataFactory.load_real()`` and
-            ``DataFactory.generate_synthetic()``.
+        source : dict[int, zRegPointCloud]
+            Source trajectory keyed by integer frame index.  Mirrors the
+            shape returned by ``DataFactory.load_real()`` and
+            ``DataFactory.generate_synthetic()``.  ``aligned_cloud`` in the
+            returned ``AlignResult`` equals this argument (D-06 pass-through).
+        target : dict[int, zRegPointCloud]
+            Target trajectory keyed by integer frame index.  DTW aligns
+            ``source`` against ``target``; ``target`` is not returned in the
+            result (D-06).
         params : dict[str, Any]
             Must contain all five keys in ``REQUIRED_PARAMS``.  See
             ``validate_params`` for the full constraint list.
@@ -177,9 +184,8 @@ class AlignmentStage(PipelineStage):
         -------
         AlignResult
             Pydantic-frozen result with:
-            - ``aligned_cloud``: the input ``dataset`` reference unchanged
-              (pass-through, intentional per FRAME-05 single-input spec;
-              see module docstring for spatial-registration limitation).
+            - ``aligned_cloud``: the ``source`` argument reference unchanged
+              (pass-through; D-06 from Phase 30).
             - ``warp_path``: DTW optimal alignment path.
             - ``dtw_distance``: accumulated DTW cost.
             - ``n_changepoints``: diagonal/non-diagonal transition count,
@@ -188,7 +194,7 @@ class AlignmentStage(PipelineStage):
 
         Notes
         -----
-        ``aligned_cloud`` is the input dataset, unchanged.  DTW alignment is
+        ``aligned_cloud`` equals ``source``, unchanged.  DTW alignment is
         captured in ``warp_path``; spatial registration (when ``cpd_penalty``
         is set) modifies points only inside ``pairwise_distance_matrix.py``
         and is not exposed as a transformed dataset by the current
@@ -201,15 +207,17 @@ class AlignmentStage(PipelineStage):
         """
         self.validate_params(params)
 
-        # Build the strided trajectory sub-dict (D-07: step → temporal stride).
+        # Build strided sub-dicts symmetrically for source and target (Pitfall 1).
         # sorted() makes key order deterministic for non-contiguous key sets.
-        sorted_keys = sorted(dataset.keys())
-        strided_keys = sorted_keys[:: params["step"]]
-        x_sub = {i: dataset[k] for i, k in enumerate(strided_keys)}
+        source_sorted = sorted(source.keys())
+        source_sub = {i: source[k] for i, k in enumerate(source_sorted[:: params["step"]])}
+
+        target_sorted = sorted(target.keys())
+        target_sub = {i: target[k] for i, k in enumerate(target_sorted[:: params["step"]])}
 
         result = DynamicTimeWarping(
-            x=x_sub,
-            y=x_sub,  # same trajectory aligned against itself (FRAME-05 single-input)
+            x=source_sub,
+            y=target_sub,  # Phase 30: two-dataset paired alignment (D-06)
             distance_metric=params["dtw_dist_fn"],
             cpd_type=params["cpd_penalty"],
             window=params["window_size"],
@@ -220,7 +228,7 @@ class AlignmentStage(PipelineStage):
         n_changepoints = min(n_jumps, params["n_breakpoints"])  # D-06 cap
 
         return AlignResult(
-            aligned_cloud=dataset,  # pass-through; see module docstring
+            aligned_cloud=source,  # pass-through; D-06 — source unchanged, target consumed by DTW
             warp_path=result.warping_path,
             dtw_distance=result.distance,
             n_changepoints=n_changepoints,

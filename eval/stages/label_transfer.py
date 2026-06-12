@@ -21,10 +21,10 @@ Hyperparam mapping:
 
 Notes
 -----
-**Frame 0 pass-through semantics:**
-``transferred_labels[keys[0]]`` is ``dataset[keys[0]]['color']`` (reference,
-not copy).  Callers must treat the source dataset as read-only after calling
-``run()`` — see eval/types.py Pitfall 1 (shallow frozen).
+**Sequential pairing:**
+For k in range(min(len(source), len(target))), transfer labels from
+``source[source_keys[k]]`` to ``target[target_keys[k]]``.  No frame-0
+pass-through (D-02 + Phase 30).
 
 **Boolean guard pattern:**
 Bool exclusion guards are applied to all 4 params per WR-01 pattern from
@@ -146,19 +146,22 @@ class LabelTransferStage(PipelineStage):
 
     def run(
         self,
-        dataset: dict[int, zRegPointCloud],
+        source: dict[int, zRegPointCloud],
+        target: dict[int, zRegPointCloud],
         params: dict[str, Any],
     ) -> LabelResult:
-        """Run label transfer on ``dataset`` and return a ``LabelResult``.
+        """Run label transfer from ``source`` to ``target`` and return a ``LabelResult``.
 
         Calls ``self.validate_params(params)`` as the first line (D-08 guarantee).
 
         Parameters
         ----------
-        dataset : dict[int, zRegPointCloud]
-            Trajectory keyed by integer frame index.  Mirrors the shape
-            returned by ``DataFactory.load_real()`` and
-            ``DataFactory.generate_synthetic()``.
+        source : dict[int, zRegPointCloud]
+            Source trajectory keyed by integer frame index.  Labels are
+            transferred FROM each source frame.
+        target : dict[int, zRegPointCloud]
+            Target trajectory keyed by integer frame index.  Labels are
+            transferred TO each target frame.
         params : dict[str, Any]
             Must contain all four keys in ``REQUIRED_PARAMS``.  See
             ``validate_params`` for the full constraint list.
@@ -167,20 +170,18 @@ class LabelTransferStage(PipelineStage):
         -------
         LabelResult
             Pydantic-frozen result with:
-            - ``transferred_labels``: per-frame label tensors, keyed by frame index.
+            - ``transferred_labels``: per-frame label tensors, keyed by
+              target frame index.
             - ``params_used``: shallow copy of ``params`` (Pitfall 7).
 
         Notes
         -----
         ``validate_params(params)`` is called as the first line (D-08).
 
-        **Frame 0 pass-through:**
-        ``transferred_labels[keys[0]]`` is ``dataset[keys[0]]["color"]``
-        (reference, not copy).  D-02.
-
         **Sequential pairing:**
-        For k in 1..len(sorted_keys)-1, call
-        ``transfer_colors(source=keys[k-1], target=keys[k])``.  D-01/D-03.
+        For k in range(min(len(source), len(target))), transfer labels from
+        ``source[source_keys[k]]`` to ``target[target_keys[k]]``.  No
+        frame-0 pass-through (D-02 + Phase 30).
 
         ``source_colors`` must be ``unsqueeze(-1)`` to shape (N, 1); result
         is squeezed with ``[:, 0]`` to shape (M,).  D-12.
@@ -191,29 +192,34 @@ class LabelTransferStage(PipelineStage):
         """
         self.validate_params(params)
 
-        if not dataset:
-            raise ValueError("dataset must be non-empty; got 0 frames")
+        if not source:
+            raise ValueError("source must be non-empty; got 0 frames")
+        if not target:
+            raise ValueError("target must be non-empty; got 0 frames")
 
-        sorted_keys = sorted(dataset.keys())
+        source_keys = sorted(source.keys())
+        target_keys = sorted(target.keys())
 
         # Real data has multi-channel RGB colors (N, C); synthetic data has
         # single-channel class indices (N,). Use "id" for real, "color" for synthetic.
-        sample_color = dataset[sorted_keys[0]]["color"]
+        sample_color = source[source_keys[0]]["color"]
         label_key = "id" if sample_color.dim() > 1 else "color"
 
+        n_pairs = min(len(source_keys), len(target_keys))
         transferred: dict[int, torch.Tensor] = {}
-        transferred[sorted_keys[0]] = dataset[sorted_keys[0]][label_key]  # D-02 pass-through
 
-        for k in range(1, len(sorted_keys)):
-            src_frame = dataset[sorted_keys[k - 1]]
+        for k in range(n_pairs):
+            sk = source_keys[k]
+            tk = target_keys[k]
+            src_frame = source[sk]
+            tgt_frame = target[tk]
             n_src = src_frame["pos"].shape[0]
             if params["k_neighbours"] > n_src:
                 raise ValueError(
                     f"k_neighbours={params['k_neighbours']} exceeds source frame "
-                    f"{sorted_keys[k - 1]} point count ({n_src})"
+                    f"{sk} point count ({n_src})"
                 )
-            tgt_frame = dataset[sorted_keys[k]]
-            transferred[sorted_keys[k]] = transfer_colors(
+            transferred[tk] = transfer_colors(
                 src_frame["pos"],
                 tgt_frame["pos"],
                 method=ColorTransferMethod.KNN_VOTING,

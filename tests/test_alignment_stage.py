@@ -91,10 +91,10 @@ class TestPipelineStageABC:
 class TestAlignmentStageRunStandalone:
     """Gate 1: AlignmentStage.run() completes without LabelTransferStage present (FRAME-05)."""
 
-    def test_run_returns_align_result(self, synthetic_dataset_a, default_params, eval_config):
+    def test_run_returns_align_result(self, synthetic_dataset_a, synthetic_dataset_b, default_params, eval_config):
         """Standalone run returns a fully-populated AlignResult without LabelTransferStage."""
         stage = AlignmentStage(eval_config)
-        result = stage.run(synthetic_dataset_a, default_params)
+        result = stage.run(synthetic_dataset_a, synthetic_dataset_b, default_params)
 
         assert isinstance(result, AlignResult)
         # aligned_cloud values equal the input dataset (pydantic v2 validates dict[int, ...] into a new dict,
@@ -127,13 +127,13 @@ class TestAlignmentStageValidateParams:
         stage = AlignmentStage(eval_config)
         dataset = {0: zRegPointCloud(pos=torch.randn(5, 3))}
         with pytest.raises(ValueError, match=f"Missing required param: {missing_key}"):
-            stage.run(dataset, partial)
+            stage.run(dataset, dataset, partial)
 
     def test_run_calls_validate_first(self, eval_config):
         """D-09: run calls validate_params before DTW so empty params raises ValueError not KeyError/TypeError."""
         stage = AlignmentStage(eval_config)
         with pytest.raises(ValueError, match="Missing required param"):
-            stage.run({}, {})
+            stage.run({}, {}, {})
 
     @pytest.mark.parametrize(
         "key,bad_value,match_str",
@@ -173,8 +173,8 @@ class TestAlignmentDistanceImproves:
         params_no_cpd = {**default_params, "cpd_penalty": None}
         params_cpd = {**default_params, "cpd_penalty": "rigid"}
 
-        r_no = stage.run(synthetic_dataset_a, params_no_cpd)
-        r_cpd = stage.run(synthetic_dataset_a, params_cpd)
+        r_no = stage.run(synthetic_dataset_a, synthetic_dataset_a, params_no_cpd)
+        r_cpd = stage.run(synthetic_dataset_a, synthetic_dataset_a, params_cpd)
 
         assert r_cpd.dtw_distance <= r_no.dtw_distance + 1e-3, (
             f"CPD should not increase DTW distance; got "
@@ -187,8 +187,8 @@ class TestAlignmentDistanceImproves:
         params_no_cpd = {**default_params, "cpd_penalty": None}
         params_cpd = {**default_params, "cpd_penalty": "rigid"}
 
-        r_no = stage.run(synthetic_dataset_b, params_no_cpd)
-        r_cpd = stage.run(synthetic_dataset_b, params_cpd)
+        r_no = stage.run(synthetic_dataset_b, synthetic_dataset_b, params_no_cpd)
+        r_cpd = stage.run(synthetic_dataset_b, synthetic_dataset_b, params_cpd)
 
         assert r_cpd.dtw_distance <= r_no.dtw_distance + 1e-3, (
             f"CPD should not increase DTW distance; got "
@@ -232,3 +232,47 @@ class TestCountJumps:
         """_count_jumps returns RAW count; n_breakpoints cap is applied in run(), not here (D-06)."""
         # raw=2, but this function always returns the uncapped count
         assert AlignmentStage._count_jumps([(0, 0), (1, 1), (1, 2), (2, 3)]) == 2
+
+
+# ---------------------------------------------------------------------------
+# TestAlignmentStageTwoInput — Plan 30-01 (POPULATED)
+# ---------------------------------------------------------------------------
+
+
+class TestAlignmentStageTwoInput:
+    """Phase 30: two-input run(source, target, params) contract (D-06)."""
+
+    def test_run_with_distinct_source_target_returns_align_result(
+        self, synthetic_dataset_a, synthetic_dataset_b, default_params, eval_config
+    ):
+        """run(source, target, params) with distinct datasets returns AlignResult; aligned_cloud == source (D-06)."""
+        stage = AlignmentStage(eval_config)
+        result = stage.run(synthetic_dataset_a, synthetic_dataset_b, default_params)
+        assert isinstance(result, AlignResult)
+        # aligned_cloud equals source, not target
+        assert result.aligned_cloud == synthetic_dataset_a
+        # aligned_cloud must not be the target object (D-06 source pass-through)
+        assert result.aligned_cloud is not synthetic_dataset_b
+        # structural verification: source and target have different pos tensors at frame 0
+        assert not torch.equal(
+            result.aligned_cloud[0]["pos"], synthetic_dataset_b[0]["pos"]
+        )
+
+    def test_run_with_distinct_source_target_warp_path_nonempty(
+        self, synthetic_dataset_a, synthetic_dataset_b, default_params, eval_config
+    ):
+        """warp_path is a non-empty list of (int, int) tuples when source != target."""
+        stage = AlignmentStage(eval_config)
+        result = stage.run(synthetic_dataset_a, synthetic_dataset_b, default_params)
+        assert isinstance(result.warp_path, list)
+        assert len(result.warp_path) >= 1
+        for step in result.warp_path:
+            assert len(step) == 2
+
+    def test_run_with_same_dataset_as_source_and_target_smoke(
+        self, synthetic_dataset_a, default_params, eval_config
+    ):
+        """run(ds, ds, params) completes without exception (Kobitski-vs-Kobitski smoke-test; D-03/A2)."""
+        stage = AlignmentStage(eval_config)
+        result = stage.run(synthetic_dataset_a, synthetic_dataset_a, default_params)
+        assert isinstance(result, AlignResult)

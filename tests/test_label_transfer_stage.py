@@ -291,19 +291,19 @@ class TestRunValidatesFirst:
     """run() calls validate_params as its first line (D-08)."""
 
     def test_run_empty_params_raises_value_error(self, stage):
-        """run({dataset}, {}) raises ValueError (not KeyError/TypeError) — D-08."""
+        """run({}, {}, {}) raises ValueError (not KeyError/TypeError) — D-08."""
         with pytest.raises(ValueError, match="Missing required param"):
-            stage.run({}, {})
+            stage.run({}, {}, {})
 
     def test_run_valid_params_empty_dataset_raises_value_error(self, stage, good_params):
-        """run({}, valid_params) raises ValueError before indexing empty sorted_keys."""
+        """run({}, {}, valid_params) raises ValueError before indexing empty sorted_keys."""
         with pytest.raises(ValueError):
-            stage.run({}, good_params)
+            stage.run({}, {}, good_params)
 
     def test_run_invalid_k_neighbours_raises_before_dataset_access(self, stage, good_params):
         """run with k_neighbours=True raises ValueError (not attribute error from dataset)."""
         with pytest.raises(ValueError, match="k_neighbours must be int >= 1"):
-            stage.run({}, {**good_params, "k_neighbours": True})
+            stage.run({}, {}, {**good_params, "k_neighbours": True})
 
 
 # ---------------------------------------------------------------------------
@@ -316,45 +316,39 @@ class TestRunOutput:
 
     def test_run_returns_label_result(self, stage, synthetic_dataset, good_params):
         """run() returns a LabelResult instance."""
-        result = stage.run(synthetic_dataset, good_params)
+        result = stage.run(synthetic_dataset, synthetic_dataset, good_params)
         assert isinstance(result, LabelResult)
 
     def test_run_transferred_labels_keys_match_dataset(self, stage, synthetic_dataset, good_params):
-        """transferred_labels has one entry per frame in the dataset."""
-        result = stage.run(synthetic_dataset, good_params)
+        """transferred_labels has one entry per frame in the dataset (n_pairs = full length when source==target)."""
+        result = stage.run(synthetic_dataset, synthetic_dataset, good_params)
         assert set(result.transferred_labels.keys()) == set(synthetic_dataset.keys())
 
     def test_run_params_used_is_shallow_copy(self, stage, synthetic_dataset, good_params):
         """params_used is dict(params) — mutating original does not affect result."""
         params = dict(good_params)
-        result = stage.run(synthetic_dataset, params)
+        result = stage.run(synthetic_dataset, synthetic_dataset, params)
         params["k_neighbours"] = 999  # mutate original
         assert result.params_used["k_neighbours"] == 5  # result unchanged
 
-    def test_run_frame0_passthrough(self, stage, synthetic_dataset, good_params):
-        """transferred_labels[min_key] is the source frame's color tensor (D-02)."""
-        result = stage.run(synthetic_dataset, good_params)
-        first_key = min(synthetic_dataset.keys())
-        assert result.transferred_labels[first_key] is synthetic_dataset[first_key]["color"]
-
-    def test_run_non_frame0_tensors_are_1d(self, stage, synthetic_dataset, good_params):
-        """All transferred_labels values after frame 0 are 1-D tensors (squeezed)."""
-        result = stage.run(synthetic_dataset, good_params)
+    def test_run_all_tensors_are_1d(self, stage, synthetic_dataset, good_params):
+        """All transferred_labels values are 1-D tensors (squeezed); no pass-through (Phase 30 D-02)."""
+        result = stage.run(synthetic_dataset, synthetic_dataset, good_params)
         sorted_keys = sorted(synthetic_dataset.keys())
-        for key in sorted_keys[1:]:
+        for key in sorted_keys:
             assert result.transferred_labels[key].ndim == 1
 
     def test_run_label_result_is_frozen(self, stage, synthetic_dataset, good_params):
         """LabelResult is pydantic-frozen (attribute reassignment raises)."""
         from pydantic import ValidationError
-        result = stage.run(synthetic_dataset, good_params)
+        result = stage.run(synthetic_dataset, synthetic_dataset, good_params)
         with pytest.raises((ValidationError, TypeError)):
             result.transferred_labels = {}
 
     def test_run_uses_knn_voting_not_reimplemented(self, stage, synthetic_dataset, good_params):
         """k_neighbours=1 is accepted and run() completes (delegates to transfer_colors)."""
         params = {**good_params, "k_neighbours": 1}
-        result = stage.run(synthetic_dataset, params)
+        result = stage.run(synthetic_dataset, synthetic_dataset, params)
         assert isinstance(result, LabelResult)
 
 
@@ -395,7 +389,7 @@ class TestLabelTransferStageRunStandalone:
     ) -> None:
         """run() returns LabelResult; keys match dataset; params_used is a shallow copy."""
         stage = LabelTransferStage(eval_config)
-        result = stage.run(synthetic_dataset_d09, default_params_lts)
+        result = stage.run(synthetic_dataset_d09, synthetic_dataset_d09, default_params_lts)
         assert isinstance(result, LabelResult)
         assert set(result.transferred_labels.keys()) == set(synthetic_dataset_d09.keys())
         assert result.params_used == default_params_lts
@@ -421,6 +415,7 @@ class TestLabelTransferStageLabelAccuracy:
 
         stage = LabelTransferStage(eval_config)
         result = stage.run(
+            dataset,
             dataset,
             {"k_neighbours": 5, "dist_metric": "euclidean", "smoothing": 0.0, "threshold": 0.0},
         )
@@ -462,7 +457,7 @@ class TestLabelTransferStageChainedRun:
             },
         )
         stage = LabelTransferStage(eval_config)
-        result = stage.run(align_result.aligned_cloud, default_params_lts)
+        result = stage.run(align_result.aligned_cloud, align_result.aligned_cloud, default_params_lts)
         assert isinstance(result, LabelResult)
         assert set(result.transferred_labels.keys()) == set(synthetic_dataset_d09.keys())
 
@@ -482,13 +477,13 @@ class TestLabelTransferStageValidateParams:
         stage = LabelTransferStage(eval_config)
         dataset = {0: generate_trajectory(n_points=5, n_frames=1, seed=0)[0]}
         with pytest.raises(ValueError, match=f"Missing required param: {missing_key}"):
-            stage.run(dataset, partial)
+            stage.run(dataset, dataset, partial)
 
     def test_run_calls_validate_first(self, eval_config) -> None:
         """D-08: run() calls validate_params before computation so empty params raises ValueError not KeyError."""
         stage = LabelTransferStage(eval_config)
         with pytest.raises(ValueError, match="Missing required param"):
-            stage.run({}, {})
+            stage.run({}, {}, {})
 
     @pytest.mark.parametrize(
         "key,bad_value,match_str",
@@ -526,7 +521,7 @@ class TestLabelTransferStageOutputShape:
     ) -> None:
         """All transferred_labels values are 1D torch.long tensors of shape (N_points,)."""
         stage = LabelTransferStage(eval_config)
-        result = stage.run(synthetic_dataset_d09, default_params_lts)
+        result = stage.run(synthetic_dataset_d09, synthetic_dataset_d09, default_params_lts)
         for key, tensor in result.transferred_labels.items():
             assert tensor.ndim == 1, f"Frame {key}: expected 1D tensor, got {tensor.ndim}D"
             assert tensor.dtype == torch.long, (

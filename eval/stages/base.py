@@ -48,17 +48,22 @@ class PipelineStage(ABC):
     @abstractmethod
     def run(
         self,
-        dataset: dict[int, zRegPointCloud],
+        source: dict[int, zRegPointCloud],
+        target: dict[int, zRegPointCloud],
         params: dict[str, Any],
     ) -> StageResult:
         """Execute the stage and return a typed result.
 
         Parameters
         ----------
-        dataset : dict[int, zRegPointCloud]
-            Trajectory data keyed by integer frame index.  Mirrors the
-            shape returned by ``DataFactory.load_real()`` and
-            ``DataFactory.generate_synthetic()``.
+        source : dict[int, zRegPointCloud]
+            Source trajectory keyed by integer frame index.  The dataset
+            whose coordinates DTW/label transfer aligns from.
+        target : dict[int, zRegPointCloud]
+            Target trajectory keyed by integer frame index.  The dataset
+            DTW/label transfer aligns against.  May be the same as source
+            for smoke-test scenarios; must be distinct for true paired
+            alignment.
         params : dict[str, Any]
             Hyperparameters for this stage.  Validated by
             ``validate_params`` before use.

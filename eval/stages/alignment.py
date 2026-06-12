@@ -24,14 +24,6 @@ Hyperparam mapping (D-07):
 
 Notes
 -----
-**Known upstream bug (OUT OF SCOPE for Phase 19):**
-``pairwise_distance_matrix.py:182-194`` currently hardcodes ``RigidCPD``
-whenever ``cpd_type is not None`` — the string value ("rigid", "affine",
-"nonrigid") is a binary toggle rather than a dispatcher to the corresponding
-CPD class.  This is a pre-existing ``zreg``-package bug; ``AlignmentStage``
-wraps it faithfully per FRAME-05 ("wrap, do not reimplement").
-Observed 2026-05-28.
-
 **aligned_cloud semantics:**
 ``AlignResult.aligned_cloud`` is the input ``dataset`` reference unchanged
 (pass-through).  DTW alignment is captured in ``warp_path``; spatial

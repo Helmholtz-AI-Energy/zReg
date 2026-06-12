@@ -180,16 +180,22 @@ def create_pairwise_distance_matrix(
             # this means that yj is the source and xi is the target
             cpd_metric = torch.inf
             if cpd_type is not None:
-                cpd_obj = cpd.RigidCPD(
-                    source=xi["pos"],
-                    use_color=False,
-                    tf_init_params={"device": xi["pos"].device, "dtype": xi["pos"].dtype},
-                    log_freq=-1,
-                )
+                tf_params = {"device": xi["pos"].device, "dtype": xi["pos"].dtype}
+                if cpd_type == "nonrigid":
+                    cpd_obj = cpd.NonRigidCPD(source=xi["pos"], use_color=False, log_freq=-1)
+                elif cpd_type == "affine":
+                    cpd_obj = cpd.AffineCPD(
+                        source=xi["pos"], use_color=False, tf_init_params=tf_params, log_freq=-1
+                    )
+                else:  # "rigid"
+                    cpd_obj = cpd.RigidCPD(
+                        source=xi["pos"], use_color=False, tf_init_params=tf_params, log_freq=-1
+                    )
                 reg = cpd_obj.registration(yj["pos"], w=0.0, maxiter=1000, tol=1e-5)
 
                 xi["pos"] = cpd_obj.transformation.transform(xi["pos"])
-                rots.append(reg.transformation.rot.unsqueeze(0))
+                if hasattr(reg.transformation, "rot"):
+                    rots.append(reg.transformation.rot.unsqueeze(0))
                 cpd_metric = reg.q
             tcpd = time.perf_counter()
             times["cpd"].append(tcpd - tdn)

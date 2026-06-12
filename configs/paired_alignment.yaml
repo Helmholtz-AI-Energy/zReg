@@ -1,0 +1,25 @@
+# Phase 30 D-03 smoke-test scenario config: paired alignment using Kobitski tracklets
+# as BOTH source (data_path) and target (target_data_path).
+#
+# Purpose: Validates the two-dataset paired alignment pipeline mechanics end-to-end.
+# Using the same dataset for both inputs produces an identity warp path (self-alignment),
+# confirming that the pipeline plumbing is correct before introducing heterogeneous data.
+# True heterogeneous paired scenarios (e.g. Kobitski vs. Shah) are deferred to a future phase.
+#
+# Run with: python run_eval.py --config configs/paired_alignment.yaml --mode eval
+data_path: data/external/sample/kobitski_data/12_11_15_embryo_ew_06_Cleaned_BackTracked_Oriented.tracklets
+target_data_path: data/external/sample/kobitski_data/12_11_15_embryo_ew_06_Cleaned_BackTracked_Oriented.tracklets
+data_format: tracklets
+pipeline_mode: paired
+tier: sanity
+n_trials: 3
+n_synthetic: 0
+run_alignment: true
+run_label_transfer: false
+default_params:
+  window_size: 10
+  step: 1
+  cpd_penalty: null
+  dtw_dist_fn: euclidean
+  n_breakpoints: 5
+output_dir: experiments/runs/paired_alignment

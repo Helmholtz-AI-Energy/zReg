@@ -366,6 +366,7 @@ class TestExportTrajectoryIntegration:
         with patch("eval.runners.eval_runner.DataFactory") as mock_factory_cls:
             mock_factory = mock_factory_cls.return_value
             mock_factory.load_real.return_value = synthetic_dataset
+            mock_factory.load_target.return_value = synthetic_dataset
             mock_factory.get_ground_truth.return_value = {
                 k: synthetic_dataset[k]["color"] for k in synthetic_dataset
             }
@@ -404,6 +405,7 @@ class TestExportTrajectoryIntegration:
         with patch("eval.runners.eval_runner.DataFactory") as mock_factory_cls:
             mock_factory = mock_factory_cls.return_value
             mock_factory.load_real.return_value = synthetic_dataset
+            mock_factory.load_target.return_value = synthetic_dataset
             mock_factory.get_ground_truth.return_value = {
                 k: synthetic_dataset[k]["color"] for k in synthetic_dataset
             }

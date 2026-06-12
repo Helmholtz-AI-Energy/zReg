@@ -51,6 +51,7 @@ import json
 import logging
 import shutil
 import sys
+from datetime import datetime
 from pathlib import Path
 
 # sys.path injection — run_eval.py is at repo root so _repo_root == repo root.
@@ -161,7 +162,8 @@ def main(argv=None) -> int:
         logging.basicConfig(level=logging.INFO)
 
     # T-23-01: resolve output_dir to prevent path traversal before any write
-    resolved_output_dir = str(Path(config.output_dir).resolve())
+    run_stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    resolved_output_dir = str((Path(config.output_dir) / run_stamp).resolve())
     config = config.model_copy(update={"output_dir": resolved_output_dir})
 
     Path(config.output_dir).mkdir(parents=True, exist_ok=True)

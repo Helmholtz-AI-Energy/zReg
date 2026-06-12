@@ -16,6 +16,8 @@ import logging
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+_FIXED_STAMP = "2026-01-01_00-00-00"
+
 import pytest
 
 # zreg.* before torch — macOS-ARM libomp SIGABRT rule
@@ -83,23 +85,24 @@ class TestCLIModeDispatch:
     ) -> None:
         """--mode eval calls EvaluationRunner.run() with loaded best_params; no Optimizer."""
         out_dir = tmp_path / "out"
-        out_dir.mkdir(parents=True, exist_ok=True)
-        best_params_path = out_dir / "best_params.json"
-        with open(best_params_path, "w") as f:
+        stamped_dir = out_dir / _FIXED_STAMP
+        stamped_dir.mkdir(parents=True, exist_ok=True)
+        with open(stamped_dir / "best_params.json", "w") as f:
             json.dump({"window_size": 7}, f)
 
         mock_runner_instance = MagicMock()
         MockRunner.return_value = mock_runner_instance
 
-        rc = run_eval.main([
-            "--config", str(minimal_cfg_path),
-            "--mode", "eval",
-            "--output-dir", str(out_dir),
-        ])
+        with patch("run_eval.datetime") as mock_dt:
+            mock_dt.now.return_value.strftime.return_value = _FIXED_STAMP
+            rc = run_eval.main([
+                "--config", str(minimal_cfg_path),
+                "--mode", "eval",
+                "--output-dir", str(out_dir),
+            ])
 
         assert rc == 0
         MockRunner.assert_called_once()
-        # Verify params positional arg passed to EvaluationRunner.__init__
         assert MockRunner.call_args[0][1] == {"window_size": 7}
         mock_runner_instance.run.assert_called_once()
         MockOpt.assert_not_called()
@@ -111,11 +114,12 @@ class TestCLIModeDispatch:
     ) -> None:
         """--mode full calls Optimizer first (writes best_params.json), then EvaluationRunner."""
         out_dir = tmp_path / "out"
-        out_dir.mkdir(parents=True, exist_ok=True)
+        stamped_dir = out_dir / _FIXED_STAMP
+        stamped_dir.mkdir(parents=True, exist_ok=True)
 
-        # Optimizer side-effect writes best_params.json so _load_best_params reads it
+        # Optimizer side-effect writes best_params.json to the stamped dir
         def _write_best_params(*args, **kwargs):
-            (out_dir / "best_params.json").write_text('{"window_size": 9}')
+            (stamped_dir / "best_params.json").write_text('{"window_size": 9}')
 
         mock_opt_instance = MagicMock()
         mock_opt_instance.run.side_effect = _write_best_params
@@ -124,16 +128,17 @@ class TestCLIModeDispatch:
         mock_runner_instance = MagicMock()
         MockRunner.return_value = mock_runner_instance
 
-        rc = run_eval.main([
-            "--config", str(minimal_cfg_path),
-            "--mode", "full",
-            "--output-dir", str(out_dir),
-        ])
+        with patch("run_eval.datetime") as mock_dt:
+            mock_dt.now.return_value.strftime.return_value = _FIXED_STAMP
+            rc = run_eval.main([
+                "--config", str(minimal_cfg_path),
+                "--mode", "full",
+                "--output-dir", str(out_dir),
+            ])
 
         assert rc == 0
         mock_opt_instance.run.assert_called_once()
         MockRunner.assert_called_once()
-        # Proves runner saw the params written by optimizer (Pitfall 5 ordering)
         assert MockRunner.call_args[0][1] == {"window_size": 9}
         mock_runner_instance.run.assert_called_once()
 
@@ -183,14 +188,16 @@ class TestCLIReproducibility:
         """
         MockOpt.return_value.run.side_effect = RuntimeError("pipeline failed")
 
-        with pytest.raises(RuntimeError):
-            run_eval.main([
-                "--config", str(minimal_cfg_path),
-                "--mode", "optimize",
-                "--output-dir", str(tmp_path / "out"),
-            ])
+        with patch("run_eval.datetime") as mock_dt:
+            mock_dt.now.return_value.strftime.return_value = _FIXED_STAMP
+            with pytest.raises(RuntimeError):
+                run_eval.main([
+                    "--config", str(minimal_cfg_path),
+                    "--mode", "optimize",
+                    "--output-dir", str(tmp_path / "out"),
+                ])
 
-        run_config = tmp_path / "out" / "run_config.yaml"
+        run_config = tmp_path / "out" / _FIXED_STAMP / "run_config.yaml"
         assert run_config.exists()
         assert run_config.read_bytes() == minimal_cfg_path.read_bytes()
 
@@ -204,19 +211,22 @@ class TestCLIParamSource:
     ) -> None:
         """When best_params.json exists, CLI logs 'Loaded optimized params from ...'."""
         out_dir = tmp_path / "out"
-        out_dir.mkdir(parents=True, exist_ok=True)
-        with open(out_dir / "best_params.json", "w") as f:
+        stamped_dir = out_dir / _FIXED_STAMP
+        stamped_dir.mkdir(parents=True, exist_ok=True)
+        with open(stamped_dir / "best_params.json", "w") as f:
             json.dump({"k_neighbours": 4}, f)
 
         MockRunner.return_value = MagicMock()
 
-        with caplog.at_level(logging.INFO, logger="run_eval"):
-            rc = run_eval.main([
-                "--config", str(minimal_cfg_path),
-                "--mode", "eval",
-                "--output-dir", str(out_dir),
-                "--verbose",
-            ])
+        with patch("run_eval.datetime") as mock_dt:
+            mock_dt.now.return_value.strftime.return_value = _FIXED_STAMP
+            with caplog.at_level(logging.INFO, logger="run_eval"):
+                rc = run_eval.main([
+                    "--config", str(minimal_cfg_path),
+                    "--mode", "eval",
+                    "--output-dir", str(out_dir),
+                    "--verbose",
+                ])
 
         assert rc == 0
         assert any(

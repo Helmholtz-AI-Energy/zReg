@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Evaluation Framework & Debt Resolution
 status: executing
-stopped_at: Phase 30 Plan 02 complete; Wave 3 (30-03) ready
-last_updated: "2026-06-12T17:13:00Z"
-last_activity: 2026-06-12 -- Phase 30-02 complete (EvaluationRunner + HyperparamOptimizer source/target propagation; 26 tests pass)
+stopped_at: Phase 30 complete (all 3 plans); Phase 31 not started
+last_updated: "2026-06-12T17:45:00Z"
+last_activity: 2026-06-12 -- Phase 30-03 complete (paired_alignment.yaml; trajectory export + CLI test mocks; 839 tests pass)
 progress:
   total_phases: 25
   completed_phases: 24
   total_plans: 55
-  completed_plans: 52
+  completed_plans: 53
   percent: 96
 ---
 
@@ -27,8 +27,8 @@ See: .planning/PROJECT.md
 
 Phase: 30
 Plan: 03 (Wave 3 — paired_alignment.yaml + trajectory export test mocks + CLI smoke test)
-Status: Ready to execute
-Last activity: 2026-06-12 -- Phase 30-02 complete (EvaluationRunner + HyperparamOptimizer source/target propagation; 26 tests pass)
+Status: Complete
+Last activity: 2026-06-12 -- Phase 30-03 complete (paired_alignment.yaml; trajectory export + CLI test mocks; 839 tests pass)
 
 ## Phase Overview
 
@@ -48,7 +48,7 @@ Last activity: 2026-06-12 -- Phase 30-02 complete (EvaluationRunner + Hyperparam
 | 27 | DataFactory Geometric Augmentation Methods | DF-01 | Complete 2026-06-11 |
 | 28 | Script Integration — generate_datasets uses DataFactory | DF-02 | Complete 2026-06-11 |
 | 29 | Viz Unification | VIZ-01 | Ready to execute (2 plans) |
-| 30 | Two-Dataset Paired Alignment Architecture | MODE-01 | Executing (30-01, 30-02 complete; 30-03 pending) |
+| 30 | Two-Dataset Paired Alignment Architecture | MODE-01 | Complete 2026-06-12 |
 
 ## Accumulated Context
 
@@ -188,6 +188,9 @@ Last activity: 2026-06-12 -- Phase 30-02 complete (EvaluationRunner + Hyperparam
 - [Phase 30-02]: Pitfall 4 resolved — source_pos/target_pos and source_sorted_keys/target_sorted_keys in both eval_runner._run_single and optimizer._objective
 - [Phase 30-02]: Pitfall 7 implemented per recommendation (a)+(b) — sanity reuses tier_dataset; dev/full call load_target()
 - [Phase 30-02]: 18 test_eval_runner.py mock blocks and 3 test_optimizer.py mock blocks updated; 26 tests pass; trajectory_export still failing (Plan 30-03 territory)
+- [Phase 30-03]: paired_alignment.yaml uses Kobitski tracklets as both data_path and target_data_path (D-03 smoke-test); n_synthetic=0; run_alignment=True; run_label_transfer=False
+- [Phase 30-03]: test_paired_alignment_yaml_loads_and_declares_paired_mode added as dedicated TestScenarioConfigs method (not in _SCENARIO_TABLE parametrize — different field set than D-04 table)
+- [Phase 30-03]: MODE-01 all 5 success criteria satisfied; 839 tests pass, 18 skipped; full suite green
 
 ### Open Blockers
 
@@ -195,7 +198,7 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-06-12T17:13:00Z
-Stopped at: Phase 30-02 complete (EvaluationRunner + HyperparamOptimizer source/target propagation; 26 tests pass)
-Resume file: .planning/phases/30-two-dataset-paired-alignment-architecture/30-02-SUMMARY.md
-Next action: Execute 30-03-PLAN.md — paired_alignment.yaml config; trajectory export test mocks; CLI smoke test
+Last session: 2026-06-12T17:45:00Z
+Stopped at: Phase 30 complete — all 3 plans done; MODE-01 satisfied
+Resume file: .planning/phases/30-two-dataset-paired-alignment-architecture/30-03-SUMMARY.md
+Next action: Phase 31 — Synthetic Pipeline Mode (Transform-Spec Target Generation & GT-Aware HPO)

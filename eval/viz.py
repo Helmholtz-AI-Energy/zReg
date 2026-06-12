@@ -323,6 +323,8 @@ def render_dataset_triptych(
     frames = sorted(
         pd.read_csv(csv_path, usecols=["t"])["t"].unique()
     )
+    if not frames:
+        raise ValueError(f"CSV contains no time frames: {csv_path}")
     n = len(frames)
     t_first, t_mid, t_last = frames[0], frames[n // 2], frames[-1]
 
@@ -335,7 +337,9 @@ def render_dataset_triptych(
         sub = chunk[chunk["t"].isin(wanted)]
         if len(sub):
             parts.append(sub)
-    df = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
+    if not parts:
+        raise ValueError(f"CSV has 't' column but no rows match {wanted}: {csv_path}")
+    df = pd.concat(parts, ignore_index=True)
     data = {
         t: df.loc[df["t"] == t, ["x", "y", "z"]].values for t in wanted
     }
@@ -355,16 +359,17 @@ def render_dataset_triptych(
             pts = data.get(t, np.empty((0, 3)))
 
             # Subsampling (D-01)
+            n_orig = len(pts)
             rng = np.random.default_rng(0)
-            if len(pts) > MAX_PTS:
-                idx = rng.choice(len(pts), MAX_PTS, replace=False)
+            if n_orig > MAX_PTS:
+                idx = rng.choice(n_orig, MAX_PTS, replace=False)
                 pts = pts[idx]
 
             ax.scatter(pts[:, 0], pts[:, 1], pts[:, 2],
                        s=1.5, alpha=0.45, c=COLOR, linewidths=0)
 
             # Style block
-            ax.set_title(f"t = {t}  ({label})\nn = {len(pts):,}",
+            ax.set_title(f"t = {t}  ({label})\nn = {n_orig:,}",
                          fontsize=9, pad=4)
             for lbl in (
                 ax.get_xticklabels()

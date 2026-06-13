@@ -283,6 +283,7 @@ class DataFactory:
     def prepare_split(
         self,
         dataset: dict[int, zRegPointCloud],
+        seed: int = 42,
     ) -> tuple[dict[int, zRegPointCloud], dict[int, zRegPointCloud]]:
         """Split a dataset into train and validation subsets.
 
@@ -318,7 +319,8 @@ class DataFactory:
         val_count = int(n * self.config.val_split)  # Pitfall 8: floor truncation
         if n <= 1 or val_count == 0:  # D-07 single-frame guard + zero-count guard
             return dataset, {}
-        val_keys = set(random.sample(keys, k=val_count))
+        rng = random.Random(seed)  # WR-04: seeded RNG for reproducible splits
+        val_keys = set(rng.sample(keys, k=val_count))
         train_keys = [k for k in keys if k not in val_keys]  # sorted by construction
         val_keys_sorted = sorted(val_keys)
         train = {k: dataset[k] for k in train_keys}

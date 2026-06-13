@@ -202,8 +202,12 @@ class LabelTransferStage(PipelineStage):
 
         # Real data has multi-channel RGB colors (N, C); synthetic data has
         # single-channel class indices (N,). Use "id" for real, "color" for synthetic.
+        # Guard against color=None (CR-02): if color is absent, fall back to "id".
         sample_color = source[source_keys[0]]["color"]
-        label_key = "id" if sample_color.dim() > 1 else "color"
+        if sample_color is None:
+            label_key = "id"
+        else:
+            label_key = "id" if sample_color.dim() > 1 else "color"
 
         n_pairs = min(len(source_keys), len(target_keys))
         transferred: dict[int, torch.Tensor] = {}
@@ -219,11 +223,17 @@ class LabelTransferStage(PipelineStage):
                     f"k_neighbours={params['k_neighbours']} exceeds source frame "
                     f"{sk} point count ({n_src})"
                 )
+            labels_tensor = src_frame[label_key]
+            if labels_tensor is None:
+                raise ValueError(
+                    f"Source frame {sk} has no labels in field '{label_key}'. "
+                    "Ensure the dataset has been annotated before label transfer."
+                )
             transferred[tk] = transfer_colors(
                 src_frame["pos"],
                 tgt_frame["pos"],
                 method=ColorTransferMethod.KNN_VOTING,
-                source_colors=src_frame[label_key].unsqueeze(-1),
+                source_colors=labels_tensor.unsqueeze(-1),
                 k=params["k_neighbours"],
             )[:, 0]
 

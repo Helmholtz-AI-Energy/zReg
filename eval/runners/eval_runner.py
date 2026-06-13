@@ -185,7 +185,12 @@ class EvaluationRunner:
 
         self.factory = DataFactory(self.config)
         source = self.factory.load_real()
-        target = self.factory.load_target()
+        if self.config.pipeline_mode == "paired":
+            target = self.factory.load_target()
+        else:
+            # 'synthetic' mode: target generation is wired in Phase 31.
+            # For now use source as a no-op placeholder (CR-03).
+            target = source
 
         result = self._run_single(source, target, self.params)
 

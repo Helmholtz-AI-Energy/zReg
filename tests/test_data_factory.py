@@ -566,6 +566,100 @@ class TestGetGroundTruth:
 
 
 # ---------------------------------------------------------------------------
+# TestGetSyntheticGroundTruth — D-04/D-05/D-06 id-or-ordinal GT (Plan 31-01)
+# ---------------------------------------------------------------------------
+
+
+class TestGetSyntheticGroundTruth:
+    """D-04/D-05/D-06: get_synthetic_ground_truth() id-or-ordinal fallback, RuntimeError guard, torch.long dtype."""
+
+    def _make_ds_with_ids(self):
+        """2-frame source dataset with pc['id'] = torch.arange(5, dtype=torch.float32)."""
+        ds = {}
+        for i in range(2):
+            pc = zRegPointCloud(
+                pos=torch.randn(5, 3),
+                color=None,
+                id=torch.arange(5, dtype=torch.float32),
+            )
+            pc["fps-idx"] = None
+            ds[i] = pc
+        return ds
+
+    def _make_ds_no_ids(self):
+        """2-frame source dataset with pc['id'] = None."""
+        ds = {}
+        for i in range(2):
+            pc = zRegPointCloud(
+                pos=torch.randn(5, 3),
+                color=None,
+                id=None,
+            )
+            pc["fps-idx"] = None
+            ds[i] = pc
+        return ds
+
+    def test_raises_runtime_error_before_generate_target(self):
+        """get_synthetic_ground_truth() raises RuntimeError when _synthetic_target is None."""
+        cfg = EvalConfig(data_path="x")
+        factory = DataFactory(cfg)
+        with pytest.raises(RuntimeError, match="generate_target"):
+            factory.get_synthetic_ground_truth()
+
+    def test_returns_id_tensors_when_source_has_ids(self):
+        """D-04: returns pc['id'] cast to torch.long when source frames have ids."""
+        cfg = EvalConfig(data_path="x")
+        factory = DataFactory(cfg)
+        ds = self._make_ds_with_ids()
+        factory.generate_target(ds, {"type": "noise", "sigma": 0.01})
+        gt = factory.get_synthetic_ground_truth()
+        for k in ds:
+            expected = ds[k]["id"].to(torch.long)
+            assert torch.equal(gt[k], expected)
+
+    def test_returns_ordinal_fallback_when_source_id_is_none(self):
+        """D-05: returns torch.arange(n, dtype=torch.long) per frame when pc['id'] is None."""
+        cfg = EvalConfig(data_path="x")
+        factory = DataFactory(cfg)
+        ds = self._make_ds_no_ids()
+        factory.generate_target(ds, {"type": "noise", "sigma": 0.01})
+        gt = factory.get_synthetic_ground_truth()
+        for k in ds:
+            n = ds[k]["pos"].shape[0]
+            expected = torch.arange(n, dtype=torch.long)
+            assert torch.equal(gt[k], expected)
+
+    def test_dtype_is_torch_long_for_id_path(self):
+        """D-06: returned tensors have dtype torch.long when source ids are float32."""
+        cfg = EvalConfig(data_path="x")
+        factory = DataFactory(cfg)
+        ds = self._make_ds_with_ids()
+        factory.generate_target(ds, {"type": "noise", "sigma": 0.01})
+        gt = factory.get_synthetic_ground_truth()
+        for k in gt:
+            assert gt[k].dtype == torch.long
+
+    def test_dtype_is_torch_long_for_ordinal_path(self):
+        """D-06: returned tensors have dtype torch.long for ordinal fallback path."""
+        cfg = EvalConfig(data_path="x")
+        factory = DataFactory(cfg)
+        ds = self._make_ds_no_ids()
+        factory.generate_target(ds, {"type": "noise", "sigma": 0.01})
+        gt = factory.get_synthetic_ground_truth()
+        for k in gt:
+            assert gt[k].dtype == torch.long
+
+    def test_keys_match_source_dataset_keys(self):
+        """Returned dict keys exactly equal source dataset keys."""
+        cfg = EvalConfig(data_path="x")
+        factory = DataFactory(cfg)
+        ds = self._make_ds_with_ids()
+        factory.generate_target(ds, {"type": "noise", "sigma": 0.01})
+        gt = factory.get_synthetic_ground_truth()
+        assert set(gt.keys()) == set(ds.keys())
+
+
+# ---------------------------------------------------------------------------
 # TestScale — scale(dataset, factor) (Plan 27-01)
 # ---------------------------------------------------------------------------
 

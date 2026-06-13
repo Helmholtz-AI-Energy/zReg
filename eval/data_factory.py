@@ -449,6 +449,65 @@ class DataFactory:
             return {i: pc["id"] for i, pc in gt_ds.items()}
         return {i: pc["id"] for i, pc in dataset.items()}
 
+    def get_synthetic_ground_truth(self) -> dict[int, torch.Tensor]:
+        """Return per-frame cell-identity labels for synthetic mode (D-04, D-05, D-06).
+
+        For rigid, affine, and noise transforms the correspondence between source
+        and target is identity: ``source[k][i]`` maps to ``target[k][i]``.
+        This method encodes that identity correspondence as per-frame label
+        tensors derived from ``self._source_dataset`` (set by
+        :meth:`generate_target`).
+
+        This method is for **synthetic mode only**.  For real-data paired mode,
+        use :meth:`get_ground_truth` (which accepts an explicit dataset argument).
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        dict[int, torch.Tensor]
+            Per-frame 1-D tensors of dtype ``torch.long``, keyed by integer
+            frame index.  Values are either:
+
+            - ``pc["id"].to(torch.long)`` when ``pc["id"]`` is not ``None``
+              (D-04); or
+            - ``torch.arange(n_points, dtype=torch.long)`` as an ordinal
+              fallback when ``pc["id"] is None`` (D-05).
+
+            Dtype is always ``torch.long`` regardless of the source
+            ``pc["id"]`` dtype (D-06), consistent with ``compute_f1``
+            expectations.
+
+        Raises
+        ------
+        RuntimeError
+            If called before :meth:`generate_target` — ``_synthetic_target``
+            is ``None`` and there is no stored source dataset to derive labels
+            from.  Call :meth:`generate_target` first.
+
+        Notes
+        -----
+        - D-04: identity correspondence for rigid/affine/noise transforms.
+        - D-05: ordinal fallback when source frames have no cell-id labels.
+        - D-06: ``torch.long`` dtype guarantee — consistent with
+          ``compute_f1`` label expectations.
+        - Guard checks ``self._synthetic_target is None`` (D-03 contract).
+        """
+        if self._synthetic_target is None:
+            raise RuntimeError(
+                "DataFactory.get_synthetic_ground_truth: generate_target() must be "
+                "called first to populate _synthetic_target and _source_dataset."
+            )
+        result: dict[int, torch.Tensor] = {}
+        for k, pc in self._source_dataset.items():
+            if pc["id"] is not None:
+                result[k] = pc["id"].to(torch.long)  # D-04 + D-06: id cast to torch.long
+            else:
+                result[k] = torch.arange(pc["pos"].shape[0], dtype=torch.long)  # D-05 + D-06: ordinal fallback
+        return result
+
     def scale(
         self,
         dataset: dict[int, zRegPointCloud],

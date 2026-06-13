@@ -16,9 +16,9 @@
 ## Current State
 
 **Shipped:** v1.0 Consolidation — 2026-04-09 | v1.1 Code Quality & Refactoring — 2026-05-13
-**Active:** v1.2 Evaluation Framework & Debt Resolution — Phases 12–28 complete 2026-06-11; Phase 29 pending
+**Active:** v1.2 Evaluation Framework & Debt Resolution — Phases 12–30 complete 2026-06-13; Phase 31 ready to plan
 
-zReg is a Python library for GPU-accelerated 3D point cloud registration, temporal alignment, and color (celltype) transfer using PyTorch. Phase 28 delivered DF-02 (`scripts/generate_datasets.py` refactored to delegate all semi-synthetic augmentations to `DataFactory(EvalConfig(...)).augment(dataset)`; four local helpers removed; noise/scaling bit-identity and dropout row-count parity verified; 826 tests pass, 18 skipped). Validated in Phase 28: DF-02.
+zReg is a Python library for GPU-accelerated 3D point cloud registration, temporal alignment, and color (celltype) transfer using PyTorch. Phase 30 delivered MODE-01 (two-dataset paired alignment architecture): `AlignmentStage.run(source, target, params)` — DTW now uses `x=source_sub, y=target_sub` (self-alignment removed); `EvalConfig` gains `pipeline_mode: Literal["paired","synthetic"]` + `target_data_path`; `DataFactory.load_target()` with lazy caching and EvalConfigError guard; `EvaluationRunner` + `HyperparamOptimizer` propagate source/target through pipeline; `configs/paired_alignment.yaml` ships Kobitski-vs-Kobitski smoke-test config; 839 tests pass, 18 skipped. Validated in Phase 30: MODE-01.
 
 ## What This Is
 
@@ -153,4 +153,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-11 — Phase 28 complete (DF-02 validated: generate_datasets.py delegates to DataFactory, 826 tests pass)*
+*Last updated: 2026-06-13 — Phase 30 complete (MODE-01 validated: two-dataset paired alignment, 839 tests pass)*

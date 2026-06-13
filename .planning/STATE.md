@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Evaluation Framework & Debt Resolution
-status: executing
-stopped_at: Phase 30 complete (all 3 plans); Phase 31 not started
-last_updated: "2026-06-12T17:45:00Z"
-last_activity: 2026-06-12 -- Phase 30-03 complete (paired_alignment.yaml; trajectory export + CLI test mocks; 839 tests pass)
+status: complete
+stopped_at: Phase 30 verified (13/13 must-haves); MODE-01 closed
+last_updated: "2026-06-13T00:00:00Z"
+last_activity: 2026-06-13 -- Phase 30 verified (839 tests pass; VERIFICATION.md: passed); ready for Phase 31
 progress:
   total_phases: 25
   completed_phases: 24
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md
 
 ## Current Position
 
-Phase: 30
-Plan: 03 (Wave 3 — paired_alignment.yaml + trajectory export test mocks + CLI smoke test)
-Status: Complete
-Last activity: 2026-06-12 -- Phase 30-03 complete (paired_alignment.yaml; trajectory export + CLI test mocks; 839 tests pass)
+Phase: 31 (next)
+Plan: Ready to plan
+Status: Phase 30 verified; Phase 31 ready to plan
+Last activity: 2026-06-13 -- Phase 30 verification passed (13/13); MODE-01 closed; 839 tests pass
 
 ## Phase Overview
 

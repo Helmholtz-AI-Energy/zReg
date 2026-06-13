@@ -360,7 +360,10 @@ class HyperparamOptimizer:
             y_true = gt[source_sorted_keys[-1]]
             if label_result is not None:
                 # Label keys are TARGET frames per Plan 30-01 LabelTransferStage contract
-                y_pred = label_result.transferred_labels[target_sorted_keys[-1]]
+                # Use last key actually present in transferred_labels (= last paired target
+                # frame) — guards against KeyError when |source| < |target| (CR-01).
+                transferred_keys = sorted(label_result.transferred_labels.keys())
+                y_pred = label_result.transferred_labels[transferred_keys[-1]]
             else:
                 y_pred = torch.zeros_like(y_true)
 

@@ -105,6 +105,16 @@ class EvalConfig(BaseModel):
         invoked; ignored otherwise.  ``EvalConfigError`` is raised at
         ``load_target()`` call time, not at ``EvalConfig`` construction (D-05).
         Default ``None``.
+    transform_spec : dict or None
+        Transform specification dict for synthetic mode.  Required (non-None)
+        when ``pipeline_mode='synthetic'`` and
+        ``DataFactory.generate_target()`` is invoked; ignored otherwise.
+        ``ValueError`` is raised at ``generate_target()`` call time (not at
+        ``EvalConfig`` construction) per the error-at-use-time pattern (D-08).
+        Dict must contain at least one recognised augmentation key beyond the
+        ``"type"`` discriminator (e.g. ``{"type": "rigid", "rotation_deg":
+        30.0, "rotation_axis": [0, 0, 1]}`` or ``{"type": "noise", "sigma":
+        0.1}``).  Default ``None``.
 
     Notes
     -----
@@ -146,6 +156,7 @@ class EvalConfig(BaseModel):
     label_names: dict[int, str] | None = None
     pipeline_mode: Literal["paired", "synthetic"] = "paired"
     target_data_path: str | None = None
+    transform_spec: dict | None = None
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "EvalConfig":

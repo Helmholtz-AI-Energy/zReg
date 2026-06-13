@@ -132,6 +132,56 @@ class TestEvalConfigFromYAML:
 
 
 # ---------------------------------------------------------------------------
+# TestEvalConfigTransformSpec — MODE-02 field declaration (Plan 31-01)
+# ---------------------------------------------------------------------------
+
+
+class TestEvalConfigTransformSpec:
+    """MODE-02: EvalConfig.transform_spec field declaration and YAML round-trip."""
+
+    def test_default_is_none(self):
+        """transform_spec defaults to None when not supplied."""
+        cfg = EvalConfig(data_path="x")
+        assert cfg.transform_spec is None
+
+    def test_accepts_rigid_dict(self):
+        """transform_spec accepts a rigid transform dict and round-trips equal to the input."""
+        spec = {"type": "rigid", "rotation_deg": 30.0, "rotation_axis": [0, 0, 1]}
+        cfg = EvalConfig(data_path="x", transform_spec=spec)
+        assert cfg.transform_spec == spec
+
+    def test_accepts_noise_dict(self):
+        """transform_spec accepts a noise transform dict without raising."""
+        spec = {"type": "noise", "sigma": 0.1}
+        cfg = EvalConfig(data_path="x", transform_spec=spec)
+        assert cfg.transform_spec == spec
+
+    def test_yaml_round_trip(self, tmp_path):
+        """EvalConfig.from_yaml loads a YAML with transform_spec block; field equals the parsed dict."""
+        p = tmp_path / "cfg.yaml"
+        p.write_text(
+            "data_path: x\n"
+            "transform_spec:\n"
+            "  type: rigid\n"
+            "  rotation_deg: 30.0\n"
+            "  rotation_axis: [0, 0, 1]\n"
+        )
+        cfg = EvalConfig.from_yaml(p)
+        assert cfg.transform_spec == {
+            "type": "rigid",
+            "rotation_deg": 30.0,
+            "rotation_axis": [0, 0, 1],
+        }
+
+    def test_rejects_unknown_sibling_field(self, tmp_path):
+        """YAML with transform_spec_typo: {} raises EvalConfigError (extra='forbid' still applies)."""
+        p = tmp_path / "cfg.yaml"
+        p.write_text("data_path: x\ntransform_spec_typo: {}\n")
+        with pytest.raises(EvalConfigError):
+            EvalConfig.from_yaml(p)
+
+
+# ---------------------------------------------------------------------------
 # TestDataFactoryConstruction — D-08 lazy init (Plan 17-02)
 # ---------------------------------------------------------------------------
 

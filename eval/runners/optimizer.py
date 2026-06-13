@@ -376,6 +376,13 @@ class HyperparamOptimizer:
             else:
                 y_pred = torch.zeros_like(y_true)
 
+            # WR-01: truncate to min length when source and target have different point counts
+            # (heterogeneous paired datasets). compute_f1 validates shape equality strictly.
+            if y_true.shape[0] != y_pred.shape[0]:
+                min_len = min(y_true.shape[0], y_pred.shape[0])
+                y_true = y_true[:min_len]
+                y_pred = y_pred[:min_len]
+
             metrics = self._engine.compute_stage_metrics(
                 source_pos,
                 target_pos,

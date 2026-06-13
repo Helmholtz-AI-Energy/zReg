@@ -356,8 +356,17 @@ class HyperparamOptimizer:
             warp_path = align_result.warp_path if align_result else []
             transforms: list = []
 
-            gt = self._factory.get_ground_truth(tier_dataset)
-            y_true = gt[source_sorted_keys[-1]]
+            # CR-04: sanity tier generates labels into pc["color"] (via generate_labels),
+            # not pc["id"]. get_ground_truth() always reads pc["id"] which is None for
+            # synthetic data — causing silent all-zero scores. Detect the right field
+            # directly instead of delegating to get_ground_truth().
+            sample_pc = tier_dataset[source_sorted_keys[0]]
+            gt_key = "id" if sample_pc["id"] is not None else "color"
+            y_true = tier_dataset[source_sorted_keys[-1]][gt_key]
+            if y_true is None:
+                raise ValueError(
+                    f"No ground-truth labels in field '{gt_key}' for sanity tier dataset."
+                )
             if label_result is not None:
                 # Label keys are TARGET frames per Plan 30-01 LabelTransferStage contract
                 # Use last key actually present in transferred_labels (= last paired target

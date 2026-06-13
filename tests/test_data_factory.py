@@ -293,6 +293,120 @@ class TestLoadTarget:
 
 
 # ---------------------------------------------------------------------------
+# TestGenerateTarget — D-01/D-02/D-03 generate_target() (Plan 31-01)
+# ---------------------------------------------------------------------------
+
+
+class TestGenerateTarget:
+    """D-01/D-02/D-03: generate_target() augment dispatch, config save/restore, instance state."""
+
+    def _make_small_ds(self):
+        """2-frame dataset with 5 points each, no fps-idx."""
+        torch.manual_seed(7)
+        ds = {}
+        for i in range(2):
+            pc = zRegPointCloud(
+                pos=torch.rand(5, 3),
+                color=None,
+                id=torch.arange(5),
+            )
+            pc["fps-idx"] = None
+            ds[i] = pc
+        return ds
+
+    def test_init_attributes_are_none(self):
+        """D-03: _synthetic_target, _source_dataset, and _transform_spec initialise to None."""
+        cfg = EvalConfig(data_path="x")
+        factory = DataFactory(cfg)
+        assert factory._synthetic_target is None
+        assert factory._source_dataset is None
+        assert factory._transform_spec is None
+
+    def test_generate_target_with_noise_returns_distinct_dataset(self):
+        """D-01: noise transform produces pos tensors different from input dataset."""
+        cfg = EvalConfig(data_path="x")
+        factory = DataFactory(cfg)
+        ds = self._make_small_ds()
+        out = factory.generate_target(ds, {"type": "noise", "sigma": 0.1})
+        for k in ds:
+            assert not torch.equal(out[k]["pos"], ds[k]["pos"])
+
+    def test_generate_target_stores_instance_state(self):
+        """D-03: _synthetic_target, _source_dataset, _transform_spec set after generate_target."""
+        cfg = EvalConfig(data_path="x")
+        factory = DataFactory(cfg)
+        ds = self._make_small_ds()
+        spec = {"type": "noise", "sigma": 0.1}
+        out = factory.generate_target(ds, spec)
+        assert factory._synthetic_target is out
+        assert factory._source_dataset is ds
+        assert factory._transform_spec == spec
+
+    def test_config_restored_after_generate_target(self):
+        """D-02: augmentation_params restored to original value after generate_target."""
+        cfg = EvalConfig(data_path="x", augmentation_params={"sigma": 0.5})
+        factory = DataFactory(cfg)
+        ds = self._make_small_ds()
+        factory.generate_target(ds, {"type": "noise", "sigma": 0.1})
+        assert factory.config.augmentation_params == {"sigma": 0.5}
+
+    def test_config_restored_when_augment_raises(self):
+        """D-02: augmentation_params restored even when augment() raises (try/finally guarantee)."""
+        from unittest.mock import patch as _patch
+        cfg = EvalConfig(data_path="x", augmentation_params={"sigma": 0.5})
+        factory = DataFactory(cfg)
+        ds = self._make_small_ds()
+        with _patch.object(factory, "augment", side_effect=RuntimeError("boom")):
+            with pytest.raises(RuntimeError, match="boom"):
+                factory.generate_target(ds, {"type": "noise", "sigma": 0.1})
+        assert factory.config.augmentation_params == {"sigma": 0.5}
+
+    def test_raises_on_none_transform_spec(self):
+        """generate_target(ds, None) raises ValueError."""
+        cfg = EvalConfig(data_path="x")
+        factory = DataFactory(cfg)
+        ds = self._make_small_ds()
+        with pytest.raises(ValueError):
+            factory.generate_target(ds, None)
+
+    def test_raises_on_empty_transform_spec(self):
+        """generate_target(ds, {}) raises ValueError."""
+        cfg = EvalConfig(data_path="x")
+        factory = DataFactory(cfg)
+        ds = self._make_small_ds()
+        with pytest.raises(ValueError):
+            factory.generate_target(ds, {})
+
+    def test_raises_on_type_only_spec(self):
+        """generate_target(ds, {'type': 'rigid'}) raises ValueError (augment_params empty after stripping)."""
+        cfg = EvalConfig(data_path="x")
+        factory = DataFactory(cfg)
+        ds = self._make_small_ds()
+        with pytest.raises(ValueError):
+            factory.generate_target(ds, {"type": "rigid"})
+
+    def test_type_key_is_stripped_before_dispatch(self):
+        """D-02: 'type' key stripped before augment dispatch; noise spec succeeds despite 'type' present."""
+        cfg = EvalConfig(data_path="x")
+        factory = DataFactory(cfg)
+        ds = self._make_small_ds()
+        # This must NOT raise, even though 'type' is not a recognised augment key
+        out = factory.generate_target(ds, {"type": "noise", "sigma": 0.1})
+        assert isinstance(out, dict)
+
+    def test_rigid_transform_changes_positions(self):
+        """generate_target with rigid rotation_deg changes output pos from input pos."""
+        cfg = EvalConfig(data_path="x")
+        factory = DataFactory(cfg)
+        ds = self._make_small_ds()
+        out = factory.generate_target(
+            ds, {"type": "rigid", "rotation_deg": 30.0, "rotation_axis": [0, 0, 1]}
+        )
+        for k in ds:
+            assert not torch.equal(out[k]["pos"], ds[k]["pos"])
+
+
+# ---------------------------------------------------------------------------
 # TestGenerateSynthetic — caching + seed reproducibility (Plan 17-02)
 # ---------------------------------------------------------------------------
 

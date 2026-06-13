@@ -79,6 +79,9 @@ class DataFactory:
         self._real_dataset: dict[int, zRegPointCloud] | None = None
         self._synthetic_dataset: dict[int, zRegPointCloud] | None = None
         self._target_dataset: dict[int, zRegPointCloud] | None = None
+        self._synthetic_target: dict[int, zRegPointCloud] | None = None
+        self._source_dataset: dict[int, zRegPointCloud] | None = None
+        self._transform_spec: dict | None = None
 
     def load_real(self) -> dict[int, zRegPointCloud]:
         """Load the real dataset from disk (lazy, cached).
@@ -168,6 +171,87 @@ class DataFactory:
 
         self._target_dataset = dataset
         return dataset
+
+    def generate_target(
+        self,
+        dataset: dict[int, zRegPointCloud],
+        transform_spec: dict,
+    ) -> dict[int, zRegPointCloud]:
+        """Apply a transform spec to ``dataset`` and return a synthetic target trajectory.
+
+        Delegates to :meth:`augment` internally (D-01), reusing its dispatch
+        table and deep-copy semantics.  The ``"type"`` discriminator key in
+        ``transform_spec`` is stripped before the override so that ``augment``
+        does not encounter an unrecognised key (D-02).
+
+        The original ``self.config.augmentation_params`` value is saved before
+        the call and unconditionally restored in a ``finally`` block — even if
+        :meth:`augment` raises (D-02, Pitfall 2).
+
+        Parameters
+        ----------
+        dataset : dict[int, zRegPointCloud]
+            Source trajectory.  Stored as ``self._source_dataset`` after the call.
+        transform_spec : dict
+            Transform specification.  Must be non-empty and must contain at
+            least one key beyond the optional ``"type"`` discriminator.  Any
+            keys recognised by :meth:`augment` (``"sigma"``, ``"rotation_deg"``,
+            ``"rotation_axis"``, ``"scale_factor"``, ``"dropout_fraction"``,
+            ``"n_outliers"``, ``"n_new_points"``) are forwarded.
+
+        Returns
+        -------
+        dict[int, zRegPointCloud]
+            Augmented trajectory with positions differing from ``dataset``.
+            Also stored as ``self._synthetic_target``.
+
+        Raises
+        ------
+        ValueError
+            If ``transform_spec`` is ``None`` or an empty dict — the result
+            would be a no-op (augment returns input by reference; see
+            Pitfall 1 in RESEARCH.md).
+        ValueError
+            If ``transform_spec`` contains only the ``"type"`` discriminator
+            key and no augmentation keys — ``augment_params`` would be empty
+            after stripping, producing the same no-op result.
+
+        Notes
+        -----
+        - D-01: delegates augmentation dispatch to :meth:`augment`.
+        - D-02: temporary override of ``self.config.augmentation_params``
+          inside ``try/finally`` ensures the original value is always restored.
+        - D-03: stores ``self._synthetic_target``, ``self._source_dataset``,
+          ``self._transform_spec`` for use by
+          :meth:`get_synthetic_ground_truth`.
+        """
+        # Guard: transform_spec must be non-empty
+        if not transform_spec:
+            raise ValueError(
+                "DataFactory.generate_target: transform_spec must be non-empty. "
+                "Passing None or {} would produce a no-op (augment returns input "
+                "by reference when augmentation_params is empty — Pitfall 1)."
+            )
+        # Strip the 'type' discriminator key before passing to augment() dispatch (D-02)
+        augment_params = {k: v for k, v in transform_spec.items() if k != "type"}
+        if not augment_params:
+            raise ValueError(
+                "DataFactory.generate_target: transform_spec contains only the "
+                "'type' key — no augmentation keys remain after stripping 'type'. "
+                "Provide at least one augmentation key (e.g. 'sigma', 'rotation_deg')."
+            )
+        # D-02: save original augmentation_params and restore in finally
+        original_params = self.config.augmentation_params
+        try:
+            self.config.augmentation_params = augment_params
+            result = self.augment(dataset)
+        finally:
+            self.config.augmentation_params = original_params
+        # D-03: store instance state after successful augmentation
+        self._synthetic_target = result
+        self._source_dataset = dataset
+        self._transform_spec = transform_spec
+        return result
 
     def generate_synthetic(self) -> dict[int, zRegPointCloud]:
         """Generate a synthetic trajectory (lazy, cached).

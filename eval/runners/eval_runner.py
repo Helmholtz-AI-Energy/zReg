@@ -133,6 +133,7 @@ class EvaluationRunner:
         self.config = config
         self.params = dict(params)  # shallow copy — D-01 / Pitfall 7
         self.engine = MetricsEngine(config)
+        self.factory: DataFactory | None = None  # WR-02: initialised in run(), guarded in _run_single
 
     def run(self) -> EvalReport:
         """Execute the full evaluation pipeline and return an EvalReport.
@@ -296,6 +297,10 @@ class EvaluationRunner:
         ``model_copy(update={...})`` because ``StageMetrics`` is a frozen
         pydantic model (RESEARCH Pitfall 6).
         """
+        # WR-02: guard against _run_single being called before run() initialises factory
+        if self.factory is None:
+            raise RuntimeError("_run_single called before run() — factory not initialised")
+
         align_result = None
         label_result = None
 

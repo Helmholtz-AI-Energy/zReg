@@ -126,8 +126,8 @@ class EvalConfig(BaseModel):
     run_label_transfer: bool = True
     default_params: dict = Field(default_factory=dict)
     search_space: dict = Field(default_factory=dict)
-    search_strategy: str = "grid"
-    tier: str = "sanity"
+    search_strategy: Literal["grid", "random", "bayesian", "propulate", "auto"] = "grid"
+    tier: Literal["sanity", "dev", "full"] = "sanity"
     n_trials: int = 10
     output_dir: str = "experiments/runs"
     save_plots: bool = True

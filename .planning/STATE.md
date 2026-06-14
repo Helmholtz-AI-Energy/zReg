@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Evaluation Framework & Debt Resolution
 status: complete
-stopped_at: Phase 30 verified (13/13 must-haves); MODE-01 closed
-last_updated: "2026-06-13T00:00:00Z"
-last_activity: 2026-06-13 -- Phase 30 verified (839 tests pass; VERIFICATION.md: passed); ready for Phase 31
+stopped_at: Phase 31 complete
+last_updated: "2026-06-14T00:00:00Z"
+last_activity: 2026-06-14 -- Phase 31 verified (14/14); MODE-02+MODE-03 closed; 869 tests pass
 progress:
   total_phases: 25
-  completed_phases: 24
-  total_plans: 55
-  completed_plans: 53
-  percent: 96
+  completed_phases: 25
+  total_plans: 58
+  completed_plans: 58
+  percent: 100
 ---
 
 # Project State
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md
 
 ## Current Position
 
-Phase: 31 (next)
-Plan: Ready to plan
-Status: Phase 30 verified; Phase 31 ready to plan
-Last activity: 2026-06-13 -- Phase 30 verification passed (13/13); MODE-01 closed; 839 tests pass
+Phase: 31 (complete)
+Plan: All 3 plans complete
+Status: Phase 31 verified; MODE-02 + MODE-03 closed; milestone v1.2 complete
+Last activity: 2026-06-14 -- Phase 31 verification passed (14/14); 869 tests pass
 
 ## Phase Overview
 
@@ -49,6 +49,7 @@ Last activity: 2026-06-13 -- Phase 30 verification passed (13/13); MODE-01 close
 | 28 | Script Integration — generate_datasets uses DataFactory | DF-02 | Complete 2026-06-11 |
 | 29 | Viz Unification | VIZ-01 | Ready to execute (2 plans) |
 | 30 | Two-Dataset Paired Alignment Architecture | MODE-01 | Complete 2026-06-12 |
+| 31 | Synthetic Pipeline Mode — Transform-Spec Target Generation & GT-Aware HPO | MODE-02, MODE-03 | Complete 2026-06-14 |
 
 ## Accumulated Context
 
@@ -192,13 +193,27 @@ Last activity: 2026-06-13 -- Phase 30 verification passed (13/13); MODE-01 close
 - [Phase 30-03]: test_paired_alignment_yaml_loads_and_declares_paired_mode added as dedicated TestScenarioConfigs method (not in _SCENARIO_TABLE parametrize — different field set than D-04 table)
 - [Phase 30-03]: MODE-01 all 5 success criteria satisfied; 839 tests pass, 18 skipped; full suite green
 
+### Phase 31 Decisions (v1.2)
+
+- [Phase 31-01]: transform_spec field added as `dict | None = None` on EvalConfig after target_data_path; no model_validator (error-at-use-time pattern from Phase 30 D-05 preserved)
+- [Phase 31-01]: generate_target() strips "type" discriminator key before calling augment() dispatch; raises ValueError on empty/type-only spec (Pitfall 1 guard)
+- [Phase 31-01]: config save/restore via try/finally (not context manager) — EvalConfig is not frozen; `self.config.augmentation_params = original_params` in finally block (D-02)
+- [Phase 31-01]: get_synthetic_ground_truth() returns pc["id"].to(torch.long) when id is set, else torch.arange(n_points, dtype=torch.long) ordinal fallback (D-05)
+- [Phase 31-02]: CR-03 placeholder (`target = source`) replaced with `factory.generate_target(source, self.config.transform_spec)` in EvaluationRunner.run()
+- [Phase 31-02]: _apply_transform_to_dataset() is a module-level helper in optimizer.py using a scratch DataFactory with model_copy(update=...) — avoids touching self._factory._synthetic_target (D-11)
+- [Phase 31-02]: Sanity tier in synthetic mode uses _apply_transform_to_dataset helper; toy dataset labels are in pc["color"] not pc["id"] (Pitfall 5 — generate_labels stores in color)
+- [Phase 31-02]: Optimizer uses self.config (not self._config) for pipeline_mode check (Pitfall 6)
+- [Phase 31-03]: synthetic_mode.yaml uses Kobitski tracklets + rigid 30° rotation around Z-axis; no target_data_path; loads cleanly via EvalConfig.from_yaml()
+- MODE-02 closed: generate_target() + EvaluationRunner synthetic branch wired; 869 tests pass
+- MODE-03 closed: get_synthetic_ground_truth() + optimizer GT-aware dispatch + synthetic_mode.yaml scenario config
+
 ### Open Blockers
 
 None.
 
 ## Session Continuity
 
-Last session: 2026-06-12T17:45:00Z
-Stopped at: Phase 30 complete — all 3 plans done; MODE-01 satisfied
-Resume file: .planning/phases/30-two-dataset-paired-alignment-architecture/30-03-SUMMARY.md
-Next action: Phase 31 — Synthetic Pipeline Mode (Transform-Spec Target Generation & GT-Aware HPO)
+Last session: 2026-06-14T00:00:00Z
+Stopped at: Phase 31 complete — all 3 plans done; MODE-02 + MODE-03 satisfied; milestone v1.2 complete
+Resume file: .planning/phases/31-synthetic-pipeline-mode-transform-spec-target-generation-gt-aware-hpo/VERIFICATION.md
+Next action: Milestone v1.2 complete — plan next milestone or ship

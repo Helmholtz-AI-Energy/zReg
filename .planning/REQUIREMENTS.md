@@ -67,7 +67,7 @@
 
 ### Category 13 — Heterogeneous Paired Evaluation
 
-- [ ] **HETERO-01**: Heterogeneous paired evaluation — `EvalConfig` gains `target_data_format: str | None = None` (default `None` falls back to `data_format`; accepted values: `"tracklets"`, `"csv"`); `DataFactory.load_target()` resolves effective format as `target_data_format or data_format`; scenario configs `kobitski_vs_shah.yaml`, `shah_vs_kobitski.yaml`, `kobitski_vs_kobitski_cross.yaml`; no changes to `EvaluationRunner`, stages, `MetricsEngine`, or `run_eval.py` — Complete Phase 32
+- [x] **HETERO-01**: Heterogeneous paired evaluation — `EvalConfig` gains `target_data_format: str | None = None` (default `None` falls back to `data_format`; accepted values: `"tracklets"`, `"csv"`); `DataFactory.load_target()` resolves effective format as `target_data_format or data_format`; scenario configs `kobitski_vs_shah.yaml`, `shah_vs_kobitski.yaml`, `kobitski_vs_kobitski_cross.yaml`; no changes to `EvaluationRunner`, stages, `MetricsEngine`, or `run_eval.py` — Complete Phase 32
 
 ---
 
@@ -137,4 +137,4 @@
 | MODE-01 | Phase 30 | Complete 2026-06-12 | Two-dataset paired alignment — AlignmentStage.run(source, target), EvalConfig paired mode, DataFactory.load_target(), EvaluationRunner update |
 | MODE-02 | Phase 31 | Not started | Synthetic mode target generation — EvalConfig transform_spec, DataFactory.generate_target() |
 | MODE-03 | Phase 31 | Not started | GT-aware HPO in synthetic mode — DataFactory.get_synthetic_ground_truth(), HyperparamOptimizer GT objective |
-| HETERO-01 | Phase 32 | Not started | Heterogeneous paired evaluation — EvalConfig.target_data_format, DataFactory.load_target() format dispatch, 3 cross-format scenario configs |
+| HETERO-01 | Phase 32 | Complete 2026-06-14 | Heterogeneous paired evaluation — EvalConfig.target_data_format, DataFactory.load_target() format dispatch, 3 cross-format scenario configs |

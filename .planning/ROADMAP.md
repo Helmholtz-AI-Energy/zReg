@@ -77,7 +77,7 @@
   **Wave 3** *(blocked on Wave 2 completion)*
   - [x] 30-03-PLAN.md — Add configs/paired_alignment.yaml (Kobitski as both source and target); update tests/test_trajectory_export.py mocks; add tests/test_cli.py smoke-test for paired_alignment.yaml
 
-- [ ] **Phase 32: Heterogeneous Paired Evaluation — `target_data_format`** — not started
+- [x] **Phase 32: Heterogeneous Paired Evaluation — `target_data_format`** — completed 2026-06-14
   **Goal:** Enable paired evaluation across datasets with different file formats (e.g. Kobitski `.tracklets` as source, Shah `.csv` as target). Add `target_data_format: str | None = None` to `EvalConfig` — `None` falls back to `data_format` so all existing configs remain valid. Update `DataFactory.load_target()` to resolve the effective format as `target_data_format or data_format`. Add `configs/kobitski_vs_shah.yaml` and `configs/shah_vs_kobitski.yaml` scenario configs, plus a same-format cross-embryo config `configs/kobitski_vs_kobitski_cross.yaml`. No orchestration code changes — `EvaluationRunner`, `AlignmentStage`, `LabelTransferStage`, `MetricsEngine`, and `run_eval.py` are untouched.
   **Requirements:** HETERO-01
   **Depends on:** Phase 30 (two-dataset architecture)
@@ -350,4 +350,4 @@ Full details: [.planning/milestones/v1.0-ROADMAP.md](.planning/milestones/v1.0-R
 | 29. Viz Unification | v1.2 | 2/2 | Complete | 2026-06-12 |
 | 30. Two-Dataset Paired Alignment Architecture | v1.2 | 3/3 | Complete | 2026-06-12 |
 | 31. Synthetic Pipeline Mode — Transform-Spec Target & GT-Aware HPO | v1.2 | 0/3 | Planned | — |
-| 32. Heterogeneous Paired Evaluation — target_data_format | v1.2 | 0/2 | Not started | — |
+| 32. Heterogeneous Paired Evaluation — target_data_format | v1.2 | 2/2 | Complete | 2026-06-14 |

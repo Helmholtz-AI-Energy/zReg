@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Evaluation Framework & Debt Resolution
 status: complete
-stopped_at: Phase 31 complete
-last_updated: "2026-06-14T00:00:00Z"
-last_activity: 2026-06-14 -- Phase 31 verified (14/14); MODE-02+MODE-03 closed; 869 tests pass
+stopped_at: Phase 32 complete
+last_updated: "2026-06-14T12:00:00Z"
+last_activity: 2026-06-14 -- Phase 32 verified (19/19); HETERO-01 closed; 879 tests pass
 progress:
   total_phases: 25
   completed_phases: 25
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md
 
 ## Current Position
 
-Phase: 31 (complete)
-Plan: All 3 plans complete
-Status: Phase 31 verified; MODE-02 + MODE-03 closed; milestone v1.2 complete
-Last activity: 2026-06-14 -- Phase 31 verification passed (14/14); 869 tests pass
+Phase: 32 (complete)
+Plan: All 2 plans complete
+Status: Phase 32 verified; HETERO-01 closed; 879 tests pass
+Last activity: 2026-06-14 -- Phase 32 verification passed (19/19); target_data_format wired + 3 scenario configs added
 
 ## Phase Overview
 

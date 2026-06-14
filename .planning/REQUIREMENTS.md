@@ -65,6 +65,10 @@
 
 - [ ] **MODE-03**: Ground-truth-aware HPO in synthetic mode — `DataFactory.get_synthetic_ground_truth()` returns per-frame cell-identity labels derived from the known deterministic transform; `HyperparamOptimizer._objective()` uses GT F1 score as calibration signal when `pipeline_mode == "synthetic"`; `synthetic_mode.yaml` scenario config runs full HPO loop — Complete Phase 31
 
+### Category 13 — Heterogeneous Paired Evaluation
+
+- [ ] **HETERO-01**: Heterogeneous paired evaluation — `EvalConfig` gains `target_data_format: str | None = None` (default `None` falls back to `data_format`; accepted values: `"tracklets"`, `"csv"`); `DataFactory.load_target()` resolves effective format as `target_data_format or data_format`; scenario configs `kobitski_vs_shah.yaml`, `shah_vs_kobitski.yaml`, `kobitski_vs_kobitski_cross.yaml`; no changes to `EvaluationRunner`, stages, `MetricsEngine`, or `run_eval.py` — Complete Phase 32
+
 ---
 
 ## Deferred / Superseded
@@ -133,3 +137,4 @@
 | MODE-01 | Phase 30 | Complete 2026-06-12 | Two-dataset paired alignment — AlignmentStage.run(source, target), EvalConfig paired mode, DataFactory.load_target(), EvaluationRunner update |
 | MODE-02 | Phase 31 | Not started | Synthetic mode target generation — EvalConfig transform_spec, DataFactory.generate_target() |
 | MODE-03 | Phase 31 | Not started | GT-aware HPO in synthetic mode — DataFactory.get_synthetic_ground_truth(), HyperparamOptimizer GT objective |
+| HETERO-01 | Phase 32 | Not started | Heterogeneous paired evaluation — EvalConfig.target_data_format, DataFactory.load_target() format dispatch, 3 cross-format scenario configs |

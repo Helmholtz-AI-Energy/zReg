@@ -1,0 +1,22 @@
+# Phase 32 HETERO-01: Kobitski ew06 (tracklets) vs ew08 (tracklets).
+# Same format, different embryos — sanity check before introducing format differences.
+# No target_data_format key: load_target() falls back to data_format='tracklets'.
+data_path: /Users/valeriekieslinger/Documents/Hiwi/BA/data/kobitski_data/12_11_15_embryo_ew_06_Cleaned_BackTracked_Oriented.tracklets
+data_format: tracklets
+target_data_path: /Users/valeriekieslinger/Documents/Hiwi/BA/data/kobitski_data/12_11_27_embryo_ew_08_Cleaned_BackTracked_Oriented.tracklets
+pipeline_mode: paired
+tier: sanity
+n_trials: 3
+run_alignment: true
+run_label_transfer: true
+default_params:
+  window_size: 10
+  step: 1
+  cpd_penalty: null
+  dtw_dist_fn: euclidean
+  n_breakpoints: 5
+  k_neighbours: 5
+  dist_metric: euclidean
+  smoothing: false
+  threshold: 0.5
+output_dir: experiments/runs/kobitski_vs_kobitski_cross

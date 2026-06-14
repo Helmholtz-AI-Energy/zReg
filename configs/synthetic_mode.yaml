@@ -1,0 +1,26 @@
+# Phase 31 MODE-03 scenario config: synthetic pipeline mode using Kobitski tracklets.
+#
+# Generates a synthetic target by applying a rigid rotation to the source dataset
+# via DataFactory.generate_target() → augment() dispatch. No target_data_path required.
+# GT correspondence is derived from known transform identity (get_synthetic_ground_truth).
+#
+# Run with: python run_eval.py --config configs/synthetic_mode.yaml --mode eval
+data_path: data/external/sample/kobitski_data/12_11_15_embryo_ew_06_Cleaned_BackTracked_Oriented.tracklets
+data_format: tracklets
+pipeline_mode: synthetic
+transform_spec:
+  type: rigid
+  rotation_deg: 30.0
+  rotation_axis: [0, 0, 1]
+tier: sanity
+n_trials: 3
+n_synthetic: 0
+run_alignment: true
+run_label_transfer: false
+default_params:
+  window_size: 10
+  step: 1
+  cpd_penalty: null
+  dtw_dist_fn: euclidean
+  n_breakpoints: 5
+output_dir: experiments/runs/synthetic_mode

@@ -102,6 +102,40 @@ SANITY_N_TRIALS: int = 5
 DEV_N_TRIALS: int = 20
 
 
+def _apply_transform_to_dataset(
+    dataset: dict,
+    transform_spec: dict,
+    config: "EvalConfig",
+) -> dict:
+    """Apply transform_spec to dataset using a scratch DataFactory (D-11).
+
+    This helper is used by ``_objective`` for the sanity tier in synthetic mode.
+    It MUST NOT touch the caller's ``_factory`` instance — using a scratch
+    ``DataFactory`` avoids overwriting ``_synthetic_target`` on the main factory
+    (Pitfall 3 from Phase 31 RESEARCH.md, D-11 from CONTEXT.md).
+
+    Parameters
+    ----------
+    dataset : dict
+        Source dataset to transform.
+    transform_spec : dict
+        Transform specification (e.g. ``{"type": "noise", "sigma": 0.1}``).
+        The ``"type"`` key is stripped before passing to ``augment()`` dispatch.
+    config : EvalConfig
+        Current evaluation config — used to construct the scratch config via
+        ``model_copy``.  The caller's config is never mutated.
+
+    Returns
+    -------
+    dict
+        Transformed dataset produced by ``scratch_factory.augment(dataset)``.
+    """
+    augment_params = {k: v for k, v in transform_spec.items() if k != "type"}
+    scratch_cfg = config.model_copy(update={"augmentation_params": augment_params})
+    scratch_factory = DataFactory(scratch_cfg)
+    return scratch_factory.augment(dataset)
+
+
 class HyperparamOptimizer:
     """Tiered hyperparameter search over AlignmentStage + LabelTransferStage.
 
@@ -328,13 +362,27 @@ class HyperparamOptimizer:
             # Pitfall 4: merge defaults first, trial params override
             merged = {**self._default_params, **params}
 
-            # Phase 30 source/target dispatch — Pitfall 7 + CONTEXT D-03
-            # sanity tier reuses tier_dataset as both source and target (D-03 smoke-test parity)
-            # dev/full tiers call load_target() to obtain the target trajectory
-            if tier_name == "sanity":
-                tier_target = tier_dataset  # Pitfall 7(a) — sanity reuses same dataset
-            else:
-                tier_target = self._factory.load_target()  # Pitfall 7(b) — dev/full call load_target
+            # Phase 30/31 source/target dispatch — Pitfall 7 + CONTEXT D-03/D-10/D-11
+            # Phase 31 MODE-02/MODE-03: synthetic mode branches added here
+            if self.config.pipeline_mode == "synthetic":
+                if tier_name == "sanity":
+                    # D-11: apply transform locally — NOT via self._factory.generate_target()
+                    # to avoid overwriting _synthetic_target (Pitfall 3)
+                    tier_target = _apply_transform_to_dataset(
+                        tier_dataset, self.config.transform_spec, self.config
+                    )
+                else:  # dev / full
+                    # D-10: use pre-computed _synthetic_target, sliced to tier keys (Pitfall 7)
+                    tier_target = {
+                        k: self._factory._synthetic_target[k]
+                        for k in tier_dataset
+                        if k in self._factory._synthetic_target
+                    }
+            else:  # paired mode — existing code preserved
+                if tier_name == "sanity":
+                    tier_target = tier_dataset  # Pitfall 7(a) — sanity reuses same dataset
+                else:
+                    tier_target = self._factory.load_target()  # Pitfall 7(b) — dev/full call load_target
 
             align_result = None
             label_result = None
@@ -356,17 +404,32 @@ class HyperparamOptimizer:
             warp_path = align_result.warp_path if align_result else []
             transforms: list = []
 
-            # CR-04: sanity tier generates labels into pc["color"] (via generate_labels),
-            # not pc["id"]. get_ground_truth() always reads pc["id"] which is None for
-            # synthetic data — causing silent all-zero scores. Detect the right field
-            # directly instead of delegating to get_ground_truth().
-            sample_pc = tier_dataset[source_sorted_keys[0]]
-            gt_key = "id" if sample_pc["id"] is not None else "color"
-            y_true = tier_dataset[source_sorted_keys[-1]][gt_key]
-            if y_true is None:
-                raise ValueError(
-                    f"No ground-truth labels in field '{gt_key}' for sanity tier dataset."
-                )
+            # GT selection — branches on pipeline_mode (Phase 31 MODE-03, D-08/D-09)
+            if self.config.pipeline_mode == "synthetic":
+                if tier_name == "sanity":
+                    # Sanity toy dataset has labels in pc["color"] (generate_labels contract,
+                    # Pitfall 5 from Phase 31 RESEARCH.md). get_synthetic_ground_truth() reads
+                    # _source_dataset (the real dataset), not the toy dataset — use color directly.
+                    sample_pc = tier_dataset[source_sorted_keys[0]]
+                    if sample_pc["color"] is not None:
+                        y_true = tier_dataset[source_sorted_keys[-1]]["color"]
+                    else:
+                        n = tier_dataset[source_sorted_keys[-1]]["pos"].shape[0]
+                        y_true = torch.arange(n, dtype=torch.long)
+                else:  # dev / full in synthetic mode — D-09
+                    y_true = self._factory.get_synthetic_ground_truth()[source_sorted_keys[-1]]
+            else:
+                # CR-04: sanity tier generates labels into pc["color"] (via generate_labels),
+                # not pc["id"]. get_ground_truth() always reads pc["id"] which is None for
+                # synthetic data — causing silent all-zero scores. Detect the right field
+                # directly instead of delegating to get_ground_truth().
+                sample_pc = tier_dataset[source_sorted_keys[0]]
+                gt_key = "id" if sample_pc["id"] is not None else "color"
+                y_true = tier_dataset[source_sorted_keys[-1]][gt_key]
+                if y_true is None:
+                    raise ValueError(
+                        f"No ground-truth labels in field '{gt_key}' for sanity tier dataset."
+                    )
             if label_result is not None:
                 # Label keys are TARGET frames per Plan 30-01 LabelTransferStage contract
                 # Use last key actually present in transferred_labels (= last paired target

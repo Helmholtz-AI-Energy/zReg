@@ -281,3 +281,166 @@ class TestBayesianSearch:
         assert all(
             isinstance(r, tuple) and len(r) == 2 for r in results
         ), "Each result must be a (params, score) tuple"
+
+
+# ---------------------------------------------------------------------------
+# TestOptimizerSyntheticMode — Phase 31 MODE-02 / MODE-03 / D-11
+# ---------------------------------------------------------------------------
+
+
+from eval.runners.optimizer import _apply_transform_to_dataset  # noqa: E402
+from eval.data_factory import DataFactory  # noqa: E402
+
+
+class TestOptimizerSyntheticMode:
+    """Phase 31: synthetic pipeline_mode wiring for HyperparamOptimizer._objective().
+
+    Verifies:
+    - _apply_transform_to_dataset helper returns distinct positions
+    - helper does NOT touch the caller's DataFactory state (D-11)
+    - sanity tier does NOT call self._factory.generate_target() (D-11 / Pitfall 3)
+    - dev tier uses _synthetic_target and get_synthetic_ground_truth() (D-10, D-09)
+    """
+
+    def test_apply_transform_returns_distinct_pos(
+        self, tmp_path, synthetic_dataset
+    ) -> None:
+        """_apply_transform_to_dataset with noise sigma=0.1 returns distinct pos arrays."""
+        cfg = EvalConfig(
+            data_path=str(tmp_path / "unused.mat"),
+            output_dir=str(tmp_path / "output"),
+        )
+        transform_spec = {"type": "noise", "sigma": 0.1}
+        result = _apply_transform_to_dataset(synthetic_dataset, transform_spec, cfg)
+        # At least one frame should have different pos
+        for k in synthetic_dataset:
+            orig_pos = synthetic_dataset[k]["pos"]
+            new_pos = result[k]["pos"]
+            if not torch.allclose(orig_pos, new_pos):
+                return  # found a differing frame — test passes
+        raise AssertionError("_apply_transform_to_dataset returned identical positions for all frames")
+
+    def test_apply_transform_does_not_touch_caller_factory(
+        self, tmp_path, synthetic_dataset
+    ) -> None:
+        """Calling _apply_transform_to_dataset does NOT set _synthetic_target on caller factory (D-11)."""
+        cfg = EvalConfig(
+            data_path=str(tmp_path / "unused.mat"),
+            output_dir=str(tmp_path / "output"),
+        )
+        outer_factory = DataFactory(cfg)
+        assert outer_factory._synthetic_target is None
+        transform_spec = {"type": "noise", "sigma": 0.1}
+        _apply_transform_to_dataset(synthetic_dataset, transform_spec, cfg)
+        # caller's factory must be untouched
+        assert outer_factory._synthetic_target is None, (
+            "_apply_transform_to_dataset must not modify the caller's DataFactory instance (D-11)"
+        )
+
+    @patch("eval.runners.optimizer.MetricsEngine")
+    @patch("eval.runners.optimizer.DataFactory")
+    def test_sanity_synthetic_mode_does_not_call_main_factory_generate_target(
+        self,
+        mock_factory_cls,
+        mock_engine_cls,
+        tmp_path,
+        synthetic_dataset,
+    ) -> None:
+        """Sanity tier in synthetic mode must NOT call self._factory.generate_target() (D-11, Pitfall 3)."""
+        synth_config = EvalConfig(
+            data_path=str(tmp_path / "unused.mat"),
+            output_dir=str(tmp_path / "output"),
+            search_strategy="grid",
+            tier="sanity",
+            n_trials=3,
+            run_alignment=True,
+            run_label_transfer=True,
+            search_space={
+                "window_size": [3, 5],
+                "k_neighbours": [3, 5],
+            },
+            pipeline_mode="synthetic",
+            transform_spec={"type": "noise", "sigma": 0.1},
+        )
+        mock_factory = mock_factory_cls.return_value
+        mock_factory.load_real.return_value = synthetic_dataset
+        mock_factory.load_target.return_value = synthetic_dataset
+        mock_factory.get_ground_truth.side_effect = (
+            lambda ds: {k: ds[k]["color"] for k in ds}
+        )
+        # stub MetricsEngine so objective body runs to completion
+        stub_metrics = StageMetrics(
+            chamfer_distance=0.0,
+            hausdorff_distance=0.0,
+            path_smoothness=0.0,
+            temporal_stability=0.0,
+            f1_score=0.5,
+            knn_consistency=0.5,
+        )
+        mock_engine_cls.return_value.compute_stage_metrics.return_value = stub_metrics
+        mock_engine_cls.return_value.compute_score.return_value = 0.5
+        mock_engine_cls.return_value.sanity_check.return_value = []
+
+        optimizer = HyperparamOptimizer(synth_config)
+        optimizer.run()
+
+        # The main factory's generate_target must NEVER be called in sanity tier (D-11)
+        mock_factory.generate_target.assert_not_called()
+
+    @patch("eval.runners.optimizer.MetricsEngine")
+    @patch("eval.runners.optimizer.DataFactory")
+    def test_dev_synthetic_mode_uses_synthetic_target_and_get_synthetic_ground_truth(
+        self,
+        mock_factory_cls,
+        mock_engine_cls,
+        tmp_path,
+        synthetic_dataset,
+    ) -> None:
+        """Dev tier synthetic mode: _factory.get_synthetic_ground_truth() called; load_target() NOT called."""
+        synth_config = EvalConfig(
+            data_path=str(tmp_path / "unused.mat"),
+            output_dir=str(tmp_path / "output"),
+            search_strategy="grid",
+            tier="dev",
+            n_trials=3,
+            run_alignment=True,
+            run_label_transfer=True,
+            search_space={
+                "window_size": [3, 5],
+                "k_neighbours": [3, 5],
+            },
+            pipeline_mode="synthetic",
+            transform_spec={"type": "noise", "sigma": 0.1},
+        )
+        mock_factory = mock_factory_cls.return_value
+        mock_factory.load_real.return_value = synthetic_dataset
+        mock_factory.generate_synthetic.return_value = synthetic_dataset
+        mock_factory.load_target.return_value = synthetic_dataset
+        # pre-populate _synthetic_target on the mock factory
+        mock_factory._synthetic_target = synthetic_dataset
+        mock_factory.get_synthetic_ground_truth.return_value = {
+            k: synthetic_dataset[k]["color"] for k in synthetic_dataset
+        }
+        mock_factory.get_ground_truth.side_effect = (
+            lambda ds: {k: ds[k]["color"] for k in ds}
+        )
+        # stub MetricsEngine
+        stub_metrics = StageMetrics(
+            chamfer_distance=0.0,
+            hausdorff_distance=0.0,
+            path_smoothness=0.0,
+            temporal_stability=0.0,
+            f1_score=0.5,
+            knn_consistency=0.5,
+        )
+        mock_engine_cls.return_value.compute_stage_metrics.return_value = stub_metrics
+        mock_engine_cls.return_value.compute_score.return_value = 0.5
+        mock_engine_cls.return_value.sanity_check.return_value = []
+
+        optimizer = HyperparamOptimizer(synth_config)
+        optimizer.run()
+
+        assert mock_factory.get_synthetic_ground_truth.called is True, (
+            "dev tier synthetic mode must call get_synthetic_ground_truth()"
+        )
+        mock_factory.load_target.assert_not_called()

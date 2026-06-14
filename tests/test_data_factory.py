@@ -293,6 +293,30 @@ class TestLoadTarget:
 
 
 # ---------------------------------------------------------------------------
+# TestEvalConfigTargetDataFormat — HETERO-01 field acceptance (Plan 32-01)
+# ---------------------------------------------------------------------------
+
+
+class TestEvalConfigTargetDataFormat:
+    """EvalConfig accepts target_data_format field; None default is backward-compatible."""
+
+    def test_accepts_csv(self):
+        """target_data_format='csv' is accepted without EvalConfigError."""
+        cfg = EvalConfig(data_path="x.mat", target_data_format="csv")
+        assert cfg.target_data_format == "csv"
+
+    def test_accepts_tracklets(self):
+        """target_data_format='tracklets' is accepted without EvalConfigError."""
+        cfg = EvalConfig(data_path="x.mat", target_data_format="tracklets")
+        assert cfg.target_data_format == "tracklets"
+
+    def test_default_is_none(self):
+        """target_data_format defaults to None (backward compatible — existing configs unaffected)."""
+        cfg = EvalConfig(data_path="x.mat")
+        assert cfg.target_data_format is None
+
+
+# ---------------------------------------------------------------------------
 # TestGenerateTarget — D-01/D-02/D-03 generate_target() (Plan 31-01)
 # ---------------------------------------------------------------------------
 

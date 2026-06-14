@@ -115,6 +115,11 @@ class EvalConfig(BaseModel):
         ``"type"`` discriminator (e.g. ``{"type": "rigid", "rotation_deg":
         30.0, "rotation_axis": [0, 0, 1]}`` or ``{"type": "noise", "sigma":
         0.1}``).  Default ``None``.
+    target_data_format : str or None
+        Format override for the target dataset loader.  Accepted values:
+        ``"tracklets"`` or ``"csv"``.  ``None`` (default) inherits
+        ``data_format`` so all existing configs without this key remain valid.
+        Validated at ``load_target()`` call time, not at construction.
 
     Notes
     -----
@@ -157,6 +162,7 @@ class EvalConfig(BaseModel):
     pipeline_mode: Literal["paired", "synthetic"] = "paired"
     target_data_path: str | None = None
     transform_spec: dict | None = None
+    target_data_format: str | None = None
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "EvalConfig":

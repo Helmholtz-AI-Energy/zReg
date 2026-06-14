@@ -322,3 +322,61 @@ class TestScenarioConfigs:
         assert cfg.data_format == "tracklets"
         assert cfg.run_alignment is True
         assert cfg.run_label_transfer is False
+
+    def test_kobitski_vs_shah_yaml_loads_and_declares_heterogeneous_mode(self) -> None:
+        """Phase 32 HETERO-01: kobitski_vs_shah.yaml loads via EvalConfig.from_yaml with
+        pipeline_mode='paired', Kobitski tracklets as source, Shah csv as target,
+        target_data_format='csv' set."""
+        import pytest
+        cfg_path = _REPO_ROOT / "configs" / "kobitski_vs_shah.yaml"
+        if not cfg_path.exists():
+            pytest.skip("kobitski_vs_shah.yaml not found — config not yet created")
+        _ew06 = "/Users/valeriekieslinger/Documents/Hiwi/BA/data/kobitski_data/12_11_15_embryo_ew_06_Cleaned_BackTracked_Oriented.tracklets"
+        if not Path(_ew06).exists():
+            pytest.skip("Kobitski ew06 data not available on this machine")
+        cfg = EvalConfig.from_yaml(cfg_path)
+        assert cfg.pipeline_mode == "paired"
+        assert cfg.data_format == "tracklets"
+        assert cfg.target_data_format == "csv"
+        assert cfg.run_alignment is True
+        assert cfg.run_label_transfer is True
+        assert cfg.tier == "sanity"
+
+    def test_shah_vs_kobitski_yaml_loads_and_declares_heterogeneous_mode(self) -> None:
+        """Phase 32 HETERO-01: shah_vs_kobitski.yaml loads via EvalConfig.from_yaml with
+        pipeline_mode='paired', Shah csv as source, Kobitski tracklets as target,
+        target_data_format='tracklets' set."""
+        import pytest
+        cfg_path = _REPO_ROOT / "configs" / "shah_vs_kobitski.yaml"
+        if not cfg_path.exists():
+            pytest.skip("shah_vs_kobitski.yaml not found — config not yet created")
+        _shah = "/Users/valeriekieslinger/Documents/Hiwi/BA/data/shah_data/sample-1/sample-1-cell-tracks.csv"
+        if not Path(_shah).exists():
+            pytest.skip("Shah sample-1 data not available on this machine")
+        cfg = EvalConfig.from_yaml(cfg_path)
+        assert cfg.pipeline_mode == "paired"
+        assert cfg.data_format == "csv"
+        assert cfg.target_data_format == "tracklets"
+        assert cfg.run_alignment is True
+        assert cfg.run_label_transfer is True
+        assert cfg.tier == "sanity"
+
+    def test_kobitski_vs_kobitski_cross_yaml_loads_and_declares_cross_embryo(self) -> None:
+        """Phase 32 HETERO-01: kobitski_vs_kobitski_cross.yaml loads via EvalConfig.from_yaml
+        with pipeline_mode='paired', both datasets tracklets, no target_data_format key
+        (fallback to data_format)."""
+        import pytest
+        cfg_path = _REPO_ROOT / "configs" / "kobitski_vs_kobitski_cross.yaml"
+        if not cfg_path.exists():
+            pytest.skip("kobitski_vs_kobitski_cross.yaml not found — config not yet created")
+        _ew06 = "/Users/valeriekieslinger/Documents/Hiwi/BA/data/kobitski_data/12_11_15_embryo_ew_06_Cleaned_BackTracked_Oriented.tracklets"
+        if not Path(_ew06).exists():
+            pytest.skip("Kobitski ew06 data not available on this machine")
+        cfg = EvalConfig.from_yaml(cfg_path)
+        assert cfg.pipeline_mode == "paired"
+        assert cfg.data_format == "tracklets"
+        assert cfg.target_data_format is None
+        assert "ew_08" in cfg.target_data_path
+        assert cfg.run_alignment is True
+        assert cfg.run_label_transfer is True
+        assert cfg.tier == "sanity"

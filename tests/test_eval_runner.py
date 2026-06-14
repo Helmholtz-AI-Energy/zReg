@@ -567,3 +567,121 @@ class TestEvaluationRunnerSavePlots:
         report = runner.run()
         assert not any("alignment_trajectory.pdf" in p for p in report.plot_paths)
         assert any("metrics_summary.pdf" in p for p in report.plot_paths)
+
+
+# ---------------------------------------------------------------------------
+# TestEvaluationRunnerSyntheticMode — Phase 31 MODE-02 / MODE-03
+# ---------------------------------------------------------------------------
+
+
+class TestEvaluationRunnerSyntheticMode:
+    """Phase 31: synthetic pipeline_mode wiring for EvaluationRunner.
+
+    Verifies that:
+    - run() in synthetic mode calls factory.generate_target() (not load_target())
+    - _run_single() in synthetic mode calls factory.get_synthetic_ground_truth()
+      (not get_ground_truth())
+    - Paired mode is unchanged (regression guard)
+    """
+
+    @patch("eval.runners.eval_runner.DataFactory")
+    def test_synthetic_mode_calls_generate_target(
+        self,
+        mock_factory_cls,
+        tmp_path,
+        full_params,
+        synthetic_dataset,
+    ) -> None:
+        """Synthetic mode: generate_target called once with (source, transform_spec);
+        load_target is NOT called (MODE-02 wiring)."""
+        transform_spec = {"type": "noise", "sigma": 0.1}
+        synth_config = EvalConfig(
+            data_path=str(tmp_path / "unused.mat"),
+            output_dir=str(tmp_path / "output"),
+            pipeline_mode="synthetic",
+            transform_spec=transform_spec,
+        )
+        mock_factory = mock_factory_cls.return_value
+        mock_factory.load_real.return_value = synthetic_dataset
+        mock_factory.generate_target.return_value = synthetic_dataset
+        mock_factory.get_synthetic_ground_truth.return_value = {
+            k: synthetic_dataset[k]["color"] for k in synthetic_dataset
+        }
+        runner = EvaluationRunner(synth_config, full_params)
+        runner.run()
+        mock_factory.generate_target.assert_called_once_with(synthetic_dataset, transform_spec)
+        mock_factory.load_target.assert_not_called()
+
+    @patch("eval.runners.eval_runner.DataFactory")
+    def test_synthetic_mode_calls_get_synthetic_ground_truth(
+        self,
+        mock_factory_cls,
+        tmp_path,
+        full_params,
+        synthetic_dataset,
+    ) -> None:
+        """Synthetic mode: get_synthetic_ground_truth called at least once;
+        get_ground_truth is NOT called (MODE-03 GT path)."""
+        transform_spec = {"type": "noise", "sigma": 0.1}
+        synth_config = EvalConfig(
+            data_path=str(tmp_path / "unused.mat"),
+            output_dir=str(tmp_path / "output"),
+            pipeline_mode="synthetic",
+            transform_spec=transform_spec,
+        )
+        mock_factory = mock_factory_cls.return_value
+        mock_factory.load_real.return_value = synthetic_dataset
+        mock_factory.generate_target.return_value = synthetic_dataset
+        mock_factory.get_synthetic_ground_truth.return_value = {
+            k: synthetic_dataset[k]["color"] for k in synthetic_dataset
+        }
+        runner = EvaluationRunner(synth_config, full_params)
+        runner.run()
+        assert mock_factory.get_synthetic_ground_truth.called is True
+        assert mock_factory.get_ground_truth.called is False
+
+    @patch("eval.runners.eval_runner.DataFactory")
+    def test_paired_mode_unchanged(
+        self,
+        mock_factory_cls,
+        eval_config,
+        full_params,
+        synthetic_dataset,
+    ) -> None:
+        """Regression guard: paired mode calls load_target(), never generate_target()."""
+        mock_factory = mock_factory_cls.return_value
+        mock_factory.load_real.return_value = synthetic_dataset
+        mock_factory.load_target.return_value = synthetic_dataset
+        mock_factory.get_ground_truth.return_value = {
+            k: synthetic_dataset[k]["color"] for k in synthetic_dataset
+        }
+        runner = EvaluationRunner(eval_config, full_params)
+        runner.run()
+        assert mock_factory.load_target.called is True
+        assert mock_factory.generate_target.called is False
+
+    @patch("eval.runners.eval_runner.DataFactory")
+    def test_synthetic_mode_run_returns_eval_report(
+        self,
+        mock_factory_cls,
+        tmp_path,
+        full_params,
+        synthetic_dataset,
+    ) -> None:
+        """Synthetic mode: run() returns a populated EvalReport (smoke test)."""
+        transform_spec = {"type": "noise", "sigma": 0.1}
+        synth_config = EvalConfig(
+            data_path=str(tmp_path / "unused.mat"),
+            output_dir=str(tmp_path / "output"),
+            pipeline_mode="synthetic",
+            transform_spec=transform_spec,
+        )
+        mock_factory = mock_factory_cls.return_value
+        mock_factory.load_real.return_value = synthetic_dataset
+        mock_factory.generate_target.return_value = synthetic_dataset
+        mock_factory.get_synthetic_ground_truth.return_value = {
+            k: synthetic_dataset[k]["color"] for k in synthetic_dataset
+        }
+        runner = EvaluationRunner(synth_config, full_params)
+        report = runner.run()
+        assert isinstance(report, EvalReport)

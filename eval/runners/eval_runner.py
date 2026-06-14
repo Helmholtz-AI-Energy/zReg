@@ -188,10 +188,8 @@ class EvaluationRunner:
         source = self.factory.load_real()
         if self.config.pipeline_mode == "paired":
             target = self.factory.load_target()
-        else:
-            # 'synthetic' mode: target generation is wired in Phase 31.
-            # For now use source as a no-op placeholder (CR-03).
-            target = source
+        else:  # pipeline_mode == "synthetic" — Phase 31 MODE-02
+            target = self.factory.generate_target(source, self.config.transform_spec)
 
         result = self._run_single(source, target, self.params)
 
@@ -326,8 +324,11 @@ class EvaluationRunner:
         warp_path = align_result.warp_path if align_result else []
         transforms = []  # AlignResult has no transform objects — temporal_stability([]) returns 0.0
 
-        # Ground truth from source (canonical source dataset reference for GT)
-        gt = self.factory.get_ground_truth(source)  # {frame_key: id_tensor}
+        # Ground truth — branches on pipeline_mode (Phase 31 MODE-03)
+        if self.config.pipeline_mode == "synthetic":
+            gt = self.factory.get_synthetic_ground_truth()
+        else:
+            gt = self.factory.get_ground_truth(source)  # {frame_key: id_tensor}
         y_true = gt[source_sorted_keys[-1]]
         if label_result is not None:
             # Label keys are TARGET frames per Plan 30-01 LabelTransferStage contract

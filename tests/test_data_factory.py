@@ -317,6 +317,76 @@ class TestEvalConfigTargetDataFormat:
 
 
 # ---------------------------------------------------------------------------
+# TestLoadTargetFormatDispatch — HETERO-01 format-override dispatch (Plan 32-01)
+# ---------------------------------------------------------------------------
+
+
+class TestLoadTargetFormatDispatch:
+    """load_target() uses target_data_format when set; falls back to data_format when None."""
+
+    def _make_mock_ds(self):
+        return {0: zRegPointCloud(pos=torch.zeros(3, 3), color=None, id=torch.arange(3))}
+
+    def test_target_format_csv_overrides_source_tracklets(self):
+        """target_data_format='csv' routes to CSV loader even though data_format='tracklets'."""
+        cfg = EvalConfig(
+            data_path="x.mat",
+            data_format="tracklets",
+            target_data_path="y.csv",
+            target_data_format="csv",
+        )
+        factory = DataFactory(cfg)
+        mock_ds = self._make_mock_ds()
+        with patch("eval.data_factory.load_shah_from_csv", return_value=mock_ds) as m:
+            result = factory.load_target()
+        m.assert_called_once_with("y.csv", device="cpu")
+        assert result is mock_ds
+
+    def test_target_format_tracklets_overrides_source_csv(self):
+        """target_data_format='tracklets' routes to tracklets loader even though data_format='csv'."""
+        cfg = EvalConfig(
+            data_path="x.csv",
+            data_format="csv",
+            target_data_path="y.mat",
+            target_data_format="tracklets",
+        )
+        factory = DataFactory(cfg)
+        mock_ds = self._make_mock_ds()
+        with patch("eval.data_factory.load_data_from_tracklets", return_value=(mock_ds, {})) as m:
+            result = factory.load_target()
+        m.assert_called_once_with("y.mat", device="cpu")
+        assert result is mock_ds
+
+    def test_none_falls_back_to_data_format_csv(self):
+        """target_data_format=None falls back to data_format='csv' (backward compat)."""
+        cfg = EvalConfig(
+            data_path="x.csv",
+            data_format="csv",
+            target_data_path="y.csv",
+            target_data_format=None,
+        )
+        factory = DataFactory(cfg)
+        mock_ds = self._make_mock_ds()
+        with patch("eval.data_factory.load_shah_from_csv", return_value=mock_ds) as m:
+            factory.load_target()
+        m.assert_called_once_with("y.csv", device="cpu")
+
+    def test_none_falls_back_to_data_format_tracklets(self):
+        """target_data_format=None falls back to data_format='tracklets' (backward compat)."""
+        cfg = EvalConfig(
+            data_path="x.mat",
+            data_format="tracklets",
+            target_data_path="y.mat",
+            target_data_format=None,
+        )
+        factory = DataFactory(cfg)
+        mock_ds = self._make_mock_ds()
+        with patch("eval.data_factory.load_data_from_tracklets", return_value=(mock_ds, {})) as m:
+            factory.load_target()
+        m.assert_called_once_with("y.mat", device="cpu")
+
+
+# ---------------------------------------------------------------------------
 # TestGenerateTarget — D-01/D-02/D-03 generate_target() (Plan 31-01)
 # ---------------------------------------------------------------------------
 

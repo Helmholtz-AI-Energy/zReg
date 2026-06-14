@@ -309,3 +309,16 @@ class TestScenarioConfigs:
         assert cfg.data_format == "tracklets"
         assert cfg.run_alignment is True
         assert cfg.run_label_transfer is False
+
+    def test_synthetic_mode_yaml_loads_and_declares_synthetic_mode(self) -> None:
+        """Phase 31 MODE-03: synthetic_mode.yaml loads via EvalConfig.from_yaml with
+        pipeline_mode='synthetic', transform_spec set, no target_data_path,
+        alignment enabled, label transfer disabled."""
+        cfg = EvalConfig.from_yaml(_REPO_ROOT / "configs" / "synthetic_mode.yaml")
+        assert cfg.pipeline_mode == "synthetic"
+        assert cfg.transform_spec is not None
+        assert cfg.transform_spec.get("type") in ("rigid", "noise")
+        assert cfg.target_data_path is None
+        assert cfg.data_format == "tracklets"
+        assert cfg.run_alignment is True
+        assert cfg.run_label_transfer is False

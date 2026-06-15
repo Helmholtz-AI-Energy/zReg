@@ -225,6 +225,7 @@ class EvaluationRunner:
                     source,
                     self.config.label_names,
                     output_dir_path,
+                    target=target,
                 )
             )
             summary_path = output_dir_path / "metrics_summary.pdf"
@@ -232,7 +233,7 @@ class EvaluationRunner:
             plot_paths.append(str(summary_path))
 
         # Step 2b: Export trajectories unconditionally (D-13 / EXT-01).
-        trajectory_paths = export_trajectory(result, source, self.config, output_dir_path)
+        trajectory_paths = export_trajectory(result, source, self.config, output_dir_path, target=target)
 
         # Step 3: Build the final frozen report with both plot_paths and trajectory_paths.
         # EvalReport is frozen (Pitfall 6) — must use model_copy to update.
@@ -335,8 +336,10 @@ class EvaluationRunner:
             # Use last key actually present in transferred_labels (= last paired target
             # frame) — guards against KeyError when |source| < |target| (CR-01).
             transferred_keys = sorted(label_result.transferred_labels.keys())
-            y_pred = label_result.transferred_labels[transferred_keys[-1]]
+            knn_target_key = transferred_keys[-1]
+            y_pred = label_result.transferred_labels[knn_target_key]
         else:
+            knn_target_key = target_sorted_keys[-1]
             y_pred = torch.zeros_like(y_true)  # zero-fill D-04
 
         # WR-01: truncate to min length when source and target have different point counts
@@ -346,8 +349,15 @@ class EvaluationRunner:
             y_true = y_true[:min_len]
             y_pred = y_pred[:min_len]
 
-        points_for_knn = target_pos
-        labels_for_knn = y_pred
+        # KNN consistency needs points and labels from the same target frame.
+        # When |source| < |target|, the last transferred frame differs from the
+        # global last target frame, causing a cell-count mismatch.
+        points_for_knn = target[knn_target_key]["pos"]
+        labels_for_knn = (
+            label_result.transferred_labels[knn_target_key]
+            if label_result is not None
+            else y_pred
+        )
 
         metrics = self.engine.compute_stage_metrics(
             source_pos, target_pos, warp_path, transforms,

@@ -46,6 +46,7 @@ def plot_trajectory(
     dataset: "dict[int, zRegPointCloud]",
     label_names: "dict[int, str] | None",
     output_dir: Path,
+    target: "dict[int, zRegPointCloud] | None" = None,
 ) -> list[str]:
     """Render trajectory figures for alignment and/or label-transfer stages (EXT-02).
 
@@ -162,9 +163,22 @@ def plot_trajectory(
     # LABEL FIGURE — written only when label_result is not None
     # ------------------------------------------------------------------
     if label_result is not None:
+        # Frame indices for the label figure come from transferred_labels keys
+        # (target space) so positions and labels stay in the same dataset.
+        label_sorted_keys = sorted(label_result.transferred_labels.keys())
+        label_candidates = [
+            label_sorted_keys[0],
+            label_sorted_keys[len(label_sorted_keys) // 2],
+            label_sorted_keys[-1],
+        ]
+        seen_lbl: set = set()
+        label_frame_indices = [
+            k for k in label_candidates if not (k in seen_lbl or seen_lbl.add(k))
+        ]
+
         # Collect union of label IDs across the 3 plotted frames
         union_labels: set[int] = set()
-        for fk in frame_indices:
+        for fk in label_frame_indices:
             t = label_result.transferred_labels[fk]
             union_labels.update(int(v) for v in torch.unique(t).tolist())
         sorted_labels = sorted(union_labels)
@@ -175,22 +189,29 @@ def plot_trajectory(
 
         with matplotlib.rc_context({"backend": "Agg"}):
             fig = plt.figure(figsize=(12, 4))
-            for idx, fk in enumerate(frame_indices):
+            for idx, fk in enumerate(label_frame_indices):
                 ax = fig.add_subplot(1, 3, idx + 1, projection="3d")
-                # D-07: use aligned positions when align stage ran
-                pos = (
-                    align_result.aligned_cloud[fk]["pos"].detach().cpu().numpy()
-                    if align_result is not None
-                    else dataset[fk]["pos"].detach().cpu().numpy()
-                )
+                # Use target positions when available so they match transferred_labels
+                # (which are keyed by target frame). Fall back to aligned source or
+                # raw source for label-only or same-dataset runs.
+                if target is not None and fk in target:
+                    pos = target[fk]["pos"].detach().cpu().numpy()
+                elif align_result is not None and fk in align_result.aligned_cloud:
+                    pos = align_result.aligned_cloud[fk]["pos"].detach().cpu().numpy()
+                else:
+                    pos = dataset[fk]["pos"].detach().cpu().numpy()
                 t = label_result.transferred_labels[fk]
                 c_vals = [color_for_label[int(v)] for v in t.tolist()]
                 # Per-cloud subsampling — subsample pos and c_vals in sync (D-03)
+                n_pts = min(len(pos), len(c_vals))
                 rng = np.random.default_rng(0)
-                if len(pos) > 4000:
-                    keep = rng.choice(len(pos), 4000, replace=False)
+                if n_pts > 4000:
+                    keep = rng.choice(n_pts, 4000, replace=False)
                     pos = pos[keep]
                     c_vals = [c_vals[i] for i in keep]
+                else:
+                    pos = pos[:n_pts]
+                    c_vals = c_vals[:n_pts]
                 ax.scatter(pos[:, 0], pos[:, 1], pos[:, 2],
                            c=c_vals, s=1.5, alpha=0.45, linewidths=0)
                 ax.set_title(f"Frame {fk}", fontsize=9, pad=4)

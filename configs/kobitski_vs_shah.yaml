@@ -10,13 +10,13 @@ n_trials: 3
 run_alignment: true
 run_label_transfer: true
 default_params:
-  window_size: 10
+  window_size: 60
   step: 1
   cpd_penalty: null
   dtw_dist_fn: euclidean
   n_breakpoints: 5
   k_neighbours: 5
   dist_metric: euclidean
-  smoothing: false
+  smoothing: 0.0
   threshold: 0.5
 output_dir: experiments/runs/kobitski_vs_shah

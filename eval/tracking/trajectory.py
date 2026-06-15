@@ -32,6 +32,7 @@ def export_trajectory(
     dataset: dict,
     config: EvalConfig,
     output_dir: Path,
+    target: dict | None = None,
 ) -> list[str]:
     """Export per-point trajectory CSVs and metadata JSON files (EXT-01).
 
@@ -171,19 +172,18 @@ def export_trajectory(
         with open(label_csv_path, "w", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(["frame_idx", "point_idx", "x", "y", "z", "label"])
-            for frame_idx in sorted(dataset.keys()):
-                # D-07: use aligned pos when align stage ran; D-08: else use raw dataset
-                if align_result_val is not None:
+            # Iterate transferred_labels keys (target space) so positions and labels
+            # come from the same dataset. When source and target differ in cell count,
+            # using source frame keys would cause a length mismatch.
+            for frame_idx in sorted(label_result.transferred_labels.keys()):
+                labels = label_result.transferred_labels[frame_idx]
+                if target is not None and frame_idx in target:
+                    pos = target[frame_idx]["pos"]
+                elif align_result_val is not None and frame_idx in align_result_val.aligned_cloud:
                     pos = align_result_val.aligned_cloud[frame_idx]["pos"]
                 else:
                     pos = dataset[frame_idx]["pos"]
-                labels = label_result.transferred_labels[frame_idx]
-                if len(labels) != len(pos):
-                    raise ValueError(
-                        f"frame {frame_idx}: transferred_labels length {len(labels)} "
-                        f"!= pos length {len(pos)}"
-                    )
-                for i in range(len(pos)):
+                for i in range(len(labels)):
                     x, y, z = pos[i].tolist()
                     label = int(labels[i].item())
                     writer.writerow([frame_idx, i, x, y, z, label])

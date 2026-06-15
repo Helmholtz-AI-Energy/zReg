@@ -17,6 +17,6 @@ default_params:
   n_breakpoints: 5
   k_neighbours: 5
   dist_metric: euclidean
-  smoothing: false
+  smoothing: 0.0
   threshold: 0.5
 output_dir: experiments/runs/kobitski_vs_kobitski_cross

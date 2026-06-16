@@ -1118,3 +1118,95 @@ class TestAugmentExtended:
         out = factory.augment(ds)
         for i in ds:
             assert out[i]["pos"].shape[0] == 105
+
+
+# ---------------------------------------------------------------------------
+# Coverage gap tests — added to reach 100% coverage
+# ---------------------------------------------------------------------------
+
+
+class TestEvalConfigFromYAMLInvalidSyntax:
+    """eval/config.py:198 — yaml.YAMLError branch in from_yaml."""
+
+    def test_invalid_yaml_syntax_raises_eval_config_error(self, tmp_path):
+        """YAML with invalid syntax raises EvalConfigError (yaml.YAMLError branch)."""
+        p = tmp_path / "bad_syntax.yaml"
+        # 'key: :' is invalid YAML syntax — triggers yaml.YAMLError
+        p.write_text("key: :\n")
+        with pytest.raises(EvalConfigError):
+            EvalConfig.from_yaml(p)
+
+
+class TestLoadRealUnknownFormat:
+    """eval/data_factory.py:114 — ValueError for unknown data_format in load_real."""
+
+    def test_unknown_data_format_raises_value_error(self):
+        """load_real() raises ValueError when data_format is not 'tracklets' or 'csv'."""
+        cfg = EvalConfig(data_path="x", data_format="unknown")
+        factory = DataFactory(cfg)
+        with pytest.raises(ValueError, match="unknown data_format"):
+            factory.load_real()
+
+
+class TestLoadTargetUnknownFormat:
+    """eval/data_factory.py:165 — ValueError for unknown format in load_target."""
+
+    def test_unknown_data_format_raises_value_error(self):
+        """load_target() raises ValueError when resolved format is neither 'tracklets' nor 'csv'."""
+        cfg = EvalConfig(data_path="x", target_data_path="y", data_format="unknown")
+        factory = DataFactory(cfg)
+        with pytest.raises(ValueError, match="unknown data_format"):
+            factory.load_target()
+
+
+class TestGetGroundTruthCSVFormat:
+    """eval/data_factory.py:446 — load_shah_from_csv branch in get_ground_truth."""
+
+    def test_csv_format_uses_load_shah_from_csv(self):
+        """When data_format='csv' and ground_truth_path is set, load_shah_from_csv is called."""
+        cfg = EvalConfig(
+            data_path="x.csv",
+            data_format="csv",
+            ground_truth_path="gt.csv",
+        )
+        factory = DataFactory(cfg)
+        external_ds = {0: zRegPointCloud(pos=torch.zeros(3, 3), color=None, id=torch.arange(3))}
+        with patch("eval.data_factory.load_shah_from_csv", return_value=external_ds) as m:
+            gt = factory.get_ground_truth({})
+        m.assert_called_once_with("gt.csv", device="cpu")
+        for i in external_ds:
+            assert torch.equal(gt[i], external_ds[i]["id"])
+
+
+class TestSampleNewPointsWithNoneColorAndId:
+    """eval/data_factory.py:671 — _extend(t) returns None when t is None."""
+
+    def test_sample_new_points_with_none_color_and_id(self):
+        """sample_new_points with color=None and id=None still works; _extend returns None."""
+        from zreg.generators import generate_trajectory
+        cfg = EvalConfig(data_path="x", augmentation_params={})
+        factory = DataFactory(cfg)
+        # generate_trajectory returns color=None, id=None
+        ds = generate_trajectory(n_points=20, n_frames=2, seed=0)
+        out = factory.sample_new_points(ds, 5, seed=42)
+        for i in ds:
+            assert out[i]["pos"].shape[0] == 25
+            assert out[i]["color"] is None
+            assert out[i]["id"] is None
+
+    def test_sample_new_points_with_2d_color_extends_rows(self):
+        """data_factory.py:671 — _extend 2-D branch: color shape (N,3) gets zeros appended."""
+        cfg = EvalConfig(data_path="x", augmentation_params={})
+        factory = DataFactory(cfg)
+        n = 20
+        n_extra = 5
+        pc = zRegPointCloud(
+            pos=torch.randn(n, 3),
+            color=torch.rand(n, 3),  # 2-D color
+            id=torch.arange(n, dtype=torch.long),
+        )
+        ds = {0: pc}
+        out = factory.sample_new_points(ds, n_extra, seed=42)
+        assert out[0]["color"].shape == (n + n_extra, 3)
+        # appended rows should be zeros
+        assert out[0]["color"][n:].sum().item() == 0.0

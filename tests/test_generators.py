@@ -332,3 +332,45 @@ class TestLabelUtilities:
         for i in labelled:
             assert labelled[i]["color"] is not None
             assert torch.equal(labelled[i]["color"], original_colors[i])
+
+
+# ---------------------------------------------------------------------------
+# Coverage gap tests for generators
+# ---------------------------------------------------------------------------
+
+
+class TestGeneratorsCoverageGaps:
+    """Coverage gaps: seed=None branches in corruption.py and labels.py."""
+
+    def test_add_gaussian_noise_seed_none(self):
+        """corruption.py:53 — seed=None skips torch.manual_seed call."""
+        traj = generate_trajectory(n_points=20, n_frames=2, seed=0)
+        # Should not raise; just runs with caller's RNG state
+        result = add_gaussian_noise(traj, sigma=0.01, seed=None)
+        assert len(result) == 2
+        for i in traj:
+            assert result[i]["pos"].shape == traj[i]["pos"].shape
+
+    def test_add_outliers_seed_none(self):
+        """corruption.py:106 — seed=None skips torch.manual_seed call."""
+        traj = generate_trajectory(n_points=20, n_frames=2, seed=0)
+        result = add_outliers(traj, n_outliers=3, seed=None)
+        for i in traj:
+            assert result[i]["pos"].shape[0] == 23
+
+    def test_add_outliers_with_fps_idx(self):
+        """corruption.py:142-148 — fps-idx extended when pc['fps-idx'] is not None."""
+        from zreg.dataset import zRegPointCloud
+        traj = generate_trajectory(n_points=20, n_frames=1, seed=0)
+        traj[0]["fps-idx"] = torch.arange(20)
+        result = add_outliers(traj, n_outliers=5, seed=42)
+        assert result[0]["fps-idx"] is not None
+        assert result[0]["fps-idx"].shape[0] == 25
+
+    def test_generate_labels_seed_none(self):
+        """labels.py:72 — seed=None skips torch.manual_seed call."""
+        traj = generate_trajectory(n_points=10, n_frames=2, seed=0)
+        result = generate_labels(traj, n_classes=3, seed=None)
+        for i in traj:
+            assert result[i]["color"] is not None
+            assert result[i]["color"].shape[0] == 10

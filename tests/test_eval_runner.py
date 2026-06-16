@@ -685,3 +685,75 @@ class TestEvaluationRunnerSyntheticMode:
         runner = EvaluationRunner(synth_config, full_params)
         report = runner.run()
         assert isinstance(report, EvalReport)
+
+
+# ---------------------------------------------------------------------------
+# Coverage gap tests for eval_runner.py
+# ---------------------------------------------------------------------------
+
+
+class TestEvaluationRunnerCoverageGaps:
+    """Additional tests to cover missed lines in eval_runner.py."""
+
+    def test_run_single_raises_when_factory_none(self, eval_config, full_params, synthetic_dataset):
+        """eval_runner.py:301 — RuntimeError when factory is None and _run_single called directly."""
+        runner = EvaluationRunner(eval_config, full_params)
+        # factory is None at init time before run() is called
+        assert runner.factory is None
+        with pytest.raises(RuntimeError, match="factory not initialised"):
+            runner._run_single(synthetic_dataset, synthetic_dataset, full_params)
+
+    @patch("eval.runners.eval_runner.DataFactory")
+    def test_run_single_truncates_y_true_y_pred_when_different_size(
+        self,
+        mock_factory_cls,
+        eval_config,
+        full_params,
+        synthetic_dataset,
+    ) -> None:
+        """eval_runner.py:348-350 — truncation when y_true.shape[0] != y_pred.shape[0]."""
+        mock_factory = mock_factory_cls.return_value
+        mock_factory.load_real.return_value = synthetic_dataset
+        mock_factory.load_target.return_value = synthetic_dataset
+
+        # y_true has 3 pts (from gt), y_pred has 8 pts (from transferred_labels)
+        # knn target frame has 8 points so knn labels (8) match knn points (8)
+        # The truncation lines 348-350 trim y_true/y_pred to min(3,8)=3
+        n_target = 8
+        y_true_3 = torch.zeros(3, dtype=torch.long)
+        y_pred_n = torch.zeros(n_target, dtype=torch.long)
+
+        mock_factory.get_ground_truth.return_value = {
+            k: y_true_3 for k in synthetic_dataset
+        }
+
+        # Target dataset with n_target points so knn check passes
+        target_ds = {
+            k: zRegPointCloud(
+                pos=torch.randn(n_target, 3),
+                color=torch.zeros(n_target, dtype=torch.long),
+                id=torch.arange(n_target),
+            )
+            for k in synthetic_dataset
+        }
+        mock_factory.load_target.return_value = target_ds
+
+        fake_label_result = LabelResult(
+            transferred_labels={k: y_pred_n for k in synthetic_dataset},
+            params_used=dict(full_params),
+        )
+
+        with patch("eval.runners.eval_runner.AlignmentStage") as mock_align_cls, \
+             patch("eval.runners.eval_runner.LabelTransferStage") as mock_label_cls:
+            mock_align_cls.return_value.run.return_value = AlignResult(
+                aligned_cloud=synthetic_dataset,
+                warp_path=[(0, 0), (1, 1), (2, 2)],
+                dtw_distance=0.0,
+                n_changepoints=0,
+                params_used=dict(full_params),
+            )
+            mock_label_cls.return_value.run.return_value = fake_label_result
+
+            runner = EvaluationRunner(eval_config, full_params)
+            report = runner.run()
+        assert isinstance(report, EvalReport)

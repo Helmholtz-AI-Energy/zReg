@@ -329,3 +329,21 @@ class TestLogRun:
         with open(tmp_path / f"{RUN_ID}.csv", newline="") as f:
             rows = list(csv.DictReader(f))
         assert rows[0]["frame_indices"] == "[0, 1, 2]"
+
+    def test_git_hash_fallback_when_returncode_nonzero(self, tmp_path):
+        """tracking.py:98 — git_hash='unknown' when subprocess returncode != 0."""
+        mock_result = MagicMock(returncode=1, stdout="")
+        with patch("eval.tracking.tracking.subprocess.run", return_value=mock_result), \
+             patch("eval.tracking.tracking.importlib.metadata.version", return_value="0.0.1"):
+            log_run(
+                run_id=RUN_ID,
+                dataset_path=DATASET_PATH,
+                frame_indices=FRAME_INDICES,
+                seed=SEED,
+                n_points_before=N_POINTS_BEFORE,
+                n_points_after=N_POINTS_AFTER,
+                output_dir=str(tmp_path),
+            )
+        with open(tmp_path / f"{RUN_ID}.json") as f:
+            data = json.load(f)
+        assert data["git_hash"] == "unknown"

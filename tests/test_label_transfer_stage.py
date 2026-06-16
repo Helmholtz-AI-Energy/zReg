@@ -531,3 +531,69 @@ class TestLabelTransferStageOutputShape:
                 f"Frame {key}: point count mismatch — "
                 f"expected {synthetic_dataset_d09[key]['pos'].shape[0]}, got {tensor.shape[0]}"
             )
+
+
+# ---------------------------------------------------------------------------
+# Coverage gap tests for label_transfer.py
+# ---------------------------------------------------------------------------
+
+
+class TestLabelTransferStageCoverageGaps:
+    """Coverage gaps: lines 198, 208, 222, 228 in label_transfer.py."""
+
+    def test_label_key_is_id_when_color_is_none(self, eval_config):
+        """label_transfer.py:198 — label_key='id' when source color is None."""
+        # Build source with color=None and valid id field
+        pc_with_id = zRegPointCloud(
+            pos=torch.randn(10, 3),
+            color=None,
+            id=torch.arange(10, dtype=torch.long),
+        )
+        dataset = {0: pc_with_id}
+        stage = LabelTransferStage(eval_config)
+        params = {"k_neighbours": 3, "dist_metric": "euclidean", "smoothing": 0.0, "threshold": 0.0}
+        result = stage.run(dataset, dataset, params)
+        assert isinstance(result, LabelResult)
+        assert 0 in result.transferred_labels
+
+    def test_empty_target_raises(self, eval_config):
+        """label_transfer.py:198 — ValueError when target is empty dict."""
+        pc = zRegPointCloud(pos=torch.randn(10, 3), color=torch.arange(10, dtype=torch.long), id=None)
+        source = {0: pc}
+        stage = LabelTransferStage(eval_config)
+        params = {"k_neighbours": 3, "dist_metric": "euclidean", "smoothing": 0.0, "threshold": 0.0}
+        with pytest.raises(ValueError, match="target must be non-empty"):
+            stage.run(source, {}, params)
+
+    def test_k_neighbours_exceeds_n_src_raises(self, eval_config):
+        """label_transfer.py:208 — ValueError when k_neighbours > n_src."""
+        labeled = generate_labels(generate_trajectory(n_points=5, n_frames=1, seed=0), n_classes=2, seed=0)
+        stage = LabelTransferStage(eval_config)
+        params = {"k_neighbours": 100, "dist_metric": "euclidean", "smoothing": 0.0, "threshold": 0.0}
+        with pytest.raises(ValueError, match="k_neighbours=100 exceeds"):
+            stage.run(labeled, labeled, params)
+
+    def test_none_labels_tensor_raises(self, eval_config):
+        """label_transfer.py:222 — ValueError when both color and id are None."""
+        # color=None, id=None — label_key='id', labels_tensor will be None
+        pc_no_labels = zRegPointCloud(pos=torch.randn(10, 3), color=None, id=None)
+        dataset = {0: pc_no_labels}
+        stage = LabelTransferStage(eval_config)
+        params = {"k_neighbours": 3, "dist_metric": "euclidean", "smoothing": 0.0, "threshold": 0.0}
+        with pytest.raises(ValueError, match="no labels"):
+            stage.run(dataset, dataset, params)
+
+    def test_2d_color_uses_id_label_key(self, eval_config):
+        """label_transfer.py:228 — transfer_colors called with id labels when color.dim()>1."""
+        # 2-D color (RGB-like) triggers label_key='id' path
+        n = 10
+        pc_rgb = zRegPointCloud(
+            pos=torch.randn(n, 3),
+            color=torch.rand(n, 3),  # 2-D
+            id=torch.arange(n, dtype=torch.long),
+        )
+        dataset = {0: pc_rgb}
+        stage = LabelTransferStage(eval_config)
+        params = {"k_neighbours": 3, "dist_metric": "euclidean", "smoothing": 0.0, "threshold": 0.0}
+        result = stage.run(dataset, dataset, params)
+        assert isinstance(result, LabelResult)

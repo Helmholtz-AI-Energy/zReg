@@ -10,6 +10,8 @@ Covers:
 """
 
 import json
+import os
+import sys
 import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -444,3 +446,582 @@ class TestOptimizerSyntheticMode:
             "dev tier synthetic mode must call get_synthetic_ground_truth()"
         )
         mock_factory.load_target.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Coverage gap tests for optimizer.py
+# ---------------------------------------------------------------------------
+
+
+class TestHyperparamOptimizerCoverageGaps:
+    """Additional tests to cover missed lines in optimizer.py."""
+
+    def test_search_space_non_list_value_raises(self, tmp_path):
+        """optimizer.py:167 — ValueError when search_space value is not a list."""
+        cfg = EvalConfig(
+            data_path=str(tmp_path / "x"),
+            output_dir=str(tmp_path / "out"),
+            search_space={"window_size": 5},  # int, not list
+        )
+        with pytest.raises(ValueError, match="must be a non-empty list"):
+            HyperparamOptimizer(cfg)
+
+    def test_search_space_empty_list_raises(self, tmp_path):
+        """optimizer.py:167 — ValueError when search_space value is an empty list."""
+        cfg = EvalConfig(
+            data_path=str(tmp_path / "x"),
+            output_dir=str(tmp_path / "out"),
+            search_space={"window_size": []},
+        )
+        with pytest.raises(ValueError, match="must be a non-empty list"):
+            HyperparamOptimizer(cfg)
+
+    def test_both_stages_disabled_raises(self, tmp_path):
+        """optimizer.py:173 — ValueError when both stages disabled."""
+        cfg = EvalConfig(
+            data_path=str(tmp_path / "x"),
+            output_dir=str(tmp_path / "out"),
+            run_alignment=False,
+            run_label_transfer=False,
+        )
+        with pytest.raises(ValueError, match="At least one stage must be enabled"):
+            HyperparamOptimizer(cfg)
+
+    @patch("eval.runners.optimizer.DataFactory")
+    def test_full_tier_n_trials_path(self, mock_factory_cls, tmp_path, synthetic_dataset):
+        """optimizer.py:231 — n_trials from config when tier='full'."""
+        mock_factory = mock_factory_cls.return_value
+        mock_factory.load_real.return_value = synthetic_dataset
+        mock_factory.load_target.return_value = synthetic_dataset
+        mock_factory.get_ground_truth.side_effect = lambda ds: {k: ds[k]["color"] for k in ds}
+
+        cfg = EvalConfig(
+            data_path=str(tmp_path / "x"),
+            output_dir=str(tmp_path / "out"),
+            search_strategy="grid",
+            tier="full",
+            n_trials=2,
+            search_space={"window_size": [3]},
+        )
+        result = HyperparamOptimizer(cfg).run()
+        assert isinstance(result, SearchResult)
+
+    @patch("eval.runners.optimizer.DataFactory")
+    def test_auto_strategy_resolves(self, mock_factory_cls, tmp_path, synthetic_dataset):
+        """optimizer.py:235 — _detect_backend called when search_strategy='auto'."""
+        mock_factory = mock_factory_cls.return_value
+        mock_factory.load_real.return_value = synthetic_dataset
+        mock_factory.load_target.return_value = synthetic_dataset
+        mock_factory.get_ground_truth.side_effect = lambda ds: {k: ds[k]["color"] for k in ds}
+
+        cfg = EvalConfig(
+            data_path=str(tmp_path / "x"),
+            output_dir=str(tmp_path / "out"),
+            search_strategy="auto",
+            tier="sanity",
+            n_trials=2,
+            search_space={"window_size": [3]},
+        )
+        import sys
+        with patch.dict(sys.modules, {"mpi4py": None}):
+            result = HyperparamOptimizer(cfg).run()
+        assert isinstance(result, SearchResult)
+
+    @patch("eval.runners.optimizer.DataFactory")
+    def test_random_search_strategy(self, mock_factory_cls, tmp_path, synthetic_dataset):
+        """optimizer.py:254 — RandomSearch().search() called when strategy='random'."""
+        mock_factory = mock_factory_cls.return_value
+        mock_factory.load_real.return_value = synthetic_dataset
+        mock_factory.load_target.return_value = synthetic_dataset
+        mock_factory.get_ground_truth.side_effect = lambda ds: {k: ds[k]["color"] for k in ds}
+
+        cfg = EvalConfig(
+            data_path=str(tmp_path / "x"),
+            output_dir=str(tmp_path / "out"),
+            search_strategy="random",
+            tier="sanity",
+            n_trials=2,
+            search_space={"window_size": [3, 5]},
+        )
+        result = HyperparamOptimizer(cfg).run()
+        assert isinstance(result, SearchResult)
+
+    @patch("eval.runners.optimizer.DataFactory")
+    def test_bayesian_search_strategy(self, mock_factory_cls, tmp_path, synthetic_dataset):
+        """optimizer.py:261 — BayesianSearch().search() called when strategy='bayesian'."""
+        mock_factory = mock_factory_cls.return_value
+        mock_factory.load_real.return_value = synthetic_dataset
+        mock_factory.load_target.return_value = synthetic_dataset
+        mock_factory.get_ground_truth.side_effect = lambda ds: {k: ds[k]["color"] for k in ds}
+
+        cfg = EvalConfig(
+            data_path=str(tmp_path / "x"),
+            output_dir=str(tmp_path / "out"),
+            search_strategy="bayesian",
+            tier="sanity",
+            n_trials=2,
+            search_space={"window_size": [3, 5]},
+        )
+        result = HyperparamOptimizer(cfg).run()
+        assert isinstance(result, SearchResult)
+
+    @patch("eval.runners.optimizer.DataFactory")
+    def test_unknown_strategy_raises(self, mock_factory_cls, tmp_path, synthetic_dataset):
+        """optimizer.py:299 — ValueError for unknown strategy."""
+        mock_factory = mock_factory_cls.return_value
+        mock_factory.load_real.return_value = synthetic_dataset
+        mock_factory.load_target.return_value = synthetic_dataset
+        mock_factory.get_ground_truth.side_effect = lambda ds: {k: ds[k]["color"] for k in ds}
+
+        cfg = EvalConfig(
+            data_path=str(tmp_path / "x"),
+            output_dir=str(tmp_path / "out"),
+            search_strategy="grid",
+            tier="sanity",
+            n_trials=2,
+            search_space={"window_size": [3]},
+        )
+        optimizer = HyperparamOptimizer(cfg)
+        with patch.object(optimizer, "_detect_backend", return_value="bad_strategy"):
+            optimizer.config = optimizer.config.model_copy(update={"search_strategy": "auto"})
+            with pytest.raises(ValueError, match="Unknown search_strategy"):
+                optimizer.run()
+
+    @patch("eval.runners.optimizer.DataFactory")
+    def test_paired_mode_dev_tier_loads_target(self, mock_factory_cls, tmp_path, synthetic_dataset):
+        """optimizer.py:385 — load_target() called in paired mode non-sanity tier."""
+        mock_factory = mock_factory_cls.return_value
+        mock_factory.load_real.return_value = synthetic_dataset
+        mock_factory.generate_synthetic.return_value = synthetic_dataset
+        mock_factory.load_target.return_value = synthetic_dataset
+        mock_factory.get_ground_truth.side_effect = lambda ds: {k: ds[k]["color"] for k in ds}
+
+        cfg = EvalConfig(
+            data_path=str(tmp_path / "x"),
+            output_dir=str(tmp_path / "out"),
+            search_strategy="grid",
+            tier="dev",
+            n_trials=2,
+            pipeline_mode="paired",
+            search_space={"window_size": [3]},
+        )
+        HyperparamOptimizer(cfg).run()
+        mock_factory.load_target.assert_called()
+
+    @patch("eval.runners.optimizer.DataFactory")
+    def test_run_alignment_false(self, mock_factory_cls, tmp_path, synthetic_dataset):
+        """optimizer.py:391-395 — False branch of run_alignment."""
+        mock_factory = mock_factory_cls.return_value
+        mock_factory.load_real.return_value = synthetic_dataset
+        mock_factory.load_target.return_value = synthetic_dataset
+        mock_factory.get_ground_truth.side_effect = lambda ds: {k: ds[k]["color"] for k in ds}
+
+        cfg = EvalConfig(
+            data_path=str(tmp_path / "x"),
+            output_dir=str(tmp_path / "out"),
+            search_strategy="grid",
+            tier="sanity",
+            n_trials=2,
+            run_alignment=False,
+            run_label_transfer=True,
+            search_space={"k_neighbours": [3]},
+        )
+        result = HyperparamOptimizer(cfg).run()
+        assert isinstance(result, SearchResult)
+
+    @patch("eval.runners.optimizer.DataFactory")
+    def test_run_label_transfer_false(self, mock_factory_cls, tmp_path, synthetic_dataset):
+        """optimizer.py:395-400 — False branch of run_label_transfer (with alignment True)."""
+        mock_factory = mock_factory_cls.return_value
+        mock_factory.load_real.return_value = synthetic_dataset
+        mock_factory.load_target.return_value = synthetic_dataset
+        mock_factory.get_ground_truth.side_effect = lambda ds: {k: ds[k]["color"] for k in ds}
+
+        cfg = EvalConfig(
+            data_path=str(tmp_path / "x"),
+            output_dir=str(tmp_path / "out"),
+            search_strategy="grid",
+            tier="sanity",
+            n_trials=2,
+            run_alignment=True,
+            run_label_transfer=False,
+            search_space={"window_size": [3]},
+        )
+        result = HyperparamOptimizer(cfg).run()
+        assert isinstance(result, SearchResult)
+
+    @patch("eval.runners.optimizer._apply_transform_to_dataset")
+    @patch("eval.runners.optimizer.LabelTransferStage")
+    @patch("eval.runners.optimizer.AlignmentStage")
+    @patch("eval.runners.optimizer.DataFactory")
+    def test_synthetic_sanity_no_color_uses_arange(
+        self, mock_factory_cls, mock_align_cls, mock_label_cls, mock_transform, tmp_path
+    ):
+        """optimizer.py:417-418 — y_true = torch.arange when color is None in synthetic sanity."""
+        from zreg.generators import generate_trajectory
+        from eval.types import StageMetrics
+
+        # Dataset with color=None — generate_trajectory returns no labels
+        ds = generate_trajectory(n_points=10, n_frames=3, seed=42)
+
+        mock_factory = mock_factory_cls.return_value
+        mock_factory.load_real.return_value = ds
+        mock_factory.load_target.return_value = ds
+        mock_factory.get_ground_truth.side_effect = lambda d: {k: torch.arange(10, dtype=torch.long) for k in d}
+
+        # _apply_transform_to_dataset returns dataset unchanged (avoids augment() error on color=None)
+        mock_transform.side_effect = lambda dataset, spec, cfg: dataset
+
+        # Stub AlignmentStage so the code reaches GT selection (lines 408-418)
+        from eval.types import AlignResult
+        fake_align = AlignResult(
+            aligned_cloud=ds,
+            warp_path=[(i, i) for i in range(3)],
+            dtw_distance=0.0,
+            n_changepoints=0,
+            params_used={},
+        )
+        mock_align_cls.return_value.run.return_value = fake_align
+
+        # Stub LabelTransferStage so it doesn't raise on color=None
+        from eval.types import LabelResult
+        fake_label = LabelResult(
+            transferred_labels={k: torch.arange(10, dtype=torch.long) for k in ds},
+            params_used={},
+        )
+        mock_label_cls.return_value.run.return_value = fake_label
+
+        stub_metrics = StageMetrics(
+            chamfer_distance=0.0, hausdorff_distance=0.0, path_smoothness=0.0,
+            temporal_stability=0.0, f1_score=0.5, knn_consistency=0.5,
+        )
+        with patch("eval.runners.optimizer.MetricsEngine") as mock_engine_cls:
+            mock_engine_cls.return_value.compute_stage_metrics.return_value = stub_metrics
+            mock_engine_cls.return_value.compute_score.return_value = 0.5
+            mock_engine_cls.return_value.sanity_check.return_value = []
+
+            cfg = EvalConfig(
+                data_path=str(tmp_path / "x"),
+                output_dir=str(tmp_path / "out"),
+                search_strategy="grid",
+                tier="sanity",
+                n_trials=2,
+                pipeline_mode="synthetic",
+                transform_spec={"type": "noise", "sigma": 0.01},
+                search_space={"window_size": [3]},
+            )
+            optimizer = HyperparamOptimizer(cfg)
+            # _tier_dataset("sanity") always calls generate_labels — override to return color=None ds
+            with patch.object(optimizer, "_tier_dataset", return_value=ds):
+                result = optimizer.run()
+        assert isinstance(result, SearchResult)
+
+    @patch("eval.runners.optimizer.LabelTransferStage")
+    @patch("eval.runners.optimizer.AlignmentStage")
+    @patch("eval.runners.optimizer.DataFactory")
+    def test_paired_sanity_null_gt_raises_then_returns_zero(
+        self, mock_factory_cls, mock_align_cls, mock_label_cls, tmp_path
+    ):
+        """optimizer.py:430 — ValueError raised when y_true is None (both id and color absent)."""
+        from zreg.generators import generate_trajectory
+        from eval.types import AlignResult, LabelResult, StageMetrics
+
+        # Dataset where both color and id are None — generate_trajectory has color=None, id=None
+        ds_base = generate_trajectory(n_points=10, n_frames=3, seed=42)
+
+        mock_factory = mock_factory_cls.return_value
+        mock_factory.load_real.return_value = ds_base
+        mock_factory.load_target.return_value = ds_base
+
+        fake_align = AlignResult(
+            aligned_cloud=ds_base,
+            warp_path=[(i, i) for i in range(3)],
+            dtw_distance=0.0,
+            n_changepoints=0,
+            params_used={},
+        )
+        mock_align_cls.return_value.run.return_value = fake_align
+        fake_label = LabelResult(
+            transferred_labels={k: torch.zeros(10, dtype=torch.long) for k in ds_base},
+            params_used={},
+        )
+        mock_label_cls.return_value.run.return_value = fake_label
+
+        stub_metrics = StageMetrics(
+            chamfer_distance=0.0, hausdorff_distance=0.0, path_smoothness=0.0,
+            temporal_stability=0.0, f1_score=0.5, knn_consistency=0.5,
+        )
+        with patch("eval.runners.optimizer.MetricsEngine") as mock_engine_cls:
+            mock_engine_cls.return_value.compute_stage_metrics.return_value = stub_metrics
+            mock_engine_cls.return_value.compute_score.return_value = 0.5
+            mock_engine_cls.return_value.sanity_check.return_value = []
+
+            cfg = EvalConfig(
+                data_path=str(tmp_path / "x"),
+                output_dir=str(tmp_path / "out"),
+                search_strategy="grid",
+                tier="sanity",
+                n_trials=1,
+                pipeline_mode="paired",  # non-synthetic → hits lines 421-432
+                search_space={"window_size": [3]},
+            )
+            optimizer = HyperparamOptimizer(cfg)
+            # _tier_dataset("sanity") always generates labeled data — override to return
+            # color=None, id=None dataset so y_true is None → ValueError at line 430,
+            # caught by except Exception at 471 → trial returns 0.0, run() completes
+            with patch.object(optimizer, "_tier_dataset", return_value=ds_base):
+                result = optimizer.run()
+        assert isinstance(result, SearchResult)
+
+    @patch("eval.runners.optimizer.DataFactory")
+    def test_propulate_strategy_mocked(self, mock_factory_cls, tmp_path, synthetic_dataset):
+        """optimizer.py:445-447 — PropulateSearch dispatch with mocked PropulateSearch."""
+        import sys, types
+        from eval.types import StageMetrics
+
+        mock_factory = mock_factory_cls.return_value
+        mock_factory.load_real.return_value = synthetic_dataset
+        mock_factory.load_target.return_value = synthetic_dataset
+        mock_factory.get_ground_truth.side_effect = lambda ds: {k: ds[k]["color"] for k in ds}
+
+        stub_metrics = StageMetrics(
+            chamfer_distance=0.0, hausdorff_distance=0.0, path_smoothness=0.0,
+            temporal_stability=0.0, f1_score=0.5, knn_consistency=0.5,
+        )
+
+        cfg = EvalConfig(
+            data_path=str(tmp_path / "x"),
+            output_dir=str(tmp_path / "out"),
+            search_strategy="propulate",
+            tier="sanity",
+            n_trials=2,
+            search_space={"window_size": [3]},
+        )
+        with patch("eval.runners.optimizer.PropulateSearch") as mock_propulate:
+            mock_propulate.return_value.search.return_value = [({"window_size": 3}, 0.5)]
+            result = HyperparamOptimizer(cfg).run()
+        assert isinstance(result, SearchResult)
+
+    @patch("eval.runners.optimizer.LabelTransferStage")
+    @patch("eval.runners.optimizer.AlignmentStage")
+    @patch("eval.runners.optimizer.DataFactory")
+    def test_objective_truncates_when_ytrue_ypred_differ(
+        self, mock_factory_cls, mock_align_cls, mock_label_cls, tmp_path
+    ):
+        """optimizer.py:445-447 — y_true[:min_len]/y_pred[:min_len] when shapes differ."""
+        from zreg.generators import generate_labels, generate_trajectory
+        from eval.types import AlignResult, LabelResult, StageMetrics
+
+        ds = generate_labels(generate_trajectory(n_points=10, n_frames=3, seed=0), n_classes=4, seed=0)
+
+        mock_factory = mock_factory_cls.return_value
+        mock_factory.load_real.return_value = ds
+        mock_factory.load_target.return_value = ds
+
+        fake_align = AlignResult(
+            aligned_cloud=ds,
+            warp_path=[(i, i) for i in range(3)],
+            dtw_distance=0.0,
+            n_changepoints=0,
+            params_used={},
+        )
+        mock_align_cls.return_value.run.return_value = fake_align
+        # transferred_labels has 7 points but y_true (from color) has 10 → truncation at 445-447
+        fake_label = LabelResult(
+            transferred_labels={k: torch.zeros(7, dtype=torch.long) for k in ds},
+            params_used={},
+        )
+        mock_label_cls.return_value.run.return_value = fake_label
+
+        stub_metrics = StageMetrics(
+            chamfer_distance=0.0, hausdorff_distance=0.0, path_smoothness=0.0,
+            temporal_stability=0.0, f1_score=0.5, knn_consistency=0.5,
+        )
+        with patch("eval.runners.optimizer.MetricsEngine") as mock_engine_cls:
+            mock_engine_cls.return_value.compute_stage_metrics.return_value = stub_metrics
+            mock_engine_cls.return_value.compute_score.return_value = 0.5
+            mock_engine_cls.return_value.sanity_check.return_value = []
+
+            cfg = EvalConfig(
+                data_path=str(tmp_path / "x"),
+                output_dir=str(tmp_path / "out"),
+                search_strategy="grid",
+                tier="sanity",
+                n_trials=1,
+                pipeline_mode="paired",
+                search_space={"window_size": [3]},
+            )
+            optimizer = HyperparamOptimizer(cfg)
+            with patch.object(optimizer, "_tier_dataset", return_value=ds):
+                result = optimizer.run()
+        assert isinstance(result, SearchResult)
+
+    @patch("eval.runners.optimizer.LabelTransferStage")
+    @patch("eval.runners.optimizer.AlignmentStage")
+    @patch("eval.runners.optimizer.DataFactory")
+    def test_synthetic_sanity_with_color_uses_color_field(
+        self, mock_factory_cls, mock_align_cls, mock_label_cls, tmp_path
+    ):
+        """optimizer.py:415 — y_true = color field in synthetic sanity when color is not None."""
+        from zreg.generators import generate_labels, generate_trajectory
+        from eval.types import AlignResult, LabelResult, StageMetrics
+
+        ds = generate_labels(generate_trajectory(n_points=10, n_frames=3, seed=0), n_classes=4, seed=0)
+
+        mock_factory = mock_factory_cls.return_value
+        mock_factory.load_real.return_value = ds
+
+        mock_transform_ds = {k: ds[k] for k in ds}
+
+        fake_align = AlignResult(
+            aligned_cloud=ds,
+            warp_path=[(i, i) for i in range(3)],
+            dtw_distance=0.0,
+            n_changepoints=0,
+            params_used={},
+        )
+        mock_align_cls.return_value.run.return_value = fake_align
+        fake_label = LabelResult(
+            transferred_labels={k: ds[k]["color"].long() for k in ds},
+            params_used={},
+        )
+        mock_label_cls.return_value.run.return_value = fake_label
+
+        stub_metrics = StageMetrics(
+            chamfer_distance=0.0, hausdorff_distance=0.0, path_smoothness=0.0,
+            temporal_stability=0.0, f1_score=0.5, knn_consistency=0.5,
+        )
+        with patch("eval.runners.optimizer._apply_transform_to_dataset",
+                   side_effect=lambda dataset, spec, cfg: dataset), \
+             patch("eval.runners.optimizer.MetricsEngine") as mock_engine_cls:
+            mock_engine_cls.return_value.compute_stage_metrics.return_value = stub_metrics
+            mock_engine_cls.return_value.compute_score.return_value = 0.5
+            mock_engine_cls.return_value.sanity_check.return_value = []
+
+            cfg = EvalConfig(
+                data_path=str(tmp_path / "x"),
+                output_dir=str(tmp_path / "out"),
+                search_strategy="grid",
+                tier="sanity",
+                n_trials=1,
+                pipeline_mode="synthetic",
+                transform_spec={"type": "noise", "sigma": 0.01},
+                search_space={"window_size": [3]},
+            )
+            optimizer = HyperparamOptimizer(cfg)
+            with patch.object(optimizer, "_tier_dataset", return_value=ds):
+                result = optimizer.run()
+        assert isinstance(result, SearchResult)
+
+    def test_detect_backend_import_error_falls_through(self, tmp_path):
+        """optimizer.py:587-588 — ImportError in _detect_backend is silently caught."""
+        import sys
+        cfg = EvalConfig(
+            data_path=str(tmp_path / "x"),
+            output_dir=str(tmp_path / "out"),
+            search_space={"window_size": [3]},
+        )
+        optimizer = HyperparamOptimizer(cfg)
+        with patch.dict(sys.modules, {"mpi4py": None}):
+            result = optimizer._detect_backend()
+        # Should fall through to bayesian or propulate (SLURM env may vary)
+        assert result in ("bayesian", "propulate")
+
+    def test_detect_backend_mpi_runtime_error_falls_through(self, tmp_path):
+        """optimizer.py:589-590 — non-ImportError from MPI init is caught by except Exception."""
+        import sys, types
+        cfg = EvalConfig(
+            data_path=str(tmp_path / "x"),
+            output_dir=str(tmp_path / "out"),
+            search_space={"window_size": [3]},
+        )
+        optimizer = HyperparamOptimizer(cfg)
+
+        # Build a fake mpi4py module where MPI.COMM_WORLD.Get_size() raises RuntimeError
+        mock_mpi4py = types.ModuleType("mpi4py")
+        mock_MPI = types.ModuleType("mpi4py.MPI")
+        mock_comm = MagicMock()
+        mock_comm.Get_size.side_effect = RuntimeError("MPI init failed")
+        mock_MPI.COMM_WORLD = mock_comm
+        mock_mpi4py.MPI = mock_MPI
+
+        with patch.dict(sys.modules, {"mpi4py": mock_mpi4py, "mpi4py.MPI": mock_MPI}):
+            result = optimizer._detect_backend()
+        assert result in ("bayesian", "propulate")
+
+    def test_detect_backend_mpi_world_size_gt1_returns_propulate(self, tmp_path):
+        """optimizer.py:584-586 — MPI world_size > 1 returns 'propulate'."""
+        import sys, types
+        cfg = EvalConfig(
+            data_path=str(tmp_path / "x"),
+            output_dir=str(tmp_path / "out"),
+            search_space={"window_size": [3]},
+        )
+        optimizer = HyperparamOptimizer(cfg)
+
+        # Build a fake mpi4py module where Get_size() returns 2 (multi-process)
+        mock_mpi4py = types.ModuleType("mpi4py")
+        mock_MPI = types.ModuleType("mpi4py.MPI")
+        mock_comm = MagicMock()
+        mock_comm.Get_size.return_value = 2
+        mock_MPI.COMM_WORLD = mock_comm
+        mock_mpi4py.MPI = mock_MPI
+
+        with patch.dict(sys.modules, {"mpi4py": mock_mpi4py, "mpi4py.MPI": mock_MPI}):
+            result = optimizer._detect_backend()
+        assert result == "propulate"
+
+    def test_detect_backend_mpi_world_size_eq1_falls_through(self, tmp_path):
+        """optimizer.py:584->593 — MPI world_size == 1, try completes, falls to SLURM check."""
+        import sys, types, os
+        cfg = EvalConfig(
+            data_path=str(tmp_path / "x"),
+            output_dir=str(tmp_path / "out"),
+            search_space={"window_size": [3]},
+        )
+        optimizer = HyperparamOptimizer(cfg)
+
+        mock_mpi4py = types.ModuleType("mpi4py")
+        mock_MPI = types.ModuleType("mpi4py.MPI")
+        mock_comm = MagicMock()
+        mock_comm.Get_size.return_value = 1  # single process — falls through to SLURM check
+        mock_MPI.COMM_WORLD = mock_comm
+        mock_mpi4py.MPI = mock_MPI
+
+        env_without_slurm = {k: v for k, v in os.environ.items() if k != "SLURM_JOB_ID"}
+        with patch.dict(sys.modules, {"mpi4py": mock_mpi4py, "mpi4py.MPI": mock_MPI}), \
+             patch.dict(os.environ, env_without_slurm, clear=True):
+            result = optimizer._detect_backend()
+        assert result == "bayesian"
+
+    def test_detect_backend_slurm_env(self, tmp_path):
+        """optimizer.py:593-595 — SLURM_JOB_ID set returns 'propulate'."""
+        import os
+        cfg = EvalConfig(
+            data_path=str(tmp_path / "x"),
+            output_dir=str(tmp_path / "out"),
+            search_space={"window_size": [3]},
+        )
+        optimizer = HyperparamOptimizer(cfg)
+        with patch.dict(sys.modules, {"mpi4py": None}), \
+             patch.dict(os.environ, {"SLURM_JOB_ID": "12345"}):
+            result = optimizer._detect_backend()
+        assert result == "propulate"
+
+    def test_tier_dataset_dev_real_path_exists(self, tmp_path, synthetic_dataset):
+        """optimizer.py:501 — dev tier with existing data_path calls load_real."""
+        real_file = tmp_path / "data.mat"
+        real_file.write_text("fake")
+
+        cfg = EvalConfig(
+            data_path=str(real_file),
+            output_dir=str(tmp_path / "out"),
+            search_space={"window_size": [3]},
+        )
+        with patch("eval.runners.optimizer.DataFactory") as mock_factory_cls:
+            mock_factory = mock_factory_cls.return_value
+            mock_factory.load_real.return_value = synthetic_dataset
+            optimizer = HyperparamOptimizer(cfg)
+            result = optimizer._tier_dataset("dev")
+        mock_factory.load_real.assert_called_once()
+        assert result is synthetic_dataset

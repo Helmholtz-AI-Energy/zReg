@@ -1,6 +1,7 @@
 """Tests for eval.viz — plot_trajectory and plot_metrics (FRAME-08)."""
 
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -305,3 +306,94 @@ class TestRenderDatasetTriptych:
         render_dataset_triptych(triptych_csv, "test_dataset", tmp_path)
         after = len(plt.get_fignums())
         assert after == before
+
+
+# ---------------------------------------------------------------------------
+# Coverage gap tests for viz.py
+# ---------------------------------------------------------------------------
+
+
+class TestVizCoverageGaps:
+    """Coverage gaps: subsampling >4000 pts, empty CSV, ValueError paths."""
+
+    def test_plot_trajectory_large_dataset_subsamples(self, tmp_path):
+        """viz.py:135,138 — subsampling when source/aligned pos > 4000 points."""
+        # Create large dataset with >4000 points per frame
+        large_ds = {
+            0: zRegPointCloud(pos=torch.randn(5000, 3), color=None, id=None),
+            1: zRegPointCloud(pos=torch.randn(5000, 3), color=None, id=None),
+            2: zRegPointCloud(pos=torch.randn(5000, 3), color=None, id=None),
+        }
+        align_result = AlignResult(
+            aligned_cloud=large_ds,
+            warp_path=[(0, 0), (1, 1), (2, 2)],
+            dtw_distance=0.0,
+            n_changepoints=0,
+            params_used={},
+        )
+        paths = plot_trajectory(align_result, None, large_ds, None, tmp_path)
+        assert len(paths) == 2
+        assert (tmp_path / "alignment_trajectory.pdf").exists()
+
+    def test_plot_metrics_large_label_dataset_subsamples(self, tmp_path):
+        """viz.py:209-211 — subsampling when label points > 4000."""
+        large_ds = {
+            0: zRegPointCloud(pos=torch.randn(5000, 3), color=torch.zeros(5000, dtype=torch.long), id=None),
+            1: zRegPointCloud(pos=torch.randn(5000, 3), color=torch.zeros(5000, dtype=torch.long), id=None),
+            2: zRegPointCloud(pos=torch.randn(5000, 3), color=torch.zeros(5000, dtype=torch.long), id=None),
+        }
+        label_result = LabelResult(
+            transferred_labels={k: torch.zeros(5000, dtype=torch.long) for k in large_ds},
+            params_used={},
+        )
+        paths = plot_trajectory(None, label_result, large_ds, None, tmp_path)
+        assert len(paths) == 2
+        assert (tmp_path / "label_trajectory.pdf").exists()
+
+    def test_render_dataset_triptych_empty_csv_raises(self, tmp_path):
+        """viz.py:346 — ValueError when CSV has no time frames (header only)."""
+        empty_csv = tmp_path / "empty.csv"
+        empty_csv.write_text("x,y,z,t\n")
+        with pytest.raises(ValueError, match="no time frames"):
+            render_dataset_triptych(empty_csv, "empty", tmp_path)
+
+    def test_render_dataset_triptych_no_matching_rows_raises(self, tmp_path):
+        """viz.py:360 — ValueError when no chunks match wanted t values.
+
+        Strategy: create a real CSV (t=999), then patch pandas.read_csv so that
+        the second call (chunked read) returns a chunk with t=888 (no match).
+        """
+        import pandas as pd
+
+        csv_path = tmp_path / "mismatch.csv"
+        df = pd.DataFrame([{"x": 1.0, "y": 2.0, "z": 3.0, "t": 999}])
+        df.to_csv(csv_path, index=False)
+
+        fake_chunk = pd.DataFrame({"x": [1.0], "y": [2.0], "z": [3.0], "t": [888]})
+        real_read_csv = pd.read_csv
+        call_count = [0]
+
+        def intercepted_read_csv(path, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                # First call: frame discovery (usecols=["t"]) — use real impl
+                return real_read_csv(path, **kwargs)
+            # Second call: chunked read — return non-matching chunk
+            return iter([fake_chunk])
+
+        with patch("pandas.read_csv", side_effect=intercepted_read_csv):
+            with pytest.raises(ValueError, match="no rows match"):
+                render_dataset_triptych(csv_path, "mismatch", tmp_path)
+
+    def test_render_dataset_triptych_large_points_subsamples(self, tmp_path):
+        """viz.py:382-383 — subsampling when n_pts > 4000 in triptych."""
+        import pandas as pd
+        rows = []
+        for t in [1, 2, 3]:
+            for _ in range(5000):
+                rows.append({"x": 0.5, "y": 0.5, "z": 0.5, "t": t})
+        df = pd.DataFrame(rows)
+        csv_path = tmp_path / "large.csv"
+        df.to_csv(csv_path, index=False)
+        result = render_dataset_triptych(csv_path, "large", tmp_path)
+        assert result.exists()

@@ -429,3 +429,95 @@ class TestExportTrajectoryIntegration:
         assert "trajectory_paths" in data, (
             f"'trajectory_paths' key missing from eval_report.json; keys: {list(data.keys())}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Coverage gap tests for trajectory.py
+# ---------------------------------------------------------------------------
+
+
+class TestTrajectoryExportCoverageGaps:
+    """trajectory.py:108-110 (git returncode!=0), 115-116 (PackageNotFoundError)."""
+
+    def test_git_hash_unknown_when_returncode_nonzero(self, synthetic_dataset, tmp_path):
+        """trajectory.py:108 — git_hash='unknown' when returncode != 0."""
+        import importlib.metadata as _meta
+        from unittest.mock import MagicMock as MM
+
+        bad_git = MM(returncode=1, stdout="")
+        with patch("eval.tracking.trajectory.subprocess.run", return_value=bad_git), \
+             patch("eval.tracking.trajectory.importlib.metadata.version", return_value="0.0.1"):
+            fake_align = AlignResult(
+                aligned_cloud=synthetic_dataset,
+                warp_path=[(0, 0), (1, 1), (2, 2)],
+                dtw_distance=0.0,
+                n_changepoints=0,
+                params_used={},
+            )
+            cfg = EvalConfig(data_path="x", tier="sanity", n_trials=1, n_synthetic=5)
+            paths = export_trajectory(
+                {"align": fake_align, "label": None},
+                synthetic_dataset,
+                cfg,
+                tmp_path / "out_gitfail",
+            )
+        import json
+        with open(str(paths[1])) as f:
+            meta = json.load(f)
+        assert meta["git_hash"] == "unknown"
+
+    def test_git_hash_unknown_when_subprocess_raises(self, synthetic_dataset, tmp_path):
+        """trajectory.py:109-110 — git_hash='unknown' when subprocess.run raises."""
+        with patch("eval.tracking.trajectory.subprocess.run", side_effect=Exception("git not found")), \
+             patch("eval.tracking.trajectory.importlib.metadata.version", return_value="0.0.1"):
+            fake_align = AlignResult(
+                aligned_cloud=synthetic_dataset,
+                warp_path=[(0, 0), (1, 1), (2, 2)],
+                dtw_distance=0.0,
+                n_changepoints=0,
+                params_used={},
+            )
+            cfg = EvalConfig(data_path="x", tier="sanity", n_trials=1, n_synthetic=5)
+            paths = export_trajectory(
+                {"align": fake_align, "label": None},
+                synthetic_dataset,
+                cfg,
+                tmp_path / "out_gitraise",
+            )
+        import json
+        with open(str(paths[1])) as f:
+            meta = json.load(f)
+        assert meta["git_hash"] == "unknown"
+
+    def test_zreg_version_unknown_when_package_not_found(self, synthetic_dataset, tmp_path):
+        """trajectory.py:115-116 — zreg_version='unknown' on PackageNotFoundError."""
+        import importlib.metadata as _meta
+        from unittest.mock import MagicMock as MM
+
+        good_git = MM(returncode=0, stdout="abc123\n")
+        with patch("eval.tracking.trajectory.subprocess.run", return_value=good_git), \
+             patch(
+                 "eval.tracking.trajectory.importlib.metadata.version",
+                 side_effect=_meta.PackageNotFoundError("zreg"),
+             ):
+            from eval.tracking import export_trajectory
+            from eval.types import AlignResult
+            fake_align = AlignResult(
+                aligned_cloud=synthetic_dataset,
+                warp_path=[(0, 0), (1, 1), (2, 2)],
+                dtw_distance=0.0,
+                n_changepoints=0,
+                params_used={},
+            )
+            from eval.config import EvalConfig
+            cfg = EvalConfig(data_path="x", tier="sanity", n_trials=1, n_synthetic=5)
+            paths = export_trajectory(
+                {"align": fake_align, "label": None},
+                synthetic_dataset,
+                cfg,
+                tmp_path / "out_pkgfail",
+            )
+        import json
+        with open(str(paths[1])) as f:
+            meta = json.load(f)
+        assert meta["zreg_version"] == "unknown"

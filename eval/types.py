@@ -73,8 +73,11 @@ class AlignResult(BaseModel):
     Parameters
     ----------
     aligned_cloud : dict[int, zRegPointCloud]
-        One aligned point cloud per frame, keyed by integer frame index.
-        Mirrors the shape returned by ``DataFactory.load_real()``.
+        CPD-transformed (or DTW-resampled) source trajectory keyed by full
+        target keys.  When ``cpd_penalty=None``, contains temporally-resampled
+        source frames (no spatial registration).  When ``cpd_penalty`` is set,
+        each frame is spatially registered to its paired target frame via CPD.
+        ``Keys == set(target.keys())``.
     warp_path : list[tuple[int, int]]
         Optimal DTW alignment path as ``(source_idx, target_idx)`` pairs.
         Matches ``zreg.dtw.DTWResult.warping_path`` exactly.
@@ -98,7 +101,11 @@ class AlignResult(BaseModel):
 
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
 
-    aligned_cloud: dict[int, zRegPointCloud]  # pass-through ref — callers must not mutate dataset after run() returns
+    # CPD-transformed (or DTW-resampled) source trajectory keyed by full target keys.
+    # When cpd_penalty=None, contains temporally-resampled source frames (no spatial
+    # registration). When cpd_penalty is set, each frame is spatially registered to
+    # its paired target frame via CPD. Keys == set(target.keys()).
+    aligned_cloud: dict[int, zRegPointCloud]
     warp_path: list[tuple[int, int]]
     dtw_distance: float
     n_changepoints: int

@@ -97,9 +97,12 @@ class TestAlignmentStageRunStandalone:
         result = stage.run(synthetic_dataset_a, synthetic_dataset_b, default_params)
 
         assert isinstance(result, AlignResult)
-        # aligned_cloud values equal the input dataset (pydantic v2 validates dict[int, ...] into a new dict,
-        # so identity check is not feasible; equality confirms pass-through semantics)
-        assert result.aligned_cloud == synthetic_dataset_a
+        # aligned_cloud is keyed by target keys (Phase 33: CPD-transformed semantics)
+        assert set(result.aligned_cloud.keys()) == set(synthetic_dataset_b.keys())
+        # aligned_cloud has same length as target
+        assert len(result.aligned_cloud) == len(synthetic_dataset_b)
+        # aligned_cloud is a new dict — not the same object as source
+        assert result.aligned_cloud is not synthetic_dataset_a
         # warp_path is a non-empty list of (int, int) tuples
         assert isinstance(result.warp_path, list) and len(result.warp_path) >= 1
         # dtw_distance is a non-negative float
@@ -245,18 +248,17 @@ class TestAlignmentStageTwoInput:
     def test_run_with_distinct_source_target_returns_align_result(
         self, synthetic_dataset_a, synthetic_dataset_b, default_params, eval_config
     ):
-        """run(source, target, params) with distinct datasets returns AlignResult; aligned_cloud == source (D-06)."""
+        """run(source, target, params) with distinct datasets returns AlignResult (Phase 33: CPD-aligned semantics)."""
         stage = AlignmentStage(eval_config)
         result = stage.run(synthetic_dataset_a, synthetic_dataset_b, default_params)
         assert isinstance(result, AlignResult)
-        # aligned_cloud equals source, not target
-        assert result.aligned_cloud == synthetic_dataset_a
-        # aligned_cloud must not be the target object (D-06 source pass-through)
+        # aligned_cloud is keyed by target keys (Phase 33 — target-key indexing invariant)
+        assert set(result.aligned_cloud.keys()) == set(synthetic_dataset_b.keys())
+        # aligned_cloud must not be the source or target object
+        assert result.aligned_cloud is not synthetic_dataset_a
         assert result.aligned_cloud is not synthetic_dataset_b
-        # structural verification: source and target have different pos tensors at frame 0
-        assert not torch.equal(
-            result.aligned_cloud[0]["pos"], synthetic_dataset_b[0]["pos"]
-        )
+        # aligned_cloud frames are deep copies — source is not mutated
+        assert result.aligned_cloud[0] is not synthetic_dataset_a[0]
 
     def test_run_with_distinct_source_target_warp_path_nonempty(
         self, synthetic_dataset_a, synthetic_dataset_b, default_params, eval_config

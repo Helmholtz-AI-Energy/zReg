@@ -278,3 +278,131 @@ class TestAlignmentStageTwoInput:
         stage = AlignmentStage(eval_config)
         result = stage.run(synthetic_dataset_a, synthetic_dataset_a, default_params)
         assert isinstance(result, AlignResult)
+
+
+# ---------------------------------------------------------------------------
+# TestAlignedCloudSemantics — Plan 33-02 (POPULATED)
+# ---------------------------------------------------------------------------
+
+
+class TestAlignedCloudSemantics:
+    """Phase 33-02: aligned_cloud semantics — target-key indexing, deep copies, CPD transforms."""
+
+    @pytest.fixture
+    def params_no_cpd(self) -> dict:
+        """Params with cpd_penalty=None for temporal-only resample tests."""
+        return {
+            "window_size": 10,
+            "step": 1,
+            "cpd_penalty": None,
+            "dtw_dist_fn": "euclidean",
+            "n_breakpoints": 5,
+        }
+
+    @pytest.fixture
+    def params_rigid(self) -> dict:
+        """Params with cpd_penalty='rigid' for CPD transform tests."""
+        return {
+            "window_size": 10,
+            "step": 1,
+            "cpd_penalty": "rigid",
+            "dtw_dist_fn": "euclidean",
+            "n_breakpoints": 5,
+        }
+
+    def test_aligned_cloud_keys_equal_target_keys_no_cpd(self, eval_config, params_no_cpd):
+        """aligned_cloud.keys() == target.keys() when cpd_penalty=None (source 3 frames, target 4 frames)."""
+        source = generate_trajectory(n_points=15, n_frames=3, seed=101)
+        target = generate_trajectory(n_points=15, n_frames=4, seed=102)
+        stage = AlignmentStage(eval_config)
+        result = stage.run(source, target, params_no_cpd)
+        assert set(result.aligned_cloud.keys()) == set(target.keys())
+
+    def test_aligned_cloud_length_equals_target_length(self, eval_config, params_no_cpd):
+        """len(aligned_cloud) == len(target) when cpd_penalty=None (source 3 frames, target 4 frames)."""
+        source = generate_trajectory(n_points=15, n_frames=3, seed=103)
+        target = generate_trajectory(n_points=15, n_frames=4, seed=104)
+        stage = AlignmentStage(eval_config)
+        result = stage.run(source, target, params_no_cpd)
+        assert len(result.aligned_cloud) == len(target)
+
+    def test_aligned_cloud_is_deep_copy_of_source(self, eval_config, params_no_cpd):
+        """Mutating aligned_cloud frames does not affect the original source dict (deep-copy guard)."""
+        source = generate_trajectory(n_points=15, n_frames=3, seed=105)
+        target = generate_trajectory(n_points=15, n_frames=4, seed=106)
+        # Snapshot source pos before run
+        source_pos_before = {k: source[k]["pos"].clone() for k in source}
+        stage = AlignmentStage(eval_config)
+        result = stage.run(source, target, params_no_cpd)
+        # Mutate every frame in aligned_cloud
+        for k in result.aligned_cloud:
+            result.aligned_cloud[k]["pos"] += 999
+        # Source must be unchanged
+        for sk in source:
+            assert torch.allclose(source[sk]["pos"], source_pos_before[sk]), (
+                f"source[{sk}]['pos'] was mutated after modifying aligned_cloud"
+            )
+
+    def test_aligned_cloud_with_rigid_cpd_changes_pos(self, eval_config, params_rigid):
+        """With cpd_penalty='rigid', at least one aligned frame pos differs from the raw source frame.
+
+        Setup: source is rotated 30° around z relative to target so CPD has real work to do.
+        """
+        source = generate_trajectory(n_points=15, n_frames=2, seed=107)
+        target = generate_trajectory(n_points=15, n_frames=2, seed=108)
+        # Rotate source 30° around z-axis so CPD must undo the rotation
+        theta = torch.tensor(30.0 * 3.14159265 / 180.0)
+        cos_t, sin_t = theta.cos().item(), theta.sin().item()
+        R = torch.tensor([[cos_t, -sin_t, 0.0], [sin_t, cos_t, 0.0], [0.0, 0.0, 1.0]])
+        for k in source:
+            source[k]["pos"] = source[k]["pos"] @ R.T
+
+        stage = AlignmentStage(eval_config)
+        result = stage.run(source, target, params_rigid)
+
+        # At least one aligned frame must have pos different from every raw source frame
+        source_keys_sorted = sorted(source.keys())
+        any_changed = False
+        for tk in result.aligned_cloud:
+            aligned_pos = result.aligned_cloud[tk]["pos"]
+            for sk in source_keys_sorted:
+                if not torch.allclose(aligned_pos, source[sk]["pos"], atol=1e-3):
+                    any_changed = True
+        assert any_changed, "CPD rigid registration did not change any pos tensor"
+
+    def test_aligned_cloud_with_cpd_none_is_temporal_resample(self, eval_config, params_no_cpd):
+        """With cpd_penalty=None, each aligned_cloud frame pos exactly matches some source frame pos.
+
+        Source 5 frames, target 3 frames.
+        """
+        source = generate_trajectory(n_points=15, n_frames=5, seed=109)
+        target = generate_trajectory(n_points=15, n_frames=3, seed=110)
+        stage = AlignmentStage(eval_config)
+        result = stage.run(source, target, params_no_cpd)
+
+        assert set(result.aligned_cloud.keys()) == set(target.keys())
+        source_keys_sorted = sorted(source.keys())
+        for tk, frame in result.aligned_cloud.items():
+            matched = any(
+                torch.allclose(frame["pos"], source[sk]["pos"]) for sk in source_keys_sorted
+            )
+            assert matched, (
+                f"aligned_cloud[{tk}]['pos'] does not match any source frame pos "
+                f"(expected temporal resample with cpd_penalty=None)"
+            )
+
+    def test_step_gt_1_aligned_cloud_still_has_full_target_keys(self, eval_config):
+        """With step=2, aligned_cloud still has all 6 target keys (full-resolution output)."""
+        params_step2 = {
+            "window_size": 10,
+            "step": 2,
+            "cpd_penalty": None,
+            "dtw_dist_fn": "euclidean",
+            "n_breakpoints": 5,
+        }
+        source = generate_trajectory(n_points=15, n_frames=6, seed=111)
+        target = generate_trajectory(n_points=15, n_frames=6, seed=112)
+        stage = AlignmentStage(eval_config)
+        result = stage.run(source, target, params_step2)
+        assert len(result.aligned_cloud) == 6
+        assert all(tk in result.aligned_cloud for tk in target.keys())

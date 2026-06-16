@@ -331,6 +331,8 @@ class AlignmentStage(PipelineStage):
         n_sub = len(target_sub)
         target_keys_sorted = sorted(target.keys())
         n_target_full = len(target_keys_sorted)
+        # CR-02: compute fallback once — warp_path is guaranteed non-empty by DTW
+        fallback_src_sub_idx = warp_path[0][0] if warp_path else 0
 
         aligned: dict[int, zRegPointCloud] = {}
 
@@ -338,14 +340,14 @@ class AlignmentStage(PipelineStage):
             # Nearest strided target index for this full-resolution position
             tgt_sub_idx = min(round(pos * n_sub / n_target_full), n_sub - 1)
 
-            # Fall back to first entry if warp path doesn't cover this sub-idx
-            src_sub_idx = tgt_to_src_sub.get(tgt_sub_idx, warp_path[0][0])
+            src_sub_idx = tgt_to_src_sub.get(tgt_sub_idx, fallback_src_sub_idx)
 
             # Retrieve and deep-copy the source frame (no in-place mutation)
             src_frame = deepcopy(source_sub[src_sub_idx])
 
             if cpd_penalty is not None:
-                tgt_frame = target_sub[tgt_sub_idx]
+                # CR-03: use full target frame for spatial registration, not strided sub-dict
+                tgt_frame = target[tk]
                 tf_params = {
                     "device": src_frame["pos"].device,
                     "dtype": src_frame["pos"].dtype,
@@ -373,8 +375,10 @@ class AlignmentStage(PipelineStage):
                         log_freq=-1,
                     )
 
-                cpd_obj.registration(tgt_frame["pos"], w=0.0, maxiter=1000, tol=1e-5)
-                src_frame["pos"] = cpd_obj.transformation.transform(src_frame["pos"])
+                # CR-01: use registration() return value — NonRigidCPD does not set
+                # self.transformation (overrides maximization_step without super() call)
+                reg_result = cpd_obj.registration(tgt_frame["pos"], w=0.0, maxiter=1000, tol=1e-5)
+                src_frame["pos"] = reg_result.transformation.transform(src_frame["pos"])
 
             aligned[tk] = src_frame
 

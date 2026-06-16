@@ -61,9 +61,9 @@
 
 - [x] **MODE-01**: Two-dataset paired alignment — `AlignmentStage.run(source, target, params)` accepts two separate `dict[int, zRegPointCloud]` trajectories; DTW always runs `DynamicTimeWarping(x=source_sub, y=target_sub)` (never `x=y` self-alignment); `EvalConfig` gains `pipeline_mode: Literal["paired", "synthetic"] = "paired"` and `target_data_path: str | None = None`; `DataFactory.load_target()` loads the target dataset; `EvaluationRunner` supplies source + target to the stage; `paired_alignment.yaml` scenario config — Complete Phase 30
 
-- [ ] **MODE-02**: Synthetic mode target generation — `EvalConfig` gains `transform_spec: dict | None = None`; `DataFactory.generate_target(dataset, transform_spec)` applies the specified transformation (rigid/affine/noise via existing `zreg.generators` + `DataFactory.augment()` API) to produce a distinct target trajectory; `EvaluationRunner` in synthetic mode calls `generate_target()` instead of `load_target()` — Complete Phase 31
+- [x] **MODE-02**: Synthetic mode target generation — `EvalConfig` gains `transform_spec: dict | None = None`; `DataFactory.generate_target(dataset, transform_spec)` applies the specified transformation (rigid/affine/noise via existing `zreg.generators` + `DataFactory.augment()` API) to produce a distinct target trajectory; `EvaluationRunner` in synthetic mode calls `generate_target()` instead of `load_target()` — Complete Phase 31
 
-- [ ] **MODE-03**: Ground-truth-aware HPO in synthetic mode — `DataFactory.get_synthetic_ground_truth()` returns per-frame cell-identity labels derived from the known deterministic transform; `HyperparamOptimizer._objective()` uses GT F1 score as calibration signal when `pipeline_mode == "synthetic"`; `synthetic_mode.yaml` scenario config runs full HPO loop — Complete Phase 31
+- [x] **MODE-03**: Ground-truth-aware HPO in synthetic mode — `DataFactory.get_synthetic_ground_truth()` returns per-frame cell-identity labels derived from the known deterministic transform; `HyperparamOptimizer._objective()` uses GT F1 score as calibration signal when `pipeline_mode == "synthetic"`; `synthetic_mode.yaml` scenario config runs full HPO loop — Complete Phase 31
 
 ### Category 13 — Heterogeneous Paired Evaluation
 
@@ -135,6 +135,6 @@
 | FRAME-11 | Phase 23 | Complete | CLI entrypoint |
 | FRAME-12 | Phase 23 | Complete | 5 scenario YAML configs |
 | MODE-01 | Phase 30 | Complete 2026-06-12 | Two-dataset paired alignment — AlignmentStage.run(source, target), EvalConfig paired mode, DataFactory.load_target(), EvaluationRunner update |
-| MODE-02 | Phase 31 | Not started | Synthetic mode target generation — EvalConfig transform_spec, DataFactory.generate_target() |
-| MODE-03 | Phase 31 | Not started | GT-aware HPO in synthetic mode — DataFactory.get_synthetic_ground_truth(), HyperparamOptimizer GT objective |
+| MODE-02 | Phase 31 | Complete 2026-06-14 | Synthetic mode target generation — EvalConfig transform_spec, DataFactory.generate_target() |
+| MODE-03 | Phase 31 | Complete 2026-06-14 | GT-aware HPO in synthetic mode — DataFactory.get_synthetic_ground_truth(), HyperparamOptimizer GT objective |
 | HETERO-01 | Phase 32 | Complete 2026-06-14 | Heterogeneous paired evaluation — EvalConfig.target_data_format, DataFactory.load_target() format dispatch, 3 cross-format scenario configs |

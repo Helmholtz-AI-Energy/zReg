@@ -183,6 +183,11 @@ def export_trajectory(
                     pos = align_result_val.aligned_cloud[frame_idx]["pos"]
                 else:
                     pos = dataset[frame_idx]["pos"]
+                if len(pos) != len(labels):
+                    raise ValueError(
+                        f"frame {frame_idx}: pos has {len(pos)} points but "
+                        f"transferred_labels has {len(labels)} — pipeline state is inconsistent"
+                    )
                 for i in range(len(labels)):
                     x, y, z = pos[i].tolist()
                     label = int(labels[i].item())

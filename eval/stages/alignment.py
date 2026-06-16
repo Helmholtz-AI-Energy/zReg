@@ -24,14 +24,12 @@ Hyperparam mapping (D-07):
 
 Notes
 -----
-**aligned_cloud semantics:**
-``AlignResult.aligned_cloud`` is the ``source`` argument reference unchanged
-(pass-through; D-06 from Phase 30).  The target trajectory is consumed by
-DTW but is not returned.  DTW alignment is captured in ``warp_path``; spatial
-registration (when ``cpd_penalty`` is set) modifies points only inside
-``pairwise_distance_matrix.py`` and is not exposed as a transformed dataset
-by the current ``zreg.dtw`` API.  Flagged as Open Question 1 in 19-RESEARCH.md
-for future Phase 21 evaluation.
+**aligned_cloud semantics (Phase 33):**
+``AlignResult.aligned_cloud`` is a ``dict[int, zRegPointCloud]`` keyed by
+the full target keys.  Each frame is a deep copy of the corresponding
+temporally-resampled source frame.  When ``cpd_penalty`` is set, each frame is
+additionally spatially registered to its paired target frame via CPD
+(``_build_aligned_cloud``).  The original ``source`` dict is never mutated.
 
 **DTWResult.rotations quirk:**
 When ``cpd_type=None``, ``DTWResult.rotations`` is ``[]`` (empty list), NOT
@@ -39,11 +37,13 @@ When ``cpd_type=None``, ``DTWResult.rotations`` is ``[]`` (empty list), NOT
 ``result.rotations`` anywhere to avoid this pitfall (Pitfall 2 / 19-RESEARCH.md).
 """
 
+from copy import deepcopy
 from typing import Any
 
 # zreg.* MUST precede torch on macOS-ARM (libomp SIGABRT).
 # Enforced in tests/conftest.py:20-24, eval/data_factory.py:18-35,
 # eval/metrics.py:53-67, eval/types.py:48-53.
+from zreg.cpd import RigidCPD, AffineCPD, NonRigidCPD
 from zreg.dataset import zRegPointCloud
 from zreg.dtw import DynamicTimeWarping
 
@@ -170,8 +170,7 @@ class AlignmentStage(PipelineStage):
         source : dict[int, zRegPointCloud]
             Source trajectory keyed by integer frame index.  Mirrors the
             shape returned by ``DataFactory.load_real()`` and
-            ``DataFactory.generate_synthetic()``.  ``aligned_cloud`` in the
-            returned ``AlignResult`` equals this argument (D-06 pass-through).
+            ``DataFactory.generate_synthetic()``.  Never mutated by ``run()``.
         target : dict[int, zRegPointCloud]
             Target trajectory keyed by integer frame index.  DTW aligns
             ``source`` against ``target``; ``target`` is not returned in the
@@ -184,8 +183,11 @@ class AlignmentStage(PipelineStage):
         -------
         AlignResult
             Pydantic-frozen result with:
-            - ``aligned_cloud``: the ``source`` argument reference unchanged
-              (pass-through; D-06 from Phase 30).
+            - ``aligned_cloud``: CPD-transformed (or DTW-resampled) source
+              trajectory keyed by full target keys.  When ``cpd_penalty=None``,
+              contains temporally-resampled deep-copy source frames.  When
+              ``cpd_penalty`` is set, each frame is spatially registered to
+              its paired target frame via CPD.
             - ``warp_path``: DTW optimal alignment path.
             - ``dtw_distance``: accumulated DTW cost.
             - ``n_changepoints``: diagonal/non-diagonal transition count,
@@ -194,12 +196,10 @@ class AlignmentStage(PipelineStage):
 
         Notes
         -----
-        ``aligned_cloud`` equals ``source``, unchanged.  DTW alignment is
-        captured in ``warp_path``; spatial registration (when ``cpd_penalty``
-        is set) modifies points only inside ``pairwise_distance_matrix.py``
-        and is not exposed as a transformed dataset by the current
-        ``zreg.dtw`` API.  See module docstring and Open Question 1 in
-        19-RESEARCH.md.
+        ``aligned_cloud`` is built by ``_build_aligned_cloud`` using the
+        already-computed ``warp_path`` — DTW is not re-run.  The original
+        ``source`` dict is never mutated; all frames in ``aligned_cloud``
+        are deep copies.
 
         ``params_used`` is a shallow copy (``dict(params)``) to avoid Pitfall 7:
         mutating the original ``params`` dict after ``run()`` would otherwise
@@ -227,8 +227,17 @@ class AlignmentStage(PipelineStage):
         n_jumps = self._count_jumps(result.warping_path)
         n_changepoints = min(n_jumps, params["n_breakpoints"])  # D-06 cap
 
+        aligned_cloud = self._build_aligned_cloud(
+            source=source,
+            target=target,
+            source_sub=source_sub,
+            target_sub=target_sub,
+            warp_path=result.warping_path,
+            cpd_penalty=params["cpd_penalty"],
+        )
+
         return AlignResult(
-            aligned_cloud=source,  # pass-through; D-06 — source unchanged, target consumed by DTW
+            aligned_cloud=aligned_cloud,
             warp_path=result.warping_path,
             dtw_distance=result.distance,
             n_changepoints=n_changepoints,
@@ -274,3 +283,99 @@ class AlignmentStage(PipelineStage):
 
         kinds = [_kind(warping_path[k - 1], warping_path[k]) for k in range(1, len(warping_path))]
         return sum(1 for k in range(1, len(kinds)) if kinds[k] != kinds[k - 1])
+
+    @staticmethod
+    def _build_aligned_cloud(
+        source: dict[int, zRegPointCloud],
+        target: dict[int, zRegPointCloud],
+        source_sub: dict[int, zRegPointCloud],
+        target_sub: dict[int, zRegPointCloud],
+        warp_path: list[tuple[int, int]],
+        cpd_penalty: str | None,
+    ) -> dict[int, zRegPointCloud]:
+        """Build the CPD-transformed aligned source trajectory.
+
+        For each target frame (full dataset), find the temporally corresponding
+        source frame from the warp path and optionally apply CPD spatial
+        registration.  Returns a dict keyed by full target keys.
+
+        Parameters
+        ----------
+        source : dict[int, zRegPointCloud]
+            Full source trajectory (all frames).
+        target : dict[int, zRegPointCloud]
+            Full target trajectory (all frames).
+        source_sub : dict[int, zRegPointCloud]
+            Strided source sub-dict (keys 0..N-1, values = original source frames).
+        target_sub : dict[int, zRegPointCloud]
+            Strided target sub-dict (keys 0..M-1, values = original target frames).
+        warp_path : list[tuple[int, int]]
+            DTW warping path as (source_sub_idx, target_sub_idx) pairs.
+        cpd_penalty : str | None
+            CPD type (``"rigid"``, ``"affine"``, ``"nonrigid"``) or ``None``
+            for temporal-only alignment.
+
+        Returns
+        -------
+        dict[int, zRegPointCloud]
+            Aligned trajectory with same keys as target.  Each frame is a
+            deep copy of the corresponding source frame, optionally
+            spatially registered via CPD.
+        """
+        # Build lookup: target_sub_idx -> first matching source_sub_idx
+        tgt_to_src_sub: dict[int, int] = {}
+        for src_sub_idx, tgt_sub_idx in warp_path:
+            if tgt_sub_idx not in tgt_to_src_sub:
+                tgt_to_src_sub[tgt_sub_idx] = src_sub_idx
+
+        n_sub = len(target_sub)
+        target_keys_sorted = sorted(target.keys())
+        n_target_full = len(target_keys_sorted)
+
+        aligned: dict[int, zRegPointCloud] = {}
+
+        for pos, tk in enumerate(target_keys_sorted):
+            # Nearest strided target index for this full-resolution position
+            tgt_sub_idx = min(round(pos * n_sub / n_target_full), n_sub - 1)
+
+            # Fall back to first entry if warp path doesn't cover this sub-idx
+            src_sub_idx = tgt_to_src_sub.get(tgt_sub_idx, warp_path[0][0])
+
+            # Retrieve and deep-copy the source frame (no in-place mutation)
+            src_frame = deepcopy(source_sub[src_sub_idx])
+
+            if cpd_penalty is not None:
+                tgt_frame = target_sub[tgt_sub_idx]
+                tf_params = {
+                    "device": src_frame["pos"].device,
+                    "dtype": src_frame["pos"].dtype,
+                }
+
+                if cpd_penalty == "nonrigid":
+                    # NonRigidCPD does not accept tf_init_params (P5)
+                    cpd_obj = NonRigidCPD(
+                        source=src_frame["pos"],
+                        use_color=False,
+                        log_freq=-1,
+                    )
+                elif cpd_penalty == "affine":
+                    cpd_obj = AffineCPD(
+                        source=src_frame["pos"],
+                        use_color=False,
+                        tf_init_params=tf_params,
+                        log_freq=-1,
+                    )
+                else:  # "rigid"
+                    cpd_obj = RigidCPD(
+                        source=src_frame["pos"],
+                        use_color=False,
+                        tf_init_params=tf_params,
+                        log_freq=-1,
+                    )
+
+                cpd_obj.registration(tgt_frame["pos"], w=0.0, maxiter=1000, tol=1e-5)
+                src_frame["pos"] = cpd_obj.transformation.transform(src_frame["pos"])
+
+            aligned[tk] = src_frame
+
+        return aligned

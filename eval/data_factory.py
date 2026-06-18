@@ -116,6 +116,7 @@ class DataFactory:
                 f"expected 'tracklets' or 'csv'"
             )
 
+        dataset = self._subsample_to_max(dataset)
         self._real_dataset = dataset
         return dataset
 
@@ -167,6 +168,7 @@ class DataFactory:
                 f"expected 'tracklets' or 'csv'"
             )
 
+        dataset = self._subsample_to_max(dataset)
         self._target_dataset = dataset
         return dataset
 
@@ -570,6 +572,39 @@ class DataFactory:
             scale=1.0,
         )
         return apply_rigid(dataset, tf)
+
+    def _subsample_to_max(
+        self,
+        dataset: dict[int, zRegPointCloud],
+        seed: int = 42,
+    ) -> dict[int, zRegPointCloud]:
+        """Subsample each frame to at most ``config.max_points_per_frame`` points.
+
+        No-op when ``config.max_points_per_frame`` is ``None`` or when a frame
+        already has fewer points than the limit.  Uses ``torch.randperm`` for
+        reproducible random selection (same contract as ``drop_points``).
+
+        Returns the input dict unchanged by reference when no subsampling is
+        required — the caller must not mutate the result in place.
+        """
+        limit = self.config.max_points_per_frame
+        if limit is None:
+            return dataset
+        torch.manual_seed(seed)
+        result: dict[int, zRegPointCloud] = {}
+        for i, pc in dataset.items():
+            n = pc["pos"].shape[0]
+            if n <= limit:
+                result[i] = pc
+                continue
+            idx = torch.randperm(n, device=pc["pos"].device)[:limit].sort().values
+            result[i] = zRegPointCloud(
+                pos=pc["pos"][idx],
+                color=pc["color"][idx] if pc["color"] is not None else None,
+                id=pc["id"][idx] if pc["id"] is not None else None,
+            )
+            result[i]["fps-idx"] = pc["fps-idx"][idx] if pc["fps-idx"] is not None else None
+        return result
 
     def drop_points(
         self,

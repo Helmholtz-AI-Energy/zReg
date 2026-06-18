@@ -122,10 +122,21 @@ def plot_trajectory(
     # ALIGNMENT FIGURE — written only when align_result is not None
     # ------------------------------------------------------------------
     if align_result is not None:
+        # aligned_cloud is keyed by target frame indices, which differ from
+        # source keys in paired mode. Derive frame selection from aligned_cloud
+        # so both lookups (aligned_cloud[fk] and dataset[fk]) are valid.
+        align_sorted = sorted(align_result.aligned_cloud.keys())
+        align_candidates = [
+            align_sorted[0],
+            align_sorted[len(align_sorted) // 2],
+            align_sorted[-1],
+        ]
+        seen_a: set = set()
+        align_frame_indices = [k for k in align_candidates if not (k in seen_a or seen_a.add(k))]
         fig = plt.figure(figsize=(12, 4))
         source_h = None
         aligned_h = None
-        for idx, fk in enumerate(frame_indices):
+        for idx, fk in enumerate(align_frame_indices):
             ax = fig.add_subplot(1, 3, idx + 1, projection="3d")
             source_pos = dataset[fk]["pos"].detach().cpu().numpy()
             aligned_pos = align_result.aligned_cloud[fk]["pos"].detach().cpu().numpy()
@@ -137,9 +148,9 @@ def plot_trajectory(
             if len(aligned_pos) > 4000:
                 aligned_pos = aligned_pos[rng.choice(len(aligned_pos), 4000, replace=False)]
             s = ax.scatter(source_pos[:, 0], source_pos[:, 1], source_pos[:, 2],
-                           c="blue", s=1.5, alpha=0.45, linewidths=0)
+                           c="blue", s=1.5, alpha=1.0, linewidths=0)
             a = ax.scatter(aligned_pos[:, 0], aligned_pos[:, 1], aligned_pos[:, 2],
-                           c="orange", s=1.5, alpha=0.45, linewidths=0)
+                           c="red", s=1.5, alpha=1.0, linewidths=0)
             if idx == 0:
                 source_h, aligned_h = s, a
             ax.set_title(f"Frame {fk}", fontsize=9, pad=4)
@@ -184,9 +195,8 @@ def plot_trajectory(
             union_labels.update(int(v) for v in torch.unique(t).tolist())
         sorted_labels = sorted(union_labels)
 
-        # Build colormap — non-deprecated API (matplotlib 3.7+)
-        cmap = matplotlib.colormaps.get_cmap("tab10")
-        color_for_label = {lab: cmap(i % 10) for i, lab in enumerate(sorted_labels)}
+        _label_palette = ["red", "green", "blue"]
+        color_for_label = {lab: _label_palette[i % 3] for i, lab in enumerate(sorted_labels)}
 
         fig = plt.figure(figsize=(12, 4))
         for idx, fk in enumerate(label_frame_indices):
@@ -213,7 +223,7 @@ def plot_trajectory(
                 pos = pos[:n_pts]
                 c_vals = c_vals[:n_pts]
             ax.scatter(pos[:, 0], pos[:, 1], pos[:, 2],
-                       c=c_vals, s=1.5, alpha=0.45, linewidths=0)
+                       c=c_vals, s=1.5, alpha=1.0, linewidths=0)
             ax.set_title(f"Frame {fk}", fontsize=9, pad=4)
             for lbl in (ax.get_xticklabels() + ax.get_yticklabels() + ax.get_zticklabels()):
                 lbl.set_fontsize(6)

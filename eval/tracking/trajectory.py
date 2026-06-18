@@ -130,11 +130,14 @@ def export_trajectory(
         align_result = align_result_val
 
         # 5a. Write align_trajectory.csv
+        # aligned_cloud is keyed by target frame indices in paired mode, so
+        # iterate its own keys rather than source dataset keys.
+        align_cloud_keys = sorted(align_result.aligned_cloud.keys())
         align_csv_path = output_dir / "align_trajectory.csv"
         with open(align_csv_path, "w", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(["frame_idx", "point_idx", "x", "y", "z"])
-            for frame_idx in sorted(dataset.keys()):
+            for frame_idx in align_cloud_keys:
                 pos = align_result.aligned_cloud[frame_idx]["pos"]
                 for i in range(len(pos)):
                     x, y, z = pos[i].tolist()
@@ -143,8 +146,8 @@ def export_trajectory(
         # 5b. Build align metadata
         align_meta: dict[str, Any] = {
             "run_id": run_id,
-            "frame_count": len(dataset),
-            "frame_indices": sorted(dataset.keys()),
+            "frame_count": len(align_cloud_keys),
+            "frame_indices": align_cloud_keys,
             "data_path": config.data_path,
             "params_used": align_result.params_used,
             "tier": config.tier,

@@ -1,0 +1,28 @@
+# Shah sample-1 vs Kobitski ew06 — rigid CPD, laptop-scale sanity run.
+#
+# Identical cross-dataset direction to shah_vs_kobitski_rigid.yaml but with
+# max_points_per_frame: 100 so each point cloud is subsampled to at most 100
+# points before any stage runs. This makes rigid CPD (O(N*M)) cheap enough
+# to iterate on a laptop. Use this config to verify the paired-rigid pipeline
+# end-to-end before scaling up.
+data_path: /Users/valeriekieslinger/Documents/Hiwi/BA/data/shah_data/sample-1/sample-1-cell-tracks.csv
+data_format: csv
+target_data_path: /Users/valeriekieslinger/Documents/Hiwi/BA/data/kobitski_data/12_11_15_embryo_ew_06_Cleaned_BackTracked_Oriented.tracklets
+target_data_format: tracklets
+pipeline_mode: paired
+tier: sanity
+n_trials: 3
+run_alignment: true
+run_label_transfer: true
+max_points_per_frame: 100
+default_params:
+  window_size: 40
+  step: 2
+  cpd_penalty: rigid
+  dtw_dist_fn: euclidean
+  n_breakpoints: 5
+  k_neighbours: 5
+  dist_metric: euclidean
+  smoothing: 0.0
+  threshold: 0.5
+output_dir: experiments/runs/shah_vs_kobitski_rigid_sanity

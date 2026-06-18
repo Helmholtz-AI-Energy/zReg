@@ -2,7 +2,7 @@
 
 ## Milestones
 
-- 🚧 **v1.2 Evaluation Framework & Debt Resolution** — Phases 12–31 (in progress)
+- 🚧 **v1.2 Evaluation Framework & Debt Resolution** — Phases 12–34 (in progress)
 - ✅ **v1.1 Code Quality & Refactoring** — Phases 6–11.1 (shipped 2026-05-13) — [archive](.planning/milestones/v1.1-ROADMAP.md)
 - ✅ **v1.0 Consolidation** — Phases 1-5 (shipped 2026-04-09) — [archive](.planning/milestones/v1.0-ROADMAP.md)
 
@@ -76,6 +76,53 @@
   - [x] 30-02-PLAN.md — Update EvaluationRunner.run() + _run_single + HyperparamOptimizer._objective for source/target propagation; resolve variable shadowing (source_pos/target_pos); update test_eval_runner and test_optimizer mocks
   **Wave 3** *(blocked on Wave 2 completion)*
   - [x] 30-03-PLAN.md — Add configs/paired_alignment.yaml (Kobitski as both source and target); update tests/test_trajectory_export.py mocks; add tests/test_cli.py smoke-test for paired_alignment.yaml
+
+- [ ] **Phase 35: Reuse Step-1 CPD Transforms in Aligned-Cloud Construction** (0 plans)
+  **Goal:** Persist the CPD transforms computed inside `pairwise_distance_matrix` (Step 1, on normalised clouds) so that `_build_aligned_cloud` (Step 3) can reuse the transform for the (src_sub_idx, tgt_sub_idx) pair selected by the DTW path, instead of re-running CPD from scratch on raw unnormalised data. Currently Step 3 starts CPD from identity on clouds that may have an 8× scale difference, causing convergence failure. The fix threads a `dict[(i,j) → (transform, src_norm_params, tgt_norm_params)]` out of `pairwise_distance_matrix`, through `DynamicTimeWarping`, into `AlignmentStage._build_aligned_cloud`, which then: normalises the raw source frame with the stored params, applies the stored transform, and denormalises into target coordinate space.
+  **Requirements:** ALIGN-03
+  **Depends on:** Phase 33 (CPD-aligned cloud construction in `_build_aligned_cloud`)
+  **Success criteria:**
+  1. `create_pairwise_distance_matrix` returns a third element: `dict[tuple[int,int], StoredTransform]` where `StoredTransform` holds the CPD transform object and per-cloud normalisation params (mean, scale) — only populated when `cpd_type is not None`
+  2. `DynamicTimeWarping` threads the stored-transform dict from `compute_cost_matrix` through to the result object so `AlignmentStage` can access it
+  3. `_build_aligned_cloud` uses `stored_transforms[(src_sub_idx, tgt_sub_idx)]` when available: normalise raw source frame → apply stored transform → denormalise to target space; falls back to fresh CPD when the key is absent
+  4. When `cpd_penalty=rigid` and both datasets are at different scales, the aligned_cloud points fall within the target dataset's bounding box (verifiable on the Shah/Kobitski sanity config)
+  5. All existing tests pass; new `TestStoredTransformReuse` test class covers the normalise→transform→denormalise round-trip
+  **Plans:** TBD
+
+- [ ] **Phase 34: Alignment Quality Guard in LabelTransferStage** (1/1 plans)
+  **Goal:** Add a pre-transfer alignment check to `LabelTransferStage.run()` that computes mean per-frame Chamfer distance between the received source and target, stores it in `LabelResult.pre_transfer_alignment`, and emits a `warnings.warn()` when `config.run_alignment=False` and the distance exceeds `ALIGNMENT_WARN_THRESHOLD` (default 1.0). When alignment was run upstream (`run_alignment=True`), log the metric at INFO level instead. This surfaces poor alignment before label transfer and warns users who skip `AlignmentStage` when their inputs are not pre-aligned.
+  **Requirements:** ALIGN-02
+  **Depends on:** Phase 33 (CPD-aligned cloud, so aligned_cloud is the actual registered input)
+  **Success criteria:**
+  1. `LabelResult` has a `pre_transfer_alignment: float` field (default 0.0) recording mean Chamfer distance
+  2. `LabelTransferStage._check_alignment()` computes mean Chamfer distance across sequential frame pairs
+  3. `warnings.warn()` is issued when `run_alignment=False` and mean Chamfer > 1.0
+  4. No warning is raised when `run_alignment=True` (even if alignment is poor — user chose to run alignment)
+  5. No warning is raised when `run_alignment=False` but input is pre-aligned (Chamfer < threshold)
+  6. All existing tests pass; new `TestLabelTransferAlignmentGuard` class added
+  **Plans:** 1 plan
+  Plans:
+  **Wave 1**
+  - [ ] 34-01-PLAN.md — Add `pre_transfer_alignment` to `LabelResult`; add `_check_alignment()` + warning logic to `LabelTransferStage.run()`; add `TestLabelTransferAlignmentGuard` tests
+
+- [x] **Phase 33: CPD-Aligned Trajectory Output from AlignmentStage** (2/2 plans) — completed 2026-06-16
+  **Goal:** Replace the current `AlignResult.aligned_cloud = source` pass-through (D-06, Phase 30) with a spatially-registered trajectory. After DTW computes the warp path, `AlignmentStage._build_aligned_cloud()` maps each full target frame to its DTW-corresponding source frame and — when `cpd_penalty` is set — applies CPD registration to produce spatially-transformed coordinates. The result is keyed by full target keys so `LabelTransferStage` can pair by position without any runner changes. When `cpd_penalty=None`, the cloud is DTW-temporally-resampled only (no spatial shift).
+  **Requirements:** ALIGN-01
+  **Depends on:** Phase 30 (two-dataset architecture), Phase 32 (heterogeneous paired evaluation)
+  **Success criteria:**
+  1. `AlignResult.aligned_cloud` keys equal `set(target.keys())` in all cases
+  2. `AlignResult.aligned_cloud` length equals `len(target)`
+  3. When `cpd_penalty=None`, each frame is a deep copy of the DTW-matched source frame (no spatial shift)
+  4. When `cpd_penalty` is set, each frame's `pos` tensor differs from the raw source frame (CPD was applied)
+  5. Original `source` dict is never mutated — all frames are deep copies
+  6. `step > 1` still produces aligned cloud covering all full target frames (nearest-neighbour interpolation)
+  7. All existing 879 tests pass; new `TestAlignedCloudSemantics` class added
+  **Plans:** 2 plans
+  Plans:
+  **Wave 1**
+  - [x] 33-01-PLAN.md — Add `_build_aligned_cloud()` to `AlignmentStage`; change `run()` to return CPD-transformed cloud; update `AlignResult` docstring in `eval/types.py`
+  **Wave 2** *(blocked on Wave 1 completion)*
+  - [x] 33-02-PLAN.md — Add `TestAlignedCloudSemantics` tests; update any existing assertions about `aligned_cloud` identity
 
 - [x] **Phase 32: Heterogeneous Paired Evaluation — `target_data_format`** — completed 2026-06-14
   **Goal:** Enable paired evaluation across datasets with different file formats (e.g. Kobitski `.tracklets` as source, Shah `.csv` as target). Add `target_data_format: str | None = None` to `EvalConfig` — `None` falls back to `data_format` so all existing configs remain valid. Update `DataFactory.load_target()` to resolve the effective format as `target_data_format or data_format`. Add `configs/kobitski_vs_shah.yaml` and `configs/shah_vs_kobitski.yaml` scenario configs, plus a same-format cross-embryo config `configs/kobitski_vs_kobitski_cross.yaml`. No orchestration code changes — `EvaluationRunner`, `AlignmentStage`, `LabelTransferStage`, `MetricsEngine`, and `run_eval.py` are untouched.

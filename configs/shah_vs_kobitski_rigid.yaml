@@ -1,0 +1,26 @@
+# Shah sample-1 (csv) as source, Kobitski ew06 (tracklets) as target — rigid CPD enabled.
+#
+# Same cross-dataset direction as shah_vs_kobitski.yaml but with cpd_penalty: rigid
+# so that CPD spatial registration is applied during DTW alignment. Use this config to
+# evaluate whether rigid CPD improves cross-embryo label transfer quality compared to
+# DTW-only (cpd_penalty: null) on this dataset pair.
+data_path: /Users/valeriekieslinger/Documents/Hiwi/BA/data/shah_data/sample-1/sample-1-cell-tracks.csv
+data_format: csv
+target_data_path: /Users/valeriekieslinger/Documents/Hiwi/BA/data/kobitski_data/12_11_15_embryo_ew_06_Cleaned_BackTracked_Oriented.tracklets
+target_data_format: tracklets
+pipeline_mode: paired
+tier: sanity
+n_trials: 3
+run_alignment: true
+run_label_transfer: true
+default_params:
+  window_size: 60
+  step: 1
+  cpd_penalty: rigid
+  dtw_dist_fn: euclidean
+  n_breakpoints: 5
+  k_neighbours: 5
+  dist_metric: euclidean
+  smoothing: 0.0
+  threshold: 0.5
+output_dir: experiments/runs/shah_vs_kobitski_rigid

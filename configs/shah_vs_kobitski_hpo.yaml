@@ -1,0 +1,32 @@
+# Shah sample-1 vs Kobitski ew06 — Bayesian HPO, laptop-scale dev run.
+#
+# Searches cpd_penalty (null / rigid / affine), window_size, and dtw_dist_fn
+# to find the best combination for cross-dataset alignment and label transfer.
+# step is fixed at 2 to keep per-trial runtime manageable on a laptop (~2 min
+# per trial). tier: dev runs sanity (5 synthetic trials, fast) then dev
+# (20 real-data trials, ~40 min total).
+data_path: /Users/valeriekieslinger/Documents/Hiwi/BA/data/shah_data/sample-1/sample-1-cell-tracks.csv
+data_format: csv
+target_data_path: /Users/valeriekieslinger/Documents/Hiwi/BA/data/kobitski_data/12_11_15_embryo_ew_06_Cleaned_BackTracked_Oriented.tracklets
+target_data_format: tracklets
+pipeline_mode: paired
+tier: dev
+run_alignment: true
+run_label_transfer: true
+max_points_per_frame: 100
+search_strategy: bayesian
+search_space:
+  cpd_penalty: [null, rigid, affine]
+  window_size: [30, 40, 60]
+  dtw_dist_fn: [euclidean, cosine]
+default_params:
+  window_size: 40
+  step: 2
+  cpd_penalty: rigid
+  dtw_dist_fn: euclidean
+  n_breakpoints: 5
+  k_neighbours: 5
+  dist_metric: euclidean
+  smoothing: 0.0
+  threshold: 0.5
+output_dir: experiments/runs/shah_vs_kobitski_hpo

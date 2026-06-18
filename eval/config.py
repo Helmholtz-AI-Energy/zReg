@@ -120,6 +120,12 @@ class EvalConfig(BaseModel):
         ``"tracklets"`` or ``"csv"``.  ``None`` (default) inherits
         ``data_format`` so all existing configs without this key remain valid.
         Validated at ``load_target()`` call time, not at construction.
+    max_points_per_frame : int or None
+        If set, subsample each frame of the loaded source and target datasets
+        to at most this many points (random without replacement, seed 42).
+        ``None`` (default) disables subsampling — all points are kept.
+        Applied by ``DataFactory.load_real()`` and ``DataFactory.load_target()``
+        immediately after loading so all downstream stages see the reduced cloud.
 
     Notes
     -----
@@ -163,6 +169,7 @@ class EvalConfig(BaseModel):
     target_data_path: str | None = None
     transform_spec: dict | None = None
     target_data_format: str | None = None
+    max_points_per_frame: int | None = None
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "EvalConfig":

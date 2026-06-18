@@ -1,0 +1,27 @@
+# Shah sample-1 vs Kobitski ew06 — affine CPD, laptop-scale sanity run.
+#
+# Identical to shah_vs_kobitski_rigid_sanity.yaml but with cpd_penalty: affine
+# so that CPD can fit rotation + translation + scale + shear. The scale
+# mismatch visible in the rigid run (Shah ~50 units vs Kobitski ~400 units)
+# is a global transform that affine CPD can directly model.
+data_path: /Users/valeriekieslinger/Documents/Hiwi/BA/data/shah_data/sample-1/sample-1-cell-tracks.csv
+data_format: csv
+target_data_path: /Users/valeriekieslinger/Documents/Hiwi/BA/data/kobitski_data/12_11_15_embryo_ew_06_Cleaned_BackTracked_Oriented.tracklets
+target_data_format: tracklets
+pipeline_mode: paired
+tier: sanity
+n_trials: 3
+run_alignment: true
+run_label_transfer: true
+max_points_per_frame: 100
+default_params:
+  window_size: 40
+  step: 2
+  cpd_penalty: affine
+  dtw_dist_fn: euclidean
+  n_breakpoints: 5
+  k_neighbours: 5
+  dist_metric: euclidean
+  smoothing: 0.0
+  threshold: 0.5
+output_dir: experiments/runs/shah_vs_kobitski_affine_sanity

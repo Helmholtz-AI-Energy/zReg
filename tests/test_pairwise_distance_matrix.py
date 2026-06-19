@@ -879,3 +879,83 @@ class TestPairwiseDistanceMatrixCPDTypes:
             cpd_type="affine",
         )
         assert result is not None
+
+
+class TestPairwiseResult:
+    """Tests for PairwiseResult return type from create_pairwise_distance_matrix (ALIGN-03)."""
+
+    def test_returns_pairwise_result_instance(self, small_trajectory_pair):
+        """create_pairwise_distance_matrix must return a PairwiseResult, not a 2-tuple."""
+        from zreg.types import PairwiseResult
+        x, y = small_trajectory_pair
+        result = pairwise_distance_matrix.create_pairwise_distance_matrix(
+            x, y,
+            normalize=True,
+            distance_metric="euclidean",
+            downsample_method=None,
+        )
+        assert isinstance(result, PairwiseResult)
+
+    def test_cost_matrix_field(self, small_trajectory_pair):
+        """PairwiseResult.cost_matrix has the expected shape."""
+        x, y = small_trajectory_pair
+        result = pairwise_distance_matrix.create_pairwise_distance_matrix(
+            x, y,
+            normalize=True,
+            distance_metric="euclidean",
+            downsample_method=None,
+        )
+        assert result.cost_matrix.shape == (1, 3, 3)
+
+    def test_stored_transforms_empty_without_cpd(self, small_trajectory_pair):
+        """stored_transforms is empty dict when cpd_type is None."""
+        x, y = small_trajectory_pair
+        result = pairwise_distance_matrix.create_pairwise_distance_matrix(
+            x, y,
+            normalize=True,
+            distance_metric="euclidean",
+            downsample_method=None,
+        )
+        assert isinstance(result.stored_transforms, dict)
+        assert len(result.stored_transforms) == 0
+
+    def test_stored_transforms_populated_with_cpd(self, small_trajectory_pair):
+        """stored_transforms has entries when cpd_type is not None."""
+        from zreg.types import StoredTransform
+        x, y = small_trajectory_pair
+        result = pairwise_distance_matrix.create_pairwise_distance_matrix(
+            x, y,
+            normalize=True,
+            distance_metric="euclidean",
+            cpd_type="rigid",
+            downsample_method="random",
+        )
+        assert isinstance(result.stored_transforms, dict)
+        assert len(result.stored_transforms) > 0
+        for key, value in result.stored_transforms.items():
+            assert isinstance(key, tuple) and len(key) == 2
+            assert isinstance(value, StoredTransform)
+
+    def test_rotations_none_without_cpd(self, small_trajectory_pair):
+        """rotations is None when cpd_type is None."""
+        x, y = small_trajectory_pair
+        result = pairwise_distance_matrix.create_pairwise_distance_matrix(
+            x, y,
+            normalize=True,
+            distance_metric="euclidean",
+            downsample_method=None,
+        )
+        assert result.rotations is None
+
+    def test_rotations_tensor_with_rigid_cpd(self, small_trajectory_pair):
+        """rotations is a Tensor when cpd_type='rigid'."""
+        x, y = small_trajectory_pair
+        result = pairwise_distance_matrix.create_pairwise_distance_matrix(
+            x, y,
+            normalize=True,
+            distance_metric="euclidean",
+            cpd_type="rigid",
+            downsample_method="random",
+        )
+        assert result.rotations is not None
+        assert isinstance(result.rotations, torch.Tensor)

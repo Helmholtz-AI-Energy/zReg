@@ -13,6 +13,7 @@ from .result import DTWResult
 from ..pairwise_distance_matrix import create_pairwise_distance_matrix
 from ..dataset import zRegPointCloud
 from ..distances import DistanceMetric
+from ..types import StoredTransform
 
 
 log = logging.getLogger(__name__)
@@ -104,6 +105,7 @@ class DynamicTimeWarping:
         # Internal state
         self._cost_matrix: torch.Tensor | None = None
         self._rotations: torch.Tensor | None = None
+        self._stored_transforms: dict[tuple[int, int], StoredTransform] = {}
 
     def compute(self, metric_index: int = 0) -> DTWResult:
         """Run the full DTW pipeline.
@@ -148,6 +150,7 @@ class DynamicTimeWarping:
             warping_path=warping_path,
             distance=distance,
             rotations=self._rotations,
+            stored_transforms=self._stored_transforms,
         )
 
         log.info(f"DTW computation complete. Distance: {distance:.4f}, Path length: {len(warping_path)}")
@@ -170,7 +173,7 @@ class DynamicTimeWarping:
 
         log.info("Computing pairwise distance matrix...")
 
-        self._cost_matrix, self._rotations = create_pairwise_distance_matrix(
+        pairwise_result = create_pairwise_distance_matrix(
             x=self.x,
             y=self.y,
             window=self.window,
@@ -181,6 +184,9 @@ class DynamicTimeWarping:
             cpd_type=self.cpd_type,
             mpi_distribute=self.mpi_distribute,
         )
+        self._cost_matrix = pairwise_result.cost_matrix
+        self._rotations = pairwise_result.rotations
+        self._stored_transforms = pairwise_result.stored_transforms
 
         return self._cost_matrix
 

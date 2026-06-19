@@ -1023,9 +1023,9 @@ class TestCallableMetric:
     def test_callable_metric_in_create_pairwise_distance_matrix(self, small_trajectory_pair):
         """create_pairwise_distance_matrix accepts a callable metric and returns a float tensor."""
         x, y = small_trajectory_pair
-        matrix, _ = create_pairwise_distance_matrix(
+        matrix = create_pairwise_distance_matrix(
             x, y, distance_metric=euclidean_distance, downsample_method=None
-        )
+        ).cost_matrix
         assert isinstance(matrix, torch.Tensor)
         assert matrix.is_floating_point()
         # Output shape is (num_metrics, len_x, len_y); with a single metric this is (1, N, M)
@@ -1060,7 +1060,78 @@ class TestCallableMetric:
         """A lambda returning zeros produces an all-zero distance matrix."""
         x, y = small_trajectory_pair
         zero_metric = lambda x, y, **kw: torch.zeros(1)  # noqa: E731
-        matrix, _ = create_pairwise_distance_matrix(
+        result = create_pairwise_distance_matrix(
             x, y, distance_metric=zero_metric, downsample_method=None
         )
-        assert torch.all(matrix == 0)
+        assert torch.all(result.cost_matrix == 0)
+
+
+class TestDTWResultStoredTransforms:
+    """Tests for DTWResult.stored_transforms field (ALIGN-03, D-07)."""
+
+    def test_dtw_result_has_stored_transforms_field(self):
+        """DTWResult must have a stored_transforms field with default empty dict."""
+        cost = torch.zeros(3, 3)
+        acc = torch.zeros(3, 3)
+        result = DTWResult(
+            cost_matrix=cost,
+            accumulated_cost=acc,
+            warping_path=[(0, 0), (1, 1), (2, 2)],
+            distance=0.0,
+        )
+        assert hasattr(result, "stored_transforms")
+        assert isinstance(result.stored_transforms, dict)
+        assert len(result.stored_transforms) == 0
+
+    def test_dtw_result_stored_transforms_independent_instances(self):
+        """Two DTWResult instances must have independent stored_transforms dicts (no shared mutable default)."""
+        cost = torch.zeros(2, 2)
+        acc = torch.zeros(2, 2)
+        r1 = DTWResult(cost_matrix=cost, accumulated_cost=acc, warping_path=[(0, 0), (1, 1)], distance=0.0)
+        r2 = DTWResult(cost_matrix=cost, accumulated_cost=acc, warping_path=[(0, 0), (1, 1)], distance=0.0)
+        r1.stored_transforms[(0, 0)] = "sentinel"
+        assert (0, 0) not in r2.stored_transforms, "stored_transforms instances must not be shared"
+
+    def test_dtw_result_accepts_stored_transforms_kwarg(self):
+        """DTWResult can be constructed with an explicit stored_transforms dict."""
+        from zreg.types import StoredTransform
+        cost = torch.zeros(2, 2)
+        acc = torch.zeros(2, 2)
+        st = StoredTransform(
+            transform=object(),
+            src_min=torch.tensor(0.0),
+            src_max=torch.tensor(1.0),
+            tgt_min=torch.tensor(0.0),
+            tgt_max=torch.tensor(1.0),
+        )
+        transforms = {(0, 0): st}
+        result = DTWResult(
+            cost_matrix=cost,
+            accumulated_cost=acc,
+            warping_path=[(0, 0), (1, 1)],
+            distance=0.0,
+            stored_transforms=transforms,
+        )
+        assert result.stored_transforms is transforms
+        assert (0, 0) in result.stored_transforms
+
+    def test_dtw_compute_threads_stored_transforms(self, small_trajectory_pair):
+        """DynamicTimeWarping.compute() with cpd_type='rigid' produces non-empty stored_transforms."""
+        x, y = small_trajectory_pair
+        dtw_obj = DynamicTimeWarping(
+            x, y, distance_metric="euclidean", downsample_method="random", cpd_type="rigid"
+        )
+        result = dtw_obj.compute()
+        assert hasattr(result, "stored_transforms")
+        assert isinstance(result.stored_transforms, dict)
+        assert len(result.stored_transforms) > 0
+
+    def test_dtw_compute_empty_stored_transforms_without_cpd(self, small_trajectory_pair):
+        """DynamicTimeWarping.compute() with cpd_type=None produces empty stored_transforms."""
+        x, y = small_trajectory_pair
+        dtw_obj = DynamicTimeWarping(
+            x, y, distance_metric="euclidean", downsample_method=None, cpd_type=None
+        )
+        result = dtw_obj.compute()
+        assert isinstance(result.stored_transforms, dict)
+        assert len(result.stored_transforms) == 0

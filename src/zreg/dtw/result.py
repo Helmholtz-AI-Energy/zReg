@@ -1,8 +1,10 @@
 """DTW result container."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import torch
+
+from ..types import StoredTransform
 
 __all__ = ["DTWResult"]
 
@@ -26,6 +28,9 @@ class DTWResult:
         Total DTW distance (accumulated cost at the end of the path).
     rotations : torch.Tensor | None
         CPD rotations if cpd_type was specified during computation.
+    stored_transforms : dict[tuple[int, int], StoredTransform]
+        CPD transforms and normalisation parameters captured during pairwise distance
+        computation, keyed by (i, j) index pairs. Empty when cpd_type is None.
     """
 
     cost_matrix: torch.Tensor
@@ -33,3 +38,4 @@ class DTWResult:
     warping_path: list[tuple[int, int]]
     distance: float
     rotations: torch.Tensor | None = None
+    stored_transforms: dict[tuple[int, int], StoredTransform] = field(default_factory=dict)

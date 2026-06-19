@@ -43,7 +43,7 @@ from zreg.color_transfer import transfer_colors, ColorTransferMethod
 from zreg.dataset import zRegPointCloud
 from zreg.metrics import chamfer
 
-import torch  # noqa: F401 — ensures consistent import order for downstream callers
+import torch  # consistent import order for downstream callers (macOS-ARM zreg-before-torch rule)
 
 from eval.config import EvalConfig
 from eval.stages.base import PipelineStage
@@ -168,13 +168,17 @@ class LabelTransferStage(PipelineStage):
         n_pairs = min(len(source_keys), len(target_keys))
 
         total = 0.0
+        counted = 0
         for k in range(n_pairs):
             src_pos = source[source_keys[k]]["pos"]
             tgt_pos = target[target_keys[k]]["pos"]
+            if src_pos.shape[0] == 0 or tgt_pos.shape[0] == 0:
+                continue  # skip empty frames — chamfer(empty) returns nan
             dist = chamfer(src_pos, tgt_pos)
             total += float(dist.item() if hasattr(dist, "item") else dist)
+            counted += 1
 
-        return total / n_pairs if n_pairs > 0 else 0.0
+        return total / counted if counted > 0 else 0.0
 
     def run(
         self,
@@ -205,6 +209,8 @@ class LabelTransferStage(PipelineStage):
             - ``transferred_labels``: per-frame label tensors, keyed by
               target frame index.
             - ``params_used``: shallow copy of ``params`` (Pitfall 7).
+            - ``pre_transfer_alignment``: mean per-frame Chamfer distance
+              between source and target computed before transfer.
 
         Notes
         -----

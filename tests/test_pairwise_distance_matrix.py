@@ -175,94 +175,99 @@ class TestCreatePairwiseDistanceMatrix:
     def test_basic_creation(self, small_trajectory_pair):
         """Test basic pairwise distance matrix creation."""
         x, y = small_trajectory_pair
-        
-        distance_matrix, rots = pairwise_distance_matrix.create_pairwise_distance_matrix(
+
+        result = pairwise_distance_matrix.create_pairwise_distance_matrix(
             x, y,
             normalize=True,
             distance_metric="euclidean",
             downsample_method=None,
         )
-        
+        distance_matrix, rots = result.cost_matrix, result.rotations
+
         assert distance_matrix.shape == (1, 3, 3)
 
     def test_matrix_shape_with_window(self, small_trajectory_pair):
         """Test pairwise distance matrix with window constraint."""
         x, y = small_trajectory_pair
-        
-        distance_matrix, rots = pairwise_distance_matrix.create_pairwise_distance_matrix(
+
+        result = pairwise_distance_matrix.create_pairwise_distance_matrix(
             x, y,
             window=1,
             normalize=True,
             distance_metric="euclidean",
         )
-        
+        distance_matrix, rots = result.cost_matrix, result.rotations
+
         assert distance_matrix.shape == (1, 3, 3)
 
     def test_multiple_distance_metrics(self, small_trajectory_pair):
         """Test pairwise distance matrix with multiple distance metrics."""
         x, y = small_trajectory_pair
-        
-        distance_matrix, rots = pairwise_distance_matrix.create_pairwise_distance_matrix(
+
+        result = pairwise_distance_matrix.create_pairwise_distance_matrix(
             x, y,
             normalize=True,
             distance_metric=["euclidean", "manhattan"],
             distance_kwargs=[None, None],
         )
-        
+        distance_matrix, rots = result.cost_matrix, result.rotations
+
         assert distance_matrix.shape[0] == 2
 
     def test_with_downsampling(self, small_trajectory_pair):
         """Test pairwise distance matrix with downsampling."""
         x, y = small_trajectory_pair
-        
-        distance_matrix, rots = pairwise_distance_matrix.create_pairwise_distance_matrix(
+
+        result = pairwise_distance_matrix.create_pairwise_distance_matrix(
             x, y,
             normalize=True,
             distance_metric="swd",
             downsample_method="random",
         )
-        
+        distance_matrix, rots = result.cost_matrix, result.rotations
+
         assert distance_matrix.shape == (1, 3, 3)
 
     def test_with_cpd(self, small_trajectory_pair):
         """Test pairwise distance matrix with CPD registration."""
         x, y = small_trajectory_pair
-        
-        distance_matrix, rots = pairwise_distance_matrix.create_pairwise_distance_matrix(
+
+        result = pairwise_distance_matrix.create_pairwise_distance_matrix(
             x, y,
             normalize=True,
             distance_metric="euclidean",
             cpd_type="rigid",
             downsample_method="random",
         )
-        
+        distance_matrix, rots = result.cost_matrix, result.rotations
+
         assert distance_matrix.shape == (1, 3, 3)
         assert len(rots) > 0
 
     def test_normalization_effect(self, small_trajectory_pair):
         """Test that normalization affects results."""
         x, y = small_trajectory_pair
-        
-        matrix_normalized, _ = pairwise_distance_matrix.create_pairwise_distance_matrix(
+
+        matrix_normalized = pairwise_distance_matrix.create_pairwise_distance_matrix(
             x, y, normalize=True, distance_metric="euclidean"
-        )
-        
-        matrix_unnormalized, _ = pairwise_distance_matrix.create_pairwise_distance_matrix(
+        ).cost_matrix
+
+        matrix_unnormalized = pairwise_distance_matrix.create_pairwise_distance_matrix(
             x, y, normalize=False, distance_metric="euclidean"
-        )
-        
+        ).cost_matrix
+
         assert not torch.allclose(matrix_normalized, matrix_unnormalized)
 
     def test_finite_values(self, small_trajectory_pair):
         """Test that computed values are finite."""
         x, y = small_trajectory_pair
-        
-        distance_matrix, _ = pairwise_distance_matrix.create_pairwise_distance_matrix(
+
+        distance_matrix = pairwise_distance_matrix.create_pairwise_distance_matrix(
             x, y,
             normalize=True,
             distance_metric="euclidean",
-        )
-        
+        ).cost_matrix
+
         assert torch.isfinite(distance_matrix).all()
 
 
@@ -518,12 +523,13 @@ class TestPairwiseNormalizePath:
     def test_normalize_true_executes_normalization(self, small_trajectory_pair):
         """create_pairwise_distance_matrix with normalize=True runs the normalize block."""
         x, y = small_trajectory_pair
-        matrix, rots = pairwise_distance_matrix.create_pairwise_distance_matrix(
+        result = pairwise_distance_matrix.create_pairwise_distance_matrix(
             x, y,
             distance_metric="euclidean",
             downsample_method=None,
             normalize=True,
         )
+        matrix, rots = result.cost_matrix, result.rotations
         assert matrix.shape[1] == len(x)
         assert matrix.shape[2] == len(y)
         assert torch.isfinite(matrix).all()
@@ -536,12 +542,13 @@ class TestPairwiseASWDRemoveHistory:
         """Using aswd metric calls fn.remove_history() each iteration (line 202)."""
         from zreg.distances.sw_varients import AdaptiveSlicedWassersteinDistance
         x, y = small_trajectory_pair
-        matrix, rots = pairwise_distance_matrix.create_pairwise_distance_matrix(
+        result = pairwise_distance_matrix.create_pairwise_distance_matrix(
             x, y,
             distance_metric="aswd",
             downsample_method="random",
             normalize=False,
         )
+        matrix, rots = result.cost_matrix, result.rotations
         assert matrix.shape[1] == len(x)
 
 
@@ -650,12 +657,12 @@ class TestMPIPaths:
         x, y = self._make_single_sample_pair()
 
         with _patch.object(pmat, "hasmpi", True), _patch.object(pmat, "MPI", mock_mpi):
-            matrix, _ = pmat.create_pairwise_distance_matrix(
+            matrix = pmat.create_pairwise_distance_matrix(
                 x, y,
                 normalize=False,
                 distance_metric="euclidean",
                 mpi_distribute=True,
-            )
+            ).cost_matrix
         # rank=1 skips fc=0 (0%2 ≠ 1), so distance stays inf
         assert matrix.shape[1] == 1
 
@@ -670,12 +677,12 @@ class TestMPIPaths:
         x, y = self._make_two_sample_pair()
 
         with _patch.object(pmat, "hasmpi", True), _patch.object(pmat, "MPI", mock_mpi):
-            matrix, _ = pmat.create_pairwise_distance_matrix(
+            matrix = pmat.create_pairwise_distance_matrix(
                 x, y,
                 normalize=False,
                 distance_metric="euclidean",
                 mpi_distribute=True,
-            )
+            ).cost_matrix
         assert comm.allgather.called
         assert matrix.shape[1] == 2
 
@@ -743,12 +750,12 @@ class TestMPIPaths:
         x, y = self._make_asymmetric_pair()
 
         with _patch.object(pmat, "hasmpi", True), _patch.object(pmat, "MPI", mock_mpi):
-            matrix, _ = pmat.create_pairwise_distance_matrix(
+            matrix = pmat.create_pairwise_distance_matrix(
                 x, y,
                 normalize=False,
                 distance_metric="euclidean",
                 mpi_distribute=True,
-            )
+            ).cost_matrix
         assert matrix.shape[1] == 2
 
     def test_mpi_loop_back_edge_given_rigid_rot(self):

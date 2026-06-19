@@ -1023,9 +1023,9 @@ class TestCallableMetric:
     def test_callable_metric_in_create_pairwise_distance_matrix(self, small_trajectory_pair):
         """create_pairwise_distance_matrix accepts a callable metric and returns a float tensor."""
         x, y = small_trajectory_pair
-        matrix, _ = create_pairwise_distance_matrix(
+        matrix = create_pairwise_distance_matrix(
             x, y, distance_metric=euclidean_distance, downsample_method=None
-        )
+        ).cost_matrix
         assert isinstance(matrix, torch.Tensor)
         assert matrix.is_floating_point()
         # Output shape is (num_metrics, len_x, len_y); with a single metric this is (1, N, M)

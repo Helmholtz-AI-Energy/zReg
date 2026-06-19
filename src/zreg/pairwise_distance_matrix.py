@@ -24,12 +24,18 @@ from . import transforms
 from .dataset import zRegPointCloud
 from .validation import _validate_tensors
 from .distances import DistanceMetric
+from .types import StoredTransform, PairwiseResult
 
 
 log = logging.getLogger(__name__)
 
 
-__all__ = ["create_pairwise_distance_matrix", "create_pairwise_distance_matrix_given_rigid_rot"]
+__all__ = [
+    "create_pairwise_distance_matrix",
+    "create_pairwise_distance_matrix_given_rigid_rot",
+    "StoredTransform",
+    "PairwiseResult",
+]
 
 
 def create_pairwise_distance_matrix(
@@ -42,7 +48,7 @@ def create_pairwise_distance_matrix(
     downsample_method: str | None = None,
     cpd_type: str | None = None,
     mpi_distribute: bool = False,
-) -> tuple[torch.Tensor, torch.Tensor]:
+) -> PairwiseResult:
     """Create a pairwise distance matrix using the given parameters.
 
     Parameters
@@ -81,10 +87,12 @@ def create_pairwise_distance_matrix(
 
     Returns
     -------
-    tuple[torch.Tensor, torch.Tensor]
-        A tuple containing:
-            - The pairwise distance matrix (torch.Tensor).
-            - The rotations from CPD registration (torch.Tensor), if CPD is used; otherwise, an empty tensor.
+    PairwiseResult
+        A dataclass containing:
+            - cost_matrix (torch.Tensor): The pairwise distance matrix.
+            - rotations (torch.Tensor | None): The rotations from rigid CPD registration, or None.
+            - stored_transforms (dict[tuple[int, int], StoredTransform]): Stored CPD transforms
+              keyed by (i, j) pair indices; empty dict when cpd_type is None.
     """
     _validate_tensors(x[0]["pos"], y[0]["pos"], names=["x[0]['pos']", "y[0]['pos']"])
     rank, size = 0, 1
@@ -121,6 +129,7 @@ def create_pairwise_distance_matrix(
     log_freq = 0.10
     log_intervals = torch.linspace(0, num_dist_elems, steps=int(1 / log_freq) + 1, dtype=torch.int)[1:]
     rots = []
+    stored_transforms: dict[tuple[int, int], StoredTransform] = {}
 
     # Initialize the loop counter and timing dictionary
     full_counter = 0
@@ -159,14 +168,15 @@ def create_pairwise_distance_matrix(
             times["copy"].append(tc - t0)
 
             # normalize the smaller point cloud to the largest
+            src_min = src_max = tgt_min = tgt_max = None
             if normalize:
                 # source = copy.deepcopy(pcs[0])
                 downsampling.remove_outliers_knn(xi, inplace=True)
                 downsampling.remove_outliers_knn(yj, inplace=True)
 
                 # xi, yj = downsampling.random_down_sample(xi, yj)
-                xi["pos"], _ = utils.normalize_point_cloud(xi["pos"])
-                yj["pos"], _ = utils.normalize_point_cloud(yj["pos"])
+                xi["pos"], (src_min, src_max) = utils.normalize_point_cloud(xi["pos"])
+                yj["pos"], (tgt_min, tgt_max) = utils.normalize_point_cloud(yj["pos"])
                 # xi["pos"], yj["pos"], _ = utils.normalize_to_pc_w_most_points(xi["pos"], yj["pos"])
             tn = time.perf_counter()
             times["norm"].append(tn - tc)
@@ -197,6 +207,14 @@ def create_pairwise_distance_matrix(
                 if hasattr(reg.transformation, "rot"):
                     rots.append(reg.transformation.rot.unsqueeze(0))
                 cpd_metric = reg.q
+                # Store the transform and normalisation params for reuse in _build_aligned_cloud
+                stored_transforms[(i, j)] = StoredTransform(
+                    transform=reg.transformation,
+                    src_min=src_min,
+                    src_max=src_max,
+                    tgt_min=tgt_min,
+                    tgt_max=tgt_max,
+                )
             tcpd = time.perf_counter()
             times["cpd"].append(tcpd - tdn)
 
@@ -269,9 +287,12 @@ def create_pairwise_distance_matrix(
             distance_matrix[:, i] = torch.tensor(combined, device=distance_matrix.device, dtype=distance_matrix.dtype)
             if rank == 0:
                 log.debug("MPI allgather row %d: %.4f s", i, time.perf_counter() - tcomm)
-    if len(rots) > 0:
-        rots = torch.cat(rots, dim=0)
-    return distance_matrix, rots
+    rotations = torch.cat(rots, dim=0) if len(rots) > 0 else None
+    return PairwiseResult(
+        cost_matrix=distance_matrix,
+        rotations=rotations,
+        stored_transforms=stored_transforms,
+    )
 
 
 def create_pairwise_distance_matrix_given_rigid_rot(

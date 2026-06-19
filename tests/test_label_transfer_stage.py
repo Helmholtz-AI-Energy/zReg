@@ -21,6 +21,7 @@ import torch
 from eval.config import EvalConfig
 from eval.stages import LabelTransferStage, PipelineStage
 from eval.stages.label_transfer import LabelTransferStage as LabelTransferStageDirect
+from eval.stages.label_transfer import ALIGNMENT_WARN_THRESHOLD
 from eval.types import LabelResult, AlignResult
 
 
@@ -597,3 +598,80 @@ class TestLabelTransferStageCoverageGaps:
         params = {"k_neighbours": 3, "dist_metric": "euclidean", "smoothing": 0.0, "threshold": 0.0}
         result = stage.run(dataset, dataset, params)
         assert isinstance(result, LabelResult)
+
+
+# ---------------------------------------------------------------------------
+# TestLabelTransferAlignmentGuard — ALIGN-02
+# ---------------------------------------------------------------------------
+
+
+def _make_pc(pos: torch.Tensor, n_labels: int = 4) -> zRegPointCloud:
+    """Helper: build a zRegPointCloud with integer color labels."""
+    n = pos.shape[0]
+    return zRegPointCloud(
+        pos=pos,
+        color=torch.zeros(n, dtype=torch.long),  # single-channel → label_key='color'
+        id=torch.arange(n, dtype=torch.long) % n_labels,
+    )
+
+
+def _default_params() -> dict:
+    return {"k_neighbours": 3, "dist_metric": "euclidean", "smoothing": 0.0, "threshold": 0.0}
+
+
+class TestLabelTransferAlignmentGuard:
+    """ALIGN-02: pre_transfer_alignment field and alignment warning behaviour."""
+
+    def test_pre_transfer_alignment_field_present_in_result(self, tmp_path):
+        """result.pre_transfer_alignment exists and is 0.0 for identical clouds."""
+        cfg = EvalConfig(data_path=str(tmp_path / "unused.mat"))
+        pos = torch.randn(10, 3)
+        dataset = {0: _make_pc(pos)}
+        stage = LabelTransferStage(cfg)
+        result = stage.run(dataset, dataset, _default_params())
+        assert hasattr(result, "pre_transfer_alignment")
+        assert result.pre_transfer_alignment == pytest.approx(0.0, abs=1e-6)
+
+    def test_pre_transfer_alignment_nonzero_for_shifted_source(self, tmp_path):
+        """pre_transfer_alignment > threshold when source is shifted far from target."""
+        cfg = EvalConfig(data_path=str(tmp_path / "unused.mat"))
+        pos_target = torch.randn(10, 3)
+        pos_source = pos_target + 10.0  # large shift — Chamfer will be >> 1.0
+        source = {0: _make_pc(pos_source)}
+        target = {0: _make_pc(pos_target)}
+        stage = LabelTransferStage(cfg)
+        result = stage.run(source, target, _default_params())
+        assert result.pre_transfer_alignment > ALIGNMENT_WARN_THRESHOLD
+
+    def test_alignment_warning_issued_when_misaligned_and_no_alignment_stage(self, tmp_path):
+        """warnings.warn() fires when run_alignment=False and Chamfer > threshold."""
+        cfg = EvalConfig(data_path=str(tmp_path / "unused.mat"), run_alignment=False)
+        pos_target = torch.randn(10, 3)
+        pos_source = pos_target + 10.0
+        source = {0: _make_pc(pos_source)}
+        target = {0: _make_pc(pos_target)}
+        stage = LabelTransferStage(cfg)
+        with pytest.warns(UserWarning, match="mean Chamfer distance"):
+            stage.run(source, target, _default_params())
+
+    def test_no_warning_when_alignment_stage_was_run(self, tmp_path, recwarn):
+        """No UserWarning when run_alignment=True even if input is misaligned."""
+        cfg = EvalConfig(data_path=str(tmp_path / "unused.mat"), run_alignment=True)
+        pos_target = torch.randn(10, 3)
+        pos_source = pos_target + 10.0
+        source = {0: _make_pc(pos_source)}
+        target = {0: _make_pc(pos_target)}
+        stage = LabelTransferStage(cfg)
+        stage.run(source, target, _default_params())
+        user_warnings = [w for w in recwarn.list if issubclass(w.category, UserWarning)]
+        assert len(user_warnings) == 0
+
+    def test_no_warning_when_pre_aligned_and_no_alignment_stage(self, tmp_path, recwarn):
+        """No UserWarning when run_alignment=False but input is already aligned."""
+        cfg = EvalConfig(data_path=str(tmp_path / "unused.mat"), run_alignment=False)
+        pos = torch.randn(10, 3)
+        dataset = {0: _make_pc(pos)}
+        stage = LabelTransferStage(cfg)
+        stage.run(dataset, dataset, _default_params())
+        user_warnings = [w for w in recwarn.list if issubclass(w.category, UserWarning)]
+        assert len(user_warnings) == 0

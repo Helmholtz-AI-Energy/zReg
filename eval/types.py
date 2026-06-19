@@ -126,17 +126,23 @@ class LabelResult(BaseModel):
     params_used : dict[str, Any]
         Hyperparameters that produced this result.  Heterogeneous values
         (int / float / str / bool) — see module Pitfall 8.
+    pre_transfer_alignment : float
+        Mean Chamfer distance between source and target before label transfer.
+        Computed per-frame pair using the same sequential pairing as ``run()``.
+        Value of 0.0 indicates identical clouds or unchecked (default).
 
     Attributes
     ----------
     transferred_labels : dict[int, torch.Tensor]
     params_used : dict[str, Any]
+    pre_transfer_alignment : float
     """
 
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
 
     transferred_labels: dict[int, torch.Tensor]
     params_used: dict[str, Any]
+    pre_transfer_alignment: float = Field(default=0.0, ge=0.0)
 
 
 class StageMetrics(BaseModel):

@@ -32,6 +32,8 @@ Phase 19.  ``isinstance(x, bool)`` must be tested before ``isinstance(x, int)``
 because ``bool`` is a subclass of ``int`` in Python.
 """
 
+import logging
+import warnings
 from typing import Any
 
 # zreg.* MUST precede torch on macOS-ARM (libomp SIGABRT).
@@ -39,6 +41,7 @@ from typing import Any
 # eval/metrics.py:53-67, eval/types.py:48-53.
 from zreg.color_transfer import transfer_colors, ColorTransferMethod
 from zreg.dataset import zRegPointCloud
+from zreg.metrics import chamfer
 
 import torch  # noqa: F401 — ensures consistent import order for downstream callers
 
@@ -47,6 +50,9 @@ from eval.stages.base import PipelineStage
 from eval.types import LabelResult
 
 __all__ = ["LabelTransferStage"]
+
+ALIGNMENT_WARN_THRESHOLD: float = 1.0
+_log = logging.getLogger(__name__)
 
 
 class LabelTransferStage(PipelineStage):
@@ -144,6 +150,32 @@ class LabelTransferStage(PipelineStage):
         ):
             raise ValueError(f"threshold must be float >= 0.0; got {params['threshold']!r}")
 
+    @staticmethod
+    def _check_alignment(
+        source: dict[int, zRegPointCloud],
+        target: dict[int, zRegPointCloud],
+    ) -> float:
+        """Compute mean per-frame Chamfer distance between source and target.
+
+        Uses sequential frame pairing (same order as ``run()``).  When source
+        and target differ in length, only ``min(len(source), len(target))``
+        pairs are evaluated.
+
+        Returns 0.0 when there are no paired frames.
+        """
+        source_keys = sorted(source.keys())
+        target_keys = sorted(target.keys())
+        n_pairs = min(len(source_keys), len(target_keys))
+
+        total = 0.0
+        for k in range(n_pairs):
+            src_pos = source[source_keys[k]]["pos"]
+            tgt_pos = target[target_keys[k]]["pos"]
+            dist = chamfer(src_pos, tgt_pos)
+            total += float(dist.item() if hasattr(dist, "item") else dist)
+
+        return total / n_pairs if n_pairs > 0 else 0.0
+
     def run(
         self,
         source: dict[int, zRegPointCloud],
@@ -197,6 +229,29 @@ class LabelTransferStage(PipelineStage):
         if not target:
             raise ValueError("target must be non-empty; got 0 frames")
 
+        alignment_dist = self._check_alignment(source, target)
+
+        if self.config.run_alignment:
+            _log.info(
+                "Pre-transfer alignment quality (mean Chamfer): %.4f "
+                "(alignment stage was run upstream)",
+                alignment_dist,
+            )
+        else:
+            if alignment_dist > ALIGNMENT_WARN_THRESHOLD:
+                warnings.warn(
+                    f"LabelTransferStage received potentially misaligned input "
+                    f"(mean Chamfer distance = {alignment_dist:.4f} > {ALIGNMENT_WARN_THRESHOLD}). "
+                    "Consider running AlignmentStage first (set run_alignment=true in config).",
+                    stacklevel=2,
+                )
+            else:
+                _log.info(
+                    "Pre-transfer alignment quality (mean Chamfer): %.4f "
+                    "(alignment stage skipped — input appears pre-aligned)",
+                    alignment_dist,
+                )
+
         source_keys = sorted(source.keys())
         target_keys = sorted(target.keys())
 
@@ -237,4 +292,8 @@ class LabelTransferStage(PipelineStage):
                 k=params["k_neighbours"],
             )[:, 0]
 
-        return LabelResult(transferred_labels=transferred, params_used=dict(params))
+        return LabelResult(
+            transferred_labels=transferred,
+            params_used=dict(params),
+            pre_transfer_alignment=alignment_dist,
+        )

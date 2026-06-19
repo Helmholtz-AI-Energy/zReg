@@ -77,7 +77,7 @@
   **Wave 3** *(blocked on Wave 2 completion)*
   - [x] 30-03-PLAN.md — Add configs/paired_alignment.yaml (Kobitski as both source and target); update tests/test_trajectory_export.py mocks; add tests/test_cli.py smoke-test for paired_alignment.yaml
 
-- [ ] **Phase 35: Reuse Step-1 CPD Transforms in Aligned-Cloud Construction** (0 plans)
+- [ ] **Phase 35: Reuse Step-1 CPD Transforms in Aligned-Cloud Construction** (2 plans)
   **Goal:** Persist the CPD transforms computed inside `pairwise_distance_matrix` (Step 1, on normalised clouds) so that `_build_aligned_cloud` (Step 3) can reuse the transform for the (src_sub_idx, tgt_sub_idx) pair selected by the DTW path, instead of re-running CPD from scratch on raw unnormalised data. Currently Step 3 starts CPD from identity on clouds that may have an 8× scale difference, causing convergence failure. The fix threads a `dict[(i,j) → (transform, src_norm_params, tgt_norm_params)]` out of `pairwise_distance_matrix`, through `DynamicTimeWarping`, into `AlignmentStage._build_aligned_cloud`, which then: normalises the raw source frame with the stored params, applies the stored transform, and denormalises into target coordinate space.
   **Requirements:** ALIGN-03
   **Depends on:** Phase 33 (CPD-aligned cloud construction in `_build_aligned_cloud`)
@@ -87,7 +87,12 @@
   3. `_build_aligned_cloud` uses `stored_transforms[(src_sub_idx, tgt_sub_idx)]` when available: normalise raw source frame → apply stored transform → denormalise to target space; falls back to fresh CPD when the key is absent
   4. When `cpd_penalty=rigid` and both datasets are at different scales, the aligned_cloud points fall within the target dataset's bounding box (verifiable on the Shah/Kobitski sanity config)
   5. All existing tests pass; new `TestStoredTransformReuse` test class covers the normalise→transform→denormalise round-trip
-  **Plans:** TBD
+  **Plans:** 2 plans
+  Plans:
+  **Wave 1**
+  - [ ] 35-01-PLAN.md — Create src/zreg/types.py (StoredTransform + PairwiseResult); update pairwise_distance_matrix.py to capture norm params and return PairwiseResult; extend DTWResult with stored_transforms; update dtw/core.py to use field access; fix 2-tuple unpacking in test_pairwise_distance_matrix.py and test_dtw.py
+  **Wave 2** *(blocked on Wave 1 completion)*
+  - [ ] 35-02-PLAN.md — Add stored_transforms reuse path to _build_aligned_cloud in alignment.py; thread stored_transforms from DTWResult through AlignmentStage.run(); add TestStoredTransformReuse class to test_alignment_stage.py
 
 - [x] **Phase 34: Alignment Quality Guard in LabelTransferStage** (1/1 plans) — completed 2026-06-19
   **Goal:** Add a pre-transfer alignment check to `LabelTransferStage.run()` that computes mean per-frame Chamfer distance between the received source and target, stores it in `LabelResult.pre_transfer_alignment`, and emits a `warnings.warn()` when `config.run_alignment=False` and the distance exceeds `ALIGNMENT_WARN_THRESHOLD` (default 1.0). When alignment was run upstream (`run_alignment=True`), log the metric at INFO level instead. This surfaces poor alignment before label transfer and warns users who skip `AlignmentStage` when their inputs are not pre-aligned.
@@ -398,3 +403,4 @@ Full details: [.planning/milestones/v1.0-ROADMAP.md](.planning/milestones/v1.0-R
 | 30. Two-Dataset Paired Alignment Architecture | v1.2 | 3/3 | Complete | 2026-06-12 |
 | 31. Synthetic Pipeline Mode — Transform-Spec Target & GT-Aware HPO | v1.2 | 3/3 | Complete | 2026-06-14 |
 | 32. Heterogeneous Paired Evaluation — target_data_format | v1.2 | 2/2 | Complete | 2026-06-14 |
+| 35. Reuse Step-1 CPD Transforms in Aligned-Cloud Construction | v1.2 | 0/2 | In progress | — |

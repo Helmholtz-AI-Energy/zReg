@@ -69,6 +69,11 @@
 
 - [x] **HETERO-01**: Heterogeneous paired evaluation — `EvalConfig` gains `target_data_format: str | None = None` (default `None` falls back to `data_format`; accepted values: `"tracklets"`, `"csv"`); `DataFactory.load_target()` resolves effective format as `target_data_format or data_format`; scenario configs `kobitski_vs_shah.yaml`, `shah_vs_kobitski.yaml`, `kobitski_vs_kobitski_cross.yaml`; no changes to `EvaluationRunner`, stages, `MetricsEngine`, or `run_eval.py` — Complete Phase 32
 
+### Category 14 — Alignment Quality
+
+- [x] **ALIGN-01**: CPD-aligned trajectory output from `AlignmentStage` — `_build_aligned_cloud()` maps each full target frame to its DTW-corresponding source frame and applies CPD registration; result keyed by full target keys; `AlignResult.aligned_cloud` contains spatially-registered source frames (not a pass-through); `cpd_penalty=None` falls back to DTW-temporal resampling only — Complete Phase 33
+- [x] **ALIGN-02**: Pre-transfer alignment quality guard — `LabelResult.pre_transfer_alignment: float` records mean per-frame Chamfer distance; `LabelTransferStage._check_alignment()` computes it before transfer; `warnings.warn()` when `run_alignment=False` and distance > `ALIGNMENT_WARN_THRESHOLD` (1.0); INFO log when `run_alignment=True`; `TestLabelTransferAlignmentGuard` test class — Complete Phase 34
+
 ---
 
 ## Deferred / Superseded

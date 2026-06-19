@@ -89,7 +89,7 @@
   5. All existing tests pass; new `TestStoredTransformReuse` test class covers the normalise→transform→denormalise round-trip
   **Plans:** TBD
 
-- [ ] **Phase 34: Alignment Quality Guard in LabelTransferStage** (1/1 plans)
+- [x] **Phase 34: Alignment Quality Guard in LabelTransferStage** (1/1 plans) — completed 2026-06-19
   **Goal:** Add a pre-transfer alignment check to `LabelTransferStage.run()` that computes mean per-frame Chamfer distance between the received source and target, stores it in `LabelResult.pre_transfer_alignment`, and emits a `warnings.warn()` when `config.run_alignment=False` and the distance exceeds `ALIGNMENT_WARN_THRESHOLD` (default 1.0). When alignment was run upstream (`run_alignment=True`), log the metric at INFO level instead. This surfaces poor alignment before label transfer and warns users who skip `AlignmentStage` when their inputs are not pre-aligned.
   **Requirements:** ALIGN-02
   **Depends on:** Phase 33 (CPD-aligned cloud, so aligned_cloud is the actual registered input)
@@ -103,7 +103,7 @@
   **Plans:** 1 plan
   Plans:
   **Wave 1**
-  - [ ] 34-01-PLAN.md — Add `pre_transfer_alignment` to `LabelResult`; add `_check_alignment()` + warning logic to `LabelTransferStage.run()`; add `TestLabelTransferAlignmentGuard` tests
+  - [x] 34-01-PLAN.md — Add `pre_transfer_alignment` to `LabelResult`; add `_check_alignment()` + warning logic to `LabelTransferStage.run()`; add `TestLabelTransferAlignmentGuard` tests
 
 - [x] **Phase 33: CPD-Aligned Trajectory Output from AlignmentStage** (2/2 plans) — completed 2026-06-16
   **Goal:** Replace the current `AlignResult.aligned_cloud = source` pass-through (D-06, Phase 30) with a spatially-registered trajectory. After DTW computes the warp path, `AlignmentStage._build_aligned_cloud()` maps each full target frame to its DTW-corresponding source frame and — when `cpd_penalty` is set — applies CPD registration to produce spatially-transformed coordinates. The result is keyed by full target keys so `LabelTransferStage` can pair by position without any runner changes. When `cpd_penalty=None`, the cloud is DTW-temporally-resampled only (no spatial shift).

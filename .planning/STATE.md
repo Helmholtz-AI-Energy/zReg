@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Evaluation Framework & Debt Resolution
-status: complete
-stopped_at: Phase 32 complete
-last_updated: "2026-06-14T12:00:00Z"
-last_activity: 2026-06-14 -- Phase 32 verified (19/19); HETERO-01 closed; 879 tests pass
+status: active
+stopped_at: ""
+last_updated: "2026-06-19T00:00:00.000Z"
+last_activity: 2026-06-19 -- Phase 34 complete; LabelTransferStage alignment guard; ALIGN-02 closed; 951 tests
 progress:
-  total_phases: 25
-  completed_phases: 25
-  total_plans: 58
-  completed_plans: 58
+  total_phases: 30
+  completed_phases: 30
+  total_plans: 63
+  completed_plans: 63
   percent: 100
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Every existing capability works correctly, fails informatively, and is covered by tests.
-**Current focus:** v1.2 milestone — Phases 28–29 pending
+**Current focus:** v1.2 milestone — Phase 34 complete; all phases done
 
 ## Current Position
 
-Phase: 32 (complete)
-Plan: All 2 plans complete
-Status: Phase 32 verified; HETERO-01 closed; 879 tests pass
-Last activity: 2026-06-14 -- Phase 32 verification passed (19/19); target_data_format wired + 3 scenario configs added
+Phase: 34 (complete) — milestone complete
+Plan: 34-01 complete (1/1)
+Status: Phase 34 executed; ALIGN-02 closed; 951 tests pass
+Last activity: 2026-06-19 -- Phase 34 complete; LabelTransferStage alignment guard; ALIGN-02 closed; 951 tests
 
 ## Phase Overview
 
@@ -50,6 +50,7 @@ Last activity: 2026-06-14 -- Phase 32 verification passed (19/19); target_data_f
 | 29 | Viz Unification | VIZ-01 | Ready to execute (2 plans) |
 | 30 | Two-Dataset Paired Alignment Architecture | MODE-01 | Complete 2026-06-12 |
 | 31 | Synthetic Pipeline Mode — Transform-Spec Target Generation & GT-Aware HPO | MODE-02, MODE-03 | Complete 2026-06-14 |
+| 33 | CPD-Aligned Trajectory Output from AlignmentStage | ALIGN-01 | Complete 2026-06-16 |
 
 ## Accumulated Context
 
@@ -213,7 +214,7 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-06-14T00:00:00Z
-Stopped at: Phase 31 complete — all 3 plans done; MODE-02 + MODE-03 satisfied; milestone v1.2 complete
-Resume file: .planning/phases/31-synthetic-pipeline-mode-transform-spec-target-generation-gt-aware-hpo/VERIFICATION.md
+Last session: 2026-06-18T13:52:53.913Z
+Stopped at: context exhaustion at 76% (2026-06-18)
+Resume file: None
 Next action: Milestone v1.2 complete — plan next milestone or ship

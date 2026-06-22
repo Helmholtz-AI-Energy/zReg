@@ -94,7 +94,11 @@ def create_pairwise_distance_matrix(
             - stored_transforms (dict[tuple[int, int], StoredTransform]): Stored CPD transforms
               keyed by (i, j) pair indices; empty dict when cpd_type is None.
     """
-    _validate_tensors(x[0]["pos"], y[0]["pos"], names=["x[0]['pos']", "y[0]['pos']"])
+    # Use first available frame from each dict so callers with non-zero-based keys don't crash
+    # (WR-01: x[0] / y[0] raised KeyError when keys did not include 0).
+    _x0 = next(iter(x.values()))
+    _y0 = next(iter(y.values()))
+    _validate_tensors(_x0["pos"], _y0["pos"], names=["x[first]['pos']", "y[first]['pos']"])
     rank, size = 0, 1
     if mpi_distribute and hasmpi:
         comm_world = MPI.COMM_WORLD
@@ -115,7 +119,7 @@ def create_pairwise_distance_matrix(
 
     shape = (len(distance_fns), x_samples + 1, y_samples + 1)
 
-    distance_matrix = torch.full(shape, torch.inf, dtype=x[0]["pos"].dtype, device=x[0]["pos"].device)
+    distance_matrix = torch.full(shape, torch.inf, dtype=_x0["pos"].dtype, device=_x0["pos"].device)
 
     # Calculate the number of distance elements to compute
     if window is not None:
@@ -335,7 +339,9 @@ def create_pairwise_distance_matrix_given_rigid_rot(
 
     shape = (len(distance_fns), x_samples + 1, y_samples + 1)
 
-    distance_matrix = torch.full(shape, torch.inf, dtype=x[0]["pos"].dtype, device=x[0]["pos"].device)
+    # Use first available frame for dtype/device (WR-01: x[0] crashes on non-zero-based keys).
+    _x0_rigid = next(iter(x.values()))
+    distance_matrix = torch.full(shape, torch.inf, dtype=_x0_rigid["pos"].dtype, device=_x0_rigid["pos"].device)
 
     # Calculate the number of distance elements to compute
     if window is not None:
@@ -361,7 +367,7 @@ def create_pairwise_distance_matrix_given_rigid_rot(
     }
 
     trans = transforms.RigidTransformation(
-        rot=rotation, t=translation, scale=scale, dtype=x[0]["pos"].dtype, device=x[0]["pos"].device
+        rot=rotation, t=translation, scale=scale, dtype=_x0_rigid["pos"].dtype, device=_x0_rigid["pos"].device
     )
 
     for i in range(x_samples + 1):
@@ -532,6 +538,8 @@ def _sanitize_pairwise_distance_matrix(distance_kwargs, distance_metrics, downsa
     RuntimeError
         If SWD metric used without downsampling method.
     """
+    # Use first available frame for device references (WR-01: x[0] crashes on non-zero-based keys).
+    _x0_san = next(iter(x.values()))
     if not isinstance(distance_metrics, list):
         distance_metrics = [
             distance_metrics,
@@ -571,7 +579,7 @@ def _sanitize_pairwise_distance_matrix(distance_kwargs, distance_metrics, downsa
             log.info("Using Sliced Wasserstein Distance for distance metric")
             # set default kwargs
             defaults = [
-                ["device", x[0]["pos"].device],
+                ["device", _x0_san["pos"].device],
                 ["num_projs", 50],
             ]
             for kw, val in defaults:
@@ -581,7 +589,7 @@ def _sanitize_pairwise_distance_matrix(distance_kwargs, distance_metrics, downsa
         elif dist == "aswd":
             log.info("Using Adaptive Sliced Wasserstein Distance for distance metric")
             defaults = [
-                ["device", x[0]["pos"].device],
+                ["device", _x0_san["pos"].device],
                 ["max_slices", 100],
                 ["init_projs", 50],
                 ["step_projs", 25],
@@ -600,7 +608,7 @@ def _sanitize_pairwise_distance_matrix(distance_kwargs, distance_metrics, downsa
             log.info("Using Orthogonal Wasserstein Distance for distance metric")
             # set default kwargs
             defaults = [
-                ["device", x[0]["pos"].device],
+                ["device", _x0_san["pos"].device],
                 ["num_projs", 50],
             ]
             for kw, val in defaults:
@@ -611,7 +619,7 @@ def _sanitize_pairwise_distance_matrix(distance_kwargs, distance_metrics, downsa
             log.info("Using Generalised Sliced Wasserstein Distance for distance metric")
             # set default kwargs
             defaults = [
-                ["device", x[0]["pos"].device],
+                ["device", _x0_san["pos"].device],
                 ["num_projs", 50],
                 ["degree", 2.0],
             ]
@@ -623,7 +631,7 @@ def _sanitize_pairwise_distance_matrix(distance_kwargs, distance_metrics, downsa
             log.info("Using Projected Wasserstein Distance for distance metric")
             # set default kwargs
             defaults = [
-                ["device", x[0]["pos"].device],
+                ["device", _x0_san["pos"].device],
                 ["num_projs", 50],
             ]
             for kw, val in defaults:

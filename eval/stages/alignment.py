@@ -359,17 +359,20 @@ class AlignmentStage(PipelineStage):
 
             if cpd_penalty is not None:
                 key = (src_sub_idx, tgt_sub_idx)
-                if key in stored_transforms:
+                # None-guard (CR-02): a StoredTransform with None normalisation params was
+                # created when normalize=False in Step 1. Since no normalisation was applied
+                # then, the reuse path must not be taken — fall through to fresh CPD instead.
+                _st = stored_transforms.get(key)
+                if _st is not None and _st.src_min is not None and _st.tgt_max is not None:
                     # REUSE PATH (D-09): normalise with Step-1 params → apply stored transform →
                     # denormalise into target coordinate space. Avoids re-running CPD from
                     # identity on raw unnormalised data (fixes 8× scale convergence failure).
-                    st = stored_transforms[key]
                     src_norm, _ = utils.normalize_point_cloud(
-                        src_frame["pos"], min_vals=st.src_min, max_vals=st.src_max
+                        src_frame["pos"], min_vals=_st.src_min, max_vals=_st.src_max
                     )
-                    transformed = st.transform.transform(src_norm)
+                    transformed = _st.transform.transform(src_norm)
                     src_frame["pos"] = utils.undo_normalize(
-                        transformed, maxvals=st.tgt_max, minvals=st.tgt_min
+                        transformed, maxvals=_st.tgt_max, minvals=_st.tgt_min
                     )
                 else:
                     # FALLBACK PATH (D-10): fresh CPD on raw data — covers edge frames outside

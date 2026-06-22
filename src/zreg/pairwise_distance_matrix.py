@@ -207,14 +207,18 @@ def create_pairwise_distance_matrix(
                 if hasattr(reg.transformation, "rot"):
                     rots.append(reg.transformation.rot.unsqueeze(0))
                 cpd_metric = reg.q
-                # Store the transform and normalisation params for reuse in _build_aligned_cloud
-                stored_transforms[(i, j)] = StoredTransform(
-                    transform=reg.transformation,
-                    src_min=src_min,
-                    src_max=src_max,
-                    tgt_min=tgt_min,
-                    tgt_max=tgt_max,
-                )
+                # Store the transform and normalisation params for reuse in _build_aligned_cloud.
+                # Only store when normalize=True: when normalize=False, src_min/src_max/tgt_min/
+                # tgt_max remain None and the reuse path in _build_aligned_cloud would apply
+                # normalisation that was never done in Step 1, corrupting the output (CR-02).
+                if normalize:
+                    stored_transforms[(i, j)] = StoredTransform(
+                        transform=reg.transformation,
+                        src_min=src_min,
+                        src_max=src_max,
+                        tgt_min=tgt_min,
+                        tgt_max=tgt_max,
+                    )
             tcpd = time.perf_counter()
             times["cpd"].append(tcpd - tdn)
 

@@ -46,6 +46,8 @@ from typing import Any
 from zreg.cpd import RigidCPD, AffineCPD, NonRigidCPD
 from zreg.dataset import zRegPointCloud
 from zreg.dtw import DynamicTimeWarping
+from zreg.types import StoredTransform
+import zreg.utils as utils
 
 import torch  # noqa: F401 — ensures consistent import order for downstream callers
 
@@ -234,6 +236,7 @@ class AlignmentStage(PipelineStage):
             target_sub=target_sub,
             warp_path=result.warping_path,
             cpd_penalty=params["cpd_penalty"],
+            stored_transforms=result.stored_transforms,
         )
 
         return AlignResult(
@@ -292,6 +295,7 @@ class AlignmentStage(PipelineStage):
         target_sub: dict[int, zRegPointCloud],
         warp_path: list[tuple[int, int]],
         cpd_penalty: str | None,
+        stored_transforms: dict[tuple[int, int], StoredTransform] | None = None,
     ) -> dict[int, zRegPointCloud]:
         """Build the CPD-transformed aligned source trajectory.
 
@@ -314,6 +318,12 @@ class AlignmentStage(PipelineStage):
         cpd_penalty : str | None
             CPD type (``"rigid"``, ``"affine"``, ``"nonrigid"``) or ``None``
             for temporal-only alignment.
+        stored_transforms : dict[tuple[int, int], StoredTransform] | None, optional
+            Mapping from ``(src_sub_idx, tgt_sub_idx)`` to ``StoredTransform``,
+            captured during Step 1 (pairwise distance computation).  When a key is
+            present and ``cpd_penalty`` is not ``None``, the stored transform is
+            reused (normalise → apply stored transform → denormalise) instead of
+            running fresh CPD.  ``None`` is treated as an empty dict (D-08).
 
         Returns
         -------
@@ -322,6 +332,8 @@ class AlignmentStage(PipelineStage):
             deep copy of the corresponding source frame, optionally
             spatially registered via CPD.
         """
+        if stored_transforms is None:
+            stored_transforms = {}
         # Build lookup: target_sub_idx -> first matching source_sub_idx
         tgt_to_src_sub: dict[int, int] = {}
         for src_sub_idx, tgt_sub_idx in warp_path:
@@ -346,39 +358,55 @@ class AlignmentStage(PipelineStage):
             src_frame = deepcopy(source_sub[src_sub_idx])
 
             if cpd_penalty is not None:
-                # CR-03: use full target frame for spatial registration, not strided sub-dict
-                tgt_frame = target[tk]
-                tf_params = {
-                    "device": src_frame["pos"].device,
-                    "dtype": src_frame["pos"].dtype,
-                }
+                key = (src_sub_idx, tgt_sub_idx)
+                if key in stored_transforms:
+                    # REUSE PATH (D-09): normalise with Step-1 params → apply stored transform →
+                    # denormalise into target coordinate space. Avoids re-running CPD from
+                    # identity on raw unnormalised data (fixes 8× scale convergence failure).
+                    st = stored_transforms[key]
+                    src_norm, _ = utils.normalize_point_cloud(
+                        src_frame["pos"], min_vals=st.src_min, max_vals=st.src_max
+                    )
+                    transformed = st.transform.transform(src_norm)
+                    src_frame["pos"] = utils.undo_normalize(
+                        transformed, maxvals=st.tgt_max, minvals=st.tgt_min
+                    )
+                else:
+                    # FALLBACK PATH (D-10): fresh CPD on raw data — covers edge frames outside
+                    # the DTW window that were never computed in Step 1.
+                    # CR-03: use full target frame for spatial registration, not strided sub-dict
+                    tgt_frame = target[tk]
+                    tf_params = {
+                        "device": src_frame["pos"].device,
+                        "dtype": src_frame["pos"].dtype,
+                    }
 
-                if cpd_penalty == "nonrigid":
-                    # NonRigidCPD does not accept tf_init_params (P5)
-                    cpd_obj = NonRigidCPD(
-                        source=src_frame["pos"],
-                        use_color=False,
-                        log_freq=-1,
-                    )
-                elif cpd_penalty == "affine":
-                    cpd_obj = AffineCPD(
-                        source=src_frame["pos"],
-                        use_color=False,
-                        tf_init_params=tf_params,
-                        log_freq=-1,
-                    )
-                else:  # "rigid"
-                    cpd_obj = RigidCPD(
-                        source=src_frame["pos"],
-                        use_color=False,
-                        tf_init_params=tf_params,
-                        log_freq=-1,
-                    )
+                    if cpd_penalty == "nonrigid":
+                        # NonRigidCPD does not accept tf_init_params (P5)
+                        cpd_obj = NonRigidCPD(
+                            source=src_frame["pos"],
+                            use_color=False,
+                            log_freq=-1,
+                        )
+                    elif cpd_penalty == "affine":
+                        cpd_obj = AffineCPD(
+                            source=src_frame["pos"],
+                            use_color=False,
+                            tf_init_params=tf_params,
+                            log_freq=-1,
+                        )
+                    else:  # "rigid"
+                        cpd_obj = RigidCPD(
+                            source=src_frame["pos"],
+                            use_color=False,
+                            tf_init_params=tf_params,
+                            log_freq=-1,
+                        )
 
-                # CR-01: use registration() return value — NonRigidCPD does not set
-                # self.transformation (overrides maximization_step without super() call)
-                reg_result = cpd_obj.registration(tgt_frame["pos"], w=0.0, maxiter=1000, tol=1e-5)
-                src_frame["pos"] = reg_result.transformation.transform(src_frame["pos"])
+                    # CR-01: use registration() return value — NonRigidCPD does not set
+                    # self.transformation (overrides maximization_step without super() call)
+                    reg_result = cpd_obj.registration(tgt_frame["pos"], w=0.0, maxiter=1000, tol=1e-5)
+                    src_frame["pos"] = reg_result.transformation.transform(src_frame["pos"])
 
             aligned[tk] = src_frame
 

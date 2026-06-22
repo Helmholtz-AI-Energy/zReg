@@ -3,8 +3,9 @@
 Two public functions produce figures:
 
 - ``plot_trajectory`` — up to four independent 1×3 figure pairs for the
-  alignment branch (source, target, aligned, superposed) plus one pair for
-  the label branch.  Returns a list of written path strings.
+  alignment branch (source, target, aligned, superposed) plus two pairs for
+  the label branch (source labels, transferred labels).  Returns a list of
+  written path strings.
 - ``plot_metrics`` — horizontal bar chart of 6 normalised metrics per D-09.
 
 Notes
@@ -110,6 +111,18 @@ def _subsample(arr: np.ndarray, max_pts: int = 4000) -> np.ndarray:
     if len(arr) > max_pts:
         return arr[rng.choice(len(arr), max_pts, replace=False)]
     return arr
+
+
+def _get_source_labels(pc: "zRegPointCloud") -> "torch.Tensor | None":
+    """Return source labels from *pc*, preferring ``id`` over ``color``.
+
+    Priority: ``pc["id"]`` when not None, else ``pc["color"]``, else None.
+    """
+    if pc.get("id") is not None:
+        return pc["id"].long()
+    if pc.get("color") is not None:
+        return pc["color"].long()
+    return None
 
 
 def _ax_style(ax, title: str) -> None:
@@ -225,6 +238,62 @@ def _write_superposed_figure(
     _save_fig(fig, Path(output_dir) / "alignment_superposed_trajectory", paths)
 
 
+def _write_label_figure(
+    frame_indices: "list[int]",
+    per_frame_pos: "dict[int, np.ndarray]",
+    per_frame_labels: "dict[int, list[str] | None]",
+    color_for_label: "dict[int, str]",
+    label_names: "dict[int, str] | None",
+    stem: str,
+    output_dir: Path,
+    paths: "list[str]",
+) -> None:
+    """Write a 1×3 label figure (PDF + PNG) showing coloured point clouds.
+
+    Parameters
+    ----------
+    frame_indices : list[int]
+        Ordered frame keys to plot (at most 3).
+    per_frame_pos : dict[int, np.ndarray]
+        Pre-subsampled position arrays keyed by frame index.
+    per_frame_labels : dict[int, list[str] or None]
+        Per-point colour strings aligned to *per_frame_pos*; ``None`` signals
+        the all-unknown fallback (renders a single grey scatter, no legend).
+    color_for_label : dict[int, str]
+        Mapping of integer label ID → colour string; used for legend patches.
+    label_names : dict[int, str] or None
+        Human-readable names for label IDs (legend text).
+    stem : str
+        Output filename stem without extension.
+    output_dir : Path
+        Directory where PDF and PNG are written.
+    paths : list[str]
+        Accumulator extended in place with the written file paths.
+    """
+    fig = plt.figure(figsize=(12, 4))
+    for idx, fk in enumerate(frame_indices):
+        ax = fig.add_subplot(1, 3, idx + 1, projection="3d")
+        pos = per_frame_pos[fk]
+        c_vals = per_frame_labels[fk]
+        if c_vals is None:
+            ax.scatter(pos[:, 0], pos[:, 1], pos[:, 2],
+                       c="#aaaaaa", s=1.5, alpha=1.0, linewidths=0)
+        else:
+            ax.scatter(pos[:, 0], pos[:, 1], pos[:, 2],
+                       c=c_vals, s=1.5, alpha=1.0, linewidths=0)
+        _ax_style(ax, f"Frame {fk}")
+    patches = [
+        mpatches.Patch(
+            color=color_for_label[lab],
+            label=(label_names.get(lab, str(lab)) if label_names else str(lab)),
+        )
+        for lab in sorted(color_for_label)
+    ]
+    if patches:
+        fig.legend(handles=patches, loc="center right", bbox_to_anchor=(1.15, 0.5))
+    _save_fig(fig, Path(output_dir) / stem, paths)
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -252,8 +321,10 @@ def plot_trajectory(
 
     Label branch (written when ``label_result is not None``):
 
-    - ``label_trajectory.{pdf,png}`` — point cloud coloured by transferred
-      label ID.
+    - ``label_source_trajectory.{pdf,png}`` — source cloud coloured by source
+      labels (``dataset[fk]["id"]``, falling back to ``dataset[fk]["color"]``).
+    - ``label_target_trajectory.{pdf,png}`` — target/aligned cloud coloured by
+      transferred labels (``label_result.transferred_labels``).
 
     Return value length depends on which stages ran and whether *target* is
     provided:
@@ -261,10 +332,10 @@ def plot_trajectory(
     - No stages → 0
     - Align only, no target → 6
     - Align only, with target → 8
-    - Label only → 2
-    - Align + label, no target → 8
-    - Align + label, with target → 10
-    - (all combinations) → 0, 2, 6, 8, 10, or 12
+    - Label only → 4
+    - Align + label, no target → 10
+    - Align + label, with target → 12
+    - (all combinations) → 0, 4, 6, 8, 10, or 12
 
     Parameters
     ----------
@@ -387,34 +458,60 @@ def plot_trajectory(
         )
 
     # ------------------------------------------------------------------
-    # LABEL FIGURE — written only when label_result is not None
+    # LABEL FIGURES — written only when label_result is not None (VIZ-03)
+    # Two independent 1×3 figure pairs:
+    #   label_source_trajectory — source cloud coloured by source labels
+    #   label_target_trajectory — target/aligned cloud coloured by transferred labels
     # ------------------------------------------------------------------
     if label_result is not None:
-        # Frame indices for the label figure come from transferred_labels keys
-        # (target space) so positions and labels stay in the same dataset.
-        label_sorted_keys = sorted(label_result.transferred_labels.keys())
+        label_sorted = sorted(label_result.transferred_labels.keys())
         label_frame_indices = _deduplicate_frames([
-            label_sorted_keys[0],
-            label_sorted_keys[len(label_sorted_keys) // 2],
-            label_sorted_keys[-1],
+            label_sorted[0],
+            label_sorted[len(label_sorted) // 2],
+            label_sorted[-1],
         ])
 
-        # Collect union of label IDs across the 3 plotted frames
+        _label_palette = ["red", "green", "blue"]
+
+        # Task 4: union of all label IDs across both figures for consistent palette
         union_labels: set[int] = set()
         for fk in label_frame_indices:
-            t = label_result.transferred_labels[fk]
-            union_labels.update(int(v) for v in torch.unique(t).tolist())
-        sorted_labels = sorted(union_labels)
+            src = _get_source_labels(dataset[fk])
+            if src is not None:
+                union_labels.update(int(v) for v in torch.unique(src).tolist())
+            union_labels.update(
+                int(v) for v in torch.unique(label_result.transferred_labels[fk]).tolist()
+            )
+        color_for_label = {
+            lab: _label_palette[i % 3]
+            for i, lab in enumerate(sorted(union_labels))
+        }
 
-        _label_palette = ["red", "green", "blue"]
-        color_for_label = {lab: _label_palette[i % 3] for i, lab in enumerate(sorted_labels)}
+        # Task 3: pre-compute source figure data
+        source_pos_map: dict[int, np.ndarray] = {}
+        source_colors_map: dict[int, "list[str] | None"] = {}
+        for fk in label_frame_indices:
+            src_labels = _get_source_labels(dataset[fk])
+            raw_pos = dataset[fk]["pos"].detach().cpu().numpy()
+            if src_labels is not None:
+                raw_labels = src_labels.tolist()
+                n = min(len(raw_pos), len(raw_labels))
+                raw_pos = raw_pos[:n]
+                raw_labels = raw_labels[:n]
+                if n > 4000:
+                    keep = np.random.default_rng(0).choice(n, 4000, replace=False)
+                    raw_pos = raw_pos[keep]
+                    raw_labels = [raw_labels[i] for i in keep]
+                source_pos_map[fk] = raw_pos
+                source_colors_map[fk] = [color_for_label[int(v)] for v in raw_labels]
+            else:
+                source_pos_map[fk] = _subsample(raw_pos)
+                source_colors_map[fk] = None
 
-        fig = plt.figure(figsize=(12, 4))
-        for idx, fk in enumerate(label_frame_indices):
-            ax = fig.add_subplot(1, 3, idx + 1, projection="3d")
-            # Use target positions when available so they match transferred_labels
-            # (which are keyed by target frame). Fall back to aligned source or
-            # raw source for label-only or same-dataset runs.
+        # Task 3: pre-compute target figure data (preserves D-07 position logic)
+        target_pos_map: dict[int, np.ndarray] = {}
+        target_colors_map: dict[int, "list[str]"] = {}
+        for fk in label_frame_indices:
             if target is not None and fk in target:
                 pos = target[fk]["pos"].detach().cpu().numpy()
             elif align_result is not None and fk in align_result.aligned_cloud:
@@ -426,9 +523,8 @@ def plot_trajectory(
                         "For label-only runs, dataset must be the target trajectory."
                     )
                 pos = dataset[fk]["pos"].detach().cpu().numpy()
-            t = label_result.transferred_labels[fk]
-            c_vals = [color_for_label[int(v)] for v in t.tolist()]
-            # Per-cloud subsampling — subsample pos and c_vals in sync (D-03)
+            t_labels = label_result.transferred_labels[fk]
+            c_vals = [color_for_label[int(v)] for v in t_labels.tolist()]
             n_pts = min(len(pos), len(c_vals))
             rng = np.random.default_rng(0)
             if n_pts > 4000:
@@ -438,25 +534,24 @@ def plot_trajectory(
             else:
                 pos = pos[:n_pts]
                 c_vals = c_vals[:n_pts]
-            ax.scatter(pos[:, 0], pos[:, 1], pos[:, 2],
-                       c=c_vals, s=1.5, alpha=1.0, linewidths=0)
-            _ax_style(ax, f"Frame {fk}")
-        # Build legend patches
-        patches = [
-            mpatches.Patch(
-                color=color_for_label[lab],
-                label=(label_names.get(lab, str(lab)) if label_names else str(lab)),
-            )
-            for lab in sorted_labels
-        ]
-        fig.legend(handles=patches, loc="center right", bbox_to_anchor=(1.15, 0.5))
-        base2 = Path(output_dir) / "label_trajectory"
-        try:
-            fig.savefig(base2.with_suffix(".pdf"), bbox_inches="tight")
-            fig.savefig(base2.with_suffix(".png"), dpi=150, bbox_inches="tight")
-            paths.extend([str(base2.with_suffix(".pdf")), str(base2.with_suffix(".png"))])
-        finally:
-            plt.close(fig)
+            target_pos_map[fk] = pos
+            target_colors_map[fk] = c_vals
+
+        # Figure 1: source cloud coloured by source labels
+        _write_label_figure(
+            label_frame_indices, source_pos_map, source_colors_map,
+            color_for_label, label_names,
+            stem="label_source_trajectory",
+            output_dir=Path(output_dir), paths=paths,
+        )
+
+        # Figure 2: target/aligned cloud coloured by transferred labels
+        _write_label_figure(
+            label_frame_indices, target_pos_map, target_colors_map,
+            color_for_label, label_names,
+            stem="label_target_trajectory",
+            output_dir=Path(output_dir), paths=paths,
+        )
 
     return paths
 

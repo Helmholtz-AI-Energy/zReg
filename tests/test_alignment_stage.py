@@ -475,6 +475,99 @@ class TestAlignmentStageCoverageGaps:
         assert isinstance(result, AlignResult)
 
 
+# ---------------------------------------------------------------------------
+# TestBuildAlignedCloudStoredTransformsSignature — Plan 35-02 TDD RED (Task 1)
+# ---------------------------------------------------------------------------
+
+
+class TestBuildAlignedCloudStoredTransformsSignature:
+    """TDD RED: _build_aligned_cloud must accept stored_transforms parameter (35-02 Task 1).
+
+    These tests verify the contract BEFORE the implementation is added. They should
+    fail with TypeError when stored_transforms is not yet a parameter, and pass
+    once Task 1 implementation lands.
+    """
+
+    @pytest.fixture
+    def eval_config(self, tmp_path) -> EvalConfig:
+        return EvalConfig(data_path=str(tmp_path / "unused.mat"))
+
+    @pytest.fixture
+    def small_source(self):
+        return {0: zRegPointCloud(pos=torch.rand(10, 3))}
+
+    @pytest.fixture
+    def small_target(self):
+        return {0: zRegPointCloud(pos=torch.rand(10, 3) * 8)}
+
+    def test_build_aligned_cloud_accepts_stored_transforms_keyword(self, small_source, small_target):
+        """_build_aligned_cloud must accept stored_transforms as a keyword arg (default None)."""
+        # Should NOT raise TypeError about unexpected keyword argument
+        result = AlignmentStage._build_aligned_cloud(
+            source=small_source,
+            target=small_target,
+            source_sub=small_source,
+            target_sub=small_target,
+            warp_path=[(0, 0)],
+            cpd_penalty=None,
+            stored_transforms={},
+        )
+        assert isinstance(result, dict)
+
+    def test_build_aligned_cloud_stored_transforms_none_default_no_error(self, small_source, small_target):
+        """_build_aligned_cloud called without stored_transforms should work (default None treated as {})."""
+        result = AlignmentStage._build_aligned_cloud(
+            source=small_source,
+            target=small_target,
+            source_sub=small_source,
+            target_sub=small_target,
+            warp_path=[(0, 0)],
+            cpd_penalty=None,
+        )
+        assert isinstance(result, dict)
+
+    def test_run_passes_stored_transforms_to_build_aligned_cloud(self, eval_config, small_source, small_target):
+        """AlignmentStage.run() must pass result.stored_transforms to _build_aligned_cloud (D-08).
+
+        Verifies via patching that stored_transforms is forwarded from DTWResult.
+        """
+        from unittest.mock import MagicMock, patch
+        from zreg.dtw.result import DTWResult
+        from zreg.types import StoredTransform
+
+        fake_stored = {(0, 0): MagicMock(spec=StoredTransform)}
+        fake_dtw_result = MagicMock(spec=DTWResult)
+        fake_dtw_result.warping_path = [(0, 0)]
+        fake_dtw_result.distance = 0.0
+        fake_dtw_result.stored_transforms = fake_stored
+
+        params = {
+            "window_size": 5,
+            "step": 1,
+            "cpd_penalty": None,
+            "dtw_dist_fn": "euclidean",
+            "n_breakpoints": 5,
+        }
+
+        stage = AlignmentStage(eval_config)
+        original_bac = AlignmentStage._build_aligned_cloud
+        captured_kwargs = {}
+
+        def capturing_bac(*args, **kwargs):
+            captured_kwargs.update(kwargs)
+            return original_bac(*args, **kwargs)
+
+        with patch("eval.stages.alignment.DynamicTimeWarping") as mock_dtw_cls:
+            mock_dtw_cls.return_value.compute.return_value = fake_dtw_result
+            with patch.object(AlignmentStage, "_build_aligned_cloud", side_effect=capturing_bac):
+                stage.run(small_source, small_target, params)
+
+        assert "stored_transforms" in captured_kwargs, (
+            "run() did not pass stored_transforms to _build_aligned_cloud (D-08)"
+        )
+        assert captured_kwargs["stored_transforms"] is fake_stored
+
+
 class TestPipelineStageBaseLineCoverage:
     """Coverage for base.py:83 (...) and base.py:114 (return None)."""
 

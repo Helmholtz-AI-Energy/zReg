@@ -322,31 +322,23 @@ class TestPlotTrajectory:
         assert not (tmp_path / "label_trajectory.pdf").exists()
 
     def test_label_source_uses_id_when_available(self, tmp_path):
-        """Source figure uses pc['id'] when present (not color)."""
+        """Source figure uses pc['id'] when present; color=None verifies id is the sole source."""
+        # color=None forces a KeyError/grey if the code ignores id and falls back to color.
+        # id=torch.ones means label 1 is used; transferred_labels=zeros means label 0.
+        # Both figures must render without error.
         ds = {
-            0: zRegPointCloud(
-                pos=torch.randn(20, 3),
-                color=torch.zeros(20, dtype=torch.long),
-                id=torch.ones(20, dtype=torch.long),
-            ),
-            1: zRegPointCloud(
-                pos=torch.randn(20, 3),
-                color=torch.zeros(20, dtype=torch.long),
-                id=torch.ones(20, dtype=torch.long),
-            ),
-            2: zRegPointCloud(
-                pos=torch.randn(20, 3),
-                color=torch.zeros(20, dtype=torch.long),
-                id=torch.ones(20, dtype=torch.long),
-            ),
+            0: zRegPointCloud(pos=torch.randn(20, 3), color=None, id=torch.ones(20, dtype=torch.long)),
+            1: zRegPointCloud(pos=torch.randn(20, 3), color=None, id=torch.ones(20, dtype=torch.long)),
+            2: zRegPointCloud(pos=torch.randn(20, 3), color=None, id=torch.ones(20, dtype=torch.long)),
         }
         lr = LabelResult(
             transferred_labels={k: torch.zeros(20, dtype=torch.long) for k in ds},
             params_used={},
         )
         result = plot_trajectory(None, lr, ds, None, tmp_path)
-        assert (tmp_path / "label_source_trajectory.pdf").exists()
         assert len(result) == 4
+        assert (tmp_path / "label_source_trajectory.pdf").exists()
+        assert (tmp_path / "label_target_trajectory.pdf").exists()
 
     def test_label_no_figure_leak(self, fake_label_result, synthetic_dataset_3, tmp_path):
         """No leaked figure handles after label-only run."""
@@ -439,7 +431,7 @@ class TestVizCoverageGaps:
         assert (tmp_path / "alignment_aligned_trajectory.pdf").exists()
         assert (tmp_path / "alignment_superposed_trajectory.pdf").exists()
 
-    def test_plot_metrics_large_label_dataset_subsamples(self, tmp_path):
+    def test_plot_trajectory_large_label_dataset_subsamples(self, tmp_path):
         """viz.py label branch — subsampling when label points > 4000."""
         large_ds = {
             0: zRegPointCloud(pos=torch.randn(5000, 3), color=torch.zeros(5000, dtype=torch.long), id=None),

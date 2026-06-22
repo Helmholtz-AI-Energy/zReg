@@ -141,9 +141,10 @@ def _ax_style(ax, title: str) -> None:
 def _save_fig(fig, base: Path, paths: list[str]) -> None:
     """Save *fig* as PDF + PNG at *base* (no suffix), close fig, extend *paths*.
 
-    ``paths.extend`` is placed inside the ``try`` block so that only
-    successfully-written files are recorded (CR-02: if the second savefig
-    raises, the PDF is on disk but must not be silently omitted).
+    ``paths.extend`` is placed after both ``savefig`` calls so that paths are
+    only recorded when the full pair succeeds (atomic pair semantics).  If the
+    PNG save raises, neither path is appended.  ``plt.close`` always runs via
+    the ``finally`` block to prevent figure handle leaks.
     """
     try:
         fig.savefig(base.with_suffix(".pdf"), bbox_inches="tight")
@@ -471,11 +472,18 @@ def plot_trajectory(
             label_sorted[-1],
         ])
 
-        _label_palette = ["red", "green", "blue"]
+        # 10-colour tab10 palette — supports up to 10 distinct classes before wrapping.
+        _tab10 = [matplotlib.colormaps["tab10"](i) for i in range(10)]
+        _label_palette = [
+            f"#{int(r*255):02x}{int(g*255):02x}{int(b*255):02x}"
+            for r, g, b, _ in _tab10
+        ]
 
         # Task 4: union of all label IDs across both figures for consistent palette
         union_labels: set[int] = set()
         for fk in label_frame_indices:
+            if fk not in dataset:
+                continue
             src = _get_source_labels(dataset[fk])
             if src is not None:
                 union_labels.update(int(v) for v in torch.unique(src).tolist())
@@ -483,7 +491,7 @@ def plot_trajectory(
                 int(v) for v in torch.unique(label_result.transferred_labels[fk]).tolist()
             )
         color_for_label = {
-            lab: _label_palette[i % 3]
+            lab: _label_palette[i % len(_label_palette)]
             for i, lab in enumerate(sorted(union_labels))
         }
 
@@ -491,6 +499,8 @@ def plot_trajectory(
         source_pos_map: dict[int, np.ndarray] = {}
         source_colors_map: dict[int, "list[str] | None"] = {}
         for fk in label_frame_indices:
+            if fk not in dataset:
+                continue
             src_labels = _get_source_labels(dataset[fk])
             raw_pos = dataset[fk]["pos"].detach().cpu().numpy()
             if src_labels is not None:
@@ -538,9 +548,13 @@ def plot_trajectory(
             target_colors_map[fk] = c_vals
 
         # Figure 1: source cloud coloured by source labels
+        # Only pass frames that ended up in source_pos_map (guard for mismatched keys)
+        source_frame_indices = [fk for fk in label_frame_indices if fk in source_pos_map]
+        # If all source frames lack labels, pass empty color_for_label to suppress legend
+        all_none_source = all(source_colors_map.get(fk) is None for fk in source_frame_indices)
         _write_label_figure(
-            label_frame_indices, source_pos_map, source_colors_map,
-            color_for_label, label_names,
+            source_frame_indices, source_pos_map, source_colors_map,
+            {} if all_none_source else color_for_label, label_names,
             stem="label_source_trajectory",
             output_dir=Path(output_dir), paths=paths,
         )

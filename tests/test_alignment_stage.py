@@ -599,3 +599,39 @@ class TestPipelineStageBaseLineCoverage:
         stage = _ConcreteMinimal(cfg)
         result = stage.validate_params({"any": "thing"})
         assert result is None
+
+
+# ---------------------------------------------------------------------------
+# TestStoredTransformReuse — Plan 35-02 Task 2 (TDD RED stubs)
+# ---------------------------------------------------------------------------
+
+
+class TestStoredTransformReuse:
+    """ALIGN-03: normalise → stored transform → denormalise reuse path in _build_aligned_cloud.
+
+    Four tests cover:
+    1. Reuse path: stored transform is applied (pos changes).
+    2. Fallback path: empty stored_transforms with fresh CPD completes without error.
+    3. Bounding-box check: 8x scale difference, aligned_cloud within target bbox + margin.
+    4. cpd_penalty=None ignores stored_transforms entirely.
+    """
+
+    @pytest.fixture
+    def eval_config(self, tmp_path) -> EvalConfig:
+        return EvalConfig(data_path=str(tmp_path / "unused.mat"))
+
+    def test_reuse_path_modifies_source_pos(self):
+        """Reuse path (key present, cpd_penalty='rigid'): returned pos differs from raw source."""
+        pytest.fail("RED: test_reuse_path_modifies_source_pos not yet implemented")
+
+    def test_fallback_path_when_key_absent(self):
+        """Fallback path (stored_transforms={}, cpd_penalty='rigid'): completes without error."""
+        pytest.fail("RED: test_fallback_path_when_key_absent not yet implemented")
+
+    def test_bounding_box_with_scale_difference(self, eval_config):
+        """8x scale difference: after run(), aligned_cloud pos within target bbox + 50% margin."""
+        pytest.fail("RED: test_bounding_box_with_scale_difference not yet implemented")
+
+    def test_no_cpd_penalty_ignores_stored_transforms(self):
+        """cpd_penalty=None: pos unchanged regardless of stored_transforms content."""
+        pytest.fail("RED: test_no_cpd_penalty_ignores_stored_transforms not yet implemented")

@@ -185,18 +185,26 @@ class TestPlotMetrics:
 
 
 # ---------------------------------------------------------------------------
-# TestPlotTrajectory — EXT-02
+# TestPlotTrajectory — EXT-02 / VIZ-02
 # ---------------------------------------------------------------------------
 
 
 class TestPlotTrajectory:
-    """EXT-02: plot_trajectory produces correct files for all 4 stage combinations."""
+    """EXT-02 / VIZ-02: plot_trajectory produces correct files for all stage combinations."""
 
     def test_align_only_writes_alignment_files(self, fake_align_result, synthetic_dataset_3, tmp_path):
+        """Align only, no target: 3 alignment figures = 6 files (source, aligned, superposed)."""
         result = plot_trajectory(fake_align_result, None, synthetic_dataset_3, None, tmp_path)
-        assert len(result) == 2
-        assert (tmp_path / "alignment_trajectory.pdf").exists()
-        assert (tmp_path / "alignment_trajectory.png").exists()
+        assert len(result) == 6
+        for stem in [
+            "alignment_source_trajectory",
+            "alignment_aligned_trajectory",
+            "alignment_superposed_trajectory",
+        ]:
+            assert (tmp_path / f"{stem}.pdf").exists()
+            assert (tmp_path / f"{stem}.png").exists()
+        # Old stem must NOT be written
+        assert not (tmp_path / "alignment_trajectory.pdf").exists()
         assert not (tmp_path / "label_trajectory.pdf").exists()
 
     def test_label_only_writes_label_files(self, fake_label_result, synthetic_dataset_3, tmp_path):
@@ -206,20 +214,26 @@ class TestPlotTrajectory:
         assert (tmp_path / "label_trajectory.png").exists()
         assert not (tmp_path / "alignment_trajectory.pdf").exists()
 
-    def test_both_stages_writes_four_files(self, fake_align_result, fake_label_result, synthetic_dataset_3, tmp_path):
+    def test_both_stages_writes_eight_files(
+        self, fake_align_result, fake_label_result, synthetic_dataset_3, tmp_path
+    ):
+        """Align + label, no target: 6 alignment + 2 label = 8 files."""
         result = plot_trajectory(fake_align_result, fake_label_result, synthetic_dataset_3, None, tmp_path)
-        assert len(result) == 4
-        assert (tmp_path / "alignment_trajectory.pdf").exists()
+        assert len(result) == 8
+        assert (tmp_path / "alignment_source_trajectory.pdf").exists()
         assert (tmp_path / "label_trajectory.pdf").exists()
 
     def test_neither_stage_returns_empty_list(self, synthetic_dataset_3, tmp_path):
         result = plot_trajectory(None, None, synthetic_dataset_3, None, tmp_path)
         assert result == []
 
-    def test_label_names_used_when_provided(self, fake_align_result, fake_label_result, synthetic_dataset_3, tmp_path):
+    def test_label_names_used_when_provided(
+        self, fake_align_result, fake_label_result, synthetic_dataset_3, tmp_path
+    ):
+        """Label names update applies; total files = 8 (6 align + 2 label, no target)."""
         label_names = {0: "T cell", 1: "B cell", 2: "NK cell", 3: "Monocyte"}
         result = plot_trajectory(fake_align_result, fake_label_result, synthetic_dataset_3, label_names, tmp_path)
-        assert len(result) == 4
+        assert len(result) == 8
         assert (tmp_path / "label_trajectory.pdf").exists()
         assert (tmp_path / "label_trajectory.pdf").stat().st_size > 0
 
@@ -230,29 +244,68 @@ class TestPlotTrajectory:
         assert after == before
 
     # D-08 lower-bound: 1-frame dataset — frame_indices must deduplicate to [0]
-    def test_1frame_dataset_returns_two_files_no_index_error(
+    def test_1frame_dataset_returns_six_files_no_index_error(
         self, fake_align_result_1frame, synthetic_dataset_1, tmp_path
     ):
-        """D-08: 1-frame dataset produces exactly 2 output files (PDF + PNG) without IndexError."""
+        """D-08: 1-frame dataset produces 6 output files without IndexError."""
         result = plot_trajectory(fake_align_result_1frame, None, synthetic_dataset_1, None, tmp_path)
-        assert len(result) == 2
-        assert (tmp_path / "alignment_trajectory.pdf").exists()
-        assert (tmp_path / "alignment_trajectory.png").exists()
+        assert len(result) == 6
+        assert (tmp_path / "alignment_source_trajectory.pdf").exists()
+        assert (tmp_path / "alignment_source_trajectory.png").exists()
+        assert not (tmp_path / "alignment_trajectory.pdf").exists()
 
     # D-08 cap: 5-frame dataset — frame_indices selects first/middle/last (no duplicates)
-    def test_5frame_dataset_returns_two_files_no_index_error(
+    def test_5frame_dataset_returns_six_files_no_index_error(
         self, fake_align_result_5frames, synthetic_dataset_5, tmp_path
     ):
-        """D-08: 5-frame dataset produces exactly 2 output files (PDF + PNG) without IndexError."""
+        """D-08: 5-frame dataset produces 6 output files without IndexError."""
         result = plot_trajectory(fake_align_result_5frames, None, synthetic_dataset_5, None, tmp_path)
-        assert len(result) == 2
-        assert (tmp_path / "alignment_trajectory.pdf").exists()
-        assert (tmp_path / "alignment_trajectory.png").exists()
+        assert len(result) == 6
+        assert (tmp_path / "alignment_source_trajectory.pdf").exists()
+        assert not (tmp_path / "alignment_trajectory.pdf").exists()
 
     def test_empty_dataset_returns_empty_list(self, tmp_path):
         """CR-01: empty dataset returns [] immediately without IndexError."""
         result = plot_trajectory(None, None, {}, None, tmp_path)
         assert result == []
+
+    # --- New tests for 4-figure alignment behavior (VIZ-02) ---
+
+    def test_alignment_with_target_writes_8_files(self, fake_align_result, synthetic_dataset_3, tmp_path):
+        """When target is provided, all 4 alignment figures (8 files) are written."""
+        result = plot_trajectory(
+            fake_align_result, None, synthetic_dataset_3, None, tmp_path,
+            target=synthetic_dataset_3,
+        )
+        assert len(result) == 8
+        for stem in [
+            "alignment_source_trajectory",
+            "alignment_target_trajectory",
+            "alignment_aligned_trajectory",
+            "alignment_superposed_trajectory",
+        ]:
+            assert (tmp_path / f"{stem}.pdf").exists()
+            assert (tmp_path / f"{stem}.png").exists()
+
+    def test_alignment_without_target_skips_target_figure(self, fake_align_result, synthetic_dataset_3, tmp_path):
+        """When target is None, target figure is skipped — 3 alignment figures (6 files)."""
+        result = plot_trajectory(fake_align_result, None, synthetic_dataset_3, None, tmp_path)
+        assert len(result) == 6
+        assert (tmp_path / "alignment_source_trajectory.pdf").exists()
+        assert (tmp_path / "alignment_aligned_trajectory.pdf").exists()
+        assert (tmp_path / "alignment_superposed_trajectory.pdf").exists()
+        assert not (tmp_path / "alignment_target_trajectory.pdf").exists()
+        assert not (tmp_path / "alignment_trajectory.pdf").exists()  # old stem gone
+
+    def test_no_figure_leak_4panel(self, fake_align_result, synthetic_dataset_3, tmp_path):
+        """4-figure alignment mode produces no leaked matplotlib figure handles."""
+        before = len(plt.get_fignums())
+        plot_trajectory(
+            fake_align_result, None, synthetic_dataset_3, None, tmp_path,
+            target=synthetic_dataset_3,
+        )
+        after = len(plt.get_fignums())
+        assert after == before
 
 
 # ---------------------------------------------------------------------------
@@ -317,7 +370,7 @@ class TestVizCoverageGaps:
     """Coverage gaps: subsampling >4000 pts, empty CSV, ValueError paths."""
 
     def test_plot_trajectory_large_dataset_subsamples(self, tmp_path):
-        """viz.py:135,138 — subsampling when source/aligned pos > 4000 points."""
+        """_subsample helper — subsampling when source/aligned pos > 4000 points."""
         # Create large dataset with >4000 points per frame
         large_ds = {
             0: zRegPointCloud(pos=torch.randn(5000, 3), color=None, id=None),
@@ -332,11 +385,14 @@ class TestVizCoverageGaps:
             params_used={},
         )
         paths = plot_trajectory(align_result, None, large_ds, None, tmp_path)
-        assert len(paths) == 2
-        assert (tmp_path / "alignment_trajectory.pdf").exists()
+        # No target: 3 figures = 6 files
+        assert len(paths) == 6
+        assert (tmp_path / "alignment_source_trajectory.pdf").exists()
+        assert (tmp_path / "alignment_aligned_trajectory.pdf").exists()
+        assert (tmp_path / "alignment_superposed_trajectory.pdf").exists()
 
     def test_plot_metrics_large_label_dataset_subsamples(self, tmp_path):
-        """viz.py:209-211 — subsampling when label points > 4000."""
+        """viz.py label branch — subsampling when label points > 4000."""
         large_ds = {
             0: zRegPointCloud(pos=torch.randn(5000, 3), color=torch.zeros(5000, dtype=torch.long), id=None),
             1: zRegPointCloud(pos=torch.randn(5000, 3), color=torch.zeros(5000, dtype=torch.long), id=None),
@@ -351,14 +407,14 @@ class TestVizCoverageGaps:
         assert (tmp_path / "label_trajectory.pdf").exists()
 
     def test_render_dataset_triptych_empty_csv_raises(self, tmp_path):
-        """viz.py:346 — ValueError when CSV has no time frames (header only)."""
+        """viz.py — ValueError when CSV has no time frames (header only)."""
         empty_csv = tmp_path / "empty.csv"
         empty_csv.write_text("x,y,z,t\n")
         with pytest.raises(ValueError, match="no time frames"):
             render_dataset_triptych(empty_csv, "empty", tmp_path)
 
     def test_render_dataset_triptych_no_matching_rows_raises(self, tmp_path):
-        """viz.py:360 — ValueError when no chunks match wanted t values.
+        """viz.py — ValueError when no chunks match wanted t values.
 
         Strategy: create a real CSV (t=999), then patch pandas.read_csv so that
         the second call (chunked read) returns a chunk with t=888 (no match).
@@ -386,7 +442,7 @@ class TestVizCoverageGaps:
                 render_dataset_triptych(csv_path, "mismatch", tmp_path)
 
     def test_render_dataset_triptych_large_points_subsamples(self, tmp_path):
-        """viz.py:382-383 — subsampling when n_pts > 4000 in triptych."""
+        """viz.py — subsampling when n_pts > 4000 in triptych."""
         import pandas as pd
         rows = []
         for t in [1, 2, 3]:

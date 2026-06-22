@@ -6,6 +6,7 @@ alignment between two sequences of point clouds.
 
 from pathlib import Path
 import logging
+import pickle
 
 import torch
 
@@ -505,7 +506,12 @@ class DynamicTimeWarping:
     def save(self, path: str | Path) -> None:
         """Save DTW results to disk.
 
-        Saves the cost matrix, accumulated cost, warping path, and distance.
+        Saves the cost matrix, accumulated cost, warping path, distance,
+        rotations, and stored_transforms. The main tensor data is saved to
+        ``path`` (a .pt file, loadable with ``weights_only=True``). CPD
+        transformation objects in ``stored_transforms`` are saved separately to
+        ``path + ".transforms.pkl"`` using pickle, because they are not plain
+        tensors and would be rejected by ``weights_only=True``.
 
         Parameters
         ----------
@@ -521,6 +527,7 @@ class DynamicTimeWarping:
             raise RuntimeError("DTW has not been computed yet. Call compute() first.")
 
         path = Path(path)
+        # Main tensor data — safe to load with weights_only=True.
         data = {
             "cost_matrix": self.result.cost_matrix,
             "accumulated_cost": self.result.accumulated_cost,
@@ -537,7 +544,14 @@ class DynamicTimeWarping:
             },
         }
         torch.save(data, path)
-        log.info(f"Saved DTW results to {path}")
+
+        # CPD transformation objects are not plain tensors; save them separately
+        # so the main .pt file can be loaded safely with weights_only=True.
+        transforms_path = Path(str(path) + ".transforms.pkl")
+        with open(transforms_path, "wb") as f:
+            pickle.dump(self.result.stored_transforms, f)
+
+        log.info(f"Saved DTW results to {path} (transforms → {transforms_path})")
 
     @classmethod
     def load(cls, path: str | Path) -> DTWResult:
@@ -554,7 +568,16 @@ class DynamicTimeWarping:
             The loaded DTW results.
         """
         path = Path(path)
-        data = torch.load(path)
+        # weights_only=True is safe because the main file contains only tensors,
+        # a list, and primitives — no arbitrary pickle objects.
+        data = torch.load(path, weights_only=True)
+
+        # Load companion transforms file if it exists (written by save()).
+        transforms_path = Path(str(path) + ".transforms.pkl")
+        stored_transforms: dict = {}
+        if transforms_path.exists():
+            with open(transforms_path, "rb") as f:
+                stored_transforms = pickle.load(f)  # noqa: S301
 
         result = DTWResult(
             cost_matrix=data["cost_matrix"],
@@ -562,6 +585,7 @@ class DynamicTimeWarping:
             warping_path=data["warping_path"],
             distance=data["distance"],
             rotations=data.get("rotations"),
+            stored_transforms=stored_transforms,
         )
 
         log.info(f"Loaded DTW results from {path}")

@@ -126,13 +126,18 @@ def _ax_style(ax, title: str) -> None:
 
 
 def _save_fig(fig, base: Path, paths: list[str]) -> None:
-    """Save *fig* as PDF + PNG at *base* (no suffix), close fig, extend *paths*."""
+    """Save *fig* as PDF + PNG at *base* (no suffix), close fig, extend *paths*.
+
+    ``paths.extend`` is placed inside the ``try`` block so that only
+    successfully-written files are recorded (CR-02: if the second savefig
+    raises, the PDF is on disk but must not be silently omitted).
+    """
     try:
         fig.savefig(base.with_suffix(".pdf"), bbox_inches="tight")
         fig.savefig(base.with_suffix(".png"), dpi=150, bbox_inches="tight")
+        paths.extend([str(base.with_suffix(".pdf")), str(base.with_suffix(".png"))])
     finally:
         plt.close(fig)
-    paths.extend([str(base.with_suffix(".pdf")), str(base.with_suffix(".png"))])
 
 
 def _write_single_cloud_figure(
@@ -210,7 +215,12 @@ def _write_superposed_figure(
             ax.scatter(tgt[:, 0], tgt[:, 1], tgt[:, 2],
                        c="#38a058", s=1.5, alpha=1.0, linewidths=0)
         _ax_style(ax, f"Frame {fk}")
-    legend_labels = ["Source", "Aligned"] + (["Target"] if tgt_pos_map is not None else [])
+    # WR-02: derive legend from whether any target data was actually rendered.
+    # tgt_pos_map may be non-None but still cover fewer keys than frame_indices
+    # (e.g. paired run where target keys are a strict subset). Only include
+    # "Target" when at least one subplot actually drew target scatter points.
+    has_target = tgt_pos_map is not None and any(fk in tgt_pos_map for fk in frame_indices)
+    legend_labels = ["Source", "Aligned"] + (["Target"] if has_target else [])
     fig.legend(legend_labels, loc="center right", bbox_to_anchor=(1.12, 0.5))
     _save_fig(fig, Path(output_dir) / "alignment_superposed_trajectory", paths)
 
@@ -347,13 +357,19 @@ def plot_trajectory(
             output_dir=Path(output_dir), paths=paths,
         )
 
-        # Figure 2: target only (green) — skipped when target is None
+        # Figure 2: target only (green) — skipped when target is None.
+        # Guard: only plot frames present in both align_frame_indices and
+        # per_frame_target (CR-01: target keys may be a strict subset of
+        # align_frame_indices when source and target have non-overlapping
+        # frame sets in a paired-alignment run).
         if target is not None:
-            _write_single_cloud_figure(
-                align_frame_indices, per_frame_target,
-                color="#38a058", stem="alignment_target_trajectory",
-                output_dir=Path(output_dir), paths=paths,
-            )
+            target_plot_indices = [fk for fk in align_frame_indices if fk in per_frame_target]
+            if target_plot_indices:
+                _write_single_cloud_figure(
+                    target_plot_indices, per_frame_target,
+                    color="#38a058", stem="alignment_target_trajectory",
+                    output_dir=Path(output_dir), paths=paths,
+                )
 
         # Figure 3: aligned source only (orange)
         _write_single_cloud_figure(
@@ -404,6 +420,11 @@ def plot_trajectory(
             elif align_result is not None and fk in align_result.aligned_cloud:
                 pos = align_result.aligned_cloud[fk]["pos"].detach().cpu().numpy()
             else:
+                if fk not in dataset:
+                    raise KeyError(
+                        f"Label frame key {fk!r} not found in dataset. "
+                        "For label-only runs, dataset must be the target trajectory."
+                    )
                 pos = dataset[fk]["pos"].detach().cpu().numpy()
             t = label_result.transferred_labels[fk]
             c_vals = [color_for_label[int(v)] for v in t.tolist()]
@@ -433,9 +454,9 @@ def plot_trajectory(
         try:
             fig.savefig(base2.with_suffix(".pdf"), bbox_inches="tight")
             fig.savefig(base2.with_suffix(".png"), dpi=150, bbox_inches="tight")
+            paths.extend([str(base2.with_suffix(".pdf")), str(base2.with_suffix(".png"))])
         finally:
             plt.close(fig)
-        paths.extend([str(base2.with_suffix(".pdf")), str(base2.with_suffix(".png"))])
 
     return paths
 

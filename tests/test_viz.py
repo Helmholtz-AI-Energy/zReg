@@ -209,19 +209,23 @@ class TestPlotTrajectory:
 
     def test_label_only_writes_label_files(self, fake_label_result, synthetic_dataset_3, tmp_path):
         result = plot_trajectory(None, fake_label_result, synthetic_dataset_3, None, tmp_path)
-        assert len(result) == 2
-        assert (tmp_path / "label_trajectory.pdf").exists()
-        assert (tmp_path / "label_trajectory.png").exists()
+        assert len(result) == 4
+        for stem in ["label_source_trajectory", "label_target_trajectory"]:
+            assert (tmp_path / f"{stem}.pdf").exists()
+            assert (tmp_path / f"{stem}.png").exists()
+        assert not (tmp_path / "label_trajectory.pdf").exists()
         assert not (tmp_path / "alignment_trajectory.pdf").exists()
 
-    def test_both_stages_writes_eight_files(
+    def test_both_stages_writes_ten_files(
         self, fake_align_result, fake_label_result, synthetic_dataset_3, tmp_path
     ):
-        """Align + label, no target: 6 alignment + 2 label = 8 files."""
+        """Align + label, no target: 6 alignment + 4 label = 10 files."""
         result = plot_trajectory(fake_align_result, fake_label_result, synthetic_dataset_3, None, tmp_path)
-        assert len(result) == 8
+        assert len(result) == 10
         assert (tmp_path / "alignment_source_trajectory.pdf").exists()
-        assert (tmp_path / "label_trajectory.pdf").exists()
+        assert (tmp_path / "label_source_trajectory.pdf").exists()
+        assert (tmp_path / "label_target_trajectory.pdf").exists()
+        assert not (tmp_path / "label_trajectory.pdf").exists()
 
     def test_neither_stage_returns_empty_list(self, synthetic_dataset_3, tmp_path):
         result = plot_trajectory(None, None, synthetic_dataset_3, None, tmp_path)
@@ -230,12 +234,13 @@ class TestPlotTrajectory:
     def test_label_names_used_when_provided(
         self, fake_align_result, fake_label_result, synthetic_dataset_3, tmp_path
     ):
-        """Label names update applies; total files = 8 (6 align + 2 label, no target)."""
+        """Label names update applies; total files = 10 (6 align + 4 label, no target)."""
         label_names = {0: "T cell", 1: "B cell", 2: "NK cell", 3: "Monocyte"}
         result = plot_trajectory(fake_align_result, fake_label_result, synthetic_dataset_3, label_names, tmp_path)
-        assert len(result) == 8
-        assert (tmp_path / "label_trajectory.pdf").exists()
-        assert (tmp_path / "label_trajectory.pdf").stat().st_size > 0
+        assert len(result) == 10
+        assert (tmp_path / "label_source_trajectory.pdf").exists()
+        assert (tmp_path / "label_target_trajectory.pdf").exists()
+        assert (tmp_path / "label_target_trajectory.pdf").stat().st_size > 0
 
     def test_no_figure_leak(self, fake_align_result, fake_label_result, synthetic_dataset_3, tmp_path):
         before = len(plt.get_fignums())
@@ -304,6 +309,49 @@ class TestPlotTrajectory:
             fake_align_result, None, synthetic_dataset_3, None, tmp_path,
             target=synthetic_dataset_3,
         )
+        after = len(plt.get_fignums())
+        assert after == before
+
+    def test_label_writes_two_figure_pairs(self, fake_label_result, synthetic_dataset_3, tmp_path):
+        """VIZ-03: label branch writes exactly 4 files — source and target figure pairs."""
+        result = plot_trajectory(None, fake_label_result, synthetic_dataset_3, None, tmp_path)
+        assert len(result) == 4
+        for stem in ["label_source_trajectory", "label_target_trajectory"]:
+            assert (tmp_path / f"{stem}.pdf").exists()
+            assert (tmp_path / f"{stem}.png").exists()
+        assert not (tmp_path / "label_trajectory.pdf").exists()
+
+    def test_label_source_uses_id_when_available(self, tmp_path):
+        """Source figure uses pc['id'] when present (not color)."""
+        ds = {
+            0: zRegPointCloud(
+                pos=torch.randn(20, 3),
+                color=torch.zeros(20, dtype=torch.long),
+                id=torch.ones(20, dtype=torch.long),
+            ),
+            1: zRegPointCloud(
+                pos=torch.randn(20, 3),
+                color=torch.zeros(20, dtype=torch.long),
+                id=torch.ones(20, dtype=torch.long),
+            ),
+            2: zRegPointCloud(
+                pos=torch.randn(20, 3),
+                color=torch.zeros(20, dtype=torch.long),
+                id=torch.ones(20, dtype=torch.long),
+            ),
+        }
+        lr = LabelResult(
+            transferred_labels={k: torch.zeros(20, dtype=torch.long) for k in ds},
+            params_used={},
+        )
+        result = plot_trajectory(None, lr, ds, None, tmp_path)
+        assert (tmp_path / "label_source_trajectory.pdf").exists()
+        assert len(result) == 4
+
+    def test_label_no_figure_leak(self, fake_label_result, synthetic_dataset_3, tmp_path):
+        """No leaked figure handles after label-only run."""
+        before = len(plt.get_fignums())
+        plot_trajectory(None, fake_label_result, synthetic_dataset_3, None, tmp_path)
         after = len(plt.get_fignums())
         assert after == before
 
@@ -403,8 +451,10 @@ class TestVizCoverageGaps:
             params_used={},
         )
         paths = plot_trajectory(None, label_result, large_ds, None, tmp_path)
-        assert len(paths) == 2
-        assert (tmp_path / "label_trajectory.pdf").exists()
+        assert len(paths) == 4
+        assert (tmp_path / "label_source_trajectory.pdf").exists()
+        assert (tmp_path / "label_target_trajectory.pdf").exists()
+        assert not (tmp_path / "label_trajectory.pdf").exists()
 
     def test_render_dataset_triptych_empty_csv_raises(self, tmp_path):
         """viz.py — ValueError when CSV has no time frames (header only)."""

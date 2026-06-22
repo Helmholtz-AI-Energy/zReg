@@ -2,9 +2,9 @@
 
 Two public functions produce figures:
 
-- ``plot_trajectory`` — two independent 1×3 figure pairs (alignment_trajectory
-  and label_trajectory) written only when the corresponding stage result is
-  provided. Returns a list of written path strings.
+- ``plot_trajectory`` — up to four independent 1×3 figure pairs for the
+  alignment branch (source, target, aligned, superposed) plus one pair for
+  the label branch.  Returns a list of written path strings.
 - ``plot_metrics`` — horizontal bar chart of 6 normalised metrics per D-09.
 
 Notes
@@ -43,6 +43,183 @@ from eval.types import AlignResult, EvalReport, LabelResult
 __all__ = ["plot_trajectory", "plot_metrics", "render_dataset_triptych"]
 
 
+# ---------------------------------------------------------------------------
+# Private helpers
+# ---------------------------------------------------------------------------
+
+
+def _deduplicate_frames(candidates: list[int]) -> list[int]:
+    """Return *candidates* with duplicates removed, preserving order.
+
+    Used by both the alignment and label branches to handle 1- and 2-frame
+    datasets where first/middle/last indices collapse.
+
+    Parameters
+    ----------
+    candidates : list[int]
+        Ordered list of frame indices (may contain duplicates).
+
+    Returns
+    -------
+    list[int]
+        Deduplicated list in insertion order.
+    """
+    seen: set[int] = set()
+    return [k for k in candidates if not (k in seen or seen.add(k))]
+
+
+def _warp_source_map(warp_path: list[tuple[int, int]]) -> dict[int, int]:
+    """Build a ``target_idx -> source_idx`` mapping from *warp_path*.
+
+    Takes the **first** occurrence per target index (DTW paths may repeat
+    a target index).
+
+    Parameters
+    ----------
+    warp_path : list of (src_idx, tgt_idx) tuples
+        DTW warp path as stored in ``AlignResult.warp_path``.
+
+    Returns
+    -------
+    dict[int, int]
+        Mapping from target frame index to source frame index.
+    """
+    mapping: dict[int, int] = {}
+    for src, tgt in warp_path:
+        if tgt not in mapping:
+            mapping[tgt] = src
+    return mapping
+
+
+def _subsample(arr: np.ndarray, max_pts: int = 4000) -> np.ndarray:
+    """Subsample *arr* to at most *max_pts* rows using a fixed RNG seed.
+
+    Parameters
+    ----------
+    arr : np.ndarray
+        Point array of shape ``(N, 3)``.
+    max_pts : int
+        Maximum number of points to retain (default 4 000).
+
+    Returns
+    -------
+    np.ndarray
+        Subsampled array; unchanged when ``len(arr) <= max_pts``.
+    """
+    rng = np.random.default_rng(0)
+    if len(arr) > max_pts:
+        return arr[rng.choice(len(arr), max_pts, replace=False)]
+    return arr
+
+
+def _ax_style(ax, title: str) -> None:
+    """Apply standard tick/label/pane style to a 3-D axes."""
+    ax.set_title(title, fontsize=9, pad=4)
+    for lbl in (ax.get_xticklabels() + ax.get_yticklabels() + ax.get_zticklabels()):
+        lbl.set_fontsize(6)
+    ax.set_xlabel("x", fontsize=7, labelpad=2)
+    ax.set_ylabel("y", fontsize=7, labelpad=2)
+    ax.set_zlabel("z", fontsize=7, labelpad=2)
+    ax.xaxis.pane.fill = False
+    ax.yaxis.pane.fill = False
+    ax.zaxis.pane.fill = False
+
+
+def _save_fig(fig, base: Path, paths: list[str]) -> None:
+    """Save *fig* as PDF + PNG at *base* (no suffix), close fig, extend *paths*."""
+    try:
+        fig.savefig(base.with_suffix(".pdf"), bbox_inches="tight")
+        fig.savefig(base.with_suffix(".png"), dpi=150, bbox_inches="tight")
+    finally:
+        plt.close(fig)
+    paths.extend([str(base.with_suffix(".pdf")), str(base.with_suffix(".png"))])
+
+
+def _write_single_cloud_figure(
+    frame_indices: list[int],
+    per_frame_pos: dict[int, np.ndarray],
+    color: str,
+    stem: str,
+    output_dir: Path,
+    paths: list[str],
+) -> None:
+    """Write a 1×3 figure showing a single point cloud per frame.
+
+    Parameters
+    ----------
+    frame_indices : list[int]
+        Ordered list of frame indices to plot (at most 3).
+    per_frame_pos : dict[int, np.ndarray]
+        Pre-computed (possibly subsampled) position arrays keyed by frame index.
+    color : str
+        Matplotlib colour string (hex or named colour).
+    stem : str
+        Output filename stem (without extension); e.g. ``"alignment_source_trajectory"``.
+    output_dir : Path
+        Directory where the PDF and PNG are written.
+    paths : list[str]
+        Accumulator for written path strings — extended in place.
+    """
+    fig = plt.figure(figsize=(12, 4))
+    for idx, fk in enumerate(frame_indices):
+        ax = fig.add_subplot(1, 3, idx + 1, projection="3d")
+        pos = per_frame_pos[fk]
+        ax.scatter(pos[:, 0], pos[:, 1], pos[:, 2],
+                   c=color, s=1.5, alpha=1.0, linewidths=0)
+        _ax_style(ax, f"Frame {fk}")
+    _save_fig(fig, Path(output_dir) / stem, paths)
+
+
+def _write_superposed_figure(
+    frame_indices: list[int],
+    src_pos_map: dict[int, np.ndarray],
+    aligned_pos_map: dict[int, np.ndarray],
+    tgt_pos_map: "dict[int, np.ndarray] | None",
+    output_dir: Path,
+    paths: list[str],
+) -> None:
+    """Write a 1×3 figure superposing source, aligned, and optionally target clouds.
+
+    Parameters
+    ----------
+    frame_indices : list[int]
+        Ordered list of frame indices to plot (at most 3).
+    src_pos_map : dict[int, np.ndarray]
+        Pre-computed source position arrays keyed by frame index.
+    aligned_pos_map : dict[int, np.ndarray]
+        Pre-computed aligned position arrays keyed by frame index.
+    tgt_pos_map : dict[int, np.ndarray] or None
+        Pre-computed target position arrays keyed by frame index; ``None``
+        when no target was provided.
+    output_dir : Path
+        Directory where the PDF and PNG are written.
+    paths : list[str]
+        Accumulator for written path strings — extended in place.
+    """
+    fig = plt.figure(figsize=(12, 4))
+    for idx, fk in enumerate(frame_indices):
+        ax = fig.add_subplot(1, 3, idx + 1, projection="3d")
+        src = src_pos_map[fk]
+        aln = aligned_pos_map[fk]
+        ax.scatter(src[:, 0], src[:, 1], src[:, 2],
+                   c="#3a7abf", s=1.5, alpha=1.0, linewidths=0)
+        ax.scatter(aln[:, 0], aln[:, 1], aln[:, 2],
+                   c="#e07b39", s=1.5, alpha=1.0, linewidths=0)
+        if tgt_pos_map is not None and fk in tgt_pos_map:
+            tgt = tgt_pos_map[fk]
+            ax.scatter(tgt[:, 0], tgt[:, 1], tgt[:, 2],
+                       c="#38a058", s=1.5, alpha=1.0, linewidths=0)
+        _ax_style(ax, f"Frame {fk}")
+    legend_labels = ["Source", "Aligned"] + (["Target"] if tgt_pos_map is not None else [])
+    fig.legend(legend_labels, loc="center right", bbox_to_anchor=(1.12, 0.5))
+    _save_fig(fig, Path(output_dir) / "alignment_superposed_trajectory", paths)
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+
 def plot_trajectory(
     align_result: "AlignResult | None",
     label_result: "LabelResult | None",
@@ -53,24 +230,38 @@ def plot_trajectory(
 ) -> list[str]:
     """Render trajectory figures for alignment and/or label-transfer stages (EXT-02).
 
-    Produces up to two independent 1×3 figure pairs — each pair is a PDF and
-    a PNG — depending on which stage results are provided:
+    Alignment branch (written when ``align_result is not None``):
 
-    - ``alignment_trajectory.pdf`` / ``alignment_trajectory.png`` — written when
-      ``align_result is not None``.  Each of the 3 subplots superimposes the
-      pre-alignment source frame (blue) and the aligned frame (orange).
-    - ``label_trajectory.pdf`` / ``label_trajectory.png`` — written when
-      ``label_result is not None``.  Each of the 3 subplots shows the point
-      cloud coloured by transferred label ID.
+    - ``alignment_source_trajectory.{pdf,png}`` — source cloud per frame (blue).
+    - ``alignment_target_trajectory.{pdf,png}`` — target cloud per frame (green);
+      **skipped** when ``target is None``.
+    - ``alignment_aligned_trajectory.{pdf,png}`` — aligned source cloud per frame
+      (orange).
+    - ``alignment_superposed_trajectory.{pdf,png}`` — all available clouds
+      superposed per frame, with legend.
 
-    When both inputs are ``None``, the function returns ``[]`` and writes no
-    files (D-03).
+    Label branch (written when ``label_result is not None``):
+
+    - ``label_trajectory.{pdf,png}`` — point cloud coloured by transferred
+      label ID.
+
+    Return value length depends on which stages ran and whether *target* is
+    provided:
+
+    - No stages → 0
+    - Align only, no target → 6
+    - Align only, with target → 8
+    - Label only → 2
+    - Align + label, no target → 8
+    - Align + label, with target → 10
+    - (all combinations) → 0, 2, 6, 8, 10, or 12
 
     Parameters
     ----------
     align_result : AlignResult or None
-        Alignment result carrying ``aligned_cloud: dict[int, zRegPointCloud]``.
-        Pass ``None`` to skip the alignment figure.
+        Alignment result carrying ``aligned_cloud: dict[int, zRegPointCloud]``
+        and ``warp_path: list[tuple[int, int]]``.
+        Pass ``None`` to skip the alignment figures.
     label_result : LabelResult or None
         Label-transfer result carrying ``transferred_labels: dict[int, torch.Tensor]``.
         Pass ``None`` to skip the label figure.
@@ -84,25 +275,26 @@ def plot_trajectory(
     output_dir : Path
         Directory where output files are written.  The directory must already
         exist; this function does NOT call ``mkdir``.
+    target : dict[int, zRegPointCloud] or None
+        Optional target dataset.  When provided, a separate target figure
+        is written and the superposed figure includes the target cloud.
 
     Returns
     -------
     list[str]
         Absolute path strings of the files actually written, in order:
-        ``[alignment_trajectory.pdf, alignment_trajectory.png,
-           label_trajectory.pdf, label_trajectory.png]``
-        (absent stages are omitted, so the list length is 0, 2, or 4).
+        alignment figures first (source, [target], aligned, superposed),
+        then label figure.
 
     Notes
     -----
-    D-04: Each figure uses first, middle, and last frame from
-    ``sorted(dataset.keys())``, mirroring the ``export_trajectory`` frame
-    selection pattern from Phase 24.
+    D-04: Each figure uses first, middle, and last frame from the relevant
+    cloud's sorted keys, deduplicated via ``_deduplicate_frames``.
 
     D-07: Positions for the label figure use ``align_result.aligned_cloud``
     when ``align_result is not None`` (post-alignment coordinate space,
-    consistent with label assignment); otherwise ``dataset[frame]["pos"]`` is
-    used (label-only run).
+    consistent with label assignment); otherwise ``dataset[frame]["pos"]``
+    is used (label-only run).
 
     FRAME-08 mandatory rules apply: ``plt.close(fig)`` after every
     ``fig.savefig``, ``bbox_inches="tight"`` on every savefig call.
@@ -113,63 +305,70 @@ def plot_trajectory(
     sorted_keys = sorted(dataset.keys())
     if not sorted_keys:
         return paths  # no frames to plot
-    candidates = [sorted_keys[0], sorted_keys[len(sorted_keys) // 2], sorted_keys[-1]]
-    # Preserve order but deduplicate (handles 1- and 2-frame datasets)
-    seen: set = set()
-    frame_indices = [k for k in candidates if not (k in seen or seen.add(k))]
 
     # ------------------------------------------------------------------
-    # ALIGNMENT FIGURE — written only when align_result is not None
+    # ALIGNMENT FIGURES — written only when align_result is not None
     # ------------------------------------------------------------------
     if align_result is not None:
-        # aligned_cloud is keyed by target frame indices, which differ from
-        # source keys in paired mode. Derive frame selection from aligned_cloud
-        # so both lookups (aligned_cloud[fk] and dataset[fk]) are valid.
+        # aligned_cloud is keyed by target frame indices (Phase 33/35 CPD output).
+        # Derive frame selection from aligned_cloud keys so all lookups are valid.
         align_sorted = sorted(align_result.aligned_cloud.keys())
-        align_candidates = [
+        align_frame_indices = _deduplicate_frames([
             align_sorted[0],
             align_sorted[len(align_sorted) // 2],
             align_sorted[-1],
-        ]
-        seen_a: set = set()
-        align_frame_indices = [k for k in align_candidates if not (k in seen_a or seen_a.add(k))]
-        fig = plt.figure(figsize=(12, 4))
-        source_h = None
-        aligned_h = None
-        for idx, fk in enumerate(align_frame_indices):
-            ax = fig.add_subplot(1, 3, idx + 1, projection="3d")
-            source_pos = dataset[fk]["pos"].detach().cpu().numpy()
-            aligned_pos = align_result.aligned_cloud[fk]["pos"].detach().cpu().numpy()
-            # Per-cloud subsampling — each cloud gets its own default_rng(0) instance (D-01)
-            rng = np.random.default_rng(0)
-            if len(source_pos) > 4000:
-                source_pos = source_pos[rng.choice(len(source_pos), 4000, replace=False)]
-            rng = np.random.default_rng(0)
-            if len(aligned_pos) > 4000:
-                aligned_pos = aligned_pos[rng.choice(len(aligned_pos), 4000, replace=False)]
-            s = ax.scatter(source_pos[:, 0], source_pos[:, 1], source_pos[:, 2],
-                           c="blue", s=1.5, alpha=1.0, linewidths=0)
-            a = ax.scatter(aligned_pos[:, 0], aligned_pos[:, 1], aligned_pos[:, 2],
-                           c="red", s=1.5, alpha=1.0, linewidths=0)
-            if idx == 0:
-                source_h, aligned_h = s, a
-            ax.set_title(f"Frame {fk}", fontsize=9, pad=4)
-            for lbl in (ax.get_xticklabels() + ax.get_yticklabels() + ax.get_zticklabels()):
-                lbl.set_fontsize(6)
-            ax.set_xlabel("x", fontsize=7, labelpad=2)
-            ax.set_ylabel("y", fontsize=7, labelpad=2)
-            ax.set_zlabel("z", fontsize=7, labelpad=2)
-            ax.xaxis.pane.fill = False
-            ax.yaxis.pane.fill = False
-            ax.zaxis.pane.fill = False
-        fig.legend([source_h, aligned_h], ["Source", "Aligned"], loc="center right", bbox_to_anchor=(1.12, 0.5))
-        base = Path(output_dir) / "alignment_trajectory"
-        try:
-            fig.savefig(base.with_suffix(".pdf"), bbox_inches="tight")
-            fig.savefig(base.with_suffix(".png"), dpi=150, bbox_inches="tight")
-        finally:
-            plt.close(fig)
-        paths.extend([str(base.with_suffix(".pdf")), str(base.with_suffix(".png"))])
+        ])
+
+        # Build source-frame mapping from warp path
+        src_map = _warp_source_map(align_result.warp_path)
+
+        # Pre-compute subsampled arrays once per cloud per frame (Task 4)
+        per_frame_source: dict[int, np.ndarray] = {}
+        per_frame_aligned: dict[int, np.ndarray] = {}
+        per_frame_target: dict[int, np.ndarray] = {}
+
+        for fk in align_frame_indices:
+            source_fk = src_map.get(fk, fk)  # fallback: use fk if no warp mapping
+            per_frame_source[fk] = _subsample(
+                dataset[source_fk]["pos"].detach().cpu().numpy()
+            )
+            per_frame_aligned[fk] = _subsample(
+                align_result.aligned_cloud[fk]["pos"].detach().cpu().numpy()
+            )
+            if target is not None and fk in target:
+                per_frame_target[fk] = _subsample(
+                    target[fk]["pos"].detach().cpu().numpy()
+                )
+
+        # Figure 1: source only (blue)
+        _write_single_cloud_figure(
+            align_frame_indices, per_frame_source,
+            color="#3a7abf", stem="alignment_source_trajectory",
+            output_dir=Path(output_dir), paths=paths,
+        )
+
+        # Figure 2: target only (green) — skipped when target is None
+        if target is not None:
+            _write_single_cloud_figure(
+                align_frame_indices, per_frame_target,
+                color="#38a058", stem="alignment_target_trajectory",
+                output_dir=Path(output_dir), paths=paths,
+            )
+
+        # Figure 3: aligned source only (orange)
+        _write_single_cloud_figure(
+            align_frame_indices, per_frame_aligned,
+            color="#e07b39", stem="alignment_aligned_trajectory",
+            output_dir=Path(output_dir), paths=paths,
+        )
+
+        # Figure 4: all available clouds superposed
+        _write_superposed_figure(
+            align_frame_indices,
+            per_frame_source, per_frame_aligned,
+            per_frame_target if target is not None else None,
+            output_dir=Path(output_dir), paths=paths,
+        )
 
     # ------------------------------------------------------------------
     # LABEL FIGURE — written only when label_result is not None
@@ -178,15 +377,11 @@ def plot_trajectory(
         # Frame indices for the label figure come from transferred_labels keys
         # (target space) so positions and labels stay in the same dataset.
         label_sorted_keys = sorted(label_result.transferred_labels.keys())
-        label_candidates = [
+        label_frame_indices = _deduplicate_frames([
             label_sorted_keys[0],
             label_sorted_keys[len(label_sorted_keys) // 2],
             label_sorted_keys[-1],
-        ]
-        seen_lbl: set = set()
-        label_frame_indices = [
-            k for k in label_candidates if not (k in seen_lbl or seen_lbl.add(k))
-        ]
+        ])
 
         # Collect union of label IDs across the 3 plotted frames
         union_labels: set[int] = set()
@@ -224,15 +419,7 @@ def plot_trajectory(
                 c_vals = c_vals[:n_pts]
             ax.scatter(pos[:, 0], pos[:, 1], pos[:, 2],
                        c=c_vals, s=1.5, alpha=1.0, linewidths=0)
-            ax.set_title(f"Frame {fk}", fontsize=9, pad=4)
-            for lbl in (ax.get_xticklabels() + ax.get_yticklabels() + ax.get_zticklabels()):
-                lbl.set_fontsize(6)
-            ax.set_xlabel("x", fontsize=7, labelpad=2)
-            ax.set_ylabel("y", fontsize=7, labelpad=2)
-            ax.set_zlabel("z", fontsize=7, labelpad=2)
-            ax.xaxis.pane.fill = False
-            ax.yaxis.pane.fill = False
-            ax.zaxis.pane.fill = False
+            _ax_style(ax, f"Frame {fk}")
         # Build legend patches
         patches = [
             mpatches.Patch(

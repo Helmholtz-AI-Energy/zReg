@@ -483,10 +483,11 @@ class TestEvaluationRunnerSavePlots:
         full_params,
         synthetic_dataset,
     ) -> None:
-        """save_plots=True with run_alignment=True: alignment_trajectory.pdf exists on disk.
+        """save_plots=True with run_alignment=True: alignment source/aligned/superposed PDFs exist.
 
-        plot_trajectory (D-10) produces alignment_trajectory.pdf and
-        alignment_trajectory.png in the output directory.
+        plot_trajectory (D-10) produces alignment_source_trajectory.pdf,
+        alignment_aligned_trajectory.pdf, and alignment_superposed_trajectory.pdf
+        in the output directory (VIZ-02 refactor — 3 figures when no target given).
         """
         mock_factory = mock_factory_cls.return_value
         mock_factory.load_real.return_value = synthetic_dataset
@@ -496,7 +497,7 @@ class TestEvaluationRunnerSavePlots:
         }
         runner = EvaluationRunner(eval_config, full_params)
         runner.run()
-        assert (Path(eval_config.output_dir) / "alignment_trajectory.pdf").exists()
+        assert (Path(eval_config.output_dir) / "alignment_source_trajectory.pdf").exists()
 
     @patch("eval.runners.eval_runner.DataFactory")
     def test_save_plots_true_creates_metrics_summary_pdf(
@@ -565,7 +566,7 @@ class TestEvaluationRunnerSavePlots:
         }
         runner = EvaluationRunner(eval_config_no_align, full_params)
         report = runner.run()
-        assert not any("alignment_trajectory.pdf" in p for p in report.plot_paths)
+        assert not any("alignment_source_trajectory.pdf" in p for p in report.plot_paths)
         assert any("metrics_summary.pdf" in p for p in report.plot_paths)
 
 

@@ -36,7 +36,7 @@ def main():
         [1.0, 1.0, 0.0]   # Yellow
     ], dtype=torch.float32)
 
-    source_pc = zreg.dataset.zRegPointCloud(pos=source_pos, color=source_colors)
+    source_pc = zreg.dataset.zRegPointCloud(pos=source_pos, label=source_colors)
 
     # Target point cloud (slightly offset and rotated)
     target_pos = torch.tensor([

@@ -73,7 +73,7 @@ def add_outliers(
 
     For 2-D ``color`` tensors (e.g. RGB shape ``(N, 3)``), the extension
     uses zeros of the same column width to preserve the invariant
-    ``pc["pos"].shape[0] == pc["color"].shape[0]``.
+    ``pc["pos"].shape[0] == pc["label"].shape[0]``.
 
     Parameters
     ----------
@@ -119,23 +119,23 @@ def add_outliers(
             pc["id"] = torch.cat([pc["id"], sentinel_ids], dim=0)
 
         # Extend color field — 1-D labels get sentinel -1; 2-D RGB gets zeros
-        if pc["color"] is not None:
-            if pc["color"].dim() == 1:
+        if pc["label"] is not None:
+            if pc["label"].dim() == 1:
                 sentinel_color = torch.full(
                     (n_outliers,),
                     -1,
-                    dtype=pc["color"].dtype,
-                    device=pc["color"].device,
+                    dtype=pc["label"].dtype,
+                    device=pc["label"].device,
                 )
-                pc["color"] = torch.cat([pc["color"], sentinel_color], dim=0)
+                pc["label"] = torch.cat([pc["label"], sentinel_color], dim=0)
             else:
                 # 2-D color (e.g. RGB): extend with zeros to keep row count consistent
                 extra = torch.zeros(
-                    (n_outliers, pc["color"].shape[1]),
-                    dtype=pc["color"].dtype,
-                    device=pc["color"].device,
+                    (n_outliers, pc["label"].shape[1]),
+                    dtype=pc["label"].dtype,
+                    device=pc["label"].device,
                 )
-                pc["color"] = torch.cat([pc["color"], extra], dim=0)
+                pc["label"] = torch.cat([pc["label"], extra], dim=0)
 
         # Extend fps-idx field with sentinel -1
         if pc["fps-idx"] is not None:

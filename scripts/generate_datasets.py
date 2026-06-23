@@ -233,7 +233,7 @@ def _make_trajectory(
         traj[i] = {
             "pos":   pts.copy(),
             "id":    ids.copy(),
-            "color": np.ones(len(pts), dtype=np.int32),
+            "label": np.ones(len(pts), dtype=np.int32),
         }
 
         if (i + 1) % max(n_frames // 10, 1) == 0 or i == n_frames - 1:
@@ -253,12 +253,12 @@ def _frame_to_df(frame_idx: int, frame: dict | zRegPointCloud) -> pd.DataFrame:
         # plain numpy dict produced by _make_trajectory
         pos   = pos_raw
         ids   = frame["id"]
-        color = frame["color"]
+        color = frame["label"]
     else:
         # zRegPointCloud: fields are torch Tensors
         pos       = pos_raw.numpy()
         raw_id    = frame["id"]
-        raw_color = frame["color"]
+        raw_color = frame["label"]
         ids = (
             raw_id.numpy()
             if raw_id is not None

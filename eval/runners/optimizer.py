@@ -407,24 +407,24 @@ class HyperparamOptimizer:
             # GT selection — branches on pipeline_mode (Phase 31 MODE-03, D-08/D-09)
             if self.config.pipeline_mode == "synthetic":
                 if tier_name == "sanity":
-                    # Sanity toy dataset has labels in pc["color"] (generate_labels contract,
+                    # Sanity toy dataset has labels in pc["label"] (generate_labels contract,
                     # Pitfall 5 from Phase 31 RESEARCH.md). get_synthetic_ground_truth() reads
-                    # _source_dataset (the real dataset), not the toy dataset — use color directly.
+                    # _source_dataset (the real dataset), not the toy dataset — use label directly.
                     sample_pc = tier_dataset[source_sorted_keys[0]]
-                    if sample_pc["color"] is not None:
-                        y_true = tier_dataset[source_sorted_keys[-1]]["color"]
+                    if sample_pc["label"] is not None:
+                        y_true = tier_dataset[source_sorted_keys[-1]]["label"]
                     else:
                         n = tier_dataset[source_sorted_keys[-1]]["pos"].shape[0]
                         y_true = torch.arange(n, dtype=torch.long)
                 else:  # dev / full in synthetic mode — D-09
                     y_true = self._factory.get_synthetic_ground_truth()[source_sorted_keys[-1]]
             else:
-                # CR-04: sanity tier generates labels into pc["color"] (via generate_labels),
+                # CR-04: sanity tier generates labels into pc["label"] (via generate_labels),
                 # not pc["id"]. get_ground_truth() always reads pc["id"] which is None for
                 # synthetic data — causing silent all-zero scores. Detect the right field
                 # directly instead of delegating to get_ground_truth().
                 sample_pc = tier_dataset[source_sorted_keys[0]]
-                gt_key = "id" if sample_pc["id"] is not None else "color"
+                gt_key = "id" if sample_pc["id"] is not None else "label"
                 y_true = tier_dataset[source_sorted_keys[-1]][gt_key]
                 if y_true is None:
                     raise ValueError(

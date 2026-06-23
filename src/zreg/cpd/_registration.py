@@ -106,8 +106,8 @@ def cpd_registration(
 
     # Prepare point data
     if use_color:
-        sourcei = torch.cat([source["pos"], source["color"]], dim=1)
-        targeti = torch.cat([target["pos"], target["color"]], dim=1)
+        sourcei = torch.cat([source["pos"], source["label"]], dim=1)
+        targeti = torch.cat([target["pos"], target["label"]], dim=1)
     else:
         sourcei = source["pos"]
         targeti = target["pos"]
@@ -193,7 +193,7 @@ def init_cpd_from_existing(
 
     # Prepare point data
     if use_color:
-        sourcei = torch.cat([source["pos"], source["color"]], dim=1)
+        sourcei = torch.cat([source["pos"], source["label"]], dim=1)
     else:
         sourcei = source["pos"]
 

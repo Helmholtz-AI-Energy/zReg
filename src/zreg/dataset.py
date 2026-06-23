@@ -34,7 +34,7 @@ class zRegPointCloud(dict):  # dict[str, torch.Tensor]
         super(zRegPointCloud, self).__init__(*args, **kwargs)
 
         # add default values to point cloud
-        for key in ["pos", "color", "id", "fps-idx"]:
+        for key in ["pos", "label", "id", "fps-idx"]:
             self[key] = kwargs[key] if key in kwargs else None
 
     def to(self, device) -> Self:
@@ -76,7 +76,7 @@ def load_data_from_tracklets(
               time point. Point clouds are PyTorch tensors.
               Dictionary structure:
                   pc[i]['pos'] -> x, y, z position
-                  pc[i]['color'] -> color
+                  pc[i]['label'] -> label
                   pc[i]['id'] -> cell id
             - The raw tracklet data as loaded from the MATLAB file.
 
@@ -123,7 +123,7 @@ def load_data_from_tracklets(
     t0 = time.perf_counter()
 
     data = sio.loadmat(filepath, simplify_cells=True, squeeze_me=True)
-    pc = {i: {"pos": [], "color": [], "id": []} for i in range(len(data["trackletsPerTimePoint"]))}
+    pc = {i: {"pos": [], "label": [], "id": []} for i in range(len(data["trackletsPerTimePoint"]))}
     # timestep, positions (x, y, z, tracklet_num)
 
     for idx in range(len(data["tracklets"])):
@@ -138,13 +138,13 @@ def load_data_from_tracklets(
             # print()
             pos = tracklet["pos"][c].tolist()
             pc[j]["pos"].append(pos)
-            pc[j]["color"].append(col)
+            pc[j]["label"].append(col)
             pc[j]["id"].append(cellid)
 
     for i in pc:
         pc[i] = zRegPointCloud(
             pos=torch.tensor(pc[i]["pos"], device=device),
-            color=torch.tensor(pc[i]["color"], device=device),
+            label=torch.tensor(pc[i]["label"], device=device),
             id=torch.tensor(pc[i]["id"], device=device),
         )
         # pc[i]["pos"] =
@@ -160,19 +160,19 @@ def zreg_to_open3d(pc: zRegPointCloud) -> "o3dtgeo.PointCloud":
     """Converts a point cloud from a PyTorch dictionary to an Open3D point cloud.
 
     This function takes a dictionary representing a point cloud, where the keys are
-    'pos', 'color', and 'id', and the values are either PyTorch tensors or Open3D
+    'pos', 'label', and 'id', and the values are either PyTorch tensors or Open3D
     tensors. It converts the dictionary to an Open3D point cloud object.
 
     Args:
         pc: A dictionary representing the point cloud. The keys should be 'pos',
-            'color', and 'id', and the values should be either PyTorch tensors or
+            'label', and 'id', and the values should be either PyTorch tensors or
             Open3D tensors.
 
     Returns:
         An Open3D point cloud object.
 
     Raises:
-        KeyError: If the input dictionary does not contain the keys 'pos', 'color',
+        KeyError: If the input dictionary does not contain the keys 'pos', 'label',
                   and 'id'.
         RuntimeError: If open3d is not available.
     """
@@ -184,13 +184,13 @@ def zreg_to_open3d(pc: zRegPointCloud) -> "o3dtgeo.PointCloud":
     map_to_tensors = {}
     if from_torch:
         map_to_tensors["positions"] = o3c.Tensor.from_dlpack(torch.utils.dlpack.to_dlpack(pc["pos"]))
-        map_to_tensors["colors"] = o3c.Tensor.from_dlpack(torch.utils.dlpack.to_dlpack(pc["color"]))
+        map_to_tensors["colors"] = o3c.Tensor.from_dlpack(torch.utils.dlpack.to_dlpack(pc["label"]))
         map_to_tensors["labels"] = o3c.Tensor.from_dlpack(torch.utils.dlpack.to_dlpack(pc["id"]))
         if pc["fps-idx"] is not None:
             map_to_tensors["fps_idx"] = o3c.Tensor.from_dlpack(torch.utils.dlpack.to_dlpack(pc["fps-idx"]))
     else:
         map_to_tensors["positions"] = pc["pos"]
-        map_to_tensors["colors"] = pc["color"]
+        map_to_tensors["colors"] = pc["label"]
         map_to_tensors["labels"] = pc["id"]
         if pc["fps-idx"] is not None:
             map_to_tensors["fps_idx"] = pc["fps-idx"]
@@ -222,7 +222,7 @@ def open3d_to_zreg(
     -------
     dict
         A dictionary containing the point cloud data. The keys are
-        "pos", "color", and "id", and the values are either Torch tensors
+        "pos", "label", and "id", and the values are either Torch tensors
         or NumPy arrays.
 
     Examples
@@ -273,13 +273,13 @@ def open3d_to_zreg(
     if to_torch:
         # Convert to PyTorch tensors and move to the specified device
         ret["pos"] = torch.tensor(pos, device=device)
-        ret["color"] = torch.tensor(col, device=device)
+        ret["label"] = torch.tensor(col, device=device)
         ret["id"] = torch.tensor(ids, device=device) if ids is not None else None
         ret["fps-idx"] = torch.tensor(fps_idx, device=device) if fps_idx is not None else None
     else:
         # Return NumPy arrays
         ret["pos"] = pos
-        ret["color"] = col
+        ret["label"] = col
         ret["id"] = ids
         ret["fps-idx"] = fps_idx
     return ret
@@ -338,7 +338,7 @@ def load_shah_from_csv(filepath: str | Path, device: str | torch.device) -> dict
     for i in range(min(pcs), max(pcs) + 1):
         pcs[i] = zRegPointCloud(
             pos=torch.tensor(pcs[i]["pos"], device=device),
-            color=torch.tensor(pcs[i]["labels"], device=device),
+            label=torch.tensor(pcs[i]["labels"], device=device),
             id=torch.tensor(pcs[i]["id"], device=device),
         )
     return pcs

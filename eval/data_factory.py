@@ -428,7 +428,7 @@ class DataFactory:
 
         This method is intended for **real data** (where ``pc["id"]`` is the
         canonical cell id from upstream tracking/annotation).  Synthetic data
-        flows should use ``pc["color"]`` from ``generate_labels`` instead.
+        flows should use ``pc["label"]`` from ``generate_labels`` instead.
 
         Parameters
         ----------
@@ -537,7 +537,7 @@ class DataFactory:
         for i, pc in dataset.items():
             result[i] = zRegPointCloud(
                 pos=pc["pos"] * factor,
-                color=pc["color"],
+                label=pc["label"],
                 id=pc["id"],
             )
             result[i]["fps-idx"] = pc["fps-idx"]
@@ -600,7 +600,7 @@ class DataFactory:
             idx = torch.randperm(n, device=pc["pos"].device)[:limit].sort().values
             result[i] = zRegPointCloud(
                 pos=pc["pos"][idx],
-                color=pc["color"][idx] if pc["color"] is not None else None,
+                label=pc["label"][idx] if pc["label"] is not None else None,
                 id=pc["id"][idx] if pc["id"] is not None else None,
             )
             result[i]["fps-idx"] = pc["fps-idx"][idx] if pc["fps-idx"] is not None else None
@@ -646,7 +646,7 @@ class DataFactory:
             idx = torch.randperm(n, device=pc["pos"].device)[:keep].sort().values
             result[i] = zRegPointCloud(
                 pos=pc["pos"][idx],
-                color=pc["color"][idx] if pc["color"] is not None else None,
+                label=pc["label"][idx] if pc["label"] is not None else None,
                 id=pc["id"][idx] if pc["id"] is not None else None,
             )
             result[i]["fps-idx"] = pc["fps-idx"][idx] if pc["fps-idx"] is not None else None
@@ -707,7 +707,7 @@ class DataFactory:
 
             result[i] = zRegPointCloud(
                 pos=new_pos,
-                color=_extend(pc["color"]),
+                label=_extend(pc["label"]),
                 id=_extend(pc["id"]),
             )
             result[i]["fps-idx"] = _extend(pc["fps-idx"])

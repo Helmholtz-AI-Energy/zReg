@@ -114,14 +114,14 @@ def _subsample(arr: np.ndarray, max_pts: int = 4000) -> np.ndarray:
 
 
 def _get_source_labels(pc: "zRegPointCloud") -> "torch.Tensor | None":
-    """Return source labels from *pc*, preferring ``id`` over ``color``.
+    """Return source labels from *pc*.
 
-    Priority: ``pc["id"]`` when not None, else ``pc["color"]``, else None.
+    Reads ``pc["label"]``; returns ``None`` when the field is absent or None
+    (grey render fallback is acceptable in the viz layer).
     """
-    if pc.get("id") is not None:
-        return pc["id"].long()
-    if pc.get("color") is not None:
-        return pc["color"].long()
+    lbl = pc.get("label")
+    if lbl is not None:
+        return lbl.long()
     return None
 
 
@@ -323,7 +323,7 @@ def plot_trajectory(
     Label branch (written when ``label_result is not None``):
 
     - ``label_source_trajectory.{pdf,png}`` — source cloud coloured by source
-      labels (``dataset[fk]["id"]``, falling back to ``dataset[fk]["color"]``).
+      labels (``dataset[fk]["label"]``).
     - ``label_target_trajectory.{pdf,png}`` — target/aligned cloud coloured by
       transferred labels (``label_result.transferred_labels``).
 

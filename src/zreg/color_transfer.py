@@ -72,7 +72,7 @@ def transfer_colors(
     # Extract positions and colors
     if isinstance(source, zRegPointCloud):
         source_pos = source["pos"]
-        source_colors = source["color"]
+        source_colors = source["label"]
     else:
         source_pos = source
         if source_colors is None:

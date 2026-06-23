@@ -5,7 +5,7 @@ label removal (``remove_labels``). Both utilities are immutable — they accept
 a ``dict[int, zRegPointCloud]`` and return a new dict. The input dict is never
 modified (deep-copy contract, D-03).
 
-Labels are stored in ``zRegPointCloud["color"]`` as ``torch.long`` tensors of
+Labels are stored in ``zRegPointCloud["label"]`` as ``torch.long`` tensors of
 shape ``(N,)``, one integer class ID per point (D-06, D-07). This format is
 directly compatible with ``zreg.metrics.compute_f1`` without conversion.
 """
@@ -29,7 +29,7 @@ def generate_labels(
     For each frame, ``n_classes`` seed points are sampled from ``N(0, I)``
     in R³. Each point is assigned to the nearest seed (L2 distance via
     ``torch.cdist``), producing spatially coherent class clusters. The label
-    tensor is stored in ``pc["color"]`` with ``dtype=torch.long`` and shape
+    tensor is stored in ``pc["label"]`` with ``dtype=torch.long`` and shape
     ``(N,)`` so it is directly passable to ``zreg.metrics.compute_f1``.
 
     Parameters
@@ -45,7 +45,7 @@ def generate_labels(
     Returns
     -------
     dict[int, zRegPointCloud]
-        New trajectory dict where every frame's ``pc["color"]`` is a
+        New trajectory dict where every frame's ``pc["label"]`` is a
         ``torch.long`` tensor of shape ``(N,)`` with values in
         ``[0, n_classes)``.
 
@@ -75,7 +75,7 @@ def generate_labels(
         seeds = torch.randn(n_classes, 3, dtype=pos.dtype, device=pos.device)
         dists = torch.cdist(pos, seeds, p=2)  # (N, n_classes)
         labels = dists.argmin(dim=1).to(torch.long)  # (N,), values in [0, n_classes)
-        pc["color"] = labels
+        pc["label"] = labels
     return result
 
 
@@ -84,9 +84,9 @@ def remove_labels(
 ) -> dict[int, zRegPointCloud]:
     """Remove labels from every frame in a trajectory.
 
-    Sets ``pc["color"] = None`` for every frame, matching the default
+    Sets ``pc["label"] = None`` for every frame, matching the default
     ``zRegPointCloud.__init__`` behaviour where unset fields are ``None``
-    (D-08). Callers check ``if pc["color"] is None`` to detect unlabelled
+    (D-08). Callers check ``if pc["label"] is None`` to detect unlabelled
     frames.
 
     Parameters
@@ -97,9 +97,9 @@ def remove_labels(
     Returns
     -------
     dict[int, zRegPointCloud]
-        New trajectory dict where every frame's ``pc["color"]`` is ``None``.
+        New trajectory dict where every frame's ``pc["label"]`` is ``None``.
     """
     result = copy.deepcopy(trajectory)
     for pc in result.values():
-        pc["color"] = None
+        pc["label"] = None
     return result

@@ -378,10 +378,7 @@ class MetricsEngine:
 
         Notes
         -----
-        Signature is preliminary — Phase 21 ``EvaluationRunner`` is the
-        natural caller and may refine the parameter list when wired in.
-
-        # TODO: confirm signature with Phase 21 caller
+        Called by ``EvaluationRunner._run_single`` (Phase 21).
         """
         sm = StageMetrics(
             chamfer_distance=chamfer(source, target).item(),  # Pitfall 5: .item()

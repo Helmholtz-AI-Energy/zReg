@@ -4,6 +4,8 @@
 
 ### Category 1 — Carry-Forward Debt
 
+- [x] **CLN-01**: Rename `color` field → `label` in `zRegPointCloud` throughout the codebase — `__init__` field list, all loaders (`load_data_from_tracklets`, `open3d_to_zreg`, `zreg_to_open3d`, `load_shah_from_csv`), all consumers in `src/`, `eval/`, and `scripts/`, and all test fixtures — Phase 38
+- [x] **CLN-02**: Fix label-source logic — `LabelTransferStage.run()` reads `src_frame["label"]` directly and raises `ValueError` when absent (no `"id"` fallback); `_get_source_labels` in `eval/viz.py` reads `pc["label"]` and returns `None` when absent (no `"id"` fallback) — Phase 38
 - [x] **CARRY-01**: `typing.Callable` → `collections.abc.Callable` in `cpd/base.py` and `cpd/_registration.py`
 - [x] **CARRY-02**: `DistanceMetric` Protocol used as type annotation in at least one consumer module
 - [x] **CARRY-03**: `color_transfer.py` absolute intra-package import replaced with relative import
@@ -69,7 +71,13 @@
 
 - [x] **HETERO-01**: Heterogeneous paired evaluation — `EvalConfig` gains `target_data_format: str | None = None` (default `None` falls back to `data_format`; accepted values: `"tracklets"`, `"csv"`); `DataFactory.load_target()` resolves effective format as `target_data_format or data_format`; scenario configs `kobitski_vs_shah.yaml`, `shah_vs_kobitski.yaml`, `kobitski_vs_kobitski_cross.yaml`; no changes to `EvaluationRunner`, stages, `MetricsEngine`, or `run_eval.py` — Complete Phase 32
 
-### Category 14 — Alignment Quality
+### Category 14 — Visualisation Extensions
+
+- [x] **VIZ-01**: `render_dataset_triptych` in `eval/viz.py` — chunk-reads CSV, renders 1×3 3D triptych PNG; `scripts/visualize_datasets.py` delegates to it — Complete Phase 29
+- [x] **VIZ-02**: `plot_trajectory` alignment branch refactor — four independent 1×3 figure pairs (`alignment_source_trajectory`, `alignment_target_trajectory`, `alignment_aligned_trajectory`, `alignment_superposed_trajectory`); 7 private helpers; old `alignment_trajectory` stem removed — Complete Phase 36
+- [x] **VIZ-03**: `plot_trajectory` label branch refactor — two independent 1×3 figure pairs (`label_source_trajectory`, `label_target_trajectory`); `_get_source_labels` helper with `id > color` priority; `_write_label_figure` helper; old `label_trajectory` stem removed — Complete Phase 37
+
+### Category 15 — Alignment Quality
 
 - [x] **ALIGN-01**: CPD-aligned trajectory output from `AlignmentStage` — `_build_aligned_cloud()` maps each full target frame to its DTW-corresponding source frame and applies CPD registration; result keyed by full target keys; `AlignResult.aligned_cloud` contains spatially-registered source frames (not a pass-through); `cpd_penalty=None` falls back to DTW-temporal resampling only — Complete Phase 33
 - [x] **ALIGN-02**: Pre-transfer alignment quality guard — `LabelResult.pre_transfer_alignment: float` records mean per-frame Chamfer distance; `LabelTransferStage._check_alignment()` computes it before transfer; `warnings.warn()` when `run_alignment=False` and distance > `ALIGNMENT_WARN_THRESHOLD` (1.0); INFO log when `run_alignment=True`; `TestLabelTransferAlignmentGuard` test class — Complete Phase 34
@@ -115,6 +123,8 @@
 
 | REQ-ID | Phase | Status | Notes |
 |--------|-------|--------|-------|
+| CLN-01 | Phase 38 | Complete 2026-06-24 | `color` → `label` field rename in `zRegPointCloud` codebase-wide |
+| CLN-02 | Phase 38 | Complete 2026-06-24 | Label-source logic fix — direct `label` read, explicit ValueError, no `id` fallback |
 | CARRY-01 | Phase 12 | Complete | `typing.Callable` → `collections.abc.Callable` in cpd/ |
 | CARRY-02 | Phase 12 | Complete | DistanceMetric used as annotation in one consumer |
 | CARRY-03 | Phase 12 | Complete | color_transfer.py absolute → relative import |
@@ -143,3 +153,6 @@
 | MODE-02 | Phase 31 | Complete 2026-06-14 | Synthetic mode target generation — EvalConfig transform_spec, DataFactory.generate_target() |
 | MODE-03 | Phase 31 | Complete 2026-06-14 | GT-aware HPO in synthetic mode — DataFactory.get_synthetic_ground_truth(), HyperparamOptimizer GT objective |
 | HETERO-01 | Phase 32 | Complete 2026-06-14 | Heterogeneous paired evaluation — EvalConfig.target_data_format, DataFactory.load_target() format dispatch, 3 cross-format scenario configs |
+| VIZ-01 | Phase 29 | Complete 2026-06-12 | render_dataset_triptych in eval/viz.py; scripts/visualize_datasets.py delegates |
+| VIZ-02 | Phase 36 | Complete 2026-06-22 | plot_trajectory alignment branch — 4 figure pairs, 7 private helpers |
+| VIZ-03 | Phase 37 | Complete 2026-06-23 | plot_trajectory label branch — 2 figure pairs, _get_source_labels + _write_label_figure |

@@ -481,11 +481,10 @@ class TestAlignmentStageCoverageGaps:
 
 
 class TestBuildAlignedCloudStoredTransformsSignature:
-    """TDD RED: _build_aligned_cloud must accept stored_transforms parameter (35-02 Task 1).
+    """Verify _build_aligned_cloud accepts and forwards the stored_transforms parameter (Phase 35).
 
-    These tests verify the contract BEFORE the implementation is added. They should
-    fail with TypeError when stored_transforms is not yet a parameter, and pass
-    once Task 1 implementation lands.
+    Covers the contract that stored_transforms is a keyword argument with default None
+    and is correctly threaded through AlignmentStage.run() to _build_aligned_cloud.
     """
 
     @pytest.fixture

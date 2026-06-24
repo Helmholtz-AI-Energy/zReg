@@ -77,7 +77,50 @@
   **Wave 3** *(blocked on Wave 2 completion)*
   - [x] 30-03-PLAN.md — Add configs/paired_alignment.yaml (Kobitski as both source and target); update tests/test_trajectory_export.py mocks; add tests/test_cli.py smoke-test for paired_alignment.yaml
 
-- [ ] **Phase 35: Reuse Step-1 CPD Transforms in Aligned-Cloud Construction** (2 plans)
+- [ ] **Phase 36: plot_trajectory Alignment Figure Refactor — 4 separate 1×3 figures** (0/1 plans)
+  **Goal:** Refactor the alignment branch of `plot_trajectory` in `eval/viz.py` to produce four independent 1×3 figure pairs (PDF + PNG each = 8 files total) instead of the current single superimposed figure: (1) `alignment_source_trajectory` — source cloud only (blue); (2) `alignment_target_trajectory` — target cloud only (green, omitted when `target` is None); (3) `alignment_aligned_trajectory` — aligned source only (orange); (4) `alignment_superposed_trajectory` — all available clouds superposed with legend. The label branch is not touched.
+  **Requirements:** VIZ-02
+  **Depends on:** Phase 29 (viz.py scatter style), Phase 35 (aligned_cloud keyed by target indices)
+  **Success criteria:**
+  1. `plot_trajectory(align_result, None, dataset, None, tmp_path, target=target_ds)` writes exactly 8 files with the 4 new stems (PDF + PNG each)
+  2. `plot_trajectory(align_result, None, dataset, None, tmp_path)` (no target) writes 6 files — skips target figure
+  3. Old stem `alignment_trajectory` is no longer produced
+  4. Label branch behaviour unchanged; all 969 existing tests pass after updates; ≥3 new tests added
+  **Plans:** 1 plan
+  Plans:
+  - [x] 36-01-PLAN.md — Refactor alignment branch to 4 helpers; update TestPlotTrajectory; add 3 new tests
+
+- [x] **Phase 37: plot_trajectory Label Figure Refactor — 2 separate 1×3 figures** (1/1 plans) — completed 2026-06-22
+  **Goal:** Refactor the label branch of `plot_trajectory` in `eval/viz.py` to produce two independent 1×3 figure pairs (PDF + PNG each = 4 files) instead of the current single figure: (1) `label_source_trajectory` — source point cloud coloured by source labels (`dataset[fk]["id"]`, falling back to `color`); (2) `label_target_trajectory` — target cloud coloured by transferred labels (`label_result.transferred_labels`). The alignment branch is not touched.
+  **Requirements:** VIZ-03
+  **Depends on:** Phase 36 (alignment refactor complete; shared helpers `_deduplicate_frames`, `_subsample` from Phase 36 reused)
+  **Success criteria:**
+  1. `plot_trajectory(None, label_result, dataset, None, tmp_path)` writes exactly 4 files: `label_source_trajectory.pdf/.png` and `label_target_trajectory.pdf/.png`
+  2. Old stem `label_trajectory` is no longer produced
+  3. Source figure colours points by `dataset[fk]["id"]` when present; falls back to `dataset[fk]["color"]` when `id` is None
+  4. Target figure colours points by `label_result.transferred_labels[fk]` using `target[fk]["pos"]` when available
+  5. All tests pass after updates; ≥2 new tests added
+  **Plans:** 1 plan
+  Plans:
+  - [x] 37-01-PLAN.md — Refactor label branch to 2 figure helpers; add source-labels figure; update TestPlotTrajectory
+
+- [x] **Phase 38: zRegPointCloud color→label Field Rename** (2/2 plans) — completed 2026-06-24
+  **Goal:** Rename the `color` field in `zRegPointCloud` to `label` throughout the entire codebase — in the class definition, all data loaders, all consumers in `src/`, `eval/`, and `scripts/`, and all test fixtures. Simultaneously fix two label-source heuristics that silently fall back to `"id"` when labels are absent: (1) `LabelTransferStage.run()` must raise `ValueError` loudly when `src_frame["label"]` is None; (2) `_get_source_labels` in `eval/viz.py` must return `None` when `label` is absent (grey render is acceptable in viz).
+  **Requirements:** CLN-01, CLN-02
+  **Depends on:** Phase 37 complete
+  **Success criteria:**
+  1. `zRegPointCloud(pos=..., label=..., id=...)["label"]` returns the tensor; `["color"]` returns `None`
+  2. All data loaders (`load_data_from_tracklets`, `load_shah_from_csv`, `open3d_to_zreg`) populate `pc["label"]`
+  3. `LabelTransferStage.run()` raises `ValueError("Source frame {sk} has no 'label' field...")` when `label=None`
+  4. `_get_source_labels(pc)` returns `pc["label"].long()` or `None`; never reads `pc["id"]`
+  5. No occurrence of `pc["color"]`, `frame["color"]`, or `color=` as a `zRegPointCloud` field remains in the repo
+  6. Full test suite green; ≥3 new CLN-02 regression tests added
+  **Plans:** 2 plans
+  Plans:
+  - [x] 38-01-PLAN.md — Rename `color` → `label` in all production files; fix `_get_source_labels` and `LabelTransferStage` label-source logic
+  - [x] 38-02-PLAN.md — Update all test fixtures, mocks, and assertions; add CLN-02 regression tests
+
+- [x] **Phase 35: Reuse Step-1 CPD Transforms in Aligned-Cloud Construction** (2/2 plans) — completed 2026-06-22
   **Goal:** Persist the CPD transforms computed inside `pairwise_distance_matrix` (Step 1, on normalised clouds) so that `_build_aligned_cloud` (Step 3) can reuse the transform for the (src_sub_idx, tgt_sub_idx) pair selected by the DTW path, instead of re-running CPD from scratch on raw unnormalised data. Currently Step 3 starts CPD from identity on clouds that may have an 8× scale difference, causing convergence failure. The fix threads a `dict[(i,j) → (transform, src_norm_params, tgt_norm_params)]` out of `pairwise_distance_matrix`, through `DynamicTimeWarping`, into `AlignmentStage._build_aligned_cloud`, which then: normalises the raw source frame with the stored params, applies the stored transform, and denormalises into target coordinate space.
   **Requirements:** ALIGN-03
   **Depends on:** Phase 33 (CPD-aligned cloud construction in `_build_aligned_cloud`)
@@ -90,9 +133,9 @@
   **Plans:** 2 plans
   Plans:
   **Wave 1**
-  - [ ] 35-01-PLAN.md — Create src/zreg/types.py (StoredTransform + PairwiseResult); update pairwise_distance_matrix.py to capture norm params and return PairwiseResult; extend DTWResult with stored_transforms; update dtw/core.py to use field access; fix 2-tuple unpacking in test_pairwise_distance_matrix.py and test_dtw.py
-  **Wave 2** *(blocked on Wave 1 completion)*
-  - [ ] 35-02-PLAN.md — Add stored_transforms reuse path to _build_aligned_cloud in alignment.py; thread stored_transforms from DTWResult through AlignmentStage.run(); add TestStoredTransformReuse class to test_alignment_stage.py
+  - [x] 35-01-PLAN.md — Create src/zreg/types.py (StoredTransform + PairwiseResult); update pairwise_distance_matrix.py to capture norm params and return PairwiseResult; extend DTWResult with stored_transforms; update dtw/core.py to use field access; fix 2-tuple unpacking in test_pairwise_distance_matrix.py and test_dtw.py
+  **Wave 2**
+  - [x] 35-02-PLAN.md — Add stored_transforms reuse path to _build_aligned_cloud in alignment.py; thread stored_transforms from DTWResult through AlignmentStage.run(); add TestStoredTransformReuse class to test_alignment_stage.py
 
 - [x] **Phase 34: Alignment Quality Guard in LabelTransferStage** (1/1 plans) — completed 2026-06-19
   **Goal:** Add a pre-transfer alignment check to `LabelTransferStage.run()` that computes mean per-frame Chamfer distance between the received source and target, stores it in `LabelResult.pre_transfer_alignment`, and emits a `warnings.warn()` when `config.run_alignment=False` and the distance exceeds `ALIGNMENT_WARN_THRESHOLD` (default 1.0). When alignment was run upstream (`run_alignment=True`), log the metric at INFO level instead. This surfaces poor alignment before label transfer and warns users who skip `AlignmentStage` when their inputs are not pre-aligned.
@@ -403,4 +446,5 @@ Full details: [.planning/milestones/v1.0-ROADMAP.md](.planning/milestones/v1.0-R
 | 30. Two-Dataset Paired Alignment Architecture | v1.2 | 3/3 | Complete | 2026-06-12 |
 | 31. Synthetic Pipeline Mode — Transform-Spec Target & GT-Aware HPO | v1.2 | 3/3 | Complete | 2026-06-14 |
 | 32. Heterogeneous Paired Evaluation — target_data_format | v1.2 | 2/2 | Complete | 2026-06-14 |
-| 35. Reuse Step-1 CPD Transforms in Aligned-Cloud Construction | v1.2 | 0/2 | In progress | — |
+| 35. Reuse Step-1 CPD Transforms in Aligned-Cloud Construction | v1.2 | 2/2 | Complete | 2026-06-22 |
+| 38. zRegPointCloud color→label Field Rename | v1.2 | 2/2 | Complete | 2026-06-24 |

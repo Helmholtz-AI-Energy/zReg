@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Evaluation Framework & Debt Resolution
-status: active
-stopped_at: ""
-last_updated: "2026-06-19T00:00:00.000Z"
-last_activity: 2026-06-19 -- Phase 34 complete; LabelTransferStage alignment guard; ALIGN-02 closed; 951 tests
+status: phase_complete
+stopped_at: Phase 38 complete (2/2) — CLN-01/CLN-02 verified; color→label rename done, 976 tests pass
+last_updated: 2026-06-24T00:00:00.000Z
+last_activity: 2026-06-24 -- Phase 38 execution complete
 progress:
-  total_phases: 30
-  completed_phases: 30
-  total_plans: 63
-  completed_plans: 63
+  total_phases: 34
+  completed_phases: 34
+  total_plans: 71
+  completed_plans: 71
   percent: 100
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Every existing capability works correctly, fails informatively, and is covered by tests.
-**Current focus:** v1.2 milestone — Phase 34 complete; all phases done
+**Current focus:** Phase 38 complete — zRegPointCloud color→label field rename (CLN-01, CLN-02)
 
 ## Current Position
 
-Phase: 34 (complete) — milestone complete
-Plan: 34-01 complete (1/1)
-Status: Phase 34 executed; ALIGN-02 closed; 951 tests pass
-Last activity: 2026-06-19 -- Phase 34 complete; LabelTransferStage alignment guard; ALIGN-02 closed; 951 tests
+Phase: 38
+Plan: 38-02 complete
+Status: Phase complete
+Last activity: 2026-06-24
 
 ## Phase Overview
 
@@ -51,6 +51,7 @@ Last activity: 2026-06-19 -- Phase 34 complete; LabelTransferStage alignment gua
 | 30 | Two-Dataset Paired Alignment Architecture | MODE-01 | Complete 2026-06-12 |
 | 31 | Synthetic Pipeline Mode — Transform-Spec Target Generation & GT-Aware HPO | MODE-02, MODE-03 | Complete 2026-06-14 |
 | 33 | CPD-Aligned Trajectory Output from AlignmentStage | ALIGN-01 | Complete 2026-06-16 |
+| 35 | Reuse Step-1 CPD Transforms in Aligned-Cloud Construction | ALIGN-03 | Complete 2026-06-22 |
 
 ## Accumulated Context
 

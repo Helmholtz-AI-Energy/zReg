@@ -113,7 +113,7 @@ class TestHyperparamOptimizerSanityTier:
         # get_ground_truth is called inside _objective with the tier_dataset;
         # return the color labels for the last frame key of whatever is passed.
         mock_factory.get_ground_truth.side_effect = (
-            lambda ds: {k: ds[k]["color"] for k in ds}
+            lambda ds: {k: ds[k]["label"] for k in ds}
         )
 
         start = time.time()
@@ -138,7 +138,7 @@ class TestHyperparamOptimizerOutputFiles:
         mock_factory.load_real.return_value = synthetic_dataset
         mock_factory.load_target.return_value = synthetic_dataset
         mock_factory.get_ground_truth.side_effect = (
-            lambda ds: {k: ds[k]["color"] for k in ds}
+            lambda ds: {k: ds[k]["label"] for k in ds}
         )
 
         output_dir = Path(optimizer_config.output_dir)
@@ -201,7 +201,7 @@ class TestBestParamsImproveDefault:
         mock_factory.load_real.return_value = synthetic_dataset
         mock_factory.load_target.return_value = synthetic_dataset
         mock_factory.get_ground_truth.side_effect = (
-            lambda ds: {k: ds[k]["color"] for k in ds}
+            lambda ds: {k: ds[k]["label"] for k in ds}
         )
 
         # compute_stage_metrics must return a real StageMetrics for Trial pydantic validation
@@ -368,7 +368,7 @@ class TestOptimizerSyntheticMode:
         mock_factory.load_real.return_value = synthetic_dataset
         mock_factory.load_target.return_value = synthetic_dataset
         mock_factory.get_ground_truth.side_effect = (
-            lambda ds: {k: ds[k]["color"] for k in ds}
+            lambda ds: {k: ds[k]["label"] for k in ds}
         )
         # stub MetricsEngine so objective body runs to completion
         stub_metrics = StageMetrics(
@@ -421,10 +421,10 @@ class TestOptimizerSyntheticMode:
         # pre-populate _synthetic_target on the mock factory
         mock_factory._synthetic_target = synthetic_dataset
         mock_factory.get_synthetic_ground_truth.return_value = {
-            k: synthetic_dataset[k]["color"] for k in synthetic_dataset
+            k: synthetic_dataset[k]["label"] for k in synthetic_dataset
         }
         mock_factory.get_ground_truth.side_effect = (
-            lambda ds: {k: ds[k]["color"] for k in ds}
+            lambda ds: {k: ds[k]["label"] for k in ds}
         )
         # stub MetricsEngine
         stub_metrics = StageMetrics(
@@ -493,7 +493,7 @@ class TestHyperparamOptimizerCoverageGaps:
         mock_factory = mock_factory_cls.return_value
         mock_factory.load_real.return_value = synthetic_dataset
         mock_factory.load_target.return_value = synthetic_dataset
-        mock_factory.get_ground_truth.side_effect = lambda ds: {k: ds[k]["color"] for k in ds}
+        mock_factory.get_ground_truth.side_effect = lambda ds: {k: ds[k]["label"] for k in ds}
 
         cfg = EvalConfig(
             data_path=str(tmp_path / "x"),
@@ -512,7 +512,7 @@ class TestHyperparamOptimizerCoverageGaps:
         mock_factory = mock_factory_cls.return_value
         mock_factory.load_real.return_value = synthetic_dataset
         mock_factory.load_target.return_value = synthetic_dataset
-        mock_factory.get_ground_truth.side_effect = lambda ds: {k: ds[k]["color"] for k in ds}
+        mock_factory.get_ground_truth.side_effect = lambda ds: {k: ds[k]["label"] for k in ds}
 
         cfg = EvalConfig(
             data_path=str(tmp_path / "x"),
@@ -533,7 +533,7 @@ class TestHyperparamOptimizerCoverageGaps:
         mock_factory = mock_factory_cls.return_value
         mock_factory.load_real.return_value = synthetic_dataset
         mock_factory.load_target.return_value = synthetic_dataset
-        mock_factory.get_ground_truth.side_effect = lambda ds: {k: ds[k]["color"] for k in ds}
+        mock_factory.get_ground_truth.side_effect = lambda ds: {k: ds[k]["label"] for k in ds}
 
         cfg = EvalConfig(
             data_path=str(tmp_path / "x"),
@@ -552,7 +552,7 @@ class TestHyperparamOptimizerCoverageGaps:
         mock_factory = mock_factory_cls.return_value
         mock_factory.load_real.return_value = synthetic_dataset
         mock_factory.load_target.return_value = synthetic_dataset
-        mock_factory.get_ground_truth.side_effect = lambda ds: {k: ds[k]["color"] for k in ds}
+        mock_factory.get_ground_truth.side_effect = lambda ds: {k: ds[k]["label"] for k in ds}
 
         cfg = EvalConfig(
             data_path=str(tmp_path / "x"),
@@ -571,7 +571,7 @@ class TestHyperparamOptimizerCoverageGaps:
         mock_factory = mock_factory_cls.return_value
         mock_factory.load_real.return_value = synthetic_dataset
         mock_factory.load_target.return_value = synthetic_dataset
-        mock_factory.get_ground_truth.side_effect = lambda ds: {k: ds[k]["color"] for k in ds}
+        mock_factory.get_ground_truth.side_effect = lambda ds: {k: ds[k]["label"] for k in ds}
 
         cfg = EvalConfig(
             data_path=str(tmp_path / "x"),
@@ -594,7 +594,7 @@ class TestHyperparamOptimizerCoverageGaps:
         mock_factory.load_real.return_value = synthetic_dataset
         mock_factory.generate_synthetic.return_value = synthetic_dataset
         mock_factory.load_target.return_value = synthetic_dataset
-        mock_factory.get_ground_truth.side_effect = lambda ds: {k: ds[k]["color"] for k in ds}
+        mock_factory.get_ground_truth.side_effect = lambda ds: {k: ds[k]["label"] for k in ds}
 
         cfg = EvalConfig(
             data_path=str(tmp_path / "x"),
@@ -614,7 +614,7 @@ class TestHyperparamOptimizerCoverageGaps:
         mock_factory = mock_factory_cls.return_value
         mock_factory.load_real.return_value = synthetic_dataset
         mock_factory.load_target.return_value = synthetic_dataset
-        mock_factory.get_ground_truth.side_effect = lambda ds: {k: ds[k]["color"] for k in ds}
+        mock_factory.get_ground_truth.side_effect = lambda ds: {k: ds[k]["label"] for k in ds}
 
         cfg = EvalConfig(
             data_path=str(tmp_path / "x"),
@@ -635,7 +635,7 @@ class TestHyperparamOptimizerCoverageGaps:
         mock_factory = mock_factory_cls.return_value
         mock_factory.load_real.return_value = synthetic_dataset
         mock_factory.load_target.return_value = synthetic_dataset
-        mock_factory.get_ground_truth.side_effect = lambda ds: {k: ds[k]["color"] for k in ds}
+        mock_factory.get_ground_truth.side_effect = lambda ds: {k: ds[k]["label"] for k in ds}
 
         cfg = EvalConfig(
             data_path=str(tmp_path / "x"),
@@ -661,7 +661,7 @@ class TestHyperparamOptimizerCoverageGaps:
         from zreg.generators import generate_trajectory
         from eval.types import StageMetrics
 
-        # Dataset with color=None — generate_trajectory returns no labels
+        # Dataset with label=None — generate_trajectory returns no labels
         ds = generate_trajectory(n_points=10, n_frames=3, seed=42)
 
         mock_factory = mock_factory_cls.return_value
@@ -669,7 +669,7 @@ class TestHyperparamOptimizerCoverageGaps:
         mock_factory.load_target.return_value = ds
         mock_factory.get_ground_truth.side_effect = lambda d: {k: torch.arange(10, dtype=torch.long) for k in d}
 
-        # _apply_transform_to_dataset returns dataset unchanged (avoids augment() error on color=None)
+        # _apply_transform_to_dataset returns dataset unchanged (avoids augment() error on label=None)
         mock_transform.side_effect = lambda dataset, spec, cfg: dataset
 
         # Stub AlignmentStage so the code reaches GT selection (lines 408-418)
@@ -683,7 +683,7 @@ class TestHyperparamOptimizerCoverageGaps:
         )
         mock_align_cls.return_value.run.return_value = fake_align
 
-        # Stub LabelTransferStage so it doesn't raise on color=None
+        # Stub LabelTransferStage so it doesn't raise on label=None
         from eval.types import LabelResult
         fake_label = LabelResult(
             transferred_labels={k: torch.arange(10, dtype=torch.long) for k in ds},
@@ -711,7 +711,7 @@ class TestHyperparamOptimizerCoverageGaps:
                 search_space={"window_size": [3]},
             )
             optimizer = HyperparamOptimizer(cfg)
-            # _tier_dataset("sanity") always calls generate_labels — override to return color=None ds
+            # _tier_dataset("sanity") always calls generate_labels — override to return label=None ds
             with patch.object(optimizer, "_tier_dataset", return_value=ds):
                 result = optimizer.run()
         assert isinstance(result, SearchResult)
@@ -726,7 +726,7 @@ class TestHyperparamOptimizerCoverageGaps:
         from zreg.generators import generate_trajectory
         from eval.types import AlignResult, LabelResult, StageMetrics
 
-        # Dataset where both color and id are None — generate_trajectory has color=None, id=None
+        # Dataset where both label and id are None — generate_trajectory has label=None, id=None
         ds_base = generate_trajectory(n_points=10, n_frames=3, seed=42)
 
         mock_factory = mock_factory_cls.return_value
@@ -767,7 +767,7 @@ class TestHyperparamOptimizerCoverageGaps:
             )
             optimizer = HyperparamOptimizer(cfg)
             # _tier_dataset("sanity") always generates labeled data — override to return
-            # color=None, id=None dataset so y_true is None → ValueError at line 430,
+            # label=None, id=None dataset so y_true is None → ValueError at line 430,
             # caught by except Exception at 471 → trial returns 0.0, run() completes
             with patch.object(optimizer, "_tier_dataset", return_value=ds_base):
                 result = optimizer.run()
@@ -782,7 +782,7 @@ class TestHyperparamOptimizerCoverageGaps:
         mock_factory = mock_factory_cls.return_value
         mock_factory.load_real.return_value = synthetic_dataset
         mock_factory.load_target.return_value = synthetic_dataset
-        mock_factory.get_ground_truth.side_effect = lambda ds: {k: ds[k]["color"] for k in ds}
+        mock_factory.get_ground_truth.side_effect = lambda ds: {k: ds[k]["label"] for k in ds}
 
         stub_metrics = StageMetrics(
             chamfer_distance=0.0, hausdorff_distance=0.0, path_smoothness=0.0,
@@ -882,7 +882,7 @@ class TestHyperparamOptimizerCoverageGaps:
         )
         mock_align_cls.return_value.run.return_value = fake_align
         fake_label = LabelResult(
-            transferred_labels={k: ds[k]["color"].long() for k in ds},
+            transferred_labels={k: ds[k]["label"].long() for k in ds},
             params_used={},
         )
         mock_label_cls.return_value.run.return_value = fake_label

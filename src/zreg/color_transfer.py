@@ -39,7 +39,7 @@ def transfer_colors(
     Parameters
     ----------
     source : zRegPointCloud or torch.Tensor
-        Source point cloud data. If zRegPointCloud, uses 'pos' and 'color' fields.
+        Source point cloud data. If zRegPointCloud, uses 'pos' and 'label' fields.
         If torch.Tensor, should be positions of shape (n_points, n_dims).
     target : zRegPointCloud or torch.Tensor
         Target point cloud data. If zRegPointCloud, uses 'pos' field.
@@ -49,7 +49,7 @@ def transfer_colors(
         Default: 'nearest_neighbor'.
     source_colors : torch.Tensor, optional
         Source colors of shape (n_points, n_color_channels). Required if source
-        is torch.Tensor. If source is zRegPointCloud, uses source['color'].
+        is torch.Tensor. If source is zRegPointCloud, uses source['label'].
     target_colors : torch.Tensor, optional
         Target colors of shape (m_points, n_color_channels). Not used in current methods.
     estep_result : EstepResult, optional

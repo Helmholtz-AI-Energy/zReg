@@ -307,7 +307,7 @@ def _farthest_point_ds_internal(target, points, use_precomputed_indexes):
     else:
         indexes = target["fps-idx"][:points]
     target["pos"] = target["pos"][indexes]
-    target["label"] = target["label"][indexes]
+    target["label"] = target["label"][indexes] if target["label"] is not None else None
     target["id"] = target["id"][indexes]
     target["fps-idx"] = target["fps-idx"][indexes] if target["fps-idx"] is not None else None
     return target
@@ -360,7 +360,7 @@ def random_down_sample(
         for target in [x, y]:
             keep = torch.randperm(target["pos"].shape[0], device=target["pos"].device)[:points]
             target["pos"] = target["pos"][keep]
-            target["label"] = target["label"][keep]
+            target["label"] = target["label"][keep] if target["label"] is not None else None
             target["id"] = target["id"][keep]
             target["fps-idx"] = target["fps-idx"][keep] if target["fps-idx"] is not None else None
     else:
@@ -371,7 +371,7 @@ def random_down_sample(
             target = x
             keep = torch.randperm(xshape, device=target["pos"].device)[:yshape]
         target["pos"] = target["pos"][keep]
-        target["label"] = target["label"][keep]
+        target["label"] = target["label"][keep] if target["label"] is not None else None
         target["id"] = target["id"][keep]
         target["fps-idx"] = target["fps-idx"][keep] if target["fps-idx"] is not None else None
 
@@ -432,7 +432,7 @@ def uniform_down_sample(
     mask = torch.ones(target["pos"].shape[0], dtype=torch.bool, device=target["pos"].device)
     mask[indices_to_remove] = 0
     target["pos"] = target["pos"][mask]
-    target["label"] = target["label"][mask]
+    target["label"] = target["label"][mask] if target["label"] is not None else None
     target["id"] = target["id"][mask]
 
     target["fps-idx"] = target["fps-idx"][mask] if target["fps-idx"] is not None else None

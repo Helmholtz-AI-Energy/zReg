@@ -16,7 +16,7 @@ class TestZRegPointCloud:
         """Test default initialization creates empty point cloud."""
         pc = zRegPointCloud()
         assert pc["pos"] is None
-        assert pc["color"] is None
+        assert pc["label"] is None
         assert pc["id"] is None
         assert pc["fps-idx"] is None
 
@@ -26,10 +26,10 @@ class TestZRegPointCloud:
         color = torch.randn(10, 3)
         ids = torch.arange(10)
         
-        pc = zRegPointCloud(pos=pos, color=color, id=ids)
-        
+        pc = zRegPointCloud(pos=pos, label=color, id=ids)
+
         assert torch.equal(pc["pos"], pos)
-        assert torch.equal(pc["color"], color)
+        assert torch.equal(pc["label"], color)
         assert torch.equal(pc["id"], ids)
 
     def test_dict_behavior(self):
@@ -50,9 +50,9 @@ class TestZRegPointCloud:
 
     def test_to_device_with_none_values(self):
         """Test to() handles None values gracefully."""
-        pc = zRegPointCloud(pos=torch.randn(10, 3))  # color, id, fps-idx are None
+        pc = zRegPointCloud(pos=torch.randn(10, 3))  # label, id, fps-idx are None
         pc_cpu = pc.to("cpu")
-        assert pc_cpu["color"] is None
+        assert pc_cpu["label"] is None
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
     def test_to_cuda(self):
@@ -137,7 +137,7 @@ class TestOpen3DConversions:
         """Create a sample point cloud for testing."""
         return zRegPointCloud(
             pos=torch.randn(10, 3),
-            color=torch.randn(10, 3),
+            label=torch.randn(10, 3),
             id=torch.arange(10),
         )
 
@@ -184,7 +184,7 @@ class TestOpen3DConversions:
         result = open3d_to_zreg(o3d_pc, to_torch=False)
 
         assert isinstance(result["pos"], np.ndarray)
-        assert isinstance(result["color"], np.ndarray)
+        assert isinstance(result["label"], np.ndarray)
 
     def test_zreg_to_open3d_with_fps_idx(self):
         """Test zreg_to_open3d preserves fps-idx when set."""
@@ -193,7 +193,7 @@ class TestOpen3DConversions:
 
         pc = zRegPointCloud(
             pos=torch.randn(10, 3),
-            color=torch.randn(10, 3),
+            label=torch.randn(10, 3),
             id=torch.arange(10),
         )
         pc["fps-idx"] = torch.arange(5)
@@ -323,7 +323,7 @@ class TestDatasetNoOpen3D:
         """zreg_to_open3d raises RuntimeError when HAS_OPEN3D is False (line 187)."""
         import zreg.dataset as ds
         from zreg.dataset import zreg_to_open3d
-        pc = zRegPointCloud(pos=torch.randn(5, 3), color=torch.randn(5, 3), id=torch.arange(5))
+        pc = zRegPointCloud(pos=torch.randn(5, 3), label=torch.randn(5, 3), id=torch.arange(5))
         with patch.object(ds, "HAS_OPEN3D", False):
             with pytest.raises(RuntimeError, match="open3d is not available"):
                 zreg_to_open3d(pc)
@@ -351,7 +351,7 @@ class TestZRegToOpen3DWithOpen3DTensors:
 
         pc = zRegPointCloud()
         pc["pos"] = o3c.Tensor(np.zeros((5, 3), dtype=np.float32))
-        pc["color"] = o3c.Tensor(np.zeros((5, 3), dtype=np.float32))
+        pc["label"] = o3c.Tensor(np.zeros((5, 3), dtype=np.float32))
         pc["id"] = o3c.Tensor(np.arange(5, dtype=np.int32))
 
         result = zreg_to_open3d(pc)
@@ -367,7 +367,7 @@ class TestZRegToOpen3DWithOpen3DTensors:
 
         pc = zRegPointCloud()
         pc["pos"] = o3c.Tensor(np.zeros((5, 3), dtype=np.float32))
-        pc["color"] = o3c.Tensor(np.zeros((5, 3), dtype=np.float32))
+        pc["label"] = o3c.Tensor(np.zeros((5, 3), dtype=np.float32))
         pc["id"] = o3c.Tensor(np.arange(5, dtype=np.int32))
         pc["fps-idx"] = o3c.Tensor(np.arange(3, dtype=np.int32))
 

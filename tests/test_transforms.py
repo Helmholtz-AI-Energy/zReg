@@ -312,7 +312,7 @@ class TestTransformPointsHomogeneous:
             from zreg.transforms.homogeneous import transform_points_homogeneous
             pc = zRegPointCloud(
                 pos=torch.randn(5, 3).float(),
-                color=torch.rand(5, 3).float(),
+                label=torch.rand(5, 3).float(),
                 id=torch.arange(5, dtype=torch.int32),
             )
             result = transform_points_homogeneous(pc, torch.eye(4), return_o3d=True)

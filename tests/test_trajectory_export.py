@@ -109,7 +109,7 @@ def fake_align_result(synthetic_dataset) -> AlignResult:
 def fake_label_result(synthetic_dataset) -> LabelResult:
     """LabelResult using the actual color labels from the synthetic dataset."""
     return LabelResult(
-        transferred_labels={k: synthetic_dataset[k]["color"] for k in synthetic_dataset},
+        transferred_labels={k: synthetic_dataset[k]["label"] for k in synthetic_dataset},
         params_used={"k_neighbours": 3},
     )
 
@@ -210,8 +210,8 @@ class TestExportTrajectoryLabelOnly:
     def test_labels_pos_length_mismatch_raises(self, synthetic_dataset, eval_config, tmp_path):
         """F-03: ValueError when transferred_labels length != pos length for a frame."""
         first_frame = sorted(synthetic_dataset.keys())[0]
-        bad_labels = {k: synthetic_dataset[k]["color"] for k in synthetic_dataset}
-        bad_labels[first_frame] = torch.zeros(synthetic_dataset[first_frame]["color"].shape[0] + 5, dtype=torch.long)
+        bad_labels = {k: synthetic_dataset[k]["label"] for k in synthetic_dataset}
+        bad_labels[first_frame] = torch.zeros(synthetic_dataset[first_frame]["label"].shape[0] + 5, dtype=torch.long)
         bad_label_result = LabelResult(transferred_labels=bad_labels, params_used={})
         result = {"align": None, "label": bad_label_result}
         with pytest.raises(ValueError, match="pipeline state is inconsistent"):
@@ -378,7 +378,7 @@ class TestExportTrajectoryIntegration:
             mock_factory.load_real.return_value = synthetic_dataset
             mock_factory.load_target.return_value = synthetic_dataset
             mock_factory.get_ground_truth.return_value = {
-                k: synthetic_dataset[k]["color"] for k in synthetic_dataset
+                k: synthetic_dataset[k]["label"] for k in synthetic_dataset
             }
             runner = EvaluationRunner(eval_config, params)
             report = runner.run()
@@ -417,7 +417,7 @@ class TestExportTrajectoryIntegration:
             mock_factory.load_real.return_value = synthetic_dataset
             mock_factory.load_target.return_value = synthetic_dataset
             mock_factory.get_ground_truth.return_value = {
-                k: synthetic_dataset[k]["color"] for k in synthetic_dataset
+                k: synthetic_dataset[k]["label"] for k in synthetic_dataset
             }
             runner = EvaluationRunner(eval_config, params)
             runner.run()

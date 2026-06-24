@@ -11,7 +11,7 @@ def sample_pointcloud():
     """Create a sample point cloud for testing."""
     return zRegPointCloud(
         pos=torch.randn(100, 3),
-        color=torch.randn(100, 3),
+        label=torch.randn(100, 3),
         id=torch.arange(100),
     )
 
@@ -21,12 +21,12 @@ def two_pointclouds():
     """Create two point clouds of different sizes."""
     pc1 = zRegPointCloud(
         pos=torch.randn(100, 3),
-        color=torch.randn(100, 3),
+        label=torch.randn(100, 3),
         id=torch.arange(100),
     )
     pc2 = zRegPointCloud(
         pos=torch.randn(50, 3),
-        color=torch.randn(50, 3),
+        label=torch.randn(50, 3),
         id=torch.arange(50),
     )
     return pc1, pc2
@@ -60,12 +60,12 @@ class TestFarthestPointDownSample:
         """Test that equal-sized clouds are not changed."""
         pc1 = zRegPointCloud(
             pos=torch.randn(50, 3),
-            color=torch.randn(50, 3),
+            label=torch.randn(50, 3),
             id=torch.arange(50),
         )
         pc2 = zRegPointCloud(
             pos=torch.randn(50, 3),
-            color=torch.randn(50, 3),
+            label=torch.randn(50, 3),
             id=torch.arange(50),
         )
         x, y = downsampling.farthest_point_down_sample(pc1, pc2)
@@ -88,7 +88,7 @@ class TestFarthestPointDownSample:
         x, y = downsampling.farthest_point_down_sample(pc1, pc2)
         
         # Check all keys exist
-        for key in ["pos", "color", "id"]:
+        for key in ["pos", "label", "id"]:
             assert key in x
             assert key in y
 
@@ -140,12 +140,12 @@ class TestRandomDownSample:
         """Test random downsampling with equal-sized clouds."""
         pc1 = zRegPointCloud(
             pos=torch.randn(50, 3),
-            color=torch.randn(50, 3),
+            label=torch.randn(50, 3),
             id=torch.arange(50),
         )
         pc2 = zRegPointCloud(
             pos=torch.randn(50, 3),
-            color=torch.randn(50, 3),
+            label=torch.randn(50, 3),
             id=torch.arange(50),
         )
         x, y = downsampling.random_down_sample(pc1, pc2)
@@ -167,7 +167,7 @@ class TestUniformDownSample:
         pc1, pc2 = two_pointclouds
         x, y = downsampling.uniform_down_sample(pc1, pc2)
         
-        for key in ["pos", "color", "id"]:
+        for key in ["pos", "label", "id"]:
             assert key in x
             assert key in y
 
@@ -175,12 +175,12 @@ class TestUniformDownSample:
         """Test uniform downsampling with equal-sized clouds."""
         pc1 = zRegPointCloud(
             pos=torch.randn(50, 3),
-            color=torch.randn(50, 3),
+            label=torch.randn(50, 3),
             id=torch.arange(50),
         )
         pc2 = zRegPointCloud(
             pos=torch.randn(50, 3),
-            color=torch.randn(50, 3),
+            label=torch.randn(50, 3),
             id=torch.arange(50),
         )
         x, y = downsampling.uniform_down_sample(pc1, pc2)
@@ -222,7 +222,7 @@ class TestRemoveOutliersKNN:
         ])
         pc = zRegPointCloud(
             pos=pos,
-            color=torch.randn(51, 3),
+            label=torch.randn(51, 3),
             id=torch.arange(51),
         )
         
@@ -235,7 +235,7 @@ class TestRemoveOutliersKNN:
         """Test that outlier removal preserves data structure."""
         result = downsampling.remove_outliers_knn(sample_pointcloud, k=2, threshold=5.0)
         
-        for key in ["pos", "color", "id"]:
+        for key in ["pos", "label", "id"]:
             assert key in result
             if result[key] is not None:
                 # All arrays should have same length
@@ -301,12 +301,12 @@ class TestRandomDownsampleXSmallerThanY:
         """When x has fewer points, y is downsampled to x's size (line 383)."""
         pc_small = zRegPointCloud(
             pos=torch.randn(30, 3),
-            color=torch.randn(30, 3),
+            label=torch.randn(30, 3),
             id=torch.arange(30),
         )
         pc_large = zRegPointCloud(
             pos=torch.randn(80, 3),
-            color=torch.randn(80, 3),
+            label=torch.randn(80, 3),
             id=torch.arange(80),
         )
         x, y = downsampling.random_down_sample(pc_small, pc_large)
@@ -316,8 +316,8 @@ class TestRandomDownsampleXSmallerThanY:
     @pytest.mark.skipif(downsampling.HAS_OPEN3D, reason="Open3D available — no RuntimeError expected")
     def test_random_downsample_return_o3d_without_open3d(self):
         """return_o3d=True raises RuntimeError when Open3D is unavailable (lines 397-398)."""
-        pc1 = zRegPointCloud(pos=torch.randn(30, 3), color=torch.randn(30, 3), id=torch.arange(30))
-        pc2 = zRegPointCloud(pos=torch.randn(80, 3), color=torch.randn(80, 3), id=torch.arange(80))
+        pc1 = zRegPointCloud(pos=torch.randn(30, 3), label=torch.randn(30, 3), id=torch.arange(30))
+        pc2 = zRegPointCloud(pos=torch.randn(80, 3), label=torch.randn(80, 3), id=torch.arange(80))
         with pytest.raises(RuntimeError, match="open3d is not available"):
             downsampling.random_down_sample(pc1, pc2, return_o3d=True)
 
@@ -328,16 +328,16 @@ class TestUniformDownsampleEdgeCases:
     @pytest.mark.skipif(downsampling.HAS_OPEN3D, reason="Open3D available — no RuntimeError expected")
     def test_uniform_downsample_return_o3d_equal_sizes_without_open3d(self):
         """Equal-sized clouds with return_o3d=True raise RuntimeError without Open3D (line 435)."""
-        pc1 = zRegPointCloud(pos=torch.randn(50, 3), color=torch.randn(50, 3), id=torch.arange(50))
-        pc2 = zRegPointCloud(pos=torch.randn(50, 3), color=torch.randn(50, 3), id=torch.arange(50))
+        pc1 = zRegPointCloud(pos=torch.randn(50, 3), label=torch.randn(50, 3), id=torch.arange(50))
+        pc2 = zRegPointCloud(pos=torch.randn(50, 3), label=torch.randn(50, 3), id=torch.arange(50))
         with pytest.raises(RuntimeError, match="open3d is not available"):
             downsampling.uniform_down_sample(pc1, pc2, return_o3d=True)
 
     @pytest.mark.skipif(downsampling.HAS_OPEN3D, reason="Open3D available — no RuntimeError expected")
     def test_uniform_downsample_return_o3d_unequal_without_open3d(self):
         """Unequal-sized clouds with return_o3d=True raise RuntimeError without Open3D (lines 459-460)."""
-        pc1 = zRegPointCloud(pos=torch.randn(30, 3), color=torch.randn(30, 3), id=torch.arange(30))
-        pc2 = zRegPointCloud(pos=torch.randn(80, 3), color=torch.randn(80, 3), id=torch.arange(80))
+        pc1 = zRegPointCloud(pos=torch.randn(30, 3), label=torch.randn(30, 3), id=torch.arange(30))
+        pc2 = zRegPointCloud(pos=torch.randn(80, 3), label=torch.randn(80, 3), id=torch.arange(80))
         with pytest.raises(RuntimeError, match="open3d is not available"):
             downsampling.uniform_down_sample(pc1, pc2, return_o3d=True)
 
@@ -345,12 +345,12 @@ class TestUniformDownsampleEdgeCases:
         """When x has fewer points, y is downsampled to match x (line 442: target = y)."""
         pc_small = zRegPointCloud(
             pos=torch.randn(30, 3),
-            color=torch.randn(30, 3),
+            label=torch.randn(30, 3),
             id=torch.arange(30),
         )
         pc_large = zRegPointCloud(
             pos=torch.randn(80, 3),
-            color=torch.randn(80, 3),
+            label=torch.randn(80, 3),
             id=torch.arange(80),
         )
         x, y = downsampling.uniform_down_sample(pc_small, pc_large)
@@ -364,12 +364,12 @@ class TestFarthestPointXSmallerThanY:
         """When x is smaller, y is downsampled to x's size (covers line 282)."""
         pc_small = zRegPointCloud(
             pos=torch.randn(30, 3),
-            color=torch.randn(30, 3),
+            label=torch.randn(30, 3),
             id=torch.arange(30),
         )
         pc_large = zRegPointCloud(
             pos=torch.randn(80, 3),
-            color=torch.randn(80, 3),
+            label=torch.randn(80, 3),
             id=torch.arange(80),
         )
         x, y = downsampling.farthest_point_down_sample(pc_small, pc_large)
@@ -385,12 +385,12 @@ class TestFPSPrecomputeWhenNone:
         """Both x and y have fps-idx=None with use_precomputed=True → precompute_fps called (lines 258, 260)."""
         pc1 = zRegPointCloud(
             pos=torch.randn(100, 3),
-            color=torch.randn(100, 3),
+            label=torch.randn(100, 3),
             id=torch.arange(100),
         )
         pc2 = zRegPointCloud(
             pos=torch.randn(50, 3),
-            color=torch.randn(50, 3),
+            label=torch.randn(50, 3),
             id=torch.arange(50),
         )
         # Confirm fps-idx is None (default)
@@ -415,12 +415,12 @@ class TestFPSInternalRoundoffCorrection:
         """farthest_point_down_sample with shape=39→31 triggers both roundoff corrections."""
         pc_large = zRegPointCloud(
             pos=torch.randn(80, 3),
-            color=torch.randn(80, 3),
+            label=torch.randn(80, 3),
             id=torch.arange(80),
         )
         pc_target = zRegPointCloud(
             pos=torch.randn(39, 3),
-            color=torch.randn(39, 3),
+            label=torch.randn(39, 3),
             id=torch.arange(39),
         )
         # With x=80pts, y=39pts and points=31, _farthest_point_ds_internal is called
@@ -439,12 +439,12 @@ class TestUniformDownsampleXLargerThanY:
         """When x is larger, x is downsampled to y's size (covers lines 423-426)."""
         pc_large = zRegPointCloud(
             pos=torch.randn(100, 3),
-            color=torch.randn(100, 3),
+            label=torch.randn(100, 3),
             id=torch.arange(100),
         )
         pc_small = zRegPointCloud(
             pos=torch.randn(30, 3),
-            color=torch.randn(30, 3),
+            label=torch.randn(30, 3),
             id=torch.arange(30),
         )
         x, y = downsampling.uniform_down_sample(pc_large, pc_small)
@@ -465,12 +465,12 @@ class TestDownsamplingWithOpen3D:
             
             pc1 = zRegPointCloud(
                 pos=torch.randn(100, 3),
-                color=torch.randn(100, 3),
+                label=torch.randn(100, 3),
                 id=torch.arange(100),
             )
             pc2 = zRegPointCloud(
                 pos=torch.randn(50, 3),
-                color=torch.randn(50, 3),
+                label=torch.randn(50, 3),
                 id=torch.arange(50),
             )
             return zreg_to_open3d(pc1), zreg_to_open3d(pc2)
@@ -502,12 +502,12 @@ class TestDownsamplingWithOpen3D:
 
         pc1 = zRegPointCloud(
             pos=torch.randn(50, 3),
-            color=torch.randn(50, 3),
+            label=torch.randn(50, 3),
             id=torch.arange(50),
         )
         pc2 = zRegPointCloud(
             pos=torch.randn(50, 3),
-            color=torch.randn(50, 3),
+            label=torch.randn(50, 3),
             id=torch.arange(50),
         )
         return zreg_to_open3d(pc1), zreg_to_open3d(pc2)

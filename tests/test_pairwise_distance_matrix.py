@@ -15,7 +15,7 @@ def trajectory_pair():
     for i in range(5):
         x[i] = zRegPointCloud(
             pos=torch.randn(20, 3) + i * 0.5,
-            color=torch.rand(20, 3),
+            label=torch.rand(20, 3),
             id=torch.arange(20),
         )
     
@@ -23,7 +23,7 @@ def trajectory_pair():
     for i in range(5):
         y[i] = zRegPointCloud(
             pos=torch.randn(20, 3) + i * 0.5,
-            color=torch.rand(20, 3),
+            label=torch.rand(20, 3),
             id=torch.arange(20),
         )
     
@@ -37,7 +37,7 @@ def small_trajectory_pair():
     for i in range(3):
         x[i] = zRegPointCloud(
             pos=torch.randn(10, 3),
-            color=torch.rand(10, 3),
+            label=torch.rand(10, 3),
             id=torch.arange(10),
         )
     
@@ -45,7 +45,7 @@ def small_trajectory_pair():
     for i in range(3):
         y[i] = zRegPointCloud(
             pos=torch.randn(10, 3),
-            color=torch.rand(10, 3),
+            label=torch.rand(10, 3),
             id=torch.arange(10),
         )
     
@@ -629,13 +629,13 @@ class TestMPIPaths:
 
     def _make_single_sample_pair(self):
         """1-element trajectory (x_samples=0, y_samples=0 → single inner iteration)."""
-        pc = zRegPointCloud(pos=torch.randn(10, 3), color=torch.rand(10, 3), id=torch.arange(10))
+        pc = zRegPointCloud(pos=torch.randn(10, 3), label=torch.rand(10, 3), id=torch.arange(10))
         return {0: pc}, {0: pc}
 
     def _make_two_sample_pair(self):
         """2-element trajectory."""
-        pcs_x = {i: zRegPointCloud(pos=torch.randn(10, 3), color=torch.rand(10, 3), id=torch.arange(10)) for i in range(2)}
-        pcs_y = {i: zRegPointCloud(pos=torch.randn(10, 3), color=torch.rand(10, 3), id=torch.arange(10)) for i in range(2)}
+        pcs_x = {i: zRegPointCloud(pos=torch.randn(10, 3), label=torch.rand(10, 3), id=torch.arange(10)) for i in range(2)}
+        pcs_y = {i: zRegPointCloud(pos=torch.randn(10, 3), label=torch.rand(10, 3), id=torch.arange(10)) for i in range(2)}
         return pcs_x, pcs_y
 
     def _make_comm(self, rank, size):
@@ -735,8 +735,8 @@ class TestMPIPaths:
 
     def _make_asymmetric_pair(self):
         """x has 2 samples, y has 1 sample — for loop back-edge branch tests."""
-        pcs_x = {i: zRegPointCloud(pos=torch.randn(10, 3), color=torch.rand(10, 3), id=torch.arange(10)) for i in range(2)}
-        pcs_y = {0: zRegPointCloud(pos=torch.randn(10, 3), color=torch.rand(10, 3), id=torch.arange(10))}
+        pcs_x = {i: zRegPointCloud(pos=torch.randn(10, 3), label=torch.rand(10, 3), id=torch.arange(10)) for i in range(2)}
+        pcs_y = {0: zRegPointCloud(pos=torch.randn(10, 3), label=torch.rand(10, 3), id=torch.arange(10))}
         return pcs_x, pcs_y
 
     def test_mpi_loop_back_edge_create(self):
@@ -854,8 +854,8 @@ class TestPairwiseDistanceMatrixCPDTypes:
 
     def _make_small_pair(self):
         """Two tiny 3-frame trajectories (10 points each) for fast CPD tests."""
-        x = {i: zRegPointCloud(pos=torch.randn(10, 3), color=None, id=torch.arange(10)) for i in range(3)}
-        y = {i: zRegPointCloud(pos=torch.randn(10, 3), color=None, id=torch.arange(10)) for i in range(3)}
+        x = {i: zRegPointCloud(pos=torch.randn(10, 3), label=None, id=torch.arange(10)) for i in range(3)}
+        y = {i: zRegPointCloud(pos=torch.randn(10, 3), label=None, id=torch.arange(10)) for i in range(3)}
         return x, y
 
     def test_cpd_type_nonrigid(self):

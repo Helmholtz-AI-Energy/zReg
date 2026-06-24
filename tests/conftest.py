@@ -41,7 +41,7 @@ def sample_pointcloud():
     """Create a sample zRegPointCloud."""
     return zRegPointCloud(
         pos=torch.randn(100, 3),
-        color=torch.randn(100, 3),
+        label=torch.randn(100, 3),
         id=torch.arange(100),
     )
 
@@ -70,7 +70,7 @@ def trajectory_data():
     for t in range(5):
         trajectory[t] = zRegPointCloud(
             pos=torch.randn(30, 3) + t * 0.5,
-            color=torch.rand(30, 3),
+            label=torch.rand(30, 3),
             id=torch.arange(30),
         )
     return trajectory

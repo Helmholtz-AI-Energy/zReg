@@ -22,7 +22,7 @@ def small_trajectory_pair():
     for i in range(3):
         x[i] = zRegPointCloud(
             pos=torch.randn(10, 3),
-            color=torch.rand(10, 3),
+            label=torch.rand(10, 3),
             id=torch.arange(10),
         )
 
@@ -30,7 +30,7 @@ def small_trajectory_pair():
     for i in range(3):
         y[i] = zRegPointCloud(
             pos=torch.randn(10, 3),
-            color=torch.rand(10, 3),
+            label=torch.rand(10, 3),
             id=torch.arange(10),
         )
 
@@ -45,7 +45,7 @@ def identical_trajectories():
         pos = torch.randn(15, 3)
         x[i] = zRegPointCloud(
             pos=pos.clone(),
-            color=torch.rand(15, 3),
+            label=torch.rand(15, 3),
             id=torch.arange(15),
         )
 
@@ -54,7 +54,7 @@ def identical_trajectories():
     for i in range(4):
         y[i] = zRegPointCloud(
             pos=x[i]["pos"].clone(),
-            color=x[i]["color"].clone(),
+            label=x[i]["label"].clone(),
             id=x[i]["id"].clone(),
         )
 
@@ -918,8 +918,8 @@ class TestPlotAlignmentNoMatplotlib:
     def test_plot_alignment_returns_early_without_matplotlib(self, caplog):
         """plot_alignment returns early and logs a warning when matplotlib is missing (lines 447-451)."""
         import logging
-        x = {i: zRegPointCloud(pos=torch.randn(5, 3), color=torch.rand(5, 3), id=torch.arange(5)) for i in range(3)}
-        y = {i: zRegPointCloud(pos=torch.randn(5, 3), color=torch.rand(5, 3), id=torch.arange(5)) for i in range(3)}
+        x = {i: zRegPointCloud(pos=torch.randn(5, 3), label=torch.rand(5, 3), id=torch.arange(5)) for i in range(3)}
+        y = {i: zRegPointCloud(pos=torch.randn(5, 3), label=torch.rand(5, 3), id=torch.arange(5)) for i in range(3)}
         dtw_obj = DynamicTimeWarping(x, y, distance_metric="euclidean", downsample_method=None)
         dtw_obj.compute()
 
@@ -938,8 +938,8 @@ class TestPlotAlignmentNoMatplotlib:
         """plot_alignment runs the full plotting code path when matplotlib is available (lines 453-495)."""
         from unittest.mock import MagicMock, patch
 
-        x = {i: zRegPointCloud(pos=torch.randn(5, 3), color=torch.rand(5, 3), id=torch.arange(5)) for i in range(3)}
-        y = {i: zRegPointCloud(pos=torch.randn(5, 3), color=torch.rand(5, 3), id=torch.arange(5)) for i in range(3)}
+        x = {i: zRegPointCloud(pos=torch.randn(5, 3), label=torch.rand(5, 3), id=torch.arange(5)) for i in range(3)}
+        y = {i: zRegPointCloud(pos=torch.randn(5, 3), label=torch.rand(5, 3), id=torch.arange(5)) for i in range(3)}
         dtw_obj = DynamicTimeWarping(x, y, distance_metric="euclidean", downsample_method=None)
         dtw_obj.compute()
 
@@ -983,8 +983,8 @@ class TestPlotAlignmentMatplotlibImportError:
         import logging
         from unittest.mock import patch
 
-        x = {i: zRegPointCloud(pos=torch.randn(5, 3), color=torch.rand(5, 3), id=torch.arange(5)) for i in range(3)}
-        y = {i: zRegPointCloud(pos=torch.randn(5, 3), color=torch.rand(5, 3), id=torch.arange(5)) for i in range(3)}
+        x = {i: zRegPointCloud(pos=torch.randn(5, 3), label=torch.rand(5, 3), id=torch.arange(5)) for i in range(3)}
+        y = {i: zRegPointCloud(pos=torch.randn(5, 3), label=torch.rand(5, 3), id=torch.arange(5)) for i in range(3)}
         dtw_obj = DynamicTimeWarping(x, y, distance_metric="euclidean", downsample_method=None)
         dtw_obj.compute()
 

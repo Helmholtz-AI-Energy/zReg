@@ -841,14 +841,14 @@ class TestCPDRegistrationFunctionAdditional:
         """
         from zreg.dataset import zRegPointCloud
         n = 20
-        source = zRegPointCloud(pos=torch.randn(n, 3), color=torch.rand(n, 3), id=torch.arange(n))
-        target = zRegPointCloud(pos=torch.randn(n, 3), color=torch.rand(n, 3), id=torch.arange(n))
+        source = zRegPointCloud(pos=torch.randn(n, 3), label=torch.rand(n, 3), id=torch.arange(n))
+        target = zRegPointCloud(pos=torch.randn(n, 3), label=torch.rand(n, 3), id=torch.arange(n))
         # Lines 103-104 execute before the TypeError is raised
         with pytest.raises(TypeError):
             cpd.cpd_registration(
                 source, target, tf_type_name="rigid",
                 use_color=True, maxiter=1, log_freq=-1,
-                source_colors=source["color"],
+                source_colors=source["label"],
             )
 
 
@@ -904,8 +904,8 @@ class TestInitCPDFromExistingUseColor:
         """
         from zreg.dataset import zRegPointCloud
         n = 20
-        source = zRegPointCloud(pos=torch.randn(n, 3), color=torch.rand(n, 3), id=torch.arange(n))
-        target = zRegPointCloud(pos=torch.randn(n, 3), color=torch.rand(n, 3), id=torch.arange(n))
+        source = zRegPointCloud(pos=torch.randn(n, 3), label=torch.rand(n, 3), id=torch.arange(n))
+        target = zRegPointCloud(pos=torch.randn(n, 3), label=torch.rand(n, 3), id=torch.arange(n))
         tf = transforms.RigidTransformation(device="cpu", dtype=torch.float32)
         # Line 189 executes before ValueError is raised in the CPD constructor
         with pytest.raises(ValueError, match="source_colors"):
@@ -923,7 +923,7 @@ class TestCPDRegistrationOpen3DInputs:
         from zreg.dataset import zreg_to_open3d, zRegPointCloud
         pc = zRegPointCloud(
             pos=torch.randn(n, 3),
-            color=torch.randn(n, 3),
+            label=torch.randn(n, 3),
             id=torch.arange(n),
         )
         return zreg_to_open3d(pc)

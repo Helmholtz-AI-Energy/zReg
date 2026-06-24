@@ -156,3 +156,5 @@
 | VIZ-01 | Phase 29 | Complete 2026-06-12 | render_dataset_triptych in eval/viz.py; scripts/visualize_datasets.py delegates |
 | VIZ-02 | Phase 36 | Complete 2026-06-22 | plot_trajectory alignment branch — 4 figure pairs, 7 private helpers |
 | VIZ-03 | Phase 37 | Complete 2026-06-23 | plot_trajectory label branch — 2 figure pairs, _get_source_labels + _write_label_figure |
+| ALIGN-01 | Phase 33 | Complete 2026-06-16 | CPD-aligned trajectory output — _build_aligned_cloud(), aligned_cloud keyed by target keys |
+| ALIGN-02 | Phase 34 | Complete 2026-06-19 | Pre-transfer alignment guard — LabelResult.pre_transfer_alignment, _check_alignment(), warnings.warn() when run_alignment=False |

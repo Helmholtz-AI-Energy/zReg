@@ -53,10 +53,10 @@ class TestGenerateTrajectory:
             assert pc["pos"].shape == (n_points, 3)
 
     def test_color_id_unset(self):
-        """Every frame's color and id is None (factory leaves them unset)."""
+        """Every frame's label and id is None (factory leaves them unset)."""
         traj = generate_trajectory(n_points=10, n_frames=3, seed=2)
         for pc in traj.values():
-            assert pc["color"] is None
+            assert pc["label"] is None
             assert pc["id"] is None
 
     def test_seed_reproducibility(self):
@@ -136,10 +136,10 @@ class TestTransformWrappers:
         assert all(torch.equal(traj[i]["pos"], snapshot[i]["pos"]) for i in traj)
 
     def test_apply_rigid_preserves_other_fields(self, trajectory_data):
-        """Output frames' color and id are torch.equal to input's when fields are set."""
+        """Output frames' label and id are torch.equal to input's when fields are set."""
         result = apply_rigid(trajectory_data, RigidTransformation())
         for i in trajectory_data:
-            assert torch.equal(result[i]["color"], trajectory_data[i]["color"])
+            assert torch.equal(result[i]["label"], trajectory_data[i]["label"])
             assert torch.equal(result[i]["id"], trajectory_data[i]["id"])
 
     def test_apply_rigid_translation_applied(self):
@@ -215,14 +215,14 @@ class TestCorruptionWrappers:
             assert torch.all(result[i]["id"][-n_outliers:] == -1)
 
     def test_add_outliers_extends_2d_color(self, trajectory_data):
-        """When input has 2-D color of shape (N, 3), output has (N+5, 3) with zero appended rows."""
+        """When input has 2-D label of shape (N, 3), output has (N+5, 3) with zero appended rows."""
         n_outliers = 5
         result = add_outliers(trajectory_data, n_outliers=n_outliers, seed=42)
         for i in trajectory_data:
-            n = trajectory_data[i]["color"].shape[0]
-            assert result[i]["color"].shape == (n + n_outliers, 3)
+            n = trajectory_data[i]["label"].shape[0]
+            assert result[i]["label"].shape == (n + n_outliers, 3)
             assert torch.allclose(
-                result[i]["color"][-n_outliers:].float(),
+                result[i]["label"][-n_outliers:].float(),
                 torch.zeros(n_outliers, 3),
             )
 
@@ -257,41 +257,41 @@ class TestLabelUtilities:
     """Tests for the generate_labels and remove_labels utility functions."""
 
     def test_generate_labels_dtype_and_shape(self):
-        """Every frame's pc['color'] is torch.long, shape (N,)."""
+        """Every frame's pc['label'] is torch.long, shape (N,)."""
         n_points = 30
         traj = generate_trajectory(n_points=n_points, n_frames=4, seed=30)
         labelled = generate_labels(traj, n_classes=4, seed=42)
         for pc in labelled.values():
-            assert pc["color"].dtype == torch.long
-            assert pc["color"].shape == (n_points,)
+            assert pc["label"].dtype == torch.long
+            assert pc["label"].shape == (n_points,)
 
     def test_generate_labels_value_range(self):
-        """Every frame's pc['color'].min() >= 0 and .max() < n_classes."""
+        """Every frame's pc['label'].min() >= 0 and .max() < n_classes."""
         n_classes = 4
         traj = generate_trajectory(n_points=50, n_frames=3, seed=31)
         labelled = generate_labels(traj, n_classes=n_classes, seed=42)
         for pc in labelled.values():
-            assert pc["color"].min().item() >= 0
-            assert pc["color"].max().item() < n_classes
+            assert pc["label"].min().item() >= 0
+            assert pc["label"].max().item() < n_classes
 
     def test_generate_labels_reproducible(self):
-        """Same seed produces torch.equal color output across two calls."""
+        """Same seed produces torch.equal label output across two calls."""
         traj = generate_trajectory(n_points=20, n_frames=3, seed=32)
         labelled_a = generate_labels(traj, n_classes=3, seed=55)
         labelled_b = generate_labels(traj, n_classes=3, seed=55)
         for i in traj:
-            assert torch.equal(labelled_a[i]["color"], labelled_b[i]["color"])
+            assert torch.equal(labelled_a[i]["label"], labelled_b[i]["label"])
 
     def test_generate_labels_does_not_mutate_input(self):
-        """Input frames still have color is None after generate_labels call."""
+        """Input frames still have label is None after generate_labels call."""
         traj = generate_trajectory(n_points=20, n_frames=3, seed=33)
-        # Verify input has color=None before the call
+        # Verify input has label=None before the call
         for pc in traj.values():
-            assert pc["color"] is None
+            assert pc["label"] is None
         generate_labels(traj, n_classes=3, seed=42)
-        # Input must still have color=None after the call
+        # Input must still have label=None after the call
         for pc in traj.values():
-            assert pc["color"] is None
+            assert pc["label"] is None
 
     def test_generate_labels_invalid_n_classes(self):
         """n_classes=0 raises ValueError matching 'n_classes'."""
@@ -300,38 +300,38 @@ class TestLabelUtilities:
             generate_labels(traj, n_classes=0)
 
     def test_generate_labels_compatible_with_compute_f1(self):
-        """compute_f1(labelled[0]['color'], labelled[0]['color']) returns 1.0 (D-07 dtype contract)."""
+        """compute_f1(labelled[0]['label'], labelled[0]['label']) returns 1.0 (D-07 dtype contract)."""
         traj = generate_trajectory(n_points=50, n_frames=3, seed=35)
         labelled = generate_labels(traj, n_classes=4, seed=42)
         # Perfect prediction: y_true == y_pred should yield F1 == 1.0
         score = compute_f1(
-            y_true=labelled[0]["color"],
-            y_pred=labelled[0]["color"],
+            y_true=labelled[0]["label"],
+            y_pred=labelled[0]["label"],
         )
         assert abs(score - 1.0) < 1e-6
 
     def test_remove_labels_sets_color_none(self):
-        """Every frame's pc['color'] is None in the output."""
+        """Every frame's pc['label'] is None in the output."""
         traj = generate_trajectory(n_points=20, n_frames=3, seed=36)
         labelled = generate_labels(traj, n_classes=3, seed=42)
         # Confirm labels are set
         for pc in labelled.values():
-            assert pc["color"] is not None
+            assert pc["label"] is not None
         unlabelled = remove_labels(labelled)
         for pc in unlabelled.values():
-            assert pc["color"] is None
+            assert pc["label"] is None
 
     def test_remove_labels_does_not_mutate_input(self):
-        """Input frames still have their color tensor after remove_labels call."""
+        """Input frames still have their label tensor after remove_labels call."""
         traj = generate_trajectory(n_points=20, n_frames=3, seed=37)
         labelled = generate_labels(traj, n_classes=3, seed=42)
-        # Capture the color tensors before the call
-        original_colors = {i: labelled[i]["color"].clone() for i in labelled}
+        # Capture the label tensors before the call
+        original_colors = {i: labelled[i]["label"].clone() for i in labelled}
         remove_labels(labelled)
-        # Input must still have its color tensors
+        # Input must still have its label tensors
         for i in labelled:
-            assert labelled[i]["color"] is not None
-            assert torch.equal(labelled[i]["color"], original_colors[i])
+            assert labelled[i]["label"] is not None
+            assert torch.equal(labelled[i]["label"], original_colors[i])
 
 
 # ---------------------------------------------------------------------------
@@ -372,5 +372,5 @@ class TestGeneratorsCoverageGaps:
         traj = generate_trajectory(n_points=10, n_frames=2, seed=0)
         result = generate_labels(traj, n_classes=3, seed=None)
         for i in traj:
-            assert result[i]["color"] is not None
-            assert result[i]["color"].shape[0] == 10
+            assert result[i]["label"] is not None
+            assert result[i]["label"].shape[0] == 10

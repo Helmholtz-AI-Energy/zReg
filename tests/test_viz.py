@@ -95,12 +95,12 @@ def fake_align_result_5frames(synthetic_dataset_5) -> AlignResult:
 def fake_label_result(synthetic_dataset_3) -> LabelResult:
     """LabelResult constructed from synthetic_dataset_3 with 1-D long tensors.
 
-    generate_labels produces color tensors of shape (N,) with dtype torch.int64,
+    generate_labels produces label tensors of shape (N,) with dtype torch.int64,
     so we use them directly as 1-D long tensors.
     """
     return LabelResult(
         transferred_labels={
-            k: synthetic_dataset_3[k]['color'].long()
+            k: synthetic_dataset_3[k]['label'].long()
             for k in synthetic_dataset_3
         },
         params_used={},
@@ -322,14 +322,14 @@ class TestPlotTrajectory:
         assert not (tmp_path / "label_trajectory.pdf").exists()
 
     def test_label_source_uses_id_when_available(self, tmp_path):
-        """Source figure uses pc['id'] when present; color=None verifies id is the sole source."""
-        # color=None forces a KeyError/grey if the code ignores id and falls back to color.
-        # id=torch.ones means label 1 is used; transferred_labels=zeros means label 0.
+        """Source figure renders grey (no label field) without error; transferred_labels provide target colors."""
+        # label=None: _get_source_labels returns None → grey source figure (CLN-02: no id fallback).
+        # transferred_labels=zeros means label 0 colors the target figure.
         # Both figures must render without error.
         ds = {
-            0: zRegPointCloud(pos=torch.randn(20, 3), color=None, id=torch.ones(20, dtype=torch.long)),
-            1: zRegPointCloud(pos=torch.randn(20, 3), color=None, id=torch.ones(20, dtype=torch.long)),
-            2: zRegPointCloud(pos=torch.randn(20, 3), color=None, id=torch.ones(20, dtype=torch.long)),
+            0: zRegPointCloud(pos=torch.randn(20, 3), label=None, id=torch.ones(20, dtype=torch.long)),
+            1: zRegPointCloud(pos=torch.randn(20, 3), label=None, id=torch.ones(20, dtype=torch.long)),
+            2: zRegPointCloud(pos=torch.randn(20, 3), label=None, id=torch.ones(20, dtype=torch.long)),
         }
         lr = LabelResult(
             transferred_labels={k: torch.zeros(20, dtype=torch.long) for k in ds},
@@ -413,9 +413,9 @@ class TestVizCoverageGaps:
         """_subsample helper — subsampling when source/aligned pos > 4000 points."""
         # Create large dataset with >4000 points per frame
         large_ds = {
-            0: zRegPointCloud(pos=torch.randn(5000, 3), color=None, id=None),
-            1: zRegPointCloud(pos=torch.randn(5000, 3), color=None, id=None),
-            2: zRegPointCloud(pos=torch.randn(5000, 3), color=None, id=None),
+            0: zRegPointCloud(pos=torch.randn(5000, 3), label=None, id=None),
+            1: zRegPointCloud(pos=torch.randn(5000, 3), label=None, id=None),
+            2: zRegPointCloud(pos=torch.randn(5000, 3), label=None, id=None),
         }
         align_result = AlignResult(
             aligned_cloud=large_ds,
@@ -434,9 +434,9 @@ class TestVizCoverageGaps:
     def test_plot_trajectory_large_label_dataset_subsamples(self, tmp_path):
         """viz.py label branch — subsampling when label points > 4000."""
         large_ds = {
-            0: zRegPointCloud(pos=torch.randn(5000, 3), color=torch.zeros(5000, dtype=torch.long), id=None),
-            1: zRegPointCloud(pos=torch.randn(5000, 3), color=torch.zeros(5000, dtype=torch.long), id=None),
-            2: zRegPointCloud(pos=torch.randn(5000, 3), color=torch.zeros(5000, dtype=torch.long), id=None),
+            0: zRegPointCloud(pos=torch.randn(5000, 3), label=torch.zeros(5000, dtype=torch.long), id=None),
+            1: zRegPointCloud(pos=torch.randn(5000, 3), label=torch.zeros(5000, dtype=torch.long), id=None),
+            2: zRegPointCloud(pos=torch.randn(5000, 3), label=torch.zeros(5000, dtype=torch.long), id=None),
         }
         label_result = LabelResult(
             transferred_labels={k: torch.zeros(5000, dtype=torch.long) for k in large_ds},
@@ -495,3 +495,27 @@ class TestVizCoverageGaps:
         df.to_csv(csv_path, index=False)
         result = render_dataset_triptych(csv_path, "large", tmp_path)
         assert result.exists()
+
+
+# ---------------------------------------------------------------------------
+# TestGetSourceLabels — CLN-02 regression
+# ---------------------------------------------------------------------------
+
+
+class TestGetSourceLabels:
+    """CLN-02 regression: _get_source_labels reads 'label' field only; no 'id' fallback."""
+
+    def test_returns_label_field_when_set(self):
+        """_get_source_labels returns label tensor when pc['label'] is set."""
+        from eval.viz import _get_source_labels
+        pc = zRegPointCloud(pos=torch.zeros(5, 3), label=torch.tensor([0, 1, 2, 1, 0]), id=None)
+        result = _get_source_labels(pc)
+        assert result is not None
+        assert result.dtype == torch.long
+
+    def test_returns_none_when_label_absent(self):
+        """CLN-02 regression: _get_source_labels returns None when label=None (no id fallback)."""
+        from eval.viz import _get_source_labels
+        pc = zRegPointCloud(pos=torch.zeros(5, 3), label=None, id=torch.arange(5))
+        result = _get_source_labels(pc)
+        assert result is None  # id fallback removed; label=None → return None

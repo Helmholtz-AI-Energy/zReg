@@ -35,7 +35,7 @@ def sample_point_clouds():
         [1.0, 1.0, 0.0]   # Yellow
     ], dtype=torch.float32)
 
-    source_pc = zRegPointCloud(pos=source_pos, color=source_colors)
+    source_pc = zRegPointCloud(pos=source_pos, label=source_colors)
 
     # Target point cloud (slightly offset)
     target_pos = torch.tensor([
@@ -63,7 +63,7 @@ def test_transfer_colors_nearest_neighbor_zreg(sample_point_clouds):
     assert transferred_colors.shape == (4, 3)
 
     # Check that colors are from source (exact matches expected due to proximity)
-    expected_colors = source_pc["color"]
+    expected_colors = source_pc["label"]
     for i in range(4):
         # Check if transferred color matches any source color
         matches = [torch.allclose(transferred_colors[i], expected_colors[j], atol=1e-6) for j in range(4)]
@@ -77,7 +77,7 @@ def test_transfer_colors_nearest_neighbor_tensors(sample_point_clouds):
     transferred_colors = transfer_colors(
         source_pc["pos"], target_pc["pos"],
         method=ColorTransferMethod.NEAREST_NEIGHBOR,
-        source_colors=source_pc["color"]
+        source_colors=source_pc["label"]
     )
 
     assert transferred_colors.shape == (4, 3)
@@ -98,7 +98,7 @@ def test_transfer_colors_cpd_weighted(sample_point_clouds):
     )
 
     # With identity probabilities, should get exact source colors
-    assert torch.allclose(transferred_colors, source_pc["color"], atol=1e-6)
+    assert torch.allclose(transferred_colors, source_pc["label"], atol=1e-6)
 
 
 def test_transfer_colors_cpd_weighted_uniform(sample_point_clouds):
@@ -116,7 +116,7 @@ def test_transfer_colors_cpd_weighted_uniform(sample_point_clouds):
     )
 
     # Should get average of all source colors
-    expected_avg = source_pc["color"].mean(dim=0)
+    expected_avg = source_pc["label"].mean(dim=0)
     assert torch.allclose(transferred_colors, expected_avg, atol=1e-6)
 
 
@@ -198,7 +198,7 @@ def sample_point_clouds_single_channel():
         [0]   # Class 0
     ], dtype=torch.float32)
 
-    source_pc = zRegPointCloud(pos=source_pos, color=source_colors)
+    source_pc = zRegPointCloud(pos=source_pos, label=source_colors)
 
     # Target point cloud (slightly offset)
     target_pos = torch.tensor([
@@ -292,7 +292,7 @@ def test_transfer_colors_gaussian_kernel_large_sigma(sample_point_clouds):
     assert transferred_colors.shape == (4, 3)
 
     # Should be close to the average of all source colors
-    expected_avg = source_pc["color"].mean(dim=0)
+    expected_avg = source_pc["label"].mean(dim=0)
     assert torch.allclose(transferred_colors, expected_avg, atol=1e-2)
 
 class TestColorTransferEdgeCases:
@@ -308,7 +308,7 @@ class TestColorTransferEdgeCases:
 
     def test_empty_source_zreg_raises_valueerror(self):
         """transfer_colors raises ValueError with descriptive message for 0-point source (zRegPointCloud)."""
-        source = zRegPointCloud(pos=torch.zeros(0, 3), color=torch.zeros(0, 3))
+        source = zRegPointCloud(pos=torch.zeros(0, 3), label=torch.zeros(0, 3))
         target = zRegPointCloud(pos=torch.randn(5, 3))
         with pytest.raises(ValueError, match="0 points"):
             transfer_colors(source, target)
@@ -317,7 +317,7 @@ class TestColorTransferEdgeCases:
         """transfer_colors returns (m_target, n_channels) for a single-point source."""
         source = zRegPointCloud(
             pos=torch.tensor([[0.0, 0.0, 0.0]]),
-            color=torch.tensor([[0.2, 0.5, 0.8]]),
+            label=torch.tensor([[0.2, 0.5, 0.8]]),
         )
         target = zRegPointCloud(pos=torch.randn(7, 3))
         result = transfer_colors(source, target)
@@ -327,7 +327,7 @@ class TestColorTransferEdgeCases:
     def test_single_point_source_all_targets_get_same_color(self):
         """With a single source point, all target points receive that point's color."""
         color = torch.tensor([[0.1, 0.9, 0.4]])
-        source = zRegPointCloud(pos=torch.tensor([[0.0, 0.0, 0.0]]), color=color)
+        source = zRegPointCloud(pos=torch.tensor([[0.0, 0.0, 0.0]]), label=color)
         target = zRegPointCloud(pos=torch.randn(5, 3))
         result = transfer_colors(source, target)
         assert torch.allclose(result, color.expand(5, 3), atol=1e-5)

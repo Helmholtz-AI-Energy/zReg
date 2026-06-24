@@ -164,7 +164,7 @@ class TestEvaluationRunnerRunFixedParams:
         mock_factory.load_target.return_value = synthetic_dataset
         # generate_labels populates 'color' (torch.long) not 'id' (None)
         mock_factory.get_ground_truth.return_value = {
-            k: synthetic_dataset[k]["color"] for k in synthetic_dataset
+            k: synthetic_dataset[k]["label"] for k in synthetic_dataset
         }
         runner = EvaluationRunner(eval_config, full_params)
         report = runner.run()
@@ -179,7 +179,7 @@ class TestEvaluationRunnerRunFixedParams:
         mock_factory.load_real.return_value = synthetic_dataset
         mock_factory.load_target.return_value = synthetic_dataset
         mock_factory.get_ground_truth.return_value = {
-            k: synthetic_dataset[k]["color"] for k in synthetic_dataset
+            k: synthetic_dataset[k]["label"] for k in synthetic_dataset
         }
         runner = EvaluationRunner(eval_config, full_params)
         report = runner.run()
@@ -194,7 +194,7 @@ class TestEvaluationRunnerRunFixedParams:
         mock_factory.load_real.return_value = synthetic_dataset
         mock_factory.load_target.return_value = synthetic_dataset
         mock_factory.get_ground_truth.return_value = {
-            k: synthetic_dataset[k]["color"] for k in synthetic_dataset
+            k: synthetic_dataset[k]["label"] for k in synthetic_dataset
         }
         runner = EvaluationRunner(eval_config, full_params)
         report = runner.run()
@@ -219,7 +219,7 @@ class TestEvaluationRunnerRunFixedParams:
         mock_factory.load_real.return_value = synthetic_dataset
         mock_factory.load_target.return_value = synthetic_dataset
         mock_factory.get_ground_truth.return_value = {
-            k: synthetic_dataset[k]["color"] for k in synthetic_dataset
+            k: synthetic_dataset[k]["label"] for k in synthetic_dataset
         }
         runner = EvaluationRunner(eval_config, full_params)
         report = runner.run()
@@ -235,7 +235,7 @@ class TestEvaluationRunnerRunFixedParams:
         mock_factory.load_real.return_value = synthetic_dataset
         mock_factory.load_target.return_value = synthetic_dataset
         mock_factory.get_ground_truth.return_value = {
-            k: synthetic_dataset[k]["color"] for k in synthetic_dataset
+            k: synthetic_dataset[k]["label"] for k in synthetic_dataset
         }
         runner = EvaluationRunner(eval_config, full_params)
         report = runner.run()
@@ -260,7 +260,7 @@ class TestEvaluationRunnerSanityFlags:
         mock_factory.load_target.return_value = single_frame_dataset
         # generate_labels populates 'color' (torch.long) not 'id' (None)
         mock_factory.get_ground_truth.return_value = {
-            0: single_frame_dataset[0]["color"]
+            0: single_frame_dataset[0]["label"]
         }
         runner = EvaluationRunner(eval_config, full_params)
         report = runner.run()
@@ -287,7 +287,7 @@ class TestEvaluationRunnerSaveReport:
         mock_factory.load_real.return_value = synthetic_dataset
         mock_factory.load_target.return_value = synthetic_dataset
         mock_factory.get_ground_truth.return_value = {
-            k: synthetic_dataset[k]["color"] for k in synthetic_dataset
+            k: synthetic_dataset[k]["label"] for k in synthetic_dataset
         }
         runner = EvaluationRunner(eval_config, full_params)
         runner.run()
@@ -302,7 +302,7 @@ class TestEvaluationRunnerSaveReport:
         mock_factory.load_real.return_value = synthetic_dataset
         mock_factory.load_target.return_value = synthetic_dataset
         mock_factory.get_ground_truth.return_value = {
-            k: synthetic_dataset[k]["color"] for k in synthetic_dataset
+            k: synthetic_dataset[k]["label"] for k in synthetic_dataset
         }
         runner = EvaluationRunner(eval_config, full_params)
         runner.run()
@@ -319,7 +319,7 @@ class TestEvaluationRunnerSaveReport:
         mock_factory.load_real.return_value = synthetic_dataset
         mock_factory.load_target.return_value = synthetic_dataset
         mock_factory.get_ground_truth.return_value = {
-            k: synthetic_dataset[k]["color"] for k in synthetic_dataset
+            k: synthetic_dataset[k]["label"] for k in synthetic_dataset
         }
         runner = EvaluationRunner(eval_config, full_params)
         runner.run()
@@ -342,7 +342,7 @@ class TestEvaluationRunnerSaveReport:
         mock_factory.load_real.return_value = synthetic_dataset
         mock_factory.load_target.return_value = synthetic_dataset
         mock_factory.get_ground_truth.return_value = {
-            k: synthetic_dataset[k]["color"] for k in synthetic_dataset
+            k: synthetic_dataset[k]["label"] for k in synthetic_dataset
         }
         runner = EvaluationRunner(eval_config, full_params)
         runner.run()
@@ -354,7 +354,7 @@ class TestEvaluationRunnerSaveReport:
         mock_factory.load_real.return_value = synthetic_dataset
         mock_factory.load_target.return_value = synthetic_dataset
         mock_factory.get_ground_truth.return_value = {
-            k: synthetic_dataset[k]["color"] for k in synthetic_dataset
+            k: synthetic_dataset[k]["label"] for k in synthetic_dataset
         }
         report = runner.run()
         returned_path = runner.save_report(report, out_dir)
@@ -391,7 +391,7 @@ class TestEvaluationRunnerConditionalStages:
         mock_factory.load_real.return_value = synthetic_dataset
         mock_factory.load_target.return_value = synthetic_dataset
         mock_factory.get_ground_truth.return_value = {
-            k: synthetic_dataset[k]["color"] for k in synthetic_dataset
+            k: synthetic_dataset[k]["label"] for k in synthetic_dataset
         }
         runner = EvaluationRunner(eval_config_no_align, full_params)
         runner.run()
@@ -418,7 +418,7 @@ class TestEvaluationRunnerConditionalStages:
         mock_factory.load_real.return_value = synthetic_dataset
         mock_factory.load_target.return_value = synthetic_dataset
         mock_factory.get_ground_truth.return_value = {
-            k: synthetic_dataset[k]["color"] for k in synthetic_dataset
+            k: synthetic_dataset[k]["label"] for k in synthetic_dataset
         }
         # AlignmentStage still runs — mock it minimally so no real DTW
         with patch("eval.runners.eval_runner.AlignmentStage") as mock_align_cls:
@@ -469,7 +469,7 @@ class TestEvaluationRunnerSavePlots:
         mock_factory.load_real.return_value = synthetic_dataset
         mock_factory.load_target.return_value = synthetic_dataset
         mock_factory.get_ground_truth.return_value = {
-            k: synthetic_dataset[k]["color"] for k in synthetic_dataset
+            k: synthetic_dataset[k]["label"] for k in synthetic_dataset
         }
         runner = EvaluationRunner(eval_config, full_params)
         report = runner.run()
@@ -493,7 +493,7 @@ class TestEvaluationRunnerSavePlots:
         mock_factory.load_real.return_value = synthetic_dataset
         mock_factory.load_target.return_value = synthetic_dataset
         mock_factory.get_ground_truth.return_value = {
-            k: synthetic_dataset[k]["color"] for k in synthetic_dataset
+            k: synthetic_dataset[k]["label"] for k in synthetic_dataset
         }
         runner = EvaluationRunner(eval_config, full_params)
         runner.run()
@@ -512,7 +512,7 @@ class TestEvaluationRunnerSavePlots:
         mock_factory.load_real.return_value = synthetic_dataset
         mock_factory.load_target.return_value = synthetic_dataset
         mock_factory.get_ground_truth.return_value = {
-            k: synthetic_dataset[k]["color"] for k in synthetic_dataset
+            k: synthetic_dataset[k]["label"] for k in synthetic_dataset
         }
         runner = EvaluationRunner(eval_config, full_params)
         runner.run()
@@ -536,7 +536,7 @@ class TestEvaluationRunnerSavePlots:
         mock_factory.load_real.return_value = synthetic_dataset
         mock_factory.load_target.return_value = synthetic_dataset
         mock_factory.get_ground_truth.return_value = {
-            k: synthetic_dataset[k]["color"] for k in synthetic_dataset
+            k: synthetic_dataset[k]["label"] for k in synthetic_dataset
         }
         runner = EvaluationRunner(eval_config_no_plots, full_params)
         report = runner.run()
@@ -562,7 +562,7 @@ class TestEvaluationRunnerSavePlots:
         mock_factory.load_real.return_value = synthetic_dataset
         mock_factory.load_target.return_value = synthetic_dataset
         mock_factory.get_ground_truth.return_value = {
-            k: synthetic_dataset[k]["color"] for k in synthetic_dataset
+            k: synthetic_dataset[k]["label"] for k in synthetic_dataset
         }
         runner = EvaluationRunner(eval_config_no_align, full_params)
         report = runner.run()
@@ -606,7 +606,7 @@ class TestEvaluationRunnerSyntheticMode:
         mock_factory.load_real.return_value = synthetic_dataset
         mock_factory.generate_target.return_value = synthetic_dataset
         mock_factory.get_synthetic_ground_truth.return_value = {
-            k: synthetic_dataset[k]["color"] for k in synthetic_dataset
+            k: synthetic_dataset[k]["label"] for k in synthetic_dataset
         }
         runner = EvaluationRunner(synth_config, full_params)
         runner.run()
@@ -634,7 +634,7 @@ class TestEvaluationRunnerSyntheticMode:
         mock_factory.load_real.return_value = synthetic_dataset
         mock_factory.generate_target.return_value = synthetic_dataset
         mock_factory.get_synthetic_ground_truth.return_value = {
-            k: synthetic_dataset[k]["color"] for k in synthetic_dataset
+            k: synthetic_dataset[k]["label"] for k in synthetic_dataset
         }
         runner = EvaluationRunner(synth_config, full_params)
         runner.run()
@@ -654,7 +654,7 @@ class TestEvaluationRunnerSyntheticMode:
         mock_factory.load_real.return_value = synthetic_dataset
         mock_factory.load_target.return_value = synthetic_dataset
         mock_factory.get_ground_truth.return_value = {
-            k: synthetic_dataset[k]["color"] for k in synthetic_dataset
+            k: synthetic_dataset[k]["label"] for k in synthetic_dataset
         }
         runner = EvaluationRunner(eval_config, full_params)
         runner.run()
@@ -681,7 +681,7 @@ class TestEvaluationRunnerSyntheticMode:
         mock_factory.load_real.return_value = synthetic_dataset
         mock_factory.generate_target.return_value = synthetic_dataset
         mock_factory.get_synthetic_ground_truth.return_value = {
-            k: synthetic_dataset[k]["color"] for k in synthetic_dataset
+            k: synthetic_dataset[k]["label"] for k in synthetic_dataset
         }
         runner = EvaluationRunner(synth_config, full_params)
         report = runner.run()
@@ -732,7 +732,7 @@ class TestEvaluationRunnerCoverageGaps:
         target_ds = {
             k: zRegPointCloud(
                 pos=torch.randn(n_target, 3),
-                color=torch.zeros(n_target, dtype=torch.long),
+                label=torch.zeros(n_target, dtype=torch.long),
                 id=torch.arange(n_target),
             )
             for k in synthetic_dataset

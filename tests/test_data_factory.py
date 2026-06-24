@@ -209,7 +209,7 @@ class TestLoadReal:
 
     def _make_mock_ds(self):
         """Build a minimal mock dataset for patching."""
-        return {0: zRegPointCloud(pos=torch.zeros(3, 3), color=None, id=torch.arange(3))}
+        return {0: zRegPointCloud(pos=torch.zeros(3, 3), label=None, id=torch.arange(3))}
 
     def test_dispatches_tracklets(self):
         """data_format='tracklets' calls load_data_from_tracklets with device='cpu'."""
@@ -252,7 +252,7 @@ class TestLoadTarget:
 
     def _make_mock_ds(self):
         """Build a minimal mock dataset for patching."""
-        return {0: zRegPointCloud(pos=torch.zeros(3, 3), color=None, id=torch.arange(3))}
+        return {0: zRegPointCloud(pos=torch.zeros(3, 3), label=None, id=torch.arange(3))}
 
     def test_dispatches_tracklets(self):
         """data_format='tracklets' calls load_data_from_tracklets with target_data_path and device='cpu'."""
@@ -325,7 +325,7 @@ class TestLoadTargetFormatDispatch:
     """load_target() uses target_data_format when set; falls back to data_format when None."""
 
     def _make_mock_ds(self):
-        return {0: zRegPointCloud(pos=torch.zeros(3, 3), color=None, id=torch.arange(3))}
+        return {0: zRegPointCloud(pos=torch.zeros(3, 3), label=None, id=torch.arange(3))}
 
     def test_target_format_csv_overrides_source_tracklets(self):
         """target_data_format='csv' routes to CSV loader even though data_format='tracklets'."""
@@ -401,7 +401,7 @@ class TestGenerateTarget:
         for i in range(2):
             pc = zRegPointCloud(
                 pos=torch.rand(5, 3),
-                color=None,
+                label=None,
                 id=torch.arange(5),
             )
             pc["fps-idx"] = None
@@ -594,7 +594,7 @@ class TestPrepareSplit:
 
     def _make_ds(self, n):
         """Build a dataset with n frames, each with a single zero point."""
-        return {i: zRegPointCloud(pos=torch.zeros(2, 3), color=None, id=torch.arange(2)) for i in range(n)}
+        return {i: zRegPointCloud(pos=torch.zeros(2, 3), label=None, id=torch.arange(2)) for i in range(n)}
 
     def test_split_returns_two_dicts_with_disjoint_keys(self):
         """FRAME-02 gate 2: 10-frame dataset with val_split=0.2 → 8 train + 2 val, disjoint, covering all keys."""
@@ -618,7 +618,7 @@ class TestPrepareSplit:
 
     def test_single_frame_returns_empty_val(self):
         """D-07: 1-frame dataset returns (dataset, {}) silently."""
-        ds = {0: zRegPointCloud(pos=torch.zeros(2, 3), color=None, id=torch.arange(2))}
+        ds = {0: zRegPointCloud(pos=torch.zeros(2, 3), label=None, id=torch.arange(2))}
         cfg = EvalConfig(data_path="x")
         factory = DataFactory(cfg)
         train, val = factory.prepare_split(ds)
@@ -637,7 +637,7 @@ class TestGetGroundTruth:
     def test_extracts_id_from_pc(self):
         """D-10, D-11: returns {i: ds[i]['id']} when ground_truth_path is None."""
         ds = {
-            i: zRegPointCloud(pos=torch.zeros(2, 3), color=None, id=torch.tensor([i, i + 100]))
+            i: zRegPointCloud(pos=torch.zeros(2, 3), label=None, id=torch.tensor([i, i + 100]))
             for i in range(3)
         }
         cfg = EvalConfig(data_path="x")
@@ -651,7 +651,7 @@ class TestGetGroundTruth:
         """D-10: when ground_truth_path is set, loads via same loader as data_format."""
         cfg = EvalConfig(data_path="x.mat", data_format="tracklets", ground_truth_path="gt.mat")
         factory = DataFactory(cfg)
-        external_ds = {0: zRegPointCloud(pos=torch.zeros(3, 3), color=None, id=torch.arange(3))}
+        external_ds = {0: zRegPointCloud(pos=torch.zeros(3, 3), label=None, id=torch.arange(3))}
         with patch("eval.data_factory.load_data_from_tracklets", return_value=(external_ds, {})) as m:
             gt = factory.get_ground_truth({})  # in-memory ds is irrelevant when external path set
         m.assert_called_once_with("gt.mat", device="cpu")
@@ -673,7 +673,7 @@ class TestGetSyntheticGroundTruth:
         for i in range(2):
             pc = zRegPointCloud(
                 pos=torch.randn(5, 3),
-                color=None,
+                label=None,
                 id=torch.arange(5, dtype=torch.float32),
             )
             pc["fps-idx"] = None
@@ -686,7 +686,7 @@ class TestGetSyntheticGroundTruth:
         for i in range(2):
             pc = zRegPointCloud(
                 pos=torch.randn(5, 3),
-                color=None,
+                label=None,
                 id=None,
             )
             pc["fps-idx"] = None
@@ -767,7 +767,7 @@ class TestScale:
         for i in range(3):
             pc = zRegPointCloud(
                 pos=torch.ones(4, 3) * (i + 1),
-                color=None,
+                label=None,
                 id=torch.arange(4),
             )
             pc["fps-idx"] = torch.arange(4)
@@ -825,7 +825,7 @@ class TestRotate:
         return {
             0: zRegPointCloud(
                 pos=torch.tensor([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]),
-                color=None,
+                label=None,
                 id=torch.arange(2),
             )
         }
@@ -866,7 +866,7 @@ class TestRotate:
         """90-degree Z rotation maps (1,0,0) -> (0,1,0) within atol=1e-5."""
         cfg = EvalConfig(data_path="x", augmentation_params={})
         factory = DataFactory(cfg)
-        single_pt = {0: zRegPointCloud(pos=torch.tensor([[1.0, 0.0, 0.0]]), color=None, id=torch.arange(1))}
+        single_pt = {0: zRegPointCloud(pos=torch.tensor([[1.0, 0.0, 0.0]]), label=None, id=torch.arange(1))}
         out = factory.rotate(single_pt, self._rot90z())
         expected = torch.tensor([[0.0, 1.0, 0.0]])
         assert torch.allclose(out[0]["pos"], expected, atol=1e-5)
@@ -886,7 +886,7 @@ class TestDropPoints:
         for i in range(2):
             pc = zRegPointCloud(
                 pos=torch.zeros(100, 3),
-                color=torch.zeros(100, dtype=torch.long),
+                label=torch.zeros(100, dtype=torch.long),
                 id=torch.arange(100),
             )
             pc["fps-idx"] = torch.arange(100)
@@ -953,7 +953,7 @@ class TestSampleNewPoints:
         for i in range(2):
             pc = zRegPointCloud(
                 pos=torch.rand(100, 3),
-                color=torch.zeros(100, dtype=torch.long),
+                label=torch.zeros(100, dtype=torch.long),
                 id=torch.arange(100),
             )
             pc["fps-idx"] = torch.arange(100)
@@ -1025,7 +1025,7 @@ class TestAugmentExtended:
         for i in range(2):
             pc = zRegPointCloud(
                 pos=torch.rand(100, 3),
-                color=torch.zeros(100, dtype=torch.long),
+                label=torch.zeros(100, dtype=torch.long),
                 id=torch.arange(100),
             )
             pc["fps-idx"] = None
@@ -1170,7 +1170,7 @@ class TestGetGroundTruthCSVFormat:
             ground_truth_path="gt.csv",
         )
         factory = DataFactory(cfg)
-        external_ds = {0: zRegPointCloud(pos=torch.zeros(3, 3), color=None, id=torch.arange(3))}
+        external_ds = {0: zRegPointCloud(pos=torch.zeros(3, 3), label=None, id=torch.arange(3))}
         with patch("eval.data_factory.load_shah_from_csv", return_value=external_ds) as m:
             gt = factory.get_ground_truth({})
         m.assert_called_once_with("gt.csv", device="cpu")
@@ -1178,35 +1178,35 @@ class TestGetGroundTruthCSVFormat:
             assert torch.equal(gt[i], external_ds[i]["id"])
 
 
-class TestSampleNewPointsWithNoneColorAndId:
+class TestSampleNewPointsWithNoneLabelAndId:
     """eval/data_factory.py:671 — _extend(t) returns None when t is None."""
 
     def test_sample_new_points_with_none_color_and_id(self):
-        """sample_new_points with color=None and id=None still works; _extend returns None."""
+        """sample_new_points with label=None and id=None still works; _extend returns None."""
         from zreg.generators import generate_trajectory
         cfg = EvalConfig(data_path="x", augmentation_params={})
         factory = DataFactory(cfg)
-        # generate_trajectory returns color=None, id=None
+        # generate_trajectory returns label=None, id=None
         ds = generate_trajectory(n_points=20, n_frames=2, seed=0)
         out = factory.sample_new_points(ds, 5, seed=42)
         for i in ds:
             assert out[i]["pos"].shape[0] == 25
-            assert out[i]["color"] is None
+            assert out[i]["label"] is None
             assert out[i]["id"] is None
 
     def test_sample_new_points_with_2d_color_extends_rows(self):
-        """data_factory.py:671 — _extend 2-D branch: color shape (N,3) gets zeros appended."""
+        """data_factory.py:671 — _extend 2-D branch: label shape (N,3) gets zeros appended."""
         cfg = EvalConfig(data_path="x", augmentation_params={})
         factory = DataFactory(cfg)
         n = 20
         n_extra = 5
         pc = zRegPointCloud(
             pos=torch.randn(n, 3),
-            color=torch.rand(n, 3),  # 2-D color
+            label=torch.rand(n, 3),  # 2-D label
             id=torch.arange(n, dtype=torch.long),
         )
         ds = {0: pc}
         out = factory.sample_new_points(ds, n_extra, seed=42)
-        assert out[0]["color"].shape == (n + n_extra, 3)
+        assert out[0]["label"].shape == (n + n_extra, 3)
         # appended rows should be zeros
-        assert out[0]["color"][n:].sum().item() == 0.0
+        assert out[0]["label"][n:].sum().item() == 0.0

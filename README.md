@@ -6,7 +6,7 @@
 
 zReg is a scientific computing library for analyzing 3D point cloud data. It provides Coherent Point Drift (CPD) registration, Dynamic Time Warping (DTW) for trajectory alignment, Sliced Wasserstein Distance variants, and color/celltype transfer between aligned clouds — all built on PyTorch with optional GPU acceleration. A built-in evaluation framework provides YAML-driven experiment configuration, tiered hyperparameter optimization, six quantitative metrics, and automated trajectory export.
 
-**v1.1** — 789 passing regression tests, full input validation, CPD convergence diagnostics, and a complete evaluation framework.
+**v1.2** — 994 passing regression tests, paired and synthetic evaluation pipelines, CPD-aligned trajectory export, geometric data augmentation, full input validation, CPD convergence diagnostics, and a complete config-driven evaluation framework.
 
 ## Features
 
@@ -18,7 +18,7 @@ zReg is a scientific computing library for analyzing 3D point cloud data. It pro
 - **Downsampling** — Farthest Point Sampling (GPU-accelerated via torch_cluster), random, uniform
 - **Geometric Transformations** — Rigid, Affine, NonRigid, TPS, Combined; composable and invertible
 - **Open3D & torch_cluster interoperability** — convert to/from Open3D point clouds; FPS via torch_cluster when available
-- **Evaluation Framework** — YAML-configured pipeline with alignment + label-transfer stages, six metrics, tiered HPO (grid/random/Bayesian/MPI-parallel), trajectory CSV export, and matplotlib visualizations
+- **Evaluation Framework** — YAML-configured pipeline with paired and synthetic modes, alignment + label-transfer stages, six metrics, tiered HPO (grid/random/Bayesian/MPI-parallel), CPD-aligned trajectory CSV export, and matplotlib visualizations
 
 ## Installation
 
@@ -119,8 +119,8 @@ colors = transfer_colors(
 | `eval.runners.optimizer` | `HyperparamOptimizer` — tiered HPO (sanity → dev → full) with warm-start pruning; writes `best_params.json` and `search_history.json` |
 | `eval.search_strategies` | `GridSearch`, `RandomSearch`, `BayesianSearch` (Optuna TPE + SQLite), `PropulateSearch` (MPI parallel evolutionary) |
 | `eval.metrics` | `MetricsEngine` — normalize, compute_score, aggregate, sanity_check, compute_stage_metrics |
-| `eval.data_factory` | `DataFactory` — lazy cached loader for real (`.tracklets` / `.csv`) and synthetic trajectories; train/val split |
-| `eval.viz` | `plot_trajectory` — 3D alignment + label figures (PDF + PNG); `plot_metrics` — normalised scores bar chart (PDF) |
+| `eval.data_factory` | `DataFactory` — lazy cached loader for real (`.tracklets` / `.csv`) and synthetic trajectories; geometric augmentation (`scale`, `rotate`, `drop_points`, `sample_new_points`, `augment`); paired-mode target loading (`load_target`) and synthetic-mode target generation (`generate_target`, `get_synthetic_ground_truth`); train/val split |
+| `eval.viz` | `plot_trajectory` — 3D alignment + label figures (PDF + PNG); `plot_metrics` — normalised scores bar chart (PDF); `render_dataset_triptych` — dataset preview figure |
 | `eval.tracking.trajectory` | `export_trajectory` — writes `align_trajectory.csv`, `label_trajectory.csv`, and per-stage metadata JSON |
 | `eval.tracking.tracking` | `log_run` — writes `{run_id}.json` + `{run_id}.csv` with auto-captured git hash, package version, and timestamp |
 | `eval.types` | Frozen pydantic result types — `AlignResult`, `LabelResult`, `StageMetrics`, `Trial`, `SearchResult`, `EvalReport` |
@@ -154,6 +154,9 @@ All fields except `data_path` are optional:
 ```yaml
 data_path: data/external/sample/...tracklets   # required
 data_format: tracklets                          # "tracklets" (default) or "csv"
+pipeline_mode: paired                           # "paired" (default) or "synthetic"
+target_data_path: null                          # paired mode: source aligned to this target
+transform_spec: null                            # synthetic mode: e.g. {type: rigid, degrees: 30, axis: z}
 run_alignment: true
 run_label_transfer: true
 tier: full                                      # "sanity" | "dev" | "full"
@@ -187,15 +190,34 @@ default_params:
   threshold: 0.0
 ```
 
-Five ready-made scenario configs are provided in `configs/`:
+#### Pipeline modes
 
-| Config | Stages | Tier |
-|--------|--------|------|
+The pipeline aligns a **source** trajectory to a **target**. `pipeline_mode`
+selects where that target comes from:
+
+- **`paired`** (default) — the target is a second real trajectory loaded from
+  `target_data_path` (via `DataFactory.load_target()`). Use this to align two
+  recorded datasets to each other.
+- **`synthetic`** — the target is generated from the source by applying
+  `transform_spec` (e.g. a known rigid rotation), giving a controlled
+  ground-truth for HPO and metric validation (`DataFactory.generate_target()` /
+  `get_synthetic_ground_truth()`).
+
+Ready-made scenario configs are provided in `configs/`:
+
+| Config | Stages | Tier / Mode |
+|--------|--------|-------------|
 | `alignment_sanity.yaml` | alignment only | sanity |
 | `alignment_dev.yaml` | alignment only | dev |
 | `label_transfer_sanity.yaml` | label transfer only | sanity |
 | `label_transfer_dev.yaml` | label transfer only | dev |
 | `combined_full.yaml` | both | full |
+| `paired_alignment.yaml` | alignment only | paired mode |
+| `synthetic_mode.yaml` | alignment only | synthetic mode |
+
+Additional dataset-specific comparison configs (e.g. `shah_vs_kobitski*.yaml`,
+`kobitski_vs_shah.yaml`, `selfcal_*.yaml`) also live in `configs/` for
+real-data registration experiments.
 
 ### Pipeline
 
@@ -318,12 +340,15 @@ zreg.set_log_level("DEBUG")          # programmatic
 ├── LICENSE.txt
 ├── README.md
 ├── VALIDATION.md           <- Validation results and regression summaries.
-├── configs                 <- Evaluation scenario YAML configs (5 ready-made scenarios).
+├── configs                 <- Evaluation scenario YAML configs (scenarios + paired/synthetic modes + dataset comparisons).
 │   ├── alignment_sanity.yaml
 │   ├── alignment_dev.yaml
 │   ├── label_transfer_sanity.yaml
 │   ├── label_transfer_dev.yaml
-│   └── combined_full.yaml
+│   ├── combined_full.yaml
+│   ├── paired_alignment.yaml      <- Paired-mode: align two real trajectories.
+│   ├── synthetic_mode.yaml        <- Synthetic-mode: transform-spec target generation.
+│   └── shah_vs_kobitski*.yaml …   <- Dataset-specific registration comparisons.
 ├── conftest.py             <- Root-level pytest configuration.
 ├── data
 │   ├── external            <- Data from third party sources.
@@ -339,9 +364,7 @@ zreg.set_log_level("DEBUG")          # programmatic
 │   ├── metrics.py          <- MetricsEngine: normalize, score, aggregate, sanity_check.
 │   ├── search_strategies.py <- GridSearch, RandomSearch, BayesianSearch, PropulateSearch.
 │   ├── types.py            <- Frozen pydantic result types (AlignResult, LabelResult, …).
-│   ├── viz.py              <- plot_trajectory, plot_metrics (Agg backend, PDF + PNG).
-│   ├── run_synthetic.py    <- Noise/outlier sweep script.
-│   ├── run_real.py         <- Real-data scale/density sweep script.
+│   ├── viz.py              <- plot_trajectory, plot_metrics, render_dataset_triptych (Agg backend, PDF + PNG).
 │   ├── runners
 │   │   ├── __init__.py
 │   │   ├── eval_runner.py  <- EvaluationRunner: full pipeline orchestration.
@@ -419,7 +442,7 @@ zreg.set_log_level("DEBUG")          # programmatic
 │       ├── setup_log.py                <- Logging setup (set_log_level).
 │       ├── utils.py                    <- Shared utilities.
 │       └── validation.py              <- Input tensor validation used across the public API.
-├── tests                   <- Pytest test suite (789 tests).
+├── tests                   <- Pytest test suite (994 tests).
 │   ├── conftest.py
 │   ├── test_alignment_metrics.py
 │   ├── test_color_transfer.py

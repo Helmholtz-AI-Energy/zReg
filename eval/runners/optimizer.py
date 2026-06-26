@@ -213,6 +213,14 @@ class HyperparamOptimizer:
         output_dir = Path(self.config.output_dir).resolve()
         output_dir.mkdir(parents=True, exist_ok=True)
 
+        # Synthetic mode: pre-populate _synthetic_target so dev/full tiers can access it.
+        # Must be done before the tier loop because _objective reads _factory._synthetic_target
+        # directly for tier_name != "sanity" (it cannot call generate_target() per-trial
+        # without overwriting shared state — Pitfall 3 from Phase 31 RESEARCH.md).
+        if self.config.pipeline_mode == "synthetic" and self.config.transform_spec is not None:
+            real_source = self._factory.load_real()
+            self._factory.generate_target(real_source, self.config.transform_spec)
+
         # Tier execution sequence — stop at config.tier ceiling (D-01)
         TIER_SEQUENCE = ["sanity", "dev", "full"]
         tiers_to_run = TIER_SEQUENCE[: TIER_SEQUENCE.index(self.config.tier) + 1]

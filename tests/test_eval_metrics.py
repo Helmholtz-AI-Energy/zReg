@@ -56,7 +56,7 @@ class TestChamfer:
             chamfer(x, y)
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
-    def test_device_mismatch_raises_value_error(self):
+    def test_device_mismatch_raises_value_error(self):  # pragma: no cover
         """CPU source vs CUDA target raises ValueError mentioning 'device'."""
         a = torch.randn(5, 3)
         b = torch.randn(5, 3).cuda()
@@ -64,7 +64,7 @@ class TestChamfer:
             chamfer(a, b)
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
-    def test_chamfer_on_cuda(self):
+    def test_chamfer_on_cuda(self):  # pragma: no cover
         """Result device matches CUDA inputs."""
         a = torch.randn(10, 3).cuda()
         b = torch.randn(10, 3).cuda()
@@ -115,14 +115,14 @@ class TestHausdorff:
             hausdorff(x, y)
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
-    def test_hausdorff_on_cuda(self):
+    def test_hausdorff_on_cuda(self):  # pragma: no cover
         """Result device matches CUDA inputs."""
         a = torch.randn(10, 3).cuda()
         b = torch.randn(10, 3).cuda()
         assert hausdorff(a, b).device.type == "cuda"
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
-    def test_hausdorff_device_mismatch_raises(self):
+    def test_hausdorff_device_mismatch_raises(self):  # pragma: no cover
         """CPU source vs CUDA target raises ValueError mentioning 'device'."""
         a = torch.randn(5, 3)
         b = torch.randn(5, 3).cuda()
@@ -224,7 +224,7 @@ class TestKnnConsistency:
         assert isinstance(knn_consistency(pts, lbl, k=5), float)
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
-    def test_knn_on_cuda(self):
+    def test_knn_on_cuda(self):  # pragma: no cover
         """CUDA input tensors produce a valid float result (CPU KDTree entry point)."""
         pts = torch.randn(20, 3).cuda()
         lbl = torch.zeros(20, dtype=torch.long).cuda()
@@ -276,7 +276,7 @@ class TestTemporalStability:
             temporal_stability([1, 2])
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
-    def test_temporal_on_cuda(self):
+    def test_temporal_on_cuda(self):  # pragma: no cover
         """Transforms on CUDA device produce a CUDA result tensor."""
         tf1 = RigidTransformation(device=torch.device("cuda"))
         tf2 = RigidTransformation(t=torch.tensor([1., 0., 0.], device="cuda"),
@@ -351,7 +351,7 @@ class TestComputeF1:
         assert type(compute_f1(y, y)) is float
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
-    def test_compute_f1_on_cuda(self):
+    def test_compute_f1_on_cuda(self):  # pragma: no cover
         """CUDA input tensors work correctly (CPU sklearn entry point)."""
         y = torch.tensor([0, 1, 2, 0, 1]).cuda()
         assert compute_f1(y, y) == 1.0

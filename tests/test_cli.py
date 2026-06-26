@@ -329,10 +329,10 @@ class TestScenarioConfigs:
         target_data_format='csv' set."""
         import pytest
         cfg_path = _REPO_ROOT / "configs" / "kobitski_vs_shah.yaml"
-        if not cfg_path.exists():
+        if not cfg_path.exists():  # pragma: no cover
             pytest.skip("kobitski_vs_shah.yaml not found — config not yet created")
         _ew06 = "/Users/valeriekieslinger/Documents/Hiwi/BA/data/kobitski_data/12_11_15_embryo_ew_06_Cleaned_BackTracked_Oriented.tracklets"
-        if not Path(_ew06).exists():
+        if not Path(_ew06).exists():  # pragma: no cover
             pytest.skip("Kobitski ew06 data not available on this machine")
         cfg = EvalConfig.from_yaml(cfg_path)
         assert cfg.pipeline_mode == "paired"
@@ -348,10 +348,10 @@ class TestScenarioConfigs:
         target_data_format='tracklets' set."""
         import pytest
         cfg_path = _REPO_ROOT / "configs" / "shah_vs_kobitski.yaml"
-        if not cfg_path.exists():
+        if not cfg_path.exists():  # pragma: no cover
             pytest.skip("shah_vs_kobitski.yaml not found — config not yet created")
         _shah = "/Users/valeriekieslinger/Documents/Hiwi/BA/data/shah_data/sample-1/sample-1-cell-tracks.csv"
-        if not Path(_shah).exists():
+        if not Path(_shah).exists():  # pragma: no cover
             pytest.skip("Shah sample-1 data not available on this machine")
         cfg = EvalConfig.from_yaml(cfg_path)
         assert cfg.pipeline_mode == "paired"
@@ -367,10 +367,10 @@ class TestScenarioConfigs:
         (fallback to data_format)."""
         import pytest
         cfg_path = _REPO_ROOT / "configs" / "kobitski_vs_kobitski_cross.yaml"
-        if not cfg_path.exists():
+        if not cfg_path.exists():  # pragma: no cover
             pytest.skip("kobitski_vs_kobitski_cross.yaml not found — config not yet created")
         _ew06 = "/Users/valeriekieslinger/Documents/Hiwi/BA/data/kobitski_data/12_11_15_embryo_ew_06_Cleaned_BackTracked_Oriented.tracklets"
-        if not Path(_ew06).exists():
+        if not Path(_ew06).exists():  # pragma: no cover
             pytest.skip("Kobitski ew06 data not available on this machine")
         cfg = EvalConfig.from_yaml(cfg_path)
         assert cfg.pipeline_mode == "paired"

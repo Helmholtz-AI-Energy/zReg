@@ -41,7 +41,7 @@ class TestConfigurePytorch:
         torch.set_default_device(None)
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-    def test_sets_default_device_cuda(self):
+    def test_sets_default_device_cuda(self):  # pragma: no cover
         """Test setting default device to CUDA."""
         configure_pytorch(default_device="cuda")
         t = torch.empty(1)

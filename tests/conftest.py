@@ -12,7 +12,7 @@ from pathlib import Path
 
 # Allow `from eval.tracking import ...` in all test files without per-file boilerplate
 _repo_root = Path(__file__).parent.parent
-if str(_repo_root) not in sys.path:
+if str(_repo_root) not in sys.path:  # pragma: no cover
     sys.path.insert(0, str(_repo_root))
 
 import pytest
@@ -25,19 +25,19 @@ import torch
 
 
 @pytest.fixture
-def device():
+def device():  # pragma: no cover
     """Return the device to use for tests."""
     return "cuda" if torch.cuda.is_available() else "cpu"
 
 
 @pytest.fixture
-def sample_points_3d():
+def sample_points_3d():  # pragma: no cover
     """Create sample 3D points."""
     return torch.randn(50, 3)
 
 
 @pytest.fixture
-def sample_pointcloud():
+def sample_pointcloud():  # pragma: no cover
     """Create a sample zRegPointCloud."""
     return zRegPointCloud(
         pos=torch.randn(100, 3),
@@ -47,10 +47,10 @@ def sample_pointcloud():
 
 
 @pytest.fixture
-def point_cloud_pair():
+def point_cloud_pair():  # pragma: no cover
     """Create a pair of point clouds for registration testing."""
     source = torch.randn(50, 3)
-    
+
     # Create target as transformed version of source
     rotation = torch.tensor([
         [0.866, -0.5, 0.0],
@@ -59,12 +59,12 @@ def point_cloud_pair():
     ])
     translation = torch.tensor([1.0, 2.0, 0.0])
     target = source @ rotation.T + translation
-    
+
     return source, target
 
 
 @pytest.fixture
-def trajectory_data():
+def trajectory_data():  # pragma: no cover
     """Create sample trajectory data (dict of time points to point clouds)."""
     trajectory = {}
     for t in range(5):
@@ -85,7 +85,7 @@ def pytest_configure(config):
 
 
 # Skip CUDA tests if CUDA is not available
-def pytest_collection_modifyitems(config, items):
+def pytest_collection_modifyitems(config, items):  # pragma: no cover
     """Modify test collection to skip CUDA tests when unavailable."""
     if not torch.cuda.is_available():
         skip_cuda = pytest.mark.skip(reason="CUDA not available")

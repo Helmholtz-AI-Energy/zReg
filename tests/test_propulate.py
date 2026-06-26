@@ -169,7 +169,7 @@ class TestRunDispatchPropulate:
 class TestPropulateMPIIntegration:
     """End-to-end: mpirun -n 2 produces non-empty results on rank 0."""
 
-    def test_mpirun_n2_returns_results(self, tmp_path):
+    def test_mpirun_n2_returns_results(self, tmp_path):  # pragma: no cover
         pytest.importorskip("propulate")
         pytest.importorskip("mpi4py")
 

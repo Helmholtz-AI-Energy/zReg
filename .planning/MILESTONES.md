@@ -41,3 +41,26 @@
 **Requirements:** 29/29 satisfied (100%)
 
 ---
+
+## v1.2 Evaluation Framework & Debt Resolution (Shipped: 2026-06-26)
+
+**Phases completed:** 27 phases (12–38), 55 plans
+**Timeline:** 2026-05-13 → 2026-06-26 (~44 days)
+**Stats:** 353 commits, 82 files changed (src/eval/configs/scripts/tests), +16,570 / −302 lines
+**Tests:** 976 passed, 18 skipped (994 collected)
+**Git range:** v1.1 (74cf5c0) → v1.2 (tagged)
+
+**Key accomplishments:**
+
+- Complete config-driven evaluation framework at repo-root `eval/` — `EvalConfig` + `DataFactory`, `MetricsEngine` + 6 frozen pydantic result types, isolated `AlignmentStage`/`LabelTransferStage`, `EvaluationRunner` + `viz.py` — all wrapping existing `zreg.metrics`/`zreg.generators` (Phases 13–21)
+- 3-tier `HyperparamOptimizer` (sanity/dev/full) with Optuna TPE+SQLite and MPI-parallel Propulate backends, Grid/Random strategies, `run_eval.py` CLI + scenario configs (Phases 22, 23, 26)
+- Dual-mode evaluation — paired source↔target alignment and synthetic transform-spec target generation with GT-aware HPO, plus heterogeneous cross-format (tracklets/CSV) paired evaluation (Phases 30, 31, 32)
+- CPD-aligned trajectory output with stored-transform reuse (normalise→apply→denormalise) fixing the 8× scale convergence failure, plus pre-transfer alignment quality guard (Phases 33, 34, 35)
+- Trajectory export (point-per-row CSVs + metadata for LaTeX/pgfplots), per-frame visualisation refactor (alignment + label branches → independent 1×3 figures), and viz unification (Phases 24, 25, 29, 36, 37)
+- Carry-forward debt closure (CARRY-01–05) + codebase-wide `color`→`label` field rename with loud label-source logic + core metrics/generators/tracking/runner-script foundation (Phases 12, 13, 14, 15, 16, 38)
+
+**Requirements:** 30/30 satisfied (27 categorised + EXT-01/02/03 delivered & verified)
+
+**Known deferred items at close:** Phase 26 SC-4 (live `mpirun -n 2` Propulate integration) unverified — `propulate` fails to import in dev env (missing GPy transitive dep); Optuna path unaffected. 14 phases without VALIDATION.md (Nyquist backfill optional). See `.planning/v1.2-MILESTONE-AUDIT.md`.
+
+---

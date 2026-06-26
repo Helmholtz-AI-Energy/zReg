@@ -106,6 +106,63 @@
 
 ---
 
+## Milestone: v1.2 — Evaluation Framework & Debt Resolution
+
+**Shipped:** 2026-06-26
+**Phases:** 27 (12–38) | **Plans:** 55 | **Timeline:** 44 days
+
+### What Was Built
+
+- Complete config-driven evaluation framework at repo-root `eval/` — `EvalConfig` + `DataFactory`, `MetricsEngine` + 6 frozen result types, isolated `AlignmentStage`/`LabelTransferStage`, `EvaluationRunner` + `viz.py`
+- 3-tier `HyperparamOptimizer` with Optuna and MPI-parallel Propulate backends; Grid/Random strategies; `run_eval.py` CLI + scenario configs
+- Dual-mode (paired source↔target + synthetic transform-spec with GT-aware HPO) and heterogeneous cross-format paired evaluation
+- CPD-aligned trajectory output + stored-transform reuse (fixed 8× scale convergence) + pre-transfer alignment guard
+- Trajectory export for LaTeX/pgfplots + per-frame visualisation refactor + viz unification
+- Carry-forward debt closure + codebase-wide `color`→`label` rename + metrics/generators/tracking foundation
+- 976 passing tests (from 391 at v1.1 close) — +585 tests
+
+### What Worked
+
+- **Wrap, don't reimplement**: Every stage delegates to existing `zreg.*` (DTW, CPD, color_transfer, metrics). The framework added orchestration, not duplicate algorithms — kept the surface area testable and the core library authoritative.
+- **Isolated, standalone-runnable stages**: `PipelineStage` ABC with `validate_params` made Alignment and LabelTransfer independently testable before wiring into `EvaluationRunner`. Each phase shipped a green test class.
+- **Frozen result types as contracts**: Defining `eval/types.py` early (Phase 18) gave every downstream phase a stable schema; `model_copy(update=...)` handled the few mutation points.
+- **Audit-before-close caught a live regression**: The v1.2 audit ran the suite against HEAD and found an uncommitted (then committed) D-11 synthetic-mode sanity-isolation break in `optimizer.py` — fixed at close before tagging. Running tests during audit, not just reading VERIFICATION.md, paid off.
+- **Architecture pivots handled as new phases**: The self-alignment→paired→synthetic→heterogeneous progression (Phases 30–32) and the aligned-cloud rework (33→35) were sequenced as discrete phases rather than retrofitted, keeping each change verifiable.
+
+### What Was Inefficient
+
+- **Out-of-order phase execution**: Phases ran 30,31,32,33,34,35 then 36,37,38 — and 28 was briefly mis-marked "Not started" in the Progress table while complete on disk. Roadmap bookkeeping drifted from reality; the milestone header still said "Phases 12–34" at close (actual 12–38).
+- **EXT-01/02/03 never entered REQUIREMENTS.md**: Phases 24/25/26 delivered and verified EXT requirements that lived only in ROADMAP/STATE. The traceability table was incomplete until the archive added them at close.
+- **Empty `requirements-completed` frontmatter**: Most SUMMARY.md files left this blank, so the 3-source audit cross-check fell back to VERIFICATION evidence tables. Metadata hygiene lagged.
+- **VALIDATION.md coverage inconsistent**: 14 of 27 phases have none — Nyquist pre-planning was applied sporadically (same pattern flagged in v1.0/v1.1).
+- **A WIP edit got committed mid-close**: The synthetic-optimizer change was committed as a `feat` between audit and completion, re-introducing a test failure the audit had already isolated. Committing flagged WIP without re-running the named test cost a round-trip.
+
+### Patterns Established
+
+- `PipelineStage` ABC: `run(source, target, params)` + `validate_params(params)` — two-input stages, never self-align
+- Wrap existing `zreg.*` in `eval/` orchestration; never reimplement algorithms
+- Frozen pydantic v2 result types; mutate via `model_copy(update=...)`
+- Error-at-use-time (loaders/generators raise at call time, not construction)
+- Stored CPD transform reuse: normalise with pinned params → apply stored transform → denormalise
+- Tier-gated side effects in HPO: sanity tier uses isolated scratch factory; dev/full use shared `_synthetic_target`
+- Optional heavy deps (Propulate) as lazy-imported extras with install-instruction ImportError
+
+### Key Lessons
+
+1. **Run the suite during milestone audit, not just read verifications.** VERIFICATION.md said "passed"; the live suite found a real D-11 regression. Tests are the load-bearing audit signal.
+2. **Don't commit flagged WIP without re-running the named failing test.** The audit pinpointed the exact test; committing the edit anyway re-broke it.
+3. **Register requirements when the phase is created, not at archive.** EXT-01/02/03 being absent from the traceability table made coverage accounting ambiguous for the whole milestone.
+4. **Keep the Progress table in sync as phases land out of order.** Numeric-order assumptions broke down; the table needs updating per-completion, not per-numeric-sequence.
+5. **Pivots are cheaper as new phases than retrofits.** The paired/synthetic/heterogeneous and aligned-cloud reworks stayed verifiable because each was its own phase with its own gate.
+
+### Cost Observations
+
+- Model profile: quality (Opus/Sonnet mix), `mode: yolo`
+- Sessions: many across 44 days; ~353 commits
+- Notable: largest milestone to date (27 phases / 55 plans / +16.5k LOC) — modular phase boundaries and per-phase test gates kept it tractable despite out-of-order execution
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -114,6 +171,7 @@
 |-----------|--------|-------|------------|
 | v1.0 | 5 | 13 | First milestone — established TDD cycle and foundation-first ordering |
 | v1.1 | 7 | 14 | Restructuring milestone — package splits, Protocol APIs, inserted phase for audit gap |
+| v1.2 | 27 | 55 | Feature milestone — repo-root `eval/` framework wrapping existing `zreg.*`; dual-mode evaluation; live-suite audit caught a close-time regression |
 
 ### Cumulative Quality
 
@@ -121,3 +179,4 @@
 |-----------|-------------|--------------|-----------|
 | v1.0 | 275 | 23/23 | 7 items (all doc/observability, non-blocking) |
 | v1.1 | +116 (391 total) | 29/29 | 5 items (typing inconsistency, Protocol doc-only, absolute import, config not top-level, no VALIDATION.md) |
+| v1.2 | +585 (976 total) | 30/30 | 5 items (Propulate live-mpirun unverified, 14 phases no VALIDATION.md, empty SUMMARY frontmatter, EXT untracked until close, open CR/WR items) |

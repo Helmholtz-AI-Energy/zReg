@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Evaluation Framework & Debt Resolution
-status: phase_complete
-stopped_at: Phase 38 complete (2/2) — CLN-01/CLN-02 verified; color→label rename done, 976 tests pass
-last_updated: 2026-06-24T00:00:00.000Z
-last_activity: 2026-06-24 -- Phase 38 execution complete
+status: shipped
+shipped: 2026-06-26
+last_updated: "2026-06-26"
+last_activity: 2026-06-26
 progress:
-  total_phases: 34
-  completed_phases: 34
-  total_plans: 71
-  completed_plans: 71
+  total_phases: 27
+  completed_phases: 27
+  total_plans: 55
+  completed_plans: 55
   percent: 100
 ---
 
@@ -18,204 +18,48 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md
+See: .planning/PROJECT.md (updated 2026-06-26 after v1.2 milestone)
 
-**Core value:** Every existing capability works correctly, fails informatively, and is covered by tests.
-**Current focus:** Phase 38 complete — zRegPointCloud color→label field rename (CLN-01, CLN-02)
+**Core value:** Every existing capability works correctly, fails informatively, and is covered by tests — now with a config-driven evaluation framework to measure and calibrate the pipeline.
+**Current focus:** v1.2 shipped. Planning next milestone (`/gsd:new-milestone`).
 
 ## Current Position
 
-Phase: 38
-Plan: 38-02 complete
-Status: Phase complete
-Last activity: 2026-06-24
+Milestone: v1.2 Evaluation Framework & Debt Resolution — **SHIPPED 2026-06-26** (tagged v1.2)
+Phases: 12–38 complete (27 phases, 55 plans)
+Tests: 976 passed, 18 skipped
+Next action: `/gsd:new-milestone` to scope the next version
 
-## Phase Overview
+## Shipped Milestones
 
-| Phase | Name | Requirements | Status |
-|-------|------|--------------|--------|
-| 16 | Runner Scripts | EVAL-05 | Complete 2026-05-19 |
-| 17 | Framework Config & DataFactory | FRAME-01, FRAME-02 | Complete 2026-05-27 |
-| 18 | MetricsEngine & Result Types | FRAME-03, FRAME-04 | Complete 2026-05-28 |
-| 19 | AlignmentStage | FRAME-05 | Complete 2026-05-28 |
-| 20 | LabelTransferStage | FRAME-06 | Complete 2026-05-29 |
-| 21 | EvaluationRunner & Visualisation | FRAME-07, FRAME-08 | Complete 2026-05-29 |
-| 22 | HyperparamOptimizer & Search Strategies | FRAME-09, FRAME-10 | Pending |
-| 23 | CLI Entrypoint & Scenario Configs | FRAME-11, FRAME-12 | Complete 2026-06-02 |
-| 24 | Trajectory Export | EXT-01 | Complete 2026-06-04 |
-| 25 | Visualisation Refactor | EXT-02 | Complete 2026-06-04 |
-| 26 | Propulate Optimizer | EXT-03 | Complete 2026-06-06 |
-| 27 | DataFactory Geometric Augmentation Methods | DF-01 | Complete 2026-06-11 |
-| 28 | Script Integration — generate_datasets uses DataFactory | DF-02 | Complete 2026-06-11 |
-| 29 | Viz Unification | VIZ-01 | Ready to execute (2 plans) |
-| 30 | Two-Dataset Paired Alignment Architecture | MODE-01 | Complete 2026-06-12 |
-| 31 | Synthetic Pipeline Mode — Transform-Spec Target Generation & GT-Aware HPO | MODE-02, MODE-03 | Complete 2026-06-14 |
-| 33 | CPD-Aligned Trajectory Output from AlignmentStage | ALIGN-01 | Complete 2026-06-16 |
-| 35 | Reuse Step-1 CPD Transforms in Aligned-Cloud Construction | ALIGN-03 | Complete 2026-06-22 |
+| Milestone | Phases | Shipped |
+|-----------|--------|---------|
+| v1.0 Consolidation | 1–5 | 2026-04-09 |
+| v1.1 Code Quality & Refactoring | 6–11.1 | 2026-05-13 |
+| v1.2 Evaluation Framework & Debt Resolution | 12–38 | 2026-06-26 |
+
+Full history: .planning/MILESTONES.md · Retrospective: .planning/RETROSPECTIVE.md
+v1.2 archives: .planning/milestones/v1.2-ROADMAP.md · v1.2-REQUIREMENTS.md · v1.2-MILESTONE-AUDIT.md
 
 ## Accumulated Context
 
-### Roadmap Evolution
-
-- Phase 15 added: Experiment Tracking & Run Management
-- Phase 16 added: Runner Scripts
-- Phases 17–23 added 2026-05-27: Full eval framework (config-driven, modular stages, optimizer, CLI) — EVAL-06 and EVAL-07 superseded by FRAME-09/10 and FRAME-07/08
-- Phases 27–29 added 2026-06-09: DataFactory augmentation methods, script integration, viz unification
-
-### Decisions (v1.1)
-
-- [Phase 08]: compose_constraints uses variadic args with AND semantics for flexible constraint composition
-- [Phase 08]: DTW package restructure complete — DynamicTimeWarping, DTWResult, compose_constraints as public API
-- [Phase 11-01]: torch.zeros(5,3) with ratio=1.0 is the canonical trigger for _fps_numpy break condition
-- [Phase 11-01]: No pragma: no cover annotation needed — 93% coverage achieved without suppression
-- [Phase 11-01]: _preserve_labels had zero callers and was safely removed from downsampling.py
-- [Phase 11.1-01]: Callable pass-through in _sanitize_pairwise_distance_matrix — any Callable[[Tensor, Tensor], Tensor] accepted without special-casing
-- [Phase 11.1-01]: DistanceMetric Protocol promoted to public API from zreg.distances
-
-### Phase 12 Decisions (v1.2)
-
-- CARRY-01 closed: `collections.abc.Callable` in cpd/base.py and _registration.py
-- CARRY-02 closed: DistanceMetric used as annotation in pairwise_distance_matrix.py and dtw/core.py (Phase 11.1)
-- CARRY-03 closed: color_transfer.py now uses `from .cpd import EstepResult`
-- CARRY-04 closed: `from . import config as config` added to __init__.py
-- CARRY-05 closed: VALIDATION.md at repo root with 7 v1.1 phase records
-- open3d imports made lazy throughout (dataset, downsampling, homogeneous, _registration) — no SIGABRT
-- All open3d imports are optional; HAS_OPEN3D computed via importlib.util.find_spec
-
-### Phase 13 Decisions (v1.2)
-
-- EVAL-01 closed: `src/zreg/metrics/alignment.py` — chamfer/hausdorff via torch.cdist+quantile (GPU-safe), knn_consistency via sklearn KDTree with .detach().cpu().numpy(), temporal_stability via manual 4×4 matrix construction from .rot/.t/.scale and .b/.t
-- EVAL-02 closed: `src/zreg/metrics/label_transfer.py` — compute_f1 with sentinel masking (y_true != -1), average="weighted" default (proto stub bug fixed), zero_division=0
-- temporal_stability([]) and temporal_stability([tf]) return torch.tensor(0.0) — no exception
-- path_smoothness returns variance of slope changes; short paths (< 4 points) return 0.0
-- `src/zreg/metrics/__init__.py` is the new package init — re-exports all 6 functions; src/zreg/eval/ is never created
-- Proto stubs (alignment_metrics.py, label_transfer_metrics.py) left as orphaned reference code per D-03
-- 480 tests pass after phase 13 (40 new in test_eval_metrics.py, 32 in test_alignment_metrics.py, 17 in test_label_transfer_metrics.py)
-
-### Phase 14 Decisions (v1.2)
-
-- EVAL-03 closed: `eval/generators/` package at repo root — 5 files, 7 public symbols, no eval/__init__.py (namespace dir)
-- generate_trajectory uses independent Gaussian draws per frame (torch.randn per frame, not incremental perturbations)
-- AffineTransformation() default has t=[1,1,1] (NOT identity) — tests must use AffineTransformation(t=torch.zeros(3)) for identity verification
-- apply_rigid/apply_affine use shared _apply_matrix helper with defensive w-divide (matches homogeneous.py pattern; unreachable for rigid/affine but retained for consistency)
-- deepcopy precedes manual_seed in stochastic wrappers (add_gaussian_noise, add_outliers, generate_labels) — reproducible but values offset from naive seed expectation; documented in REVIEW.md WR-03
-- generate_labels uses torch.cdist Voronoi assignment with N(0,I) seed points — produces spatially coherent clusters compatible with compute_f1 without conversion
-- 514 tests pass after phase 14 (34 new in test_generators.py; 480 pre-existing unaffected)
-
-### Phase 15 Decisions (v1.2)
-
-- log_run() plain function (stateless) — returns run_id str, auto-captures git_hash/zreg_version/timestamp internally
-- run_id is caller-provided required str (no auto-generation)
-- Per-run output: evaluation/runs/{run_id}.json + evaluation/runs/{run_id}.csv (single-row CSV)
-- output_dir defaults to "evaluation/runs/"; auto-created via Path.mkdir(parents=True, exist_ok=True)
-- Unit tests in tests/test_tracking.py; auto-captured fields tested via unittest.mock.patch
-
-### Phase 17 Decisions (v1.2)
-
-- FRAME-01 closed: `eval/config.py` — EvalConfig pydantic v2 BaseModel (16 fields, only data_path required, extra="forbid"), EvalConfigError(ValueError), from_yaml with safe_load + exception-handler MRO order (FileNotFoundError → YAMLError → ValidationError)
-- FRAME-02 closed: `eval/data_factory.py` — DataFactory with lazy init (D-08), by-reference cache (D-09), tracklets/CSV dispatch (Pitfalls 4+5), noise-then-outliers augment, sorted-key random split with single-frame guard (D-07), pc["id"] ground-truth extraction (D-10/D-11)
-- eval/ is a namespace directory (no __init__.py); conftest.py:16 inserts repo root for test discovery
-- pydantic 2.12.2 + pyyaml 6.0.3 installed; declared in setup.cfg install_requires
-- macOS ARM import order: zreg.dataset → zreg.generators → torch → eval.config (enforced in data_factory.py)
-- prepare_split non-reproducible by design (T-17-07 accepted; D-05 requires random.sample)
-- 579 tests pass after phase 17 (21 new in test_data_factory.py; 558 pre-existing unaffected)
-- CR-01 open: eval/ not pip-discoverable beyond conftest.py sys.path insertion — requires attention before Phase 23 CLI
-
-### Phase 18 Decisions (v1.2)
-
-- [Phase 18-01]: FRAME-04 (result types) closed — `eval/types.py` defines 6 frozen pydantic v2 models (AlignResult, LabelResult, StageMetrics, Trial, SearchResult, EvalReport) with `ConfigDict(frozen=True, arbitrary_types_allowed=True)` per D-02
-- [Phase 18-01]: StageMetrics carries 6 raw float fields per D-03 plus `normalized: dict[str, float] = Field(default_factory=dict)`; canonical short-name key set documented in class docstring per Pitfall 4
-- [Phase 18-01]: Pitfall 1 (shallow frozen — `sm.normalized["x"] = 1.0` silently succeeds) and Pitfall 2 (`model_dump_json()` cannot serialise torch.Tensor) documented in `eval/types.py` module docstring so Plan 18-02 / Phase 21 consumers do not re-discover them
-- [Phase 18-01]: Trial.metrics typed as StageMetrics; SearchResult.history typed as list[Trial] (RESEARCH Q5/Q6 recommendations adopted)
-- [Phase 18-01]: tests/test_metrics.py scaffolded with 6 test classes — TestResultTypesImportable + TestStageMetricsFrozen populated (4 active tests), TestNormalize/TestComputeScore/TestSanityCheck/TestAggregate stubbed with `pytest.skip("populated in Plan 18-02")` so eval.metrics import is deferred and suite remains green
-- [Phase 18-01]: 583 tests pass after Plan 18-01 (+4 active vs Phase 17 baseline 579), 21 skipped (+4 stub placeholders)
-- [Phase 18 gap closure]: CR-01: Field(ge=0) added to StageMetrics lower-is-better fields; CR-02: compute_score() normalises over present keys only; CR-03: empty tensor guard before all-sentinel check
-
-### Phase 19 Decisions (v1.2)
-
-- FRAME-05 closed: `eval/stages/base.py` — PipelineStage ABC with @abstractmethod run() and concrete no-op validate_params(); `eval/stages/__init__.py` — regular package exporting PipelineStage + AlignmentStage; `eval/stages/alignment.py` — AlignmentStage delegates entirely to DynamicTimeWarping(...).compute()
-- StageResult TypeAlias (D-01): `StageResult: TypeAlias = Union[AlignResult, LabelResult]` added to eval/types.py; in __all__
-- eval/stages/ is a regular package (not namespace dir) — required for `from eval.stages import PipelineStage` to work (D-11)
-- D-09: run() calls validate_params() as first line; confirmed via test_run_calls_validate_first (empty params raises ValueError not KeyError)
-- D-04/D-05: _count_jumps staticmethod counts diagonal-to-non-diagonal transitions; n_breakpoints cap applied in run(), not in _count_jumps
-- Pydantic v2 validates typed dicts into new objects — `aligned_cloud is dataset` identity test replaced with `==` equality (shallow dict comparison); pass-through documented in run() docstring
-- DynamicTimeWarping called with `downsample_method=None` to avoid crash on `color=None` in generate_trajectory fixtures (pre-existing upstreamissue in pairwise_distance_matrix.py — out of scope for Phase 19)
-- Known upstream limitation documented in alignment.py module docstring: pairwise_distance_matrix.py:182-194 hardcodes RigidCPD whenever cpd_type is not None; cpd_penalty string is a binary toggle, not a dispatcher
-- 628 tests pass after Phase 19 (24 new in test_alignment_stage.py; 604 pre-existing unaffected)
-- WR-01 open (CR): bool subclass of int allows window_size=True/False — fix: add `not isinstance(x, bool)` guards in validate_params
-- WR-02 open (CR): aligned_cloud=dataset stores caller's dict by reference; shallow frozen hazard not documented on AlignResult field
-
-### Phase 20 Decisions (v1.2)
-
-- FRAME-06 closed: `eval/stages/label_transfer.py` — LabelTransferStage(PipelineStage) with KNN_VOTING delegation, 4-param validation + bool exclusion guards, frame-0 pass-through (D-02), source_colors.unsqueeze(-1) / [:, 0] squeeze (D-12)
-- `eval/stages/__init__.py` — __all__ extended to ["PipelineStage", "AlignmentStage", "LabelTransferStage"]
-- 5 FRAME-06 gate test classes: TestLabelTransferStageRunStandalone, TestLabelTransferStageLabelAccuracy, TestLabelTransferStageChainedRun, TestLabelTransferStageValidateParams, TestLabelTransferStageOutputShape — all passing
-- D-09 fixture pattern: 1-frame generate_labels + add_gaussian_noise for frame 1 (not 2-frame generate_labels — avoids independent RNG pitfall)
-- compute_f1(y_true, y_pred) positional order enforced in test: ground_truth_labels first (Pitfall 5 from RESEARCH.md)
-- Manual AlignResult construction for chained-run test (D-11) — no DTW end-to-end needed
-- 690 tests pass after Phase 20 (17 new in Plan 20-02; 673 pre-existing unaffected); 17 skipped
-
-### Phase 21 Decisions (v1.2)
-
-- FRAME-07 closed: `eval/runners/eval_runner.py` — EvaluationRunner orchestrates DataFactory → AlignmentStage → LabelTransferStage → MetricsEngine → EvalReport; D-06 fail-fast guard, D-12 mkdir-first, D-10 model_dump+json.dump, transforms=[] for compute_stage_metrics
-- FRAME-08 closed: `eval/viz.py` — plot_point_cloud (3D scatter, ≤4 frames, AlignResult-only) + plot_metrics_summary (6 horizontal bars, [0,1] x-axis); all figure code inside matplotlib.rc_context({"backend":"Agg"}); plt.close(fig) after every savefig
-- Ground truth in tests: dataset[k]["color"] (torch.long, populated by generate_labels) — id=None in generate_trajectory output
-- per_dataset: flat metric→mean-float dict extracted from aggregate() output, not nested agg itself
-- preliminary_report + model_copy(update={"plot_paths": ...}) pattern to mutate frozen EvalReport (Pitfall 6)
-- point_cloud.pdf only when run_alignment=True (align result available); metrics_summary.pdf always when save_plots=True
-- WR-01 open (CR): matplotlib.rc_context backend Agg leaks permanently — interactive callers get broken display after calling viz functions
-- WR-05 open (CR): eval/ excluded from --cov in setup.cfg; coverage of eval/runners/ and eval/viz.py is untracked
-- 718 tests pass after Phase 21 (+28 vs Phase 20 baseline 690); 17 skipped unchanged
-
-### Phase 24 Decisions (v1.2)
-
-- EXT-01 closed: `eval/tracking/trajectory.py` — export_trajectory writes align_trajectory.csv (5 cols) + align_metadata.json and label_trajectory.csv (6 cols) + label_metadata.json; stdlib-only (csv, json, uuid, subprocess, importlib.metadata)
-- aligned_cloud uses zRegPointCloud instances (not plain dicts) — pydantic AlignResult validates; test fixtures must use zRegPointCloud
-- D-07/D-08: label_trajectory.csv uses aligned_cloud["pos"] when align ran, else dataset["pos"]
-- Single run_id UUID generated once per export_trajectory call; shared across both metadata files when both stages ran
-- trajectory_paths: list[str] = Field(default_factory=list) added to EvalReport between plot_paths and sanity_flags
-- EvaluationRunner.run(): unconditional export (D-13), single model_copy for both plot_paths + trajectory_paths (D-14)
-- 787 tests pass after Phase 24 (+46 vs Phase 23 baseline 741); 17 skipped unchanged
-- WR-01 open (CR): subprocess.run missing timeout= in trajectory.py git hash capture
-- WR-02 open (CR): no length guard for labels vs pos mismatch in label CSV loop
-- WR-03 open (CR): bare dict access result["align"]/result["label"] raises KeyError on malformed input
-- WR-04 open (CR): three test classes make live git subprocess calls (should patch)
-
-### Phase 30 Decisions (v1.2)
-
-- [Phase 30-01]: D-05 — EvalConfigError at load_target() call time, not at EvalConfig construction; consistent with existing error-at-use-time pattern
-- [Phase 30-01]: D-06 — AlignResult.aligned_cloud = source pass-through; target consumed by DTW but not returned; no new fields added to AlignResult in Phase 30
-- [Phase 30-01]: D-02 — Frame-0 pass-through deleted from LabelTransferStage; sequential source[k]->target[k] pairing replaces it; test_run_frame0_passthrough deleted
-- [Phase 30-01]: Rule 1 fix — test_run_with_distinct_source_target_returns_align_result uses torch.equal() instead of dict != operator to avoid RuntimeError on ambiguous tensor boolean comparison in zRegPointCloud dicts
-- [Phase 30-01]: 142 tests pass in three-file scope; test_eval_runner/test_optimizer/test_trajectory_export now fail (EvaluationRunner.run() not yet updated — Plan 30-02 territory)
-- [Phase 30-02]: Pitfall 4 resolved — source_pos/target_pos and source_sorted_keys/target_sorted_keys in both eval_runner._run_single and optimizer._objective
-- [Phase 30-02]: Pitfall 7 implemented per recommendation (a)+(b) — sanity reuses tier_dataset; dev/full call load_target()
-- [Phase 30-02]: 18 test_eval_runner.py mock blocks and 3 test_optimizer.py mock blocks updated; 26 tests pass; trajectory_export still failing (Plan 30-03 territory)
-- [Phase 30-03]: paired_alignment.yaml uses Kobitski tracklets as both data_path and target_data_path (D-03 smoke-test); n_synthetic=0; run_alignment=True; run_label_transfer=False
-- [Phase 30-03]: test_paired_alignment_yaml_loads_and_declares_paired_mode added as dedicated TestScenarioConfigs method (not in _SCENARIO_TABLE parametrize — different field set than D-04 table)
-- [Phase 30-03]: MODE-01 all 5 success criteria satisfied; 839 tests pass, 18 skipped; full suite green
-
-### Phase 31 Decisions (v1.2)
-
-- [Phase 31-01]: transform_spec field added as `dict | None = None` on EvalConfig after target_data_path; no model_validator (error-at-use-time pattern from Phase 30 D-05 preserved)
-- [Phase 31-01]: generate_target() strips "type" discriminator key before calling augment() dispatch; raises ValueError on empty/type-only spec (Pitfall 1 guard)
-- [Phase 31-01]: config save/restore via try/finally (not context manager) — EvalConfig is not frozen; `self.config.augmentation_params = original_params` in finally block (D-02)
-- [Phase 31-01]: get_synthetic_ground_truth() returns pc["id"].to(torch.long) when id is set, else torch.arange(n_points, dtype=torch.long) ordinal fallback (D-05)
-- [Phase 31-02]: CR-03 placeholder (`target = source`) replaced with `factory.generate_target(source, self.config.transform_spec)` in EvaluationRunner.run()
-- [Phase 31-02]: _apply_transform_to_dataset() is a module-level helper in optimizer.py using a scratch DataFactory with model_copy(update=...) — avoids touching self._factory._synthetic_target (D-11)
-- [Phase 31-02]: Sanity tier in synthetic mode uses _apply_transform_to_dataset helper; toy dataset labels are in pc["color"] not pc["id"] (Pitfall 5 — generate_labels stores in color)
-- [Phase 31-02]: Optimizer uses self.config (not self._config) for pipeline_mode check (Pitfall 6)
-- [Phase 31-03]: synthetic_mode.yaml uses Kobitski tracklets + rigid 30° rotation around Z-axis; no target_data_path; loads cleanly via EvalConfig.from_yaml()
-- MODE-02 closed: generate_target() + EvaluationRunner synthetic branch wired; 869 tests pass
-- MODE-03 closed: get_synthetic_ground_truth() + optimizer GT-aware dispatch + synthetic_mode.yaml scenario config
+Per-phase decision log is archived in PROJECT.md (Key Decisions) and the v1.2 milestone archive.
 
 ### Open Blockers
 
 None.
 
+### Deferred Items (acknowledged at v1.2 close)
+
+| Category | Item | Status |
+|----------|------|--------|
+| verification | Phase 26 SC-4 — live `mpirun -n 2` Propulate integration | Unverified (missing GPy in dev env; Optuna path unaffected) |
+| nyquist | 14 of 27 phases without VALIDATION.md | Backfill optional via `/gsd:validate-phase N` |
+| metadata | Empty `requirements-completed` SUMMARY frontmatter on most phases | Coverage confirmed via VERIFICATION evidence tables |
+| code-review | Open CR/WR items (matplotlib Agg backend leak; `subprocess.run` timeout in `trajectory.py`; `eval/` excluded from `--cov`) | Non-blocking; track in next milestone |
+
 ## Session Continuity
 
-Last session: 2026-06-18T13:52:53.913Z
-Stopped at: context exhaustion at 76% (2026-06-18)
-Resume file: None
-Next action: Milestone v1.2 complete — plan next milestone or ship
+Last session: 2026-06-26
+Stopped at: v1.2 milestone complete (archived + tagged)
+Next action: `/gsd:new-milestone`

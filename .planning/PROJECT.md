@@ -1,24 +1,14 @@
 # zReg
 
-## Current Milestone: v1.2 Evaluation Framework & Debt Resolution
-
-**Goal:** Deliver a complete, config-driven evaluation framework for the zReg point cloud pipeline — DataFactory, MetricsEngine, isolated pipeline stages (Alignment + LabelTransfer), EvaluationRunner with visualisation, 3-tier HyperparamOptimizer (sanity/dev/full via Optuna), and CLI entrypoint — all wrapping existing metrics and generators
-
-**Target features:**
-- EvalConfig dataclass (YAML-driven) + DataFactory (loads .tracklets/CSV real data and synthetic data via existing generators)
-- MetricsEngine (wraps existing metrics, normalize/aggregate/score/sanity-check) + Result types (AlignResult, LabelResult, StageMetrics, Trial, SearchResult, EvalReport)
-- AlignmentStage (DTW + CPD, PipelineStage ABC, validate_params, runs standalone)
-- LabelTransferStage (kNN, accepts raw or aligned clouds, runs standalone)
-- EvaluationRunner (orchestrate stages → report) + viz.py (point cloud plots, metric summaries, matplotlib/Agg/PDF)
-- HyperparamOptimizer (sanity/dev/full tiers, pruning) + SearchStrategies (GridSearch, RandomSearch, Optuna Bayesian)
-- run_eval.py CLI (--config, --mode optimize/eval/full) + 5 scenario YAML configs
-
 ## Current State
 
-**Shipped:** v1.0 Consolidation — 2026-04-09 | v1.1 Code Quality & Refactoring — 2026-05-13
-**Active:** v1.2 Evaluation Framework & Debt Resolution — Phases 12–30 complete 2026-06-13; Phase 31 ready to plan
+**Shipped:** v1.0 Consolidation — 2026-04-09 | v1.1 Code Quality & Refactoring — 2026-05-13 | **v1.2 Evaluation Framework & Debt Resolution — 2026-06-26**
 
-zReg is a Python library for GPU-accelerated 3D point cloud registration, temporal alignment, and color (celltype) transfer using PyTorch. Phase 30 delivered MODE-01 (two-dataset paired alignment architecture): `AlignmentStage.run(source, target, params)` — DTW now uses `x=source_sub, y=target_sub` (self-alignment removed); `EvalConfig` gains `pipeline_mode: Literal["paired","synthetic"]` + `target_data_path`; `DataFactory.load_target()` with lazy caching and EvalConfigError guard; `EvaluationRunner` + `HyperparamOptimizer` propagate source/target through pipeline; `configs/paired_alignment.yaml` ships Kobitski-vs-Kobitski smoke-test config; 839 tests pass, 18 skipped. Validated in Phase 30: MODE-01.
+zReg is a Python library for GPU-accelerated 3D point cloud registration, temporal alignment, and label (celltype) transfer using PyTorch — now paired with a complete, config-driven **evaluation framework** at the repo root (`eval/`). v1.2 (27 phases, 55 plans, 2026-05-13 → 2026-06-26) delivered: `EvalConfig` + `DataFactory`; `MetricsEngine` + frozen result types; isolated `AlignmentStage`/`LabelTransferStage`; `EvaluationRunner` + `viz.py`; a 3-tier `HyperparamOptimizer` (Optuna + MPI-parallel Propulate); a `run_eval.py` CLI with scenario configs; dual-mode evaluation (paired source↔target and synthetic transform-spec target generation with GT-aware HPO); heterogeneous cross-format (tracklets/CSV) paired evaluation; CPD-aligned trajectory output with stored-transform reuse (fixed the 8× scale convergence failure); trajectory export for LaTeX/pgfplots; a per-frame visualisation refactor; and full carry-forward debt closure incl. the codebase-wide `color`→`label` field rename. **976 tests pass, 18 skipped.** Closed via the v1.2 milestone audit (`.planning/v1.2-MILESTONE-AUDIT.md`).
+
+## Next Milestone Goals
+
+Not yet defined — run `/gsd:new-milestone` to scope the next version. Candidate directions (from Future Requirements below): property-based invariant testing (Hypothesis), performance regression benchmarks, `py.typed` marker, structured result objects for all registration returns, and a first real-data HPO calibration run using the new framework.
 
 ## What This Is
 
@@ -55,24 +45,31 @@ Every existing capability works correctly, fails informatively, and is covered b
 
 ### Active
 
-- [ ] FRAME-03: MetricsEngine — wraps existing zreg.metrics.*, normalize [0,1], aggregate, compute_score, sanity_check
-- [ ] FRAME-04: Result types — AlignResult, LabelResult, StageMetrics, Trial, SearchResult, EvalReport dataclasses
-- [ ] FRAME-05: AlignmentStage — PipelineStage ABC, DTW + CPD, validate_params, standalone
-- [ ] FRAME-06: LabelTransferStage — kNN, accepts raw or aligned clouds, standalone
-- [ ] FRAME-07: EvaluationRunner — orchestrates stages, reports JSON, plots, per-dataset + aggregated metrics
-- [ ] FRAME-08: viz.py — point cloud plots and metric summaries via matplotlib Agg backend, PDF-ready
-- [ ] FRAME-09: HyperparamOptimizer — sanity/dev/full tiers, prune_candidates, save_best_params
-- [ ] FRAME-10: SearchStrategies — GridSearch, RandomSearch, Optuna Bayesian (Optuna 4.x, SQLite storage)
-- [ ] FRAME-11: run_eval.py CLI — --config cfg.yaml --mode optimize/eval/full; clean error messages
-- [ ] FRAME-12: 5 scenario YAML configs (alignment sanity/dev, label-transfer sanity/dev, combined full)
+(None — v1.2 shipped all planned requirements. Define the next set via `/gsd:new-milestone`.)
 
-### Validated in v1.2 (in progress)
+### Validated in v1.2 (2026-06-26)
 
-- ✓ Core alignment metrics (chamfer, hausdorff, path_smoothness, knn_consistency, temporal_stability) + label transfer (compute_f1) at `src/zreg/metrics/` — Phase 13
-- ✓ Synthetic data generators at `eval/generators/` (7 symbols, seed-deterministic, immutable, dict[int, zRegPointCloud]-shaped) — Phase 14
-- ✓ Experiment tracking at `eval/tracking/` (`log_run()` stdlib-only, 9 EVAL-04 fields, JSON+CSV output, auto-captures git_hash/zreg_version/timestamp) — Phase 15
-- ✓ FRAME-01: EvalConfig (pydantic v2 BaseModel, 16 fields, `from_yaml` + EvalConfigError wrapping, extra="forbid") — Phase 17
-- ✓ FRAME-02: DataFactory (lazy+cached, tracklets/CSV dispatch, augment, prepare_split, get_ground_truth) — Phase 17
+- ✓ CARRY-01…05: carry-forward debt closure (Callable, DistanceMetric annotation, relative import, top-level config, VALIDATION backfill) — Phase 12
+- ✓ EVAL-01/02: core alignment + label-transfer metrics at `src/zreg/metrics/` — Phase 13
+- ✓ EVAL-03: synthetic data generators at `src/zreg/generators/` — Phase 14
+- ✓ EVAL-04: experiment tracking at `eval/tracking/` (`log_run()` stdlib-only) — Phase 15
+- ✓ EVAL-05: runner scripts (`run_synthetic.py`, `run_real.py`) — Phase 16
+- ✓ FRAME-01/02: `EvalConfig` (pydantic v2 + `from_yaml`) + `DataFactory` — Phase 17
+- ✓ FRAME-03/04: `MetricsEngine` + 6 frozen result types — Phase 18
+- ✓ FRAME-05: `AlignmentStage` (PipelineStage ABC, DTW + CPD) — Phase 19
+- ✓ FRAME-06: `LabelTransferStage` (kNN, raw or aligned clouds) — Phase 20
+- ✓ FRAME-07/08: `EvaluationRunner` + `viz.py` (Agg backend, PDF+PNG) — Phase 21
+- ✓ FRAME-09/10: `HyperparamOptimizer` (3-tier) + Grid/Random/Optuna strategies — Phase 22
+- ✓ FRAME-11/12: `run_eval.py` CLI + scenario configs — Phase 23
+- ✓ EXT-01: trajectory export (LaTeX/pgfplots CSVs + metadata) — Phase 24
+- ✓ EXT-02: visualisation refactor (`plot_trajectory`, `plot_metrics`, `label_names`) — Phase 25
+- ✓ EXT-03: Propulate MPI optimizer backend (auto-select on SLURM/MPI) — Phase 26
+- ✓ DF-01/02: `DataFactory` geometric augmentation + `generate_datasets.py` integration — Phases 27–28
+- ✓ VIZ-01/02/03: viz unification + alignment/label figure refactors — Phases 29, 36, 37
+- ✓ MODE-01/02/03: paired + synthetic dual-mode evaluation with GT-aware HPO — Phases 30–31
+- ✓ HETERO-01: heterogeneous cross-format paired evaluation — Phase 32
+- ✓ ALIGN-01/02/03: CPD-aligned trajectory, pre-transfer guard, stored-transform reuse (8× scale fix) — Phases 33–35
+- ✓ CLN-01/02: codebase-wide `color`→`label` rename + loud label-source logic — Phase 38
 
 ### Validated in v1.1 (2026-05-13)
 
@@ -134,6 +131,12 @@ Every existing capability works correctly, fails informatively, and is covered b
 | ValueError (not warning) in __mul__ | Silent corruption worse than loud failure | ✓ Good — user sees clear det/cond values in error |
 | pmat strict validation (no auto-transpose) | 'looks transposed' hint is safer than silent correction | ✓ Good — preserves data integrity |
 | MPI allgather+sum (not allreduce) | Each rank zeros non-computed entries | ✓ Good — correct merge with minimal message size |
+| `eval/` as repo-root namespace dir (no top-level `__init__.py`) | Keep eval framework separate from installed `zreg` package; test discovery via conftest sys.path | ✓ Good — clean separation, stages/runners are regular sub-packages |
+| Frozen pydantic v2 result types | Immutability for reproducible reports; mutate via `model_copy(update=...)` | ✓ Good — but shallow-frozen hazard documented (nested dicts mutable) |
+| Two-input stage signatures `run(source, target, params)` | DTW must never self-align (`x=y`) | ✓ Good — enabled paired + heterogeneous modes |
+| Stored CPD transform reuse (normalise→apply→denormalise) | Re-running CPD from identity fails at 8× scale difference | ✓ Good — fixed Shah/Kobitski convergence (ALIGN-03) |
+| `color`→`label` rename with loud failure (no `id` fallback) | Silent fallback masked missing labels | ✓ Good — errors are now informative (CLN-02) |
+| Propulate as optional lazy-imported MPI extra | Heavy MPI dep; Optuna is the default backend | ⚠️ Revisit — live mpirun path unverified (missing GPy in dev env) |
 
 ## Evolution
 
@@ -153,4 +156,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-13 — Phase 30 complete (MODE-01 validated: two-dataset paired alignment, 839 tests pass)*
+*Last updated: 2026-06-26 after v1.2 milestone — Evaluation Framework & Debt Resolution shipped (27 phases, 55 plans, 976 tests pass)*

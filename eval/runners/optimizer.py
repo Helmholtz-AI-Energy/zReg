@@ -217,7 +217,15 @@ class HyperparamOptimizer:
         # Must be done before the tier loop because _objective reads _factory._synthetic_target
         # directly for tier_name != "sanity" (it cannot call generate_target() per-trial
         # without overwriting shared state — Pitfall 3 from Phase 31 RESEARCH.md).
-        if self.config.pipeline_mode == "synthetic" and self.config.transform_spec is not None:
+        #
+        # Gate on a non-sanity ceiling (D-11): when config.tier == "sanity" only the sanity
+        # tier runs, and it must use the isolated scratch factory (_apply_transform_to_dataset)
+        # — calling the main factory's generate_target() there would violate sanity isolation.
+        if (
+            self.config.pipeline_mode == "synthetic"
+            and self.config.transform_spec is not None
+            and self.config.tier != "sanity"
+        ):
             real_source = self._factory.load_real()
             self._factory.generate_target(real_source, self.config.transform_spec)
 

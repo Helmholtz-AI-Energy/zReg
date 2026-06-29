@@ -13,11 +13,13 @@
 
 - [x] Phase 39: ICP Registration as CPD Alternative (2/2 plans) — completed 2026-06-29
 - [x] Phase 40: Sliced Wasserstein Variants as Alignment Method (4/4 plans) — completed 2026-06-29
-- [ ] Phase 41: Alignment Preprocessing — Principal Axes + Velocity Landmarks (1/1 plans) — planned
+- [ ] Phase 41: Alignment Preprocessing — Principal Axes + Velocity Landmarks (2/2 plans) — planned
+  - [ ] 41-01-PLAN.md — preprocessing.py library + config/types contracts (Wave 1)
+  - [ ] 41-02-PLAN.md — alignment.py stage wiring + full test suite (Wave 2)
 - [ ] Phase 42: Sobol Quasi-Random Search as Default (1/1 plans) — queued
 - [ ] Phase 43: Per-Trajectory Data Standardization (1/1 plans) — queued
 
-**Status**: Phase 39–40 complete (6/9 plans). Phase 41 ready to execute.
+**Status**: Phase 39–40 complete (6/10 plans). Phase 41 ready to execute.
 
 Full details: [.planning/REQUIREMENTS-v1.4.md](.planning/REQUIREMENTS-v1.4.md)
 
@@ -93,6 +95,6 @@ Full details: [.planning/milestones/v1.0-ROADMAP.md](.planning/milestones/v1.0-R
 | v1.0 Consolidation | 1–5 (5) | 13 | ✅ Complete | 2026-04-09 |
 | v1.1 Code Quality & Refactoring | 6–11.1 (7) | 14 | ✅ Complete | 2026-05-13 |
 | v1.2 Evaluation Framework & Debt Resolution | 12–38 (27) | 55 | ✅ Complete | 2026-06-26 |
-| v1.4 Trajectory Alignment & Optimization Enhancements | 39–43 (5) | 9 | 🚀 IN PROGRESS (6/9 complete) | (target 2026-08-09) |
+| v1.4 Trajectory Alignment & Optimization Enhancements | 39–43 (5) | 10 | 🚀 IN PROGRESS (6/10 complete) | (target 2026-08-09) |
 
 _After phases 39-43: config-driven ICP + SWD alignment, preprocessing, Sobol search, data standardization. All parallel execution. Ready for `/gsd:plan-phase 39` to start._

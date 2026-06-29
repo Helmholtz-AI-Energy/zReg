@@ -13,9 +13,9 @@
 
 - [x] Phase 39: ICP Registration as CPD Alternative (2/2 plans) — completed 2026-06-29
 - [x] Phase 40: Sliced Wasserstein Variants as Alignment Method (4/4 plans) — completed 2026-06-29
-- [ ] Phase 41: Alignment Preprocessing — Principal Axes + Velocity Landmarks (2/2 plans) — planned
-  - [ ] 41-01-PLAN.md — preprocessing.py library + config/types contracts (Wave 1)
-  - [ ] 41-02-PLAN.md — alignment.py stage wiring + full test suite (Wave 2)
+- [x] Phase 41: Alignment Preprocessing — Principal Axes + Velocity Landmarks (2/2 plans) — planned (completed 2026-06-29)
+  - [x] 41-01-PLAN.md — preprocessing.py library + config/types contracts (Wave 1)
+  - [x] 41-02-PLAN.md — alignment.py stage wiring + full test suite (Wave 2)
 - [ ] Phase 42: Sobol Quasi-Random Search as Default (1/1 plans) — queued
 - [ ] Phase 43: Per-Trajectory Data Standardization (1/1 plans) — queued
 

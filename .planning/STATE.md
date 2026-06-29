@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Trajectory Alignment & Optimization Enhancements
-status: planning
+status: executing
 started: 2026-06-29
 last_updated: "2026-06-29"
 last_activity: 2026-06-29
 progress:
   total_phases: 5
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 9
-  completed_plans: 2
-  percent: 22
+  completed_plans: 6
+  percent: 67
 ---
 
 # Project State
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-06-29 with v1.4 goals)
 ## Current Position
 
 Milestone: v1.4 Trajectory Alignment & Optimization Enhancements — **EXECUTING** (started 2026-06-29)
-Phases: 39–43 (5 phases, 9 plans) — Phase 39 ✅ complete; Phase 40 planned; Phases 41–43 queued
-Tests: 1013 passed (37 new tests from Phase 39)
-Next action: `/gsd:execute-phase 40` to start executing Phase 40 (SWD alignment variants)
+Phases: 39–43 (5 phases, 9 plans) — Phase 39 ✅ complete; Phase 40 ✅ complete; Phases 41–43 queued
+Tests: 1141 passed (128 new tests from Phase 40, 37 from Phase 39)
+Next action: `/gsd:execute-phase 41` to start Phase 41 (Alignment Preprocessing)
 
 ## Shipped Milestones
 
@@ -46,8 +46,8 @@ v1.2 archives: .planning/milestones/v1.2-ROADMAP.md · v1.2-REQUIREMENTS.md · v
 | Phase | Name | Plans | Status |
 |-------|------|-------|--------|
 | 39 | ICP Registration as CPD Alternative | 2 | ✅ Completed |
-| 40 | Sliced Wasserstein Variants as Alignment | 4 | 📋 Planned |
-| 41 | Alignment Preprocessing (PCA + Velocity) | 1 | ⏳ Queued |
+| 40 | Sliced Wasserstein Variants as Alignment | 4 | ✅ Completed |
+| 41 | Alignment Preprocessing (PCA + Velocity) | 1 | 📋 Planned |
 | 42 | Sobol Quasi-Random Search as Default | 1 | ⏳ Queued |
 | 43 | Per-Trajectory Data Standardization | 1 | ⏳ Queued |
 
@@ -73,7 +73,7 @@ See: `.planning/REQUIREMENTS-v1.4.md`
 
 ### Open Blockers
 
-None — Phase 40 planning complete; ready for execution.
+None — Phase 40 complete; Phase 41 ready for execution.
 
 ### Deferred Items (acknowledged at v1.2 close)
 
@@ -87,5 +87,5 @@ None — Phase 40 planning complete; ready for execution.
 ## Session Continuity
 
 Last session: 2026-06-29
-Stopped at: Phase 40 planning complete
-Next action: `/gsd:execute-phase 40`
+Stopped at: Phase 40 execution complete
+Next action: `/gsd:execute-phase 41` (Alignment Preprocessing)

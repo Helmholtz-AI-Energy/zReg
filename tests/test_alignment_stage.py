@@ -11,7 +11,7 @@ from zreg.generators import generate_trajectory
 
 import torch
 
-from eval.config import EvalConfig
+from eval.config import AlignmentPreprocessingConfig, EvalConfig
 from eval.stages import AlignmentStage, PipelineStage
 from eval.types import AlignResult, StageResult
 
@@ -1034,3 +1034,56 @@ class TestStoredTransformReuse:
             "cpd_penalty=None should not apply any spatial transform — "
             "result pos differs from raw source deepcopy"
         )
+
+
+# ---------------------------------------------------------------------------
+# TestAlignmentStagePreprocessing — Plan 41-02 (ALIGN-06-01, ALIGN-06-05, D-02)
+# ---------------------------------------------------------------------------
+
+
+class TestAlignmentStagePreprocessing:
+    """Phase 41: alignment preprocessing dispatch through AlignmentStage.run().
+
+    Covers the three preprocessing modes end-to-end:
+    - ``principal_axes`` — PCA-rotated source, velocity_landmarks == [].
+    - ``velocity_landmarks`` with threshold=0.0 — all moving frames flagged.
+    - no preprocessing config (backward compatible) — velocity_landmarks == [].
+    """
+
+    def test_principal_axes_completes_and_returns_align_result(
+        self, synthetic_dataset_a, synthetic_dataset_b, default_params, tmp_path
+    ):
+        """method='principal_axes' completes; result is AlignResult with velocity_landmarks == []."""
+        config = EvalConfig(
+            data_path=str(tmp_path / "unused.mat"),
+            alignment_preprocessing=AlignmentPreprocessingConfig(method="principal_axes"),
+        )
+        stage = AlignmentStage(config)
+        result = stage.run(synthetic_dataset_a, synthetic_dataset_b, default_params)
+        assert isinstance(result, AlignResult)
+        assert result.velocity_landmarks == []
+
+    def test_velocity_landmarks_returns_nonempty_list(
+        self, synthetic_dataset_a, synthetic_dataset_b, default_params, tmp_path
+    ):
+        """method='velocity_landmarks' with threshold=0.0 flags all moving frames (len >= 1)."""
+        config = EvalConfig(
+            data_path=str(tmp_path / "unused.mat"),
+            alignment_preprocessing=AlignmentPreprocessingConfig(
+                method="velocity_landmarks", velocity_threshold=0.0
+            ),
+        )
+        stage = AlignmentStage(config)
+        result = stage.run(synthetic_dataset_a, synthetic_dataset_b, default_params)
+        assert isinstance(result, AlignResult)
+        assert isinstance(result.velocity_landmarks, list)
+        assert len(result.velocity_landmarks) >= 1
+
+    def test_no_preprocessing_config_backward_compatible(
+        self, synthetic_dataset_a, synthetic_dataset_b, default_params, eval_config
+    ):
+        """No alignment_preprocessing config: AlignResult.velocity_landmarks == [] (D-02)."""
+        stage = AlignmentStage(eval_config)
+        result = stage.run(synthetic_dataset_a, synthetic_dataset_b, default_params)
+        assert isinstance(result, AlignResult)
+        assert result.velocity_landmarks == []

@@ -126,6 +126,15 @@ class EvalConfig(BaseModel):
         ``None`` (default) disables subsampling — all points are kept.
         Applied by ``DataFactory.load_real()`` and ``DataFactory.load_target()``
         immediately after loading so all downstream stages see the reduced cloud.
+    alignment_method : str
+        Registration method for spatial alignment: ``'cpd'`` (Coherent Point Drift),
+        ``'icp'`` (Open3D ICP, point-to-point rigid), or ``'swd'`` (Sliced Wasserstein
+        Distance with variant selection). Default ``'cpd'``. Independent of ``dtw_dist_fn``
+        (Phase 40 Pitfall 1: alignment_method and dtw_dist_fn are independent choices).
+    swd_variant : str
+        SWD variant for spatial alignment when ``alignment_method='swd'``. Accepted values:
+        ``'swd'``, ``'aswd'``, ``'oswd'``, ``'gswd'``, ``'pswd'``, ``'maxswd'``.
+        Default ``'aswd'``. Only validated when ``alignment_method='swd'``.
 
     Notes
     -----
@@ -170,7 +179,11 @@ class EvalConfig(BaseModel):
     transform_spec: dict | None = None
     target_data_format: str | None = None
     max_points_per_frame: int | None = None
-    alignment_method: str = Field(default="cpd", description="Registration method: 'cpd' or 'icp'")
+    alignment_method: str = Field(default="cpd", description="Registration method: 'cpd', 'icp', or 'swd'")
+    swd_variant: str = Field(
+        default="aswd",
+        description="SWD variant for alignment_method='swd': 'swd', 'aswd', 'oswd', 'gswd', 'pswd', or 'maxswd'"
+    )
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "EvalConfig":
@@ -212,7 +225,7 @@ class EvalConfig(BaseModel):
     @field_validator("alignment_method")
     @classmethod
     def validate_alignment_method(cls, v: str) -> str:
-        """Validate that alignment_method is 'cpd' or 'icp'.
+        """Validate that alignment_method is 'cpd', 'icp', or 'swd'.
 
         Parameters
         ----------
@@ -227,8 +240,39 @@ class EvalConfig(BaseModel):
         Raises
         ------
         ValueError
-            If alignment_method is not 'cpd' or 'icp'.
+            If alignment_method is not 'cpd', 'icp', or 'swd'.
         """
-        if v not in ("cpd", "icp"):
-            raise ValueError(f"alignment_method must be 'cpd' or 'icp'; got {v!r}")
+        if v not in ("cpd", "icp", "swd"):
+            raise ValueError(f"alignment_method must be 'cpd', 'icp', or 'swd'; got {v!r}")
+        return v
+
+    @field_validator("swd_variant")
+    @classmethod
+    def validate_swd_variant(cls, v: str, info) -> str:
+        """Validate swd_variant only when alignment_method='swd'.
+
+        Parameters
+        ----------
+        v : str
+            The swd_variant value to validate.
+        info : ValidationInfo
+            Pydantic validation info containing data from other fields.
+
+        Returns
+        -------
+        str
+            The validated swd_variant value.
+
+        Raises
+        ------
+        ValueError
+            If alignment_method='swd' and swd_variant is not one of the allowed values.
+        """
+        # Only validate swd_variant if alignment_method is explicitly 'swd'
+        # data contains all fields being validated
+        if info.data.get("alignment_method") == "swd":
+            if v not in ("swd", "aswd", "oswd", "gswd", "pswd", "maxswd"):
+                raise ValueError(
+                    f"swd_variant must be one of {{'swd', 'aswd', 'oswd', 'gswd', 'pswd', 'maxswd'}}; got {v!r}"
+                )
         return v

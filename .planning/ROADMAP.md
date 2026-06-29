@@ -11,8 +11,8 @@
 <details open>
 <summary>🚀 v1.4 Trajectory Alignment & Optimization Enhancements (Phases 39–43) — IN PROGRESS</summary>
 
-- [ ] Phase 39: ICP Registration as CPD Alternative (1/1 plans) — queued
-- [ ] Phase 40: Sliced Wasserstein Variants as Alignment Method (1/1 plans) — queued
+- [x] Phase 39: ICP Registration as CPD Alternative (2/2 plans) — completed 2026-06-29
+- [ ] Phase 40: Sliced Wasserstein Variants as Alignment Method (4/4 plans) — planned
 - [ ] Phase 41: Alignment Preprocessing — Principal Axes + Velocity Landmarks (1/1 plans) — queued
 - [ ] Phase 42: Sobol Quasi-Random Search as Default (1/1 plans) — queued
 - [ ] Phase 43: Per-Trajectory Data Standardization (1/1 plans) — queued

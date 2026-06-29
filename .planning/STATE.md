@@ -8,10 +8,10 @@ last_updated: "2026-06-29"
 last_activity: 2026-06-29
 progress:
   total_phases: 5
-  completed_phases: 0
-  total_plans: 5
-  completed_plans: 0
-  percent: 0
+  completed_phases: 1
+  total_plans: 9
+  completed_plans: 2
+  percent: 22
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-29 with v1.4 goals)
 
 **Core value:** Every existing capability works correctly, fails informatively, and is covered by tests — now expanding with alternative alignment algorithms, preprocessing, and optimized hyperparameter search.
-**Current focus:** v1.4 requirements and roadmap drafted. Ready for phase planning (`/gsd:plan-phase 39`).
+**Current focus:** Phase 40 planning complete. Ready for `/gsd:execute-phase 40` to start execution.
 
 ## Current Position
 
-Milestone: v1.4 Trajectory Alignment & Optimization Enhancements — **PLANNING** (started 2026-06-29)
-Phases: 39–43 (5 phases, 5 plans) — all can run in parallel
-Tests: 976 passed (baseline from v1.2)
-Next action: `/gsd:plan-phase 39` to start execution on Phase 39 (ICP registration)
+Milestone: v1.4 Trajectory Alignment & Optimization Enhancements — **EXECUTING** (started 2026-06-29)
+Phases: 39–43 (5 phases, 9 plans) — Phase 39 ✅ complete; Phase 40 planned; Phases 41–43 queued
+Tests: 1013 passed (37 new tests from Phase 39)
+Next action: `/gsd:execute-phase 40` to start executing Phase 40 (SWD alignment variants)
 
 ## Shipped Milestones
 
@@ -45,8 +45,8 @@ v1.2 archives: .planning/milestones/v1.2-ROADMAP.md · v1.2-REQUIREMENTS.md · v
 
 | Phase | Name | Plans | Status |
 |-------|------|-------|--------|
-| 39 | ICP Registration as CPD Alternative | 1 | ⏳ Queued |
-| 40 | Sliced Wasserstein Variants as Alignment | 1 | ⏳ Queued |
+| 39 | ICP Registration as CPD Alternative | 2 | ✅ Completed |
+| 40 | Sliced Wasserstein Variants as Alignment | 4 | 📋 Planned |
 | 41 | Alignment Preprocessing (PCA + Velocity) | 1 | ⏳ Queued |
 | 42 | Sobol Quasi-Random Search as Default | 1 | ⏳ Queued |
 | 43 | Per-Trajectory Data Standardization | 1 | ⏳ Queued |
@@ -73,7 +73,7 @@ See: `.planning/REQUIREMENTS-v1.4.md`
 
 ### Open Blockers
 
-None — ready to start phase planning.
+None — Phase 40 planning complete; ready for execution.
 
 ### Deferred Items (acknowledged at v1.2 close)
 
@@ -86,6 +86,6 @@ None — ready to start phase planning.
 
 ## Session Continuity
 
-Last session: 2026-06-26
-Stopped at: v1.2 milestone complete (archived + tagged)
-Next action: `/gsd:new-milestone`
+Last session: 2026-06-29
+Stopped at: Phase 40 planning complete
+Next action: `/gsd:execute-phase 40`

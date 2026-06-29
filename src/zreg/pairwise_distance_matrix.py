@@ -506,6 +506,7 @@ def _sanitize_pairwise_distance_matrix(distance_kwargs, distance_metrics, downsa
     "oswd"      | OrthogonalSlicedWassersteinDistance| Requires downsampling
     "gswd"      | GeneralisedSlicedWassersteinDistance| Requires downsampling
     "pswd"      | ProjectedWassersteinDistance     | Requires downsampling
+    "maxswd"    | MaxSlicedWassersteinDistance     | Requires downsampling
     "euclidean" | partial(euclidean_distance, ...) | No downsampling required
     "manhattan" | partial(manhattan_distance, ...) | No downsampling required
     "minkowski" | partial(minkowski_distance, ...) | No downsampling required
@@ -638,6 +639,17 @@ def _sanitize_pairwise_distance_matrix(distance_kwargs, distance_metrics, downsa
                 if kw not in dist_kwargs:
                     dist_kwargs[kw] = val
             distance_fn = distances.ProjectedWassersteinDistance(**dist_kwargs)
+        elif dist == "maxswd":
+            log.info("Using Max Sliced Wasserstein Distance for distance metric")
+            # set default kwargs
+            defaults = [
+                ["device", _x0_san["pos"].device],
+                ["max_sw_num_iters", 100],
+            ]
+            for kw, val in defaults:
+                if kw not in dist_kwargs:
+                    dist_kwargs[kw] = val
+            distance_fn = distances.MaxSlicedWassersteinDistance(**dist_kwargs)
         elif dist == "euclidean":
             log.info("Using Euclidean Distance for distance metric")
             distance_fn = partial(distances.euclidean_distance, **dist_kwargs)

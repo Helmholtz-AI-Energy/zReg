@@ -92,3 +92,24 @@ def pytest_collection_modifyitems(config, items):  # pragma: no cover
         for item in items:
             if "cuda" in item.keywords:
                 item.add_marker(skip_cuda)
+
+
+# Phase 39: ICP Registration fixtures
+@pytest.fixture
+def eval_config_with_icp(tmp_path):  # pragma: no cover
+    """EvalConfig with alignment_method='icp' for ICP testing."""
+    from eval.config import EvalConfig
+    return EvalConfig(
+        data_path=str(tmp_path / "unused.mat"),
+        alignment_method="icp",
+    )
+
+
+@pytest.fixture
+def eval_config_with_cpd(tmp_path):  # pragma: no cover
+    """EvalConfig with alignment_method='cpd' (explicit, for comparison)."""
+    from eval.config import EvalConfig
+    return EvalConfig(
+        data_path=str(tmp_path / "unused.mat"),
+        alignment_method="cpd",
+    )

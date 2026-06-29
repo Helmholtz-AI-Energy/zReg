@@ -85,7 +85,9 @@ class AlignmentStage(PipelineStage):
         "cpd_penalty",
         "dtw_dist_fn",
         "n_breakpoints",
-        "alignment_method",
+    )
+    OPTIONAL_PARAMS: tuple[str, ...] = (
+        "alignment_method",  # Phase 39: defaults to config.alignment_method
     )
     VALID_CPD: tuple = (None, "rigid", "affine", "nonrigid")
 
@@ -106,11 +108,16 @@ class AlignmentStage(PipelineStage):
         the type and range constraints.  Raises ``ValueError`` on the first
         failure encountered.
 
+        Optional parameters (not in REQUIRED_PARAMS) are populated from
+        config defaults if missing (Phase 39: alignment_method defaults to
+        config.alignment_method).
+
         Parameters
         ----------
         params : dict[str, Any]
-            Hyperparameter dict to validate.  Must contain all five keys in
-            ``REQUIRED_PARAMS``.
+            Hyperparameter dict to validate.  Must contain all keys in
+            ``REQUIRED_PARAMS``; keys in ``OPTIONAL_PARAMS`` are populated
+            from config if missing.
 
         Returns
         -------
@@ -135,6 +142,10 @@ class AlignmentStage(PipelineStage):
         for key in self.REQUIRED_PARAMS:
             if key not in params:
                 raise ValueError(f"Missing required param: {key}")
+
+        # Phase 39: populate optional params from config if missing
+        if "alignment_method" not in params:
+            params["alignment_method"] = self.config.alignment_method
 
         if not (isinstance(params["window_size"], int)
                 and not isinstance(params["window_size"], bool)

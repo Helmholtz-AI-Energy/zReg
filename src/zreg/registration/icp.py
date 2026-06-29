@@ -110,9 +110,13 @@ class ICPRegistration:
         src_norm, (src_min, src_max) = utils.normalize_point_cloud(src_pos)
         tgt_norm, (tgt_min, tgt_max) = utils.normalize_point_cloud(tgt_pos)
 
-        # Convert to Open3D point clouds (torch backend)
-        src_cloud = o3d.t.geometry.PointCloud(o3d.core.Tensor(src_norm))
-        tgt_cloud = o3d.t.geometry.PointCloud(o3d.core.Tensor(tgt_norm))
+        # Convert to numpy for Open3D (torch tensors not supported by o3d.core.Tensor)
+        src_norm_np = src_norm.cpu().numpy() if isinstance(src_norm, torch.Tensor) else src_norm
+        tgt_norm_np = tgt_norm.cpu().numpy() if isinstance(tgt_norm, torch.Tensor) else tgt_norm
+
+        # Convert to Open3D point clouds
+        src_cloud = o3d.t.geometry.PointCloud(o3d.core.Tensor(src_norm_np))
+        tgt_cloud = o3d.t.geometry.PointCloud(o3d.core.Tensor(tgt_norm_np))
 
         # Run ICP on normalised clouds
         icp_result = o3d.t.pipelines.registration.icp(

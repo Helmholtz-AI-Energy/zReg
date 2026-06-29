@@ -241,9 +241,16 @@ class TestSlicedWassersteinAligner:
         assert isinstance(result, StoredTransform)
         assert result.transform.matrix.shape == (4, 4)
 
-    @pytest.mark.xfail(reason="MaxSWD nested optimization convergence variability (Phase 40-04 checkpoint)")
+    @pytest.mark.xfail(reason="MaxSWD nested optimization convergence variability (Phase 40-04 Decision: Option B - Defer to v1.5)")
     def test_maxswd_convergence(self, synthetic_clouds_30deg):
-        """Test MaxSWD convergence (may fail due to nested optimization)."""
+        """Test MaxSWD convergence (xfail: not recommended for alignment in v1.4).
+
+        Phase 40-04 Decision: Option B (No-Go)
+        MaxSWD uses nested optimization (inner Adam for distance, outer Adam for
+        registration) which shows convergence variability. Deferred to v1.5.
+        MaxSWD remains available for DTW temporal alignment via pairwise_distance_matrix.
+        Use aswd/gswd/pswd for alignment instead.
+        """
         source, target, rotation, translation = synthetic_clouds_30deg
         aligner = SlicedWassersteinAligner(
             variant="maxswd",

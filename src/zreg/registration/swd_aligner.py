@@ -56,13 +56,17 @@ class SlicedWassersteinAligner:
     and CPD (probabilistic EM), SWD uses deterministic gradient-based optimization
     to find the best rigid transformation (rotation + translation).
 
-    Supports all 6 SWD variants:
+    Recommended SWD variants for alignment (v1.4):
+    - aswd: Adaptive Sliced Wasserstein Distance (recommended, most stable)
     - swd: Sliced Wasserstein Distance (fixed num_projs)
-    - aswd: Adaptive Sliced Wasserstein Distance (adaptive num_projs)
     - oswd: Orthogonal Sliced Wasserstein Distance
     - gswd: Generalised Sliced Wasserstein Distance
     - pswd: Projected Wasserstein Distance
-    - maxswd: Max Sliced Wasserstein Distance
+
+    Not recommended for alignment:
+    - maxswd: Max Sliced Wasserstein Distance (nested optimization convergence
+      variability; use aswd/gswd/pswd instead). Available for DTW temporal alignment
+      via pairwise_distance_matrix.
 
     This class follows the same normalisation-denormalisation pattern as CPD and ICP
     to ensure consistent transformation matrices across the alignment pipeline
@@ -77,7 +81,8 @@ class SlicedWassersteinAligner:
     Parameters
     ----------
     variant : str, default "aswd"
-        SWD variant to use. Must be one of: swd, aswd, oswd, gswd, pswd, maxswd.
+        SWD variant to use. Recommended: swd, aswd, oswd, gswd, pswd.
+        (maxswd not recommended for alignment; deferred to v1.5)
     num_iterations : int, default 50
         Maximum number of gradient descent iterations.
     learning_rate : float, default 1e-3

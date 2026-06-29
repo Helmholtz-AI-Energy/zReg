@@ -645,7 +645,7 @@ class TestAlignmentStageICPIntegration:
         """Minimal EvalConfig for ICP tests."""
         return EvalConfig(data_path=str(tmp_path / "unused.mat"))
 
-    @pytest.mark.parametrize("alignment_method", ["cpd", "icp"])
+    @pytest.mark.parametrize("alignment_method", ["cpd", "icp", "swd"])
     def test_alignment_stage_run_with_both_methods(
         self,
         alignment_method,
@@ -653,7 +653,7 @@ class TestAlignmentStageICPIntegration:
         synthetic_dataset_a,
         synthetic_dataset_b,
     ):
-        """Test AlignmentStage.run() with both CPD and ICP methods (parametrized)."""
+        """Test AlignmentStage.run() with all three methods: CPD, ICP, SWD (parametrized)."""
         params = {
             "window_size": 10,
             "step": 1,
@@ -662,6 +662,10 @@ class TestAlignmentStageICPIntegration:
             "n_breakpoints": 5,
             "alignment_method": alignment_method,
         }
+
+        # Add SWD-specific parameters if needed
+        if alignment_method == "swd":
+            params["swd_variant"] = "aswd"
 
         stage = AlignmentStage(eval_config)
         result = stage.run(synthetic_dataset_a, synthetic_dataset_b, params)

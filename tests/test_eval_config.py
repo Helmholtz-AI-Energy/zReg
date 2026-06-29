@@ -8,7 +8,9 @@ from pathlib import Path
 import tempfile
 import yaml
 
-from eval.config import EvalConfig, EvalConfigError
+from pydantic import ValidationError
+
+from eval.config import AlignmentPreprocessingConfig, EvalConfig, EvalConfigError
 
 
 class TestEvalConfigBasics:
@@ -203,3 +205,24 @@ class TestEvalConfigAlignmentMethodIntegration:
         assert config.save_plots is True
         assert config.verbose is False
         assert config.output_dir == "experiments/runs"
+
+
+class TestAlignmentPreprocessingConfig:
+    """Phase 41: AlignmentPreprocessingConfig validation and EvalConfig integration (ALIGN-06-03)."""
+
+    def test_alignment_preprocessing_config_defaults(self):
+        """method='principal_axes' yields velocity_threshold=0.5 and velocity_metric='mean'."""
+        config = AlignmentPreprocessingConfig(method="principal_axes")
+        assert config.method == "principal_axes"
+        assert config.velocity_threshold == 0.5
+        assert config.velocity_metric == "mean"
+
+    def test_alignment_preprocessing_config_rejects_invalid_method(self):
+        """An unknown method value is rejected by the Literal annotation."""
+        with pytest.raises(ValidationError):
+            AlignmentPreprocessingConfig(method="invalid")
+
+    def test_eval_config_alignment_preprocessing_defaults_none(self, tmp_path):
+        """EvalConfig.alignment_preprocessing defaults to None (backward compatible)."""
+        config = EvalConfig(data_path=str(tmp_path / "x.mat"))
+        assert config.alignment_preprocessing is None

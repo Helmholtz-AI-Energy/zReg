@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 __all__ = ["EvalConfig", "EvalConfigError"]
 
@@ -170,6 +170,7 @@ class EvalConfig(BaseModel):
     transform_spec: dict | None = None
     target_data_format: str | None = None
     max_points_per_frame: int | None = None
+    alignment_method: str = Field(default="cpd", description="Registration method: 'cpd' or 'icp'")
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "EvalConfig":
@@ -207,3 +208,27 @@ class EvalConfig(BaseModel):
             first = e.errors()[0]
             field = ".".join(str(x) for x in first["loc"])
             raise EvalConfigError(f"EvalConfig: field '{field}': {first['msg']}") from e
+
+    @field_validator("alignment_method")
+    @classmethod
+    def validate_alignment_method(cls, v: str) -> str:
+        """Validate that alignment_method is 'cpd' or 'icp'.
+
+        Parameters
+        ----------
+        v : str
+            The alignment_method value to validate.
+
+        Returns
+        -------
+        str
+            The validated alignment_method value.
+
+        Raises
+        ------
+        ValueError
+            If alignment_method is not 'cpd' or 'icp'.
+        """
+        if v not in ("cpd", "icp"):
+            raise ValueError(f"alignment_method must be 'cpd' or 'icp'; got {v!r}")
+        return v

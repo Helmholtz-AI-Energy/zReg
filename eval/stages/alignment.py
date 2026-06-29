@@ -46,6 +46,7 @@ from typing import Any
 from zreg.cpd import RigidCPD, AffineCPD, NonRigidCPD
 from zreg.dataset import zRegPointCloud
 from zreg.dtw import DynamicTimeWarping
+from zreg.registration import ICPRegistration
 from zreg.types import StoredTransform
 import zreg.utils as utils
 
@@ -84,6 +85,7 @@ class AlignmentStage(PipelineStage):
         "cpd_penalty",
         "dtw_dist_fn",
         "n_breakpoints",
+        "alignment_method",
     )
     VALID_CPD: tuple = (None, "rigid", "affine", "nonrigid")
 
@@ -157,13 +159,18 @@ class AlignmentStage(PipelineStage):
                 and params["n_breakpoints"] >= 0):
             raise ValueError(f"n_breakpoints must be int >= 0; got {params['n_breakpoints']!r}")
 
+        if params["alignment_method"] not in ("cpd", "icp"):
+            raise ValueError(
+                f"alignment_method must be 'cpd' or 'icp'; got {params['alignment_method']!r}"
+            )
+
     def run(
         self,
         source: dict[int, zRegPointCloud],
         target: dict[int, zRegPointCloud],
         params: dict[str, Any],
     ) -> AlignResult:
-        """Run DTW + CPD alignment from ``source`` to ``target`` and return an ``AlignResult``.
+        """Run DTW + spatial registration (CPD or ICP) from ``source`` to ``target`` and return an ``AlignResult``.
 
         Calls ``self.validate_params(params)`` as the first line (D-09 guarantee).
 
@@ -178,18 +185,20 @@ class AlignmentStage(PipelineStage):
             ``source`` against ``target``; ``target`` is not returned in the
             result (D-06).
         params : dict[str, Any]
-            Must contain all five keys in ``REQUIRED_PARAMS``.  See
-            ``validate_params`` for the full constraint list.
+            Must contain all keys in ``REQUIRED_PARAMS`` (including
+            ``alignment_method``).  See ``validate_params`` for the full
+            constraint list.
 
         Returns
         -------
         AlignResult
             Pydantic-frozen result with:
-            - ``aligned_cloud``: CPD-transformed (or DTW-resampled) source
-              trajectory keyed by full target keys.  When ``cpd_penalty=None``,
-              contains temporally-resampled deep-copy source frames.  When
-              ``cpd_penalty`` is set, each frame is spatially registered to
-              its paired target frame via CPD.
+            - ``aligned_cloud``: spatially registered (or DTW-resampled) source
+              trajectory keyed by full target keys.  When ``cpd_penalty=None``
+              and ``alignment_method`` is not applicable, contains temporally-
+              resampled deep-copy source frames.  When spatial registration is
+              enabled, each frame is spatially registered to its paired target
+              frame via the chosen method (CPD or ICP).
             - ``warp_path``: DTW optimal alignment path.
             - ``dtw_distance``: accumulated DTW cost.
             - ``n_changepoints``: diagonal/non-diagonal transition count,
@@ -236,6 +245,7 @@ class AlignmentStage(PipelineStage):
             target_sub=target_sub,
             warp_path=result.warping_path,
             cpd_penalty=params["cpd_penalty"],
+            alignment_method=params["alignment_method"],
             stored_transforms=result.stored_transforms,
         )
 
@@ -295,13 +305,14 @@ class AlignmentStage(PipelineStage):
         target_sub: dict[int, zRegPointCloud],
         warp_path: list[tuple[int, int]],
         cpd_penalty: str | None,
+        alignment_method: str = "cpd",
         stored_transforms: dict[tuple[int, int], StoredTransform] | None = None,
     ) -> dict[int, zRegPointCloud]:
-        """Build the CPD-transformed aligned source trajectory.
+        """Build the spatially-registered aligned source trajectory.
 
         For each target frame (full dataset), find the temporally corresponding
-        source frame from the warp path and optionally apply CPD spatial
-        registration.  Returns a dict keyed by full target keys.
+        source frame from the warp path and optionally apply spatial registration
+        (CPD or ICP).  Returns a dict keyed by full target keys.
 
         Parameters
         ----------
@@ -318,6 +329,9 @@ class AlignmentStage(PipelineStage):
         cpd_penalty : str | None
             CPD type (``"rigid"``, ``"affine"``, ``"nonrigid"``) or ``None``
             for temporal-only alignment.
+        alignment_method : str, default "cpd"
+            Registration method: ``"cpd"`` for Coherent Point Drift or ``"icp"``
+            for Open3D ICP (point-to-point, rigid).
         stored_transforms : dict[tuple[int, int], StoredTransform] | None, optional
             Mapping from ``(src_sub_idx, tgt_sub_idx)`` to ``StoredTransform``,
             captured during Step 1 (pairwise distance computation).  When a key is
@@ -356,8 +370,14 @@ class AlignmentStage(PipelineStage):
 
             # Retrieve and deep-copy the source frame (no in-place mutation)
             src_frame = deepcopy(source_sub[src_sub_idx])
+            matched_source_frame = src_frame
+            matched_target_frame = target[tk]
 
-            if cpd_penalty is not None:
+            if cpd_penalty is None and alignment_method == "cpd":
+                # Temporal-only: no spatial registration
+                aligned[tk] = matched_source_frame
+            elif cpd_penalty is not None and alignment_method == "cpd":
+                # CPD spatial registration
                 key = (src_sub_idx, tgt_sub_idx)
                 # None-guard (CR-02): a StoredTransform with None normalisation params was
                 # created when normalize=False in Step 1. Since no normalisation was applied
@@ -368,39 +388,37 @@ class AlignmentStage(PipelineStage):
                     # denormalise into target coordinate space. Avoids re-running CPD from
                     # identity on raw unnormalised data (fixes 8× scale convergence failure).
                     src_norm, _ = utils.normalize_point_cloud(
-                        src_frame["pos"], min_vals=_st.src_min, max_vals=_st.src_max
+                        matched_source_frame["pos"], min_vals=_st.src_min, max_vals=_st.src_max
                     )
                     transformed = _st.transform.transform(src_norm)
-                    src_frame["pos"] = utils.undo_normalize(
+                    matched_source_frame["pos"] = utils.undo_normalize(
                         transformed, maxvals=_st.tgt_max, minvals=_st.tgt_min
                     )
                 else:
                     # FALLBACK PATH (D-10): fresh CPD on raw data — covers edge frames outside
                     # the DTW window that were never computed in Step 1.
-                    # CR-03: use full target frame for spatial registration, not strided sub-dict
-                    tgt_frame = target[tk]
                     tf_params = {
-                        "device": src_frame["pos"].device,
-                        "dtype": src_frame["pos"].dtype,
+                        "device": matched_source_frame["pos"].device,
+                        "dtype": matched_source_frame["pos"].dtype,
                     }
 
                     if cpd_penalty == "nonrigid":
                         # NonRigidCPD does not accept tf_init_params (P5)
                         cpd_obj = NonRigidCPD(
-                            source=src_frame["pos"],
+                            source=matched_source_frame["pos"],
                             use_color=False,
                             log_freq=-1,
                         )
                     elif cpd_penalty == "affine":
                         cpd_obj = AffineCPD(
-                            source=src_frame["pos"],
+                            source=matched_source_frame["pos"],
                             use_color=False,
                             tf_init_params=tf_params,
                             log_freq=-1,
                         )
                     else:  # "rigid"
                         cpd_obj = RigidCPD(
-                            source=src_frame["pos"],
+                            source=matched_source_frame["pos"],
                             use_color=False,
                             tf_init_params=tf_params,
                             log_freq=-1,
@@ -408,9 +426,63 @@ class AlignmentStage(PipelineStage):
 
                     # CR-01: use registration() return value — NonRigidCPD does not set
                     # self.transformation (overrides maximization_step without super() call)
-                    reg_result = cpd_obj.registration(tgt_frame["pos"], w=0.0, maxiter=1000, tol=1e-5)
-                    src_frame["pos"] = reg_result.transformation.transform(src_frame["pos"])
+                    reg_result = cpd_obj.registration(matched_target_frame["pos"], w=0.0, maxiter=1000, tol=1e-5)
+                    matched_source_frame["pos"] = reg_result.transformation.transform(matched_source_frame["pos"])
 
-            aligned[tk] = src_frame
+                aligned[tk] = matched_source_frame
+            elif alignment_method == "icp":
+                # ICP spatial registration
+                icp = ICPRegistration()
+                stored_transform = icp.register(
+                    source=matched_source_frame,
+                    target=matched_target_frame,
+                )
+                # Apply stored transform to frame (denormalised space)
+                registered_frame = AlignmentStage._apply_stored_transform(
+                    matched_source_frame,
+                    stored_transform,
+                )
+                aligned[tk] = registered_frame
+            else:
+                # Temporal-only fallback (shouldn't reach here with valid params)
+                aligned[tk] = matched_source_frame
 
         return aligned
+
+    @staticmethod
+    def _apply_stored_transform(
+        cloud: zRegPointCloud,
+        stored_transform: StoredTransform,
+    ) -> zRegPointCloud:
+        """Apply a stored transformation matrix to a point cloud.
+
+        Parameters
+        ----------
+        cloud : zRegPointCloud
+            Point cloud to transform.
+        stored_transform : StoredTransform
+            Cached transformation (ICPTransformation wrapper with matrix
+            in denormalised space).
+
+        Returns
+        -------
+        zRegPointCloud
+            Transformed cloud (deep copy with updated pos field).
+        """
+        result = deepcopy(cloud)
+        # Extract matrix from ICPTransformation wrapper
+        matrix = torch.tensor(
+            stored_transform.transform.matrix,
+            dtype=cloud["pos"].dtype,
+            device=cloud["pos"].device,
+        )
+        # Transform: pos_new = (matrix @ [pos, 1]^T)[:3]
+        ones = torch.ones(
+            (cloud["pos"].shape[0], 1),
+            dtype=cloud["pos"].dtype,
+            device=cloud["pos"].device,
+        )
+        pos_homog = torch.cat([cloud["pos"], ones], dim=1)  # [N, 4]
+        pos_transformed = (matrix @ pos_homog.T).T  # [N, 4]
+        result["pos"] = pos_transformed[:, :3]
+        return result

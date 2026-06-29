@@ -13,7 +13,7 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-__all__ = ["EvalConfig", "EvalConfigError"]
+__all__ = ["EvalConfig", "EvalConfigError", "AlignmentPreprocessingConfig"]
 
 
 class EvalConfigError(ValueError):
@@ -24,6 +24,34 @@ class EvalConfigError(ValueError):
     message so that run_eval.py (Phase 23) can catch this and print the message
     without exposing a pydantic stacktrace to the user (D-03).
     """
+
+
+class AlignmentPreprocessingConfig(BaseModel):
+    """Pre-DTW alignment preprocessing options (Phase 41).
+
+    Selects a preprocessing strategy applied before DTW inside
+    ``AlignmentStage.run`` (wired in plan 41-02).  ``method`` is required;
+    the velocity-landmark parameters carry defaults and are only consulted
+    when ``method='velocity_landmarks'``.  Unknown keys are rejected with
+    ``extra='forbid'`` so config typos are caught at parse time.
+
+    Parameters
+    ----------
+    method : {"principal_axes", "velocity_landmarks"}
+        Preprocessing strategy.  ``"principal_axes"`` applies a PCA rotation
+        (``zreg.preprocessing.compute_pca_rotation``); ``"velocity_landmarks"``
+        flags high-velocity frames (``detect_velocity_landmarks``).
+    velocity_threshold : float
+        Velocity above which a frame is recorded as a landmark.  Default 0.5.
+    velocity_metric : {"mean", "max"}
+        Reduction applied to per-point displacement norms.  Default "mean".
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    method: Literal["principal_axes", "velocity_landmarks"]
+    velocity_threshold: float = 0.5
+    velocity_metric: Literal["mean", "max"] = "mean"
 
 
 class EvalConfig(BaseModel):
@@ -184,6 +212,7 @@ class EvalConfig(BaseModel):
         default="aswd",
         description="SWD variant for alignment_method='swd': 'swd', 'aswd', 'oswd', 'gswd', 'pswd', or 'maxswd'"
     )
+    alignment_preprocessing: AlignmentPreprocessingConfig | None = None
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "EvalConfig":

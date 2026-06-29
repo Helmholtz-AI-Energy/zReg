@@ -172,4 +172,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-26 after v1.2 milestone — Evaluation Framework & Debt Resolution shipped (27 phases, 55 plans, 976 tests pass)*
+*Last updated: 2026-06-29 after Phase 41 — alignment preprocessing (PCA rotation + velocity landmarks) added to AlignmentStage; ALIGN-06 complete; 1118 tests pass*

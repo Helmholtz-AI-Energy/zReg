@@ -194,7 +194,14 @@ class SlicedWassersteinAligner:
 
         # Instantiate SWD metric
         swd_class = self.VARIANT_CLASSES[self.variant]
-        swd_metric = swd_class(device=device, **self.variant_kwargs)
+
+        # Provide default num_projs for variants that require it
+        variant_kwargs = self.variant_kwargs.copy()
+        if self.variant in ("swd", "oswd", "gswd", "pswd"):
+            if "num_projs" not in variant_kwargs:
+                variant_kwargs["num_projs"] = 50  # Sensible default
+
+        swd_metric = swd_class(device=device, **variant_kwargs)
 
         # Create optimizer
         optimizer = torch.optim.Adam([rotation, translation], lr=self.learning_rate)
@@ -208,8 +215,8 @@ class SlicedWassersteinAligner:
             src_transformed = src_norm @ rotation.T + translation
 
             # Compute SWD loss
-            # Add batch dimension: (1, N, 3)
-            loss = swd_metric(src_transformed.unsqueeze(0), tgt_norm.unsqueeze(0))
+            # SWD metric will add batch dimension automatically (nobatchdim=True by default)
+            loss = swd_metric(src_transformed, tgt_norm)
 
             # Backward pass
             loss.backward()

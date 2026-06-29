@@ -237,10 +237,19 @@ class AlignmentStage(PipelineStage):
         """
         self.validate_params(params)
 
+        # Phase 41: optional alignment preprocessing (PCA principal-axes rotation or
+        # velocity-landmark detection). Returns the working source dict (rotated for
+        # principal_axes, unchanged otherwise) and the list of velocity landmark keys.
+        working_source, velocity_landmarks = self._apply_preprocessing(
+            source, target, self.config.alignment_preprocessing
+        )
+
         # Build strided sub-dicts symmetrically for source and target (Pitfall 1).
         # sorted() makes key order deterministic for non-contiguous key sets.
-        source_sorted = sorted(source.keys())
-        source_sub = {i: source[k] for i, k in enumerate(source_sorted[:: params["step"]])}
+        # Source striding operates on working_source (Pitfall 4: PCA rotation must
+        # propagate into the strided sub-dict fed to DTW), not the original source.
+        source_sorted = sorted(working_source.keys())
+        source_sub = {i: working_source[k] for i, k in enumerate(source_sorted[:: params["step"]])}
 
         target_sorted = sorted(target.keys())
         target_sub = {i: target[k] for i, k in enumerate(target_sorted[:: params["step"]])}
@@ -258,7 +267,7 @@ class AlignmentStage(PipelineStage):
         n_changepoints = min(n_jumps, params["n_breakpoints"])  # D-06 cap
 
         aligned_cloud = self._build_aligned_cloud(
-            source=source,
+            source=working_source,
             target=target,
             source_sub=source_sub,
             target_sub=target_sub,
@@ -274,6 +283,7 @@ class AlignmentStage(PipelineStage):
             dtw_distance=result.distance,
             n_changepoints=n_changepoints,
             params_used=dict(params),  # shallow copy — Pitfall 7
+            velocity_landmarks=velocity_landmarks,
         )
 
     @staticmethod
@@ -525,3 +535,67 @@ class AlignmentStage(PipelineStage):
         pos_transformed = (matrix @ pos_homog.T).T  # [N, 4]
         result["pos"] = pos_transformed[:, :3]
         return result
+
+    @staticmethod
+    def _apply_preprocessing(
+        source: dict[int, zRegPointCloud],
+        target: dict[int, zRegPointCloud],
+        config: "AlignmentPreprocessingConfig | None",
+    ) -> tuple[dict[int, zRegPointCloud], list[int]]:
+        """Apply optional alignment preprocessing before DTW (Phase 41).
+
+        Dispatches on ``config.method``:
+
+        - ``None`` — no preprocessing; returns ``(source, [])`` unchanged.
+        - ``"principal_axes"`` — computes a PCA proper-rotation ``R`` from the
+          concatenated source/target point clouds and returns a deep-copied,
+          rotated source dict (original ``source`` never mutated) plus ``[]``.
+        - ``"velocity_landmarks"`` — returns ``source`` unchanged plus the list
+          of frame keys whose per-point velocity exceeds the configured
+          threshold (frame 0 always excluded by ``detect_velocity_landmarks``).
+
+        Parameters
+        ----------
+        source : dict[int, zRegPointCloud]
+            Source trajectory keyed by integer frame index. Never mutated.
+        target : dict[int, zRegPointCloud]
+            Target trajectory. Used only to fit the PCA target axes; never
+            preprocessed or returned.
+        config : AlignmentPreprocessingConfig | None
+            Preprocessing configuration from ``EvalConfig.alignment_preprocessing``.
+
+        Returns
+        -------
+        tuple[dict[int, zRegPointCloud], list[int]]
+            ``(working_source, velocity_landmarks)``. ``working_source`` is the
+            rotated deep copy for ``principal_axes`` and the original ``source``
+            otherwise. ``velocity_landmarks`` is non-empty only for the
+            ``velocity_landmarks`` method.
+        """
+        from eval.config import AlignmentPreprocessingConfig  # noqa: F401
+        from zreg import preprocessing
+
+        if config is None:
+            return source, []
+
+        if config.method == "principal_axes":
+            src_keys = sorted(source.keys())
+            tgt_keys = sorted(target.keys())
+            src_all = torch.cat([source[k]["pos"] for k in src_keys], dim=0)
+            tgt_all = torch.cat([target[k]["pos"] for k in tgt_keys], dim=0)
+            rotation = preprocessing.compute_pca_rotation(src_all, tgt_all)
+            rotated: dict[int, zRegPointCloud] = {}
+            for k in src_keys:
+                frame = deepcopy(source[k])  # never mutate the original source dict
+                frame["pos"] = (rotation @ frame["pos"].T).T
+                rotated[k] = frame
+            return rotated, []
+
+        if config.method == "velocity_landmarks":
+            landmarks = preprocessing.detect_velocity_landmarks(
+                source, config.velocity_threshold, config.velocity_metric
+            )
+            return source, landmarks
+
+        # Unreachable: AlignmentPreprocessingConfig.method is a validated Literal.
+        return source, []

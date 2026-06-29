@@ -46,7 +46,7 @@ from typing import Any
 from zreg.cpd import RigidCPD, AffineCPD, NonRigidCPD
 from zreg.dataset import zRegPointCloud
 from zreg.dtw import DynamicTimeWarping
-from zreg.registration import ICPRegistration
+from zreg.registration import ICPRegistration, SlicedWassersteinAligner
 from zreg.types import StoredTransform
 import zreg.utils as utils
 
@@ -170,10 +170,18 @@ class AlignmentStage(PipelineStage):
                 and params["n_breakpoints"] >= 0):
             raise ValueError(f"n_breakpoints must be int >= 0; got {params['n_breakpoints']!r}")
 
-        if params["alignment_method"] not in ("cpd", "icp"):
+        if params["alignment_method"] not in ("cpd", "icp", "swd"):
             raise ValueError(
-                f"alignment_method must be 'cpd' or 'icp'; got {params['alignment_method']!r}"
+                f"alignment_method must be 'cpd', 'icp', or 'swd'; got {params['alignment_method']!r}"
             )
+
+        # Phase 40: validate swd_variant if present and alignment_method is 'swd'
+        if "swd_variant" in params and params["alignment_method"] == "swd":
+            if params["swd_variant"] not in ("swd", "aswd", "oswd", "gswd", "pswd", "maxswd"):
+                raise ValueError(
+                    f"swd_variant must be one of {{'swd', 'aswd', 'oswd', 'gswd', 'pswd', 'maxswd'}}; "
+                    f"got {params['swd_variant']!r}"
+                )
 
     def run(
         self,
@@ -318,6 +326,7 @@ class AlignmentStage(PipelineStage):
         cpd_penalty: str | None,
         alignment_method: str = "cpd",
         stored_transforms: dict[tuple[int, int], StoredTransform] | None = None,
+        **kwargs,  # Captures swd_num_iterations, swd_variant if passed (Phase 40)
     ) -> dict[int, zRegPointCloud]:
         """Build the spatially-registered aligned source trajectory.
 
@@ -341,8 +350,9 @@ class AlignmentStage(PipelineStage):
             CPD type (``"rigid"``, ``"affine"``, ``"nonrigid"``) or ``None``
             for temporal-only alignment.
         alignment_method : str, default "cpd"
-            Registration method: ``"cpd"`` for Coherent Point Drift or ``"icp"``
-            for Open3D ICP (point-to-point, rigid).
+            Registration method: ``"cpd"`` for Coherent Point Drift, ``"icp"``
+            for Open3D ICP (point-to-point, rigid), or ``"swd"`` for Sliced Wasserstein
+            Distance with variant selection (Phase 40).
         stored_transforms : dict[tuple[int, int], StoredTransform] | None, optional
             Mapping from ``(src_sub_idx, tgt_sub_idx)`` to ``StoredTransform``,
             captured during Step 1 (pairwise distance computation).  When a key is
@@ -449,6 +459,24 @@ class AlignmentStage(PipelineStage):
                     target=matched_target_frame,
                 )
                 # Apply stored transform to frame (denormalised space)
+                registered_frame = AlignmentStage._apply_stored_transform(
+                    matched_source_frame,
+                    stored_transform,
+                )
+                aligned[tk] = registered_frame
+            elif alignment_method == "swd":
+                # SWD spatial registration (Phase 40)
+                swd_variant = kwargs.get("swd_variant", "aswd")  # Default from EvalConfig
+                swd_num_iterations = kwargs.get("swd_num_iterations", 50)  # Default
+
+                aligner = SlicedWassersteinAligner(
+                    variant=swd_variant,
+                    num_iterations=swd_num_iterations,
+                )
+                stored_transform = aligner.register(
+                    source=matched_source_frame,
+                    target=matched_target_frame,
+                )
                 registered_frame = AlignmentStage._apply_stored_transform(
                     matched_source_frame,
                     stored_transform,

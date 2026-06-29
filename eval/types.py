@@ -110,6 +110,7 @@ class AlignResult(BaseModel):
     dtw_distance: float
     n_changepoints: int
     params_used: dict[str, Any]
+    velocity_landmarks: list[int] = Field(default_factory=list)
 
 
 class LabelResult(BaseModel):

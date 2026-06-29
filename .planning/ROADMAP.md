@@ -8,6 +8,21 @@
 
 ## Phases
 
+<details open>
+<summary>🚀 v1.4 Trajectory Alignment & Optimization Enhancements (Phases 39–43) — IN PROGRESS</summary>
+
+- [ ] Phase 39: ICP Registration as CPD Alternative (1/1 plans) — queued
+- [ ] Phase 40: Sliced Wasserstein Variants as Alignment Method (1/1 plans) — queued
+- [ ] Phase 41: Alignment Preprocessing — Principal Axes + Velocity Landmarks (1/1 plans) — queued
+- [ ] Phase 42: Sobol Quasi-Random Search as Default (1/1 plans) — queued
+- [ ] Phase 43: Per-Trajectory Data Standardization (1/1 plans) — queued
+
+**Status**: Requirements & roadmap drafted. Ready for `/gsd:plan-phase 39` to start execution.
+
+Full details: [.planning/REQUIREMENTS-v1.4.md](.planning/REQUIREMENTS-v1.4.md)
+
+</details>
+
 <details>
 <summary>✅ v1.2 Evaluation Framework & Debt Resolution (Phases 12–38) — SHIPPED 2026-06-26</summary>
 
@@ -78,5 +93,6 @@ Full details: [.planning/milestones/v1.0-ROADMAP.md](.planning/milestones/v1.0-R
 | v1.0 Consolidation | 1–5 (5) | 13 | ✅ Complete | 2026-04-09 |
 | v1.1 Code Quality & Refactoring | 6–11.1 (7) | 14 | ✅ Complete | 2026-05-13 |
 | v1.2 Evaluation Framework & Debt Resolution | 12–38 (27) | 55 | ✅ Complete | 2026-06-26 |
+| v1.4 Trajectory Alignment & Optimization Enhancements | 39–43 (5) | 5 | 🚀 IN PROGRESS | (target 2026-08-09) |
 
-_Next milestone: run `/gsd:new-milestone` to define scope, requirements, and phases._
+_After phases 39-43: config-driven ICP + SWD alignment, preprocessing, Sobol search, data standardization. All parallel execution. Ready for `/gsd:plan-phase 39` to start._

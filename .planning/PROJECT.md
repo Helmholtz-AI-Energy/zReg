@@ -8,7 +8,23 @@ zReg is a Python library for GPU-accelerated 3D point cloud registration, tempor
 
 ## Next Milestone Goals
 
-Not yet defined — run `/gsd:new-milestone` to scope the next version. Candidate directions (from Future Requirements below): property-based invariant testing (Hypothesis), performance regression benchmarks, `py.typed` marker, structured result objects for all registration returns, and a first real-data HPO calibration run using the new framework.
+**v1.4 (2026-06-29 onwards): Trajectory Alignment & Optimization Enhancements**
+
+Expand alignment and optimization pipeline with alternative algorithms and preprocessing. Currently CPD + grid search only; add SWD-based alignment, preprocessing (principal axes + velocity landmarks), Sobol quasi-random search as default, and per-trajectory data standardization. All config-driven with zero breaking changes.
+
+**Goals:**
+1. ICP as CPD alternative (wrap Open3D library)
+2. Sliced Wasserstein variants (SWD, ASWD, OSWD, GSWD, PSWD) as OT alignment
+3. Alignment preprocessing (principal axes alignment + velocity landmark detection)
+4. Sobol quasi-random search as default (grid search remains as optional fallback)
+5. Per-trajectory data standardization as default (with optional normalization)
+
+**Success Criteria:**
+- All 5 methods integrate into `EvalConfig`
+- Config-driven selection via YAML (e.g., `alignment_method: swd`, `search_strategy: grid` to opt out of Sobol)
+- 100% backward compatible (existing CPD + grid search workflows unchanged)
+- 80%+ test coverage for new code paths
+- <5% performance regression on existing pipelines
 
 ## What This Is
 

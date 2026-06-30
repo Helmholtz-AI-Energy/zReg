@@ -158,6 +158,19 @@ class DataFactory:
                 "but was None. Set target_data_path in the YAML config."
             )
 
+        if (
+            self.config.data_preprocessing is not None
+            and self._preprocessing_stats is None
+            and self._real_dataset is None
+        ):
+            import warnings
+            warnings.warn(
+                "DataFactory.load_target() called before load_real() in paired mode. "
+                "Statistics will be computed from the TARGET dataset, not the source. "
+                "Call load_real() first to share coordinate space.",
+                stacklevel=2,
+            )
+
         fmt = self.config.target_data_format or self.config.data_format
         if fmt == "tracklets":
             # Pitfall 4: discard raw tracklets dict (second tuple element)
@@ -621,10 +634,13 @@ class DataFactory:
         eps = 1e-8
 
         if stats is None:
+            if not dataset:
+                return dataset
             # Compute statistics globally across all frames (concatenated).
             all_pos = torch.cat([pc["pos"] for pc in dataset.values()], dim=0)
             mean = all_pos.mean(dim=0)
             std = all_pos.std(dim=0)
+            std = torch.where(torch.isnan(std), torch.zeros_like(std), std)
             median = torch.quantile(all_pos.float(), 0.5, dim=0)
             q25 = torch.quantile(all_pos.float(), 0.25, dim=0)
             q75 = torch.quantile(all_pos.float(), 0.75, dim=0)

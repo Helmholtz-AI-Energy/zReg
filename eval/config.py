@@ -277,7 +277,9 @@ class EvalConfig(BaseModel):
         description="SWD variant for alignment_method='swd': 'swd', 'aswd', 'oswd', 'gswd', 'pswd', or 'maxswd'"
     )
     alignment_preprocessing: AlignmentPreprocessingConfig | None = None
-    data_preprocessing: DataPreprocessingConfig | None = DataPreprocessingConfig()
+    data_preprocessing: DataPreprocessingConfig | None = Field(
+        default_factory=DataPreprocessingConfig
+    )
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "EvalConfig":

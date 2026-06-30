@@ -1,6 +1,7 @@
 ---
 phase: 43-per-trajectory-data-standardization
 reviewed: 2026-06-30T12:00:00Z
+fixed: 2026-06-30T12:00:00Z
 depth: standard
 files_reviewed: 4
 files_reviewed_list:
@@ -13,23 +14,30 @@ findings:
   warning: 3
   info: 4
   total: 8
-status: issues_found
+fixed:
+  critical: 1
+  warning: 3
+open:
+  info: 4
+status: fixes_applied
+fix_commit: 00bfd73
 ---
 
 # Phase 43: Code Review Report
 
 **Reviewed:** 2026-06-30T12:00:00Z
+**Fixed:** 2026-06-30T12:00:00Z (commit `00bfd73`)
 **Depth:** standard
 **Files Reviewed:** 4
-**Status:** issues_found
+**Status:** fixes_applied — all Critical + Warning findings resolved; 4 Info findings remain open
 
 ## Summary
 
-Phase 43 adds `DataPreprocessingConfig` (Pydantic v2 model) and wires per-trajectory scaling into `DataFactory.load_real()` / `load_target()`. The Pydantic model contracts are correct (`extra="forbid"`, `Literal` for method, eps placed in denominators). The three scaling formulas are mathematically sound for the common case. However, one crash path exists for empty datasets, one silent NaN path exists for single-point frames, a call-ordering bug can silently corrupt paired-mode coordinate spaces, and the `data_preprocessing` field uses a shared default instance that should use `default_factory`. Test coverage gaps for these edge cases compound the risk.
+Phase 43 adds `DataPreprocessingConfig` (Pydantic v2 model) and wires per-trajectory scaling into `DataFactory.load_real()` / `load_target()`. The Pydantic model contracts are correct (`extra="forbid"`, `Literal` for method, eps placed in denominators). The three scaling formulas are mathematically sound for the common case. One crash path (CR-01), one silent NaN path (WR-01), a call-ordering hazard (WR-02), and a shared mutable default (WR-03) were identified and fixed in commit `00bfd73`. Test coverage gaps for these edge cases (IN-02, IN-03) remain open.
 
 ## Critical Issues
 
-### CR-01: `_standardize` crashes with `RuntimeError` on empty dataset
+### CR-01: `_standardize` crashes with `RuntimeError` on empty dataset ✓ FIXED
 
 **File:** `eval/data_factory.py:625`
 **Issue:** When `dataset` is an empty dict (`{}`), `torch.cat([pc["pos"] for pc in dataset.values()], dim=0)` becomes `torch.cat([], dim=0)`, which raises:
@@ -50,7 +58,7 @@ if stats is None:
 
 ## Warnings
 
-### WR-01: NaN propagation when exactly one point exists across all frames
+### WR-01: NaN propagation when exactly one point exists across all frames ✓ FIXED
 
 **File:** `eval/data_factory.py:627`
 **Issue:** `all_pos.std(dim=0)` uses Bessel correction (`correction=1`, i.e., divides by N-1) by default. When the concatenated dataset contains exactly one point (e.g., one frame with a single-point cloud), `std(dim=0)` returns `tensor([nan, nan, nan])`. Because `NaN + 1e-8 = NaN`, the eps guard on line 652 does not prevent NaN propagation into the scaled `pos` tensor. All downstream stages — DTW, metrics, visualisation — silently receive NaN coordinates. The existing `test_zero_std_no_error` only covers 10 identical points (std = 0.0, not NaN) and misses this case.
@@ -63,7 +71,7 @@ std = torch.where(torch.isnan(std), torch.zeros_like(std), std)
 ```
 Alternatively, reject single-point datasets at the guard introduced for CR-01.
 
-### WR-02: Paired-mode coordinate-space corruption when `load_target()` is called before `load_real()`
+### WR-02: Paired-mode coordinate-space corruption when `load_target()` is called before `load_real()` ✓ FIXED
 
 **File:** `eval/data_factory.py:122, 175`
 **Issue:** `load_real()` always invokes `_standardize(dataset)` without passing `stats` (line 122). Inside `_standardize`, the `stats is None` branch always writes to `self._preprocessing_stats`. Consequently, if a caller invokes `load_target()` before `load_real()`:
@@ -94,7 +102,7 @@ def load_target(self) -> dict[int, zRegPointCloud]:
 ```
 A stronger fix would raise `RuntimeError` instead of warning, but that may be too strict if standalone target loading is a valid use case.
 
-### WR-03: Shared mutable default instance for `data_preprocessing` field
+### WR-03: Shared mutable default instance for `data_preprocessing` field ✓ FIXED
 
 **File:** `eval/config.py:280`
 **Issue:** `data_preprocessing: DataPreprocessingConfig | None = DataPreprocessingConfig()` evaluates `DataPreprocessingConfig()` once at class-definition time, creating a single shared instance. In Pydantic v2, when a model-type field's default is already an instance of the declared type and `revalidate_instances` is not set to `'always'`, Pydantic v2 returns the existing instance rather than creating a copy. All `EvalConfig` instances constructed without an explicit `data_preprocessing` argument therefore reference the same `DataPreprocessingConfig` object. An in-place mutation — `cfg.data_preprocessing.method = "normalize"` — would silently affect every other default-using instance in the same process.

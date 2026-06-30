@@ -16,14 +16,13 @@
 - [x] Phase 41: Alignment Preprocessing — Principal Axes + Velocity Landmarks (2/2 plans) — planned (completed 2026-06-29)
   - [x] 41-01-PLAN.md — preprocessing.py library + config/types contracts (Wave 1)
   - [x] 41-02-PLAN.md — alignment.py stage wiring + full test suite (Wave 2)
-- [ ] Phase 42: Sobol Quasi-Random Search as Default (1/2 plans complete) — in progress
+- [x] Phase 42: Sobol Quasi-Random Search as Default (2/2 plans) — completed 2026-06-30
   - [x] 42-01-PLAN.md — SobolSearch class + config fields + optimizer dispatcher (Wave 1) — completed 2026-06-30
-
-  - [x] 42-02-PLAN.md — TestSobolSearch unit tests + optimizer integration tests (Wave 2)
+  - [x] 42-02-PLAN.md — TestSobolSearch unit tests + optimizer integration tests (Wave 2) — completed 2026-06-30
 
 - [ ] Phase 43: Per-Trajectory Data Standardization (1/1 plans) — queued
 
-**Status**: Phase 39–41 complete (8/11 plans). Phase 42 in progress (1/2 plans).
+**Status**: Phase 39–42 complete (10/11 plans). Phase 43 queued.
 
 Full details: [.planning/REQUIREMENTS-v1.4.md](.planning/REQUIREMENTS-v1.4.md)
 

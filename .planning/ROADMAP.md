@@ -20,10 +20,10 @@
   - [x] 42-01-PLAN.md — SobolSearch class + config fields + optimizer dispatcher (Wave 1) — completed 2026-06-30
   - [x] 42-02-PLAN.md — TestSobolSearch unit tests + optimizer integration tests (Wave 2) — completed 2026-06-30
 
-- [ ] Phase 43: Per-Trajectory Data Standardization (1/1 plans) — planned 2026-06-30
-  - [ ] 43-01-PLAN.md — DataPreprocessingConfig + DataFactory._standardize + test suite (Wave 1)
+- [x] Phase 43: Per-Trajectory Data Standardization (1/1 plans) — completed 2026-06-30
+  - [x] 43-01-PLAN.md — DataPreprocessingConfig + DataFactory._standardize + test suite (Wave 1) — completed 2026-06-30
 
-**Status**: Phase 39–42 complete (10/11 plans). Phase 43 planned, ready to execute.
+**Status**: Phase 39–43 complete (11/11 plans). v1.4 milestone complete.
 
 Full details: [.planning/REQUIREMENTS-v1.4.md](.planning/REQUIREMENTS-v1.4.md)
 

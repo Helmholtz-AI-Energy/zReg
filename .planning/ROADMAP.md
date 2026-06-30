@@ -20,9 +20,10 @@
   - [x] 42-01-PLAN.md — SobolSearch class + config fields + optimizer dispatcher (Wave 1) — completed 2026-06-30
   - [x] 42-02-PLAN.md — TestSobolSearch unit tests + optimizer integration tests (Wave 2) — completed 2026-06-30
 
-- [ ] Phase 43: Per-Trajectory Data Standardization (1/1 plans) — queued
+- [ ] Phase 43: Per-Trajectory Data Standardization (1/1 plans) — planned 2026-06-30
+  - [ ] 43-01-PLAN.md — DataPreprocessingConfig + DataFactory._standardize + test suite (Wave 1)
 
-**Status**: Phase 39–42 complete (10/11 plans). Phase 43 queued.
+**Status**: Phase 39–42 complete (10/11 plans). Phase 43 planned, ready to execute.
 
 Full details: [.planning/REQUIREMENTS-v1.4.md](.planning/REQUIREMENTS-v1.4.md)
 
@@ -98,6 +99,6 @@ Full details: [.planning/milestones/v1.0-ROADMAP.md](.planning/milestones/v1.0-R
 | v1.0 Consolidation | 1–5 (5) | 13 | ✅ Complete | 2026-04-09 |
 | v1.1 Code Quality & Refactoring | 6–11.1 (7) | 14 | ✅ Complete | 2026-05-13 |
 | v1.2 Evaluation Framework & Debt Resolution | 12–38 (27) | 55 | ✅ Complete | 2026-06-26 |
-| v1.4 Trajectory Alignment & Optimization Enhancements | 39–43 (5) | 11 | 🚀 IN PROGRESS (6/11 complete) | (target 2026-08-09) |
+| v1.4 Trajectory Alignment & Optimization Enhancements | 39–43 (5) | 11 | 🚀 IN PROGRESS (10/11 complete) | (target 2026-08-09) |
 
 _After phases 39-43: config-driven ICP + SWD alignment, preprocessing, Sobol search, data standardization. All parallel execution. Ready for `/gsd:plan-phase 39` to start._

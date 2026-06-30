@@ -48,11 +48,15 @@ import torch
 
 import optuna
 
+from scipy.stats import qmc
+
 from eval.types import Trial, SearchResult
 
-__all__ = ["GridSearch", "RandomSearch", "BayesianSearch", "PropulateSearch"]
+__all__ = ["GridSearch", "RandomSearch", "BayesianSearch", "PropulateSearch", "SobolSearch"]
 
 _log = logging.getLogger(__name__)
+
+SOBOL_MIN_TRIALS: int = 8
 
 
 class GridSearch:
@@ -169,6 +173,113 @@ class RandomSearch:
             # Allow duplicate random samples (they may differ in non-warm-start keys)
             candidates.append(params)
 
+        results: list[tuple[dict, float]] = []
+        for params in candidates:
+            score = objective_fn(params)
+            results.append((params, score))
+
+        return results
+
+
+class SobolSearch:
+    """Quasi-random Sobol sequence search over the search space.
+
+    Stateless (D-12) — no SQLite, no Optuna study.  All results held in memory.
+
+    Warm-start params are evaluated first, then ``n_trials`` Sobol-sampled
+    candidates are generated.  When ``n_trials < SOBOL_MIN_TRIALS`` (= 8),
+    falls back to ``RandomSearch`` using ``seed`` for reproducibility (D-10).
+    The sanity tier (``SANITY_N_TRIALS = 5``) always triggers the fallback.
+
+    ``seed`` and ``randomize`` are call-args (not constructor args), consistent
+    with how ``output_dir`` is a call-arg in ``BayesianSearch.search()`` (D-05).
+
+    **Import order note:** ``SobolSearch`` uses only ``scipy.stats.qmc`` — no
+    torch or optuna dependency.  The macOS-ARM SIGABRT import-order constraint
+    (``zreg.*`` → ``torch`` → ``optuna``) does NOT apply to ``scipy.stats.qmc``;
+    it can be imported at any position after the existing block without risk.
+    """
+
+    def search(
+        self,
+        search_space: dict[str, list],
+        objective_fn,
+        n_trials: int,
+        seed: int = 42,
+        randomize: bool = True,
+        warm_start: list[dict] | None = None,
+    ) -> list[tuple[dict, float]]:
+        """Sample using a Sobol quasi-random sequence and evaluate each candidate.
+
+        Parameters
+        ----------
+        search_space:
+            Dict mapping param name → list of candidate values.
+        objective_fn:
+            Callable accepting a params dict and returning a float score.
+        n_trials:
+            Number of Sobol-sampled candidates to generate.  When below
+            ``SOBOL_MIN_TRIALS`` (= 8), falls back to ``RandomSearch`` (D-10).
+        seed:
+            Seed for the scrambled Owen sequence (``randomize=True``); silently
+            ignored for the classical Van der Corput sequence (``randomize=False``,
+            D-04).  Default 42, consistent with ``BayesianSearch``
+            (``TPESampler(seed=42)``).
+        randomize:
+            When ``True`` (default), uses scrambled Owen sequence (better
+            uniformity, reproducible via ``seed``).  When ``False``, uses
+            classical Van der Corput sequence and ``seed`` is silently ignored
+            (D-04).
+        warm_start:
+            Optional list of param dicts to evaluate first (D-07).
+
+        Returns
+        -------
+        list[tuple[dict, float]]
+            Each element is (params_dict, score) for every evaluated candidate.
+        """
+        # D-08: empty search space → return [] silently
+        if not search_space:
+            return []
+
+        # D-10: small budget fallback to RandomSearch
+        if n_trials < SOBOL_MIN_TRIALS:
+            _log.debug(
+                "SobolSearch: n_trials=%d < 8, using RandomSearch fallback", n_trials
+            )
+            random.seed(seed)
+            return RandomSearch().search(
+                search_space, objective_fn, n_trials=n_trials, warm_start=warm_start
+            )
+
+        # Warm-start prepend (D-07) — copy deduplication loop from RandomSearch
+        seen: set[tuple] = set()
+        candidates: list[dict] = []
+
+        if warm_start:
+            for p in warm_start:
+                key = tuple(sorted(p.items()))
+                if key not in seen:
+                    candidates.append(p)
+                    seen.add(key)
+
+        # Sobol sampling
+        keys = list(search_space.keys())
+        choices = [search_space[k] for k in keys]
+        n_dims = len(search_space)
+        sampler = qmc.Sobol(d=n_dims, scramble=randomize, seed=seed)
+        samples = sampler.random(n_trials)
+
+        for row in samples:
+            params = {
+                keys[i]: choices[i][
+                    min(int(math.floor(row[i] * len(choices[i]))), len(choices[i]) - 1)
+                ]
+                for i in range(n_dims)
+            }
+            candidates.append(params)
+
+        # Results accumulation
         results: list[tuple[dict, float]] = []
         for params in candidates:
             score = objective_fn(params)

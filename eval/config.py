@@ -65,18 +65,31 @@ class EvalConfig(BaseModel):
     search_space : dict
         Hyper-parameter grid / search space for the optimizer.
     search_strategy : str
-        Optimizer strategy: ``"grid"``, ``"random"``, ``"bayesian"``,
-        ``"propulate"`` (MPI-parallel evolutionary search via the propulate
-        library; requires the ``zreg[propulate]`` optional extra), or
-        ``"auto"`` (resolved at run-time by
-        ``HyperparamOptimizer._detect_backend`` based on MPI world size and
-        the ``SLURM_JOB_ID`` environment variable — returns ``"propulate"``
-        when running under MPI with world_size > 1 or when ``SLURM_JOB_ID``
-        is set, otherwise ``"bayesian"``).  EXT-03.
+        Optimizer strategy: ``"grid"``, ``"random"``, ``"sobol"``
+        (quasi-random Sobol sequence sampling — low-discrepancy, reproducible
+        via ``sobol_seed``; falls back to ``RandomSearch`` when
+        ``n_trials < 8``), ``"bayesian"``, ``"propulate"`` (MPI-parallel
+        evolutionary search via the propulate library; requires the
+        ``zreg[propulate]`` optional extra), or ``"auto"`` (resolved at
+        run-time by ``HyperparamOptimizer._detect_backend`` based on MPI
+        world size and the ``SLURM_JOB_ID`` environment variable — returns
+        ``"propulate"`` when running under MPI with world_size > 1 or when
+        ``SLURM_JOB_ID`` is set, otherwise ``"bayesian"``).  EXT-03.
+        Default ``"sobol"`` (OPT-04-02).
     tier : str
         Search tier: ``"sanity"``, ``"dev"``, or ``"full"``.
     n_trials : int
         Number of optimizer trials (default 10).
+    sobol_seed : int
+        Seed passed to ``scipy.stats.qmc.Sobol`` when ``sobol_randomize=True``
+        (scrambled Owen sequence); silently ignored when
+        ``sobol_randomize=False`` (classical Van der Corput, D-04).
+        Default 42, consistent with ``BayesianSearch`` (``TPESampler(seed=42)``).
+    sobol_randomize : bool
+        When ``True`` (default), uses the scrambled Owen sequence (better
+        uniformity, fully reproducible via ``sobol_seed``).  When ``False``,
+        uses the classical Van der Corput sequence and ``sobol_seed`` is
+        silently ignored (D-04).  Default ``True``.
     output_dir : str
         Directory for experiment outputs (default ``"experiments/runs"``).
     save_plots : bool
@@ -147,9 +160,11 @@ class EvalConfig(BaseModel):
     run_label_transfer: bool = True
     default_params: dict = Field(default_factory=dict)
     search_space: dict = Field(default_factory=dict)
-    search_strategy: Literal["grid", "random", "bayesian", "propulate", "auto"] = "grid"
+    search_strategy: Literal["grid", "random", "bayesian", "propulate", "sobol", "auto"] = "sobol"
     tier: Literal["sanity", "dev", "full"] = "sanity"
     n_trials: int = 10
+    sobol_seed: int = 42
+    sobol_randomize: bool = True
     output_dir: str = "experiments/runs"
     save_plots: bool = True
     verbose: bool = False

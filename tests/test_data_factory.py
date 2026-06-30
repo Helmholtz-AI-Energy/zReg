@@ -219,7 +219,8 @@ class TestLoadReal:
         with patch("eval.data_factory.load_data_from_tracklets", return_value=(mock_ds, {})) as m:
             result = factory.load_real()
         m.assert_called_once_with("x.mat", device="cpu")
-        assert result is mock_ds
+        # _standardize produces a new dict (pos scaled); check keys are preserved
+        assert set(result.keys()) == set(mock_ds.keys())
 
     def test_dispatches_csv(self):
         """data_format='csv' calls load_shah_from_csv with explicit device='cpu' (Pitfall 5)."""
@@ -262,7 +263,8 @@ class TestLoadTarget:
         with patch("eval.data_factory.load_data_from_tracklets", return_value=(mock_ds, {})) as m:
             result = factory.load_target()
         m.assert_called_once_with("y.mat", device="cpu")
-        assert result is mock_ds
+        # _standardize produces a new dict (pos scaled); check keys are preserved
+        assert set(result.keys()) == set(mock_ds.keys())
 
     def test_dispatches_csv(self):
         """data_format='csv' calls load_shah_from_csv with target_data_path and device='cpu' (Pitfall 5)."""
@@ -340,7 +342,8 @@ class TestLoadTargetFormatDispatch:
         with patch("eval.data_factory.load_shah_from_csv", return_value=mock_ds) as m:
             result = factory.load_target()
         m.assert_called_once_with("y.csv", device="cpu")
-        assert result is mock_ds
+        # _standardize produces a new dict (pos scaled); check keys are preserved
+        assert set(result.keys()) == set(mock_ds.keys())
 
     def test_target_format_tracklets_overrides_source_csv(self):
         """target_data_format='tracklets' routes to tracklets loader even though data_format='csv'."""
@@ -355,7 +358,8 @@ class TestLoadTargetFormatDispatch:
         with patch("eval.data_factory.load_data_from_tracklets", return_value=(mock_ds, {})) as m:
             result = factory.load_target()
         m.assert_called_once_with("y.mat", device="cpu")
-        assert result is mock_ds
+        # _standardize produces a new dict (pos scaled); check keys are preserved
+        assert set(result.keys()) == set(mock_ds.keys())
 
     def test_none_falls_back_to_data_format_csv(self):
         """target_data_format=None falls back to data_format='csv' (backward compat)."""

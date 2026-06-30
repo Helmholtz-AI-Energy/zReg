@@ -19,7 +19,7 @@
 - [ ] Phase 42: Sobol Quasi-Random Search as Default (1/2 plans complete) — in progress
   - [x] 42-01-PLAN.md — SobolSearch class + config fields + optimizer dispatcher (Wave 1) — completed 2026-06-30
 
-  - [ ] 42-02-PLAN.md — TestSobolSearch unit tests + optimizer integration tests (Wave 2)
+  - [x] 42-02-PLAN.md — TestSobolSearch unit tests + optimizer integration tests (Wave 2)
 
 - [ ] Phase 43: Per-Trajectory Data Standardization (1/1 plans) — queued
 

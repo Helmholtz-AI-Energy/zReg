@@ -1,0 +1,65 @@
+# Self-registration calibration — Shah sample 1
+#
+# Purpose: first-pass hyperparameter calibration using a known transformation
+# as ground truth. The real data is augmented with a rigid rotation + mild
+# Gaussian noise, then aligned against itself. Because the transformation is
+# exact, metric scores (chamfer, hausdorff, f1) directly measure how well the
+# algorithm recovers the known perturbation — clean signal for HPO.
+#
+# Limitation: optimized params transfer best when the augmentation matches the
+# real inter-timepoint difficulty. Validate final params on a true inter-
+# timepoint pair before production use.
+
+data_path: data/external/sample/shah_data/sample-1/sample-1-cell-tracks.csv
+data_format: csv
+
+# Known rigid transformation applied to produce the "target" for registration.
+# rotation_deg + rotation_axis define a 15° tilt around the z-axis (a mild but
+# non-trivial perturbation). sigma adds realistic sensor noise.
+augmentation_params:
+  rotation_deg: 15.0
+  rotation_axis: [0.0, 0.0, 1.0]
+  sigma: 0.05
+
+run_alignment: true
+run_label_transfer: false   # no labels needed for geometry calibration
+
+pipeline_mode: synthetic
+transform_spec:
+  type: rigid
+  rotation_deg: 15.0
+  rotation_axis: [0.0, 0.0, 1.0]
+  sigma: 0.05
+
+tier: dev
+n_trials: 30
+n_synthetic: 0              # use real data only — self-registration, no synthetic frames
+
+search_strategy: bayesian
+search_space:
+  cpd_penalty: [null, "rigid", "affine", "nonrigid"]
+  window_size: [5, 10, 20]
+  step: [1, 2]
+  dtw_dist_fn: [euclidean, cosine]
+
+default_params:
+  window_size: 10
+  step: 1
+  cpd_penalty: 1.0
+  dtw_dist_fn: euclidean
+  n_breakpoints: 5
+  k_neighbours: 5
+  dist_metric: euclidean
+  smoothing: 0.0
+  threshold: 0.0
+
+val_split: 0.2
+output_dir: experiments/runs/selfcal_shah
+
+metric_weights:
+  chamfer: 0.40
+  hausdorff: 0.20
+  path_smoothness: 0.15
+  temporal_stability: 0.15
+  f1: 0.10
+  knn_consistency: 0.00

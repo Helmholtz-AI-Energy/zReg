@@ -52,7 +52,7 @@ class TestEvalConfigAlignmentMethodValidation:
 
     def test_alignment_method_invalid_value_raises(self, tmp_path):
         """Test that invalid alignment_method raises ValueError."""
-        with pytest.raises(ValueError, match="alignment_method must be 'cpd' or 'icp'"):
+        with pytest.raises(ValueError, match="alignment_method must be 'cpd', 'icp', or 'swd'"):
             EvalConfig(
                 data_path=str(tmp_path / "data.mat"),
                 alignment_method="invalid_method",
@@ -60,7 +60,7 @@ class TestEvalConfigAlignmentMethodValidation:
 
     def test_alignment_method_case_sensitive(self, tmp_path):
         """Test that alignment_method validation is case-sensitive."""
-        with pytest.raises(ValueError, match="alignment_method must be 'cpd' or 'icp'"):
+        with pytest.raises(ValueError, match="alignment_method must be 'cpd', 'icp', or 'swd'"):
             EvalConfig(
                 data_path=str(tmp_path / "data.mat"),
                 alignment_method="ICP",  # uppercase should fail
@@ -68,7 +68,7 @@ class TestEvalConfigAlignmentMethodValidation:
 
     def test_alignment_method_empty_string_raises(self, tmp_path):
         """Test that empty string for alignment_method raises ValueError."""
-        with pytest.raises(ValueError, match="alignment_method must be 'cpd' or 'icp'"):
+        with pytest.raises(ValueError, match="alignment_method must be 'cpd', 'icp', or 'swd'"):
             EvalConfig(
                 data_path=str(tmp_path / "data.mat"),
                 alignment_method="",

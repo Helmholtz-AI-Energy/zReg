@@ -89,7 +89,7 @@ import optuna
 from eval.config import EvalConfig
 from eval.data_factory import DataFactory
 from eval.metrics import MetricsEngine
-from eval.search_strategies import BayesianSearch, GridSearch, PropulateSearch, RandomSearch
+from eval.search_strategies import BayesianSearch, GridSearch, PropulateSearch, RandomSearch, SobolSearch
 from eval.stages import AlignmentStage, LabelTransferStage
 from eval.types import SearchResult, StageMetrics, Trial
 
@@ -271,6 +271,15 @@ class HyperparamOptimizer:
                     self.config.search_space,
                     obj,
                     n_trials=n_trials,
+                    warm_start=warm_start,
+                )
+            elif strategy_name == "sobol":
+                SobolSearch().search(
+                    self.config.search_space,
+                    obj,
+                    n_trials=n_trials,
+                    seed=self.config.sobol_seed,
+                    randomize=self.config.sobol_randomize,
                     warm_start=warm_start,
                 )
             elif strategy_name == "bayesian":

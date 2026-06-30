@@ -13,7 +13,7 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-__all__ = ["EvalConfig", "EvalConfigError", "AlignmentPreprocessingConfig"]
+__all__ = ["EvalConfig", "EvalConfigError", "AlignmentPreprocessingConfig", "DataPreprocessingConfig"]
 
 
 class EvalConfigError(ValueError):
@@ -52,6 +52,47 @@ class AlignmentPreprocessingConfig(BaseModel):
     method: Literal["principal_axes", "velocity_landmarks"]
     velocity_threshold: float = 0.5
     velocity_metric: Literal["mean", "max"] = "mean"
+
+
+class DataPreprocessingConfig(BaseModel):
+    """Per-trajectory data preprocessing options (Phase 43).
+
+    Selects a scaling strategy applied to the ``pos`` field of each trajectory
+    after subsampling in ``DataFactory.load_real()`` and
+    ``DataFactory.load_target()``.  Only the ``pos`` field is scaled; ``label``,
+    ``id``, and ``fps-idx`` are passed through unchanged.  Statistics are
+    computed globally across all frames of the trajectory (concatenated).
+
+    Three methods are supported:
+
+    - ``"standardize"`` (default, D-01): z-score normalization — subtract the
+      per-dimension mean and divide by the per-dimension standard deviation
+      (Bessel-corrected).  After scaling, each dimension has mean ≈ 0 and
+      std ≈ 1.
+    - ``"normalize"``: min-max scaling — maps each dimension to the range
+      ``[0, 1]`` using ``(pos - min) / (max - min + eps)``.
+    - ``"robust"``: robust scaling — subtract the per-dimension median, divide
+      by the per-dimension inter-quartile range (IQR = Q75 - Q25), then clip to
+      ``±robust_outlier_threshold``.  Resistant to outliers.
+
+    Unknown keys are rejected with ``extra='forbid'`` so config typos are caught
+    at parse time.
+
+    Parameters
+    ----------
+    method : {"standardize", "normalize", "robust"}
+        Scaling strategy.  Default ``"standardize"`` (z-score, D-01).
+    robust_outlier_threshold : float
+        Clipping threshold used only when ``method="robust"``.  Values are
+        clipped to ``[-robust_outlier_threshold, +robust_outlier_threshold]``
+        after IQR scaling.  Silently ignored for other methods — not an error.
+        Default ``3.0`` (D-07).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    method: Literal["standardize", "normalize", "robust"] = "standardize"
+    robust_outlier_threshold: float = 3.0
 
 
 class EvalConfig(BaseModel):
@@ -176,6 +217,14 @@ class EvalConfig(BaseModel):
         SWD variant for spatial alignment when ``alignment_method='swd'``. Accepted values:
         ``'swd'``, ``'aswd'``, ``'oswd'``, ``'gswd'``, ``'pswd'``, ``'maxswd'``.
         Default ``'aswd'``. Only validated when ``alignment_method='swd'``.
+    data_preprocessing : DataPreprocessingConfig or None
+        Per-trajectory data scaling applied after subsampling in
+        ``DataFactory.load_real()`` and ``DataFactory.load_target()``.  Only
+        the ``pos`` field is scaled; ``label``, ``id``, and ``fps-idx`` are
+        passed through unchanged.  Defaults to ``DataPreprocessingConfig()``
+        (z-score standardization, D-01) — standardization is ON for all
+        existing configs without any YAML change.  Set to ``None`` to disable
+        preprocessing entirely (D-02).
 
     Notes
     -----
@@ -228,6 +277,7 @@ class EvalConfig(BaseModel):
         description="SWD variant for alignment_method='swd': 'swd', 'aswd', 'oswd', 'gswd', 'pswd', or 'maxswd'"
     )
     alignment_preprocessing: AlignmentPreprocessingConfig | None = None
+    data_preprocessing: DataPreprocessingConfig | None = DataPreprocessingConfig()
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "EvalConfig":

@@ -12,6 +12,7 @@ inputs, so chaining ``augment(load_real())`` is inherently safe.
 """
 
 # stdlib first
+import logging
 import math
 import random
 from pathlib import Path  # noqa: F401  (available for future use)
@@ -82,6 +83,7 @@ class DataFactory:
         self._synthetic_target: dict[int, zRegPointCloud] | None = None
         self._source_dataset: dict[int, zRegPointCloud] | None = None
         self._transform_spec: dict | None = None
+        self._preprocessing_stats: dict | None = None
 
     def load_real(self) -> dict[int, zRegPointCloud]:
         """Load the real dataset from disk (lazy, cached).
@@ -117,6 +119,7 @@ class DataFactory:
             )
 
         dataset = self._subsample_to_max(dataset)
+        dataset = self._standardize(dataset)
         self._real_dataset = dataset
         return dataset
 
@@ -169,6 +172,7 @@ class DataFactory:
             )
 
         dataset = self._subsample_to_max(dataset)
+        dataset = self._standardize(dataset, stats=self._preprocessing_stats)
         self._target_dataset = dataset
         return dataset
 
@@ -572,6 +576,94 @@ class DataFactory:
             scale=1.0,
         )
         return apply_rigid(dataset, tf)
+
+    def _standardize(
+        self,
+        dataset: dict[int, zRegPointCloud],
+        stats: dict | None = None,
+    ) -> dict[int, zRegPointCloud]:
+        """Apply per-trajectory scaling to the ``pos`` field of every frame.
+
+        When ``self.config.data_preprocessing`` is ``None``, returns ``dataset``
+        unchanged by reference (no-op early return).
+
+        Statistics are computed globally across all frames (concatenated pos
+        tensors) when ``stats`` is ``None``; in that case the computed stats are
+        stored in ``self._preprocessing_stats`` for reuse by
+        ``load_target()`` in paired mode.  When ``stats`` is provided (not
+        ``None``), it is used directly without updating ``self._preprocessing_stats``
+        — the target reuses source statistics by reference (D-03).
+
+        Only the ``pos`` field is scaled; ``label``, ``id``, and ``fps-idx``
+        are passed through unchanged.
+
+        Parameters
+        ----------
+        dataset : dict[int, zRegPointCloud]
+            Input trajectory.  Not modified.
+        stats : dict or None
+            Pre-computed statistics dict with keys ``"mean"``, ``"std"``,
+            ``"median"``, ``"iqr"``, ``"min"``, ``"max"`` (each a Tensor of
+            shape ``[3]``).  When ``None``, statistics are computed from
+            ``dataset`` and stored in ``self._preprocessing_stats``.
+
+        Returns
+        -------
+        dict[int, zRegPointCloud]
+            New trajectory with scaled ``pos``; all other fields preserved.
+            Returns the input ``dataset`` by reference when
+            ``config.data_preprocessing`` is ``None``.
+        """
+        if self.config.data_preprocessing is None:
+            return dataset
+
+        cfg = self.config.data_preprocessing
+        eps = 1e-8
+
+        if stats is None:
+            # Compute statistics globally across all frames (concatenated).
+            all_pos = torch.cat([pc["pos"] for pc in dataset.values()], dim=0)
+            mean = all_pos.mean(dim=0)
+            std = all_pos.std(dim=0)
+            median = torch.quantile(all_pos.float(), 0.5, dim=0)
+            q25 = torch.quantile(all_pos.float(), 0.25, dim=0)
+            q75 = torch.quantile(all_pos.float(), 0.75, dim=0)
+            iqr = q75 - q25
+            min_vals = all_pos.min(dim=0).values
+            max_vals = all_pos.max(dim=0).values
+            stats = {
+                "mean": mean,
+                "std": std,
+                "median": median,
+                "iqr": iqr,
+                "min": min_vals,
+                "max": max_vals,
+            }
+            self._preprocessing_stats = stats
+
+        logging.debug(
+            "DataFactory._standardize: method=%s mean=%s", cfg.method, stats["mean"]
+        )
+
+        result: dict[int, zRegPointCloud] = {}
+        for i, pc in dataset.items():
+            pos = pc["pos"]
+            if cfg.method == "standardize":
+                scaled_pos = (pos - stats["mean"]) / (stats["std"] + eps)
+            elif cfg.method == "normalize":
+                scaled_pos = (pos - stats["min"]) / (stats["max"] - stats["min"] + eps)
+            else:  # robust
+                scaled_pos = (pos - stats["median"]) / (stats["iqr"] + eps)
+                scaled_pos = scaled_pos.clamp(
+                    -cfg.robust_outlier_threshold, cfg.robust_outlier_threshold
+                )
+            result[i] = zRegPointCloud(
+                pos=scaled_pos,
+                label=pc["label"],
+                id=pc["id"],
+            )
+            result[i]["fps-idx"] = pc["fps-idx"]
+        return result
 
     def _subsample_to_max(
         self,

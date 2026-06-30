@@ -172,4 +172,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-29 after Phase 41 — alignment preprocessing (PCA rotation + velocity landmarks) added to AlignmentStage; ALIGN-06 complete; 1118 tests pass*
+*Last updated: 2026-06-30 after Phase 42 — Sobol quasi-random search added as default HPO strategy (`search_strategy="sobol"`); SobolSearch class with SOBOL_MIN_TRIALS=8 fallback to RandomSearch; sobol_seed/sobol_randomize config fields; OPT-04 complete; 1132 tests pass*

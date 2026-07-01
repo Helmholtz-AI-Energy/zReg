@@ -36,7 +36,7 @@ test_commit: e5088c7
 
 ## Summary
 
-Phase 43 adds `DataPreprocessingConfig` (Pydantic v2 model) and wires per-trajectory scaling into `DataFactory.load_real()` / `load_target()`. The Pydantic model contracts are correct (`extra="forbid"`, `Literal` for method, eps placed in denominators). The three scaling formulas are mathematically sound for the common case. One crash path (CR-01), one silent NaN path (WR-01), a call-ordering hazard (WR-02), and a shared mutable default (WR-03) were identified and fixed in commit `00bfd73`. Test coverage gaps for these edge cases (IN-02, IN-03) remain open.
+Phase 43 adds `DataPreprocessingConfig` (Pydantic v2 model) and wires per-trajectory scaling into `DataFactory.load_real()` / `load_target()`. The Pydantic model contracts are correct (`extra="forbid"`, `Literal` for method, eps placed in denominators). The three scaling formulas are mathematically sound for the common case. One crash path (CR-01), one silent NaN path (WR-01), a call-ordering hazard (WR-02), and a shared mutable default (WR-03) were identified and fixed in commit `00bfd73`. Regression tests for those fixes (IN-02, IN-03) were added in commit `e5088c7`. Two Info findings remain open: IN-01 (dtype inconsistency in the stats dict — `mean`/`std`/`min`/`max` preserve the input dtype while `median`/`iqr` are forced to float32) and IN-04 (weak assertion in `test_load_target_without_prior_load_real_computes_own_stats` — only checks `is not None`, not that stats match the mock data).
 
 ## Critical Issues
 

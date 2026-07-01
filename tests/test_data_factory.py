@@ -1329,6 +1329,24 @@ class TestDataPreprocessing:
         all_pos = torch.cat([pc["pos"] for pc in result.values()], dim=0)
         assert torch.isfinite(all_pos).all()
 
+    def test_standardize_empty_dataset_no_crash(self):
+        """Empty dataset returns empty dict without raising RuntimeError (IN-02 / CR-01 regression)."""
+        factory = self._make_factory(method="standardize")
+        result = factory._standardize({})
+        assert result == {}
+
+    def test_standardize_single_point_no_nan(self):
+        """Single point across all frames: Bessel-corrected std is NaN but guard replaces it with 0 (IN-03 / WR-01 regression)."""
+        factory = self._make_factory(method="standardize")
+        pc = zRegPointCloud(
+            pos=torch.tensor([[1.0, 2.0, 3.0]]),
+            label=torch.zeros(1, dtype=torch.long),
+            id=torch.zeros(1, dtype=torch.long),
+        )
+        pc["fps-idx"] = None
+        result = factory._standardize({0: pc})
+        assert torch.isfinite(result[0]["pos"]).all()
+
     def test_preprocessing_none_passthrough(self):
         """When data_preprocessing=None, _standardize returns same dict object (identity)."""
         factory = self._make_factory(preprocessing=False)

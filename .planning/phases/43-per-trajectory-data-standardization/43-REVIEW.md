@@ -17,19 +17,22 @@ findings:
 fixed:
   critical: 1
   warning: 3
+  info: 2
 open:
-  info: 4
+  info: 2
 status: fixes_applied
 fix_commit: 00bfd73
+test_commit: e5088c7
 ---
 
 # Phase 43: Code Review Report
 
 **Reviewed:** 2026-06-30T12:00:00Z
 **Fixed:** 2026-06-30T12:00:00Z (commit `00bfd73`)
+**Tests:** 2026-07-01 (commit `e5088c7`)
 **Depth:** standard
 **Files Reviewed:** 4
-**Status:** fixes_applied — all Critical + Warning findings resolved; 4 Info findings remain open
+**Status:** fixes_applied — all Critical + Warning resolved; IN-02 + IN-03 closed by regression tests; IN-01 + IN-04 remain open
 
 ## Summary
 
@@ -126,7 +129,7 @@ data_preprocessing: DataPreprocessingConfig | None = Field(
 all_pos = torch.cat([pc["pos"] for pc in dataset.values()], dim=0).float()
 ```
 
-### IN-02: No test for empty-dataset crash (CR-01 coverage gap)
+### IN-02: No test for empty-dataset crash (CR-01 coverage gap) ✓ CLOSED
 
 **File:** `tests/test_data_factory.py`
 **Issue:** `TestDataPreprocessing` has no test that passes `{}` to `_standardize`. The crash identified in CR-01 is undetected by the test suite. After CR-01 is fixed, a regression test should be added to confirm graceful handling.
@@ -139,7 +142,7 @@ def test_standardize_empty_dataset_no_crash(self):
     assert result == {}
 ```
 
-### IN-03: No test for single-point NaN propagation (WR-01 coverage gap)
+### IN-03: No test for single-point NaN propagation (WR-01 coverage gap) ✓ CLOSED
 
 **File:** `tests/test_data_factory.py`
 **Issue:** The existing `test_zero_std_no_error` uses 10 identical points, producing `std = 0.0` (not NaN). The case of exactly 1 point total — where `std(dim=0, correction=1)` returns NaN — is untested. After WR-01 is fixed, a guard test should be added.

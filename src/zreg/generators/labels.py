@@ -67,9 +67,9 @@ def generate_labels(
     """
     if n_classes < 1:
         raise ValueError(f"n_classes must be >= 1, got {n_classes}")
+    result = copy.deepcopy(trajectory)
     if seed is not None:
         torch.manual_seed(seed)
-    result = copy.deepcopy(trajectory)
     for pc in result.values():
         pos = pc["pos"]  # shape (N, 3)
         seeds = torch.randn(n_classes, 3, dtype=pos.dtype, device=pos.device)

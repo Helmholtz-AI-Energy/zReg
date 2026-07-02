@@ -101,9 +101,13 @@ def _apply_matrix(
         homo = torch.hstack([pos, ones])
         # Apply transform: (N, 4) @ (4, 4).T  →  (N, 4)
         transformed_full = homo @ M_cast.T
-        # Defensive w-divide (mirrors transform_points_homogeneous)
+        # Defensive w-divide: clamp magnitude while preserving sign to avoid
+        # sign flip (e.g. clamping w=-1.0 to +eps would invert all coords).
+        # For w near zero, default to +eps (same as existing behaviour for
+        # the rigid/affine use-case where M[3,3]=1 so w is always 1.0).
         w = transformed_full[:, 3:]
-        w = torch.clamp(w, min=torch.finfo(pos.dtype).eps)
+        eps = torch.finfo(pos.dtype).eps
+        w = torch.where(w.abs() < eps, torch.full_like(w, eps) * w.sign().clamp(min=1), w)
         pc["pos"] = transformed_full[:, :3] / w
     return result
 

@@ -7,6 +7,7 @@ from ._types import MstepResult, EstepResult
 from .kernels import rbf_kernel_matrix
 from .. import transforms as tf
 from ..utils import normalize_point_cloud, squared_kernel_sum
+from ..validation import _validate_tensors
 
 __all__ = ["NonRigidCPD", "ConstrainedNonRigidCPD"]
 
@@ -45,6 +46,7 @@ class NonRigidCPD(CoherentPointDrift):
         self._tf_type = tf.NonRigidTransformation
         self._beta = beta
         self._lmd = lmd
+        self._normalized_source = None
         self._tf_obj = None
         if self._source is not None:
             self._normalized_source, _ = normalize_point_cloud(self._source)
@@ -60,6 +62,9 @@ class NonRigidCPD(CoherentPointDrift):
         source_colors : torch.Tensor | None
             Source color information.
         """
+        _validate_tensors(source, names=["source"])
+        if source_colors is not None:
+            _validate_tensors(source, source_colors, names=["source", "source_colors"])
         self._source = source
         self._normalized_source, _ = normalize_point_cloud(self._source)
         self._tf_obj = self._tf_type(None, self._normalized_source, self._beta)
@@ -219,6 +224,7 @@ class ConstrainedNonRigidCPD(CoherentPointDrift):
         self._beta = beta
         self._lmd = lmd
         self.alpha = alpha
+        self._normalized_source = None
         self._tf_obj = None
         self.idx_source = idx_source
         self.idx_target = idx_target
@@ -236,6 +242,9 @@ class ConstrainedNonRigidCPD(CoherentPointDrift):
         source_colors : torch.Tensor | None
             Source color information.
         """
+        _validate_tensors(source, names=["source"])
+        if source_colors is not None:
+            _validate_tensors(source, source_colors, names=["source", "source_colors"])
         self._source = source
         self._normalized_source, _ = normalize_point_cloud(self._source)
         self._tf_obj = self._tf_type(None, self._normalized_source, self._beta)

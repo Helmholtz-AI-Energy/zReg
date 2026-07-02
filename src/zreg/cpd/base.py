@@ -46,13 +46,15 @@ class CoherentPointDrift(ABC):
     _N_DIM = 3
     _N_COLOR = 3
 
+    transformation: object | None  # Set to a Transformation instance after registration
+
     def __init__(
         self,
         source: torch.Tensor | None = None,
         source_colors: torch.Tensor | None = None,
         use_color: bool = False,
         use_cuda: bool = False,
-        log_freq: int = True,
+        log_freq: int = 100,
     ) -> None:
         """Initialize CPD object."""
         self._source = source
@@ -60,6 +62,7 @@ class CoherentPointDrift(ABC):
         self._tf_type = None  # Transformation type (set in subclasses)
         self._callbacks: list[Callable] = []
         self._use_color = use_color
+        self._use_cuda = use_cuda
         if use_color:
             if source_colors is None:
                 raise ValueError(
@@ -222,8 +225,8 @@ class CoherentPointDrift(ABC):
         target: torch.Tensor,
         estep_res: EstepResult,
         sigma2_p: float | None = None,
-        target_colors: torch.Tensor | None = None,
         source_colors: torch.Tensor | None = None,
+        target_colors: torch.Tensor | None = None,
     ) -> MstepResult:
         """Perform the Maximization step of the EM algorithm.
 
@@ -238,10 +241,10 @@ class CoherentPointDrift(ABC):
             Result from expectation step.
         sigma2_p : float | None
             Previous variance.
-        target_colors : torch.Tensor | None
-            Target color information.
         source_colors : torch.Tensor | None
             Source color information.
+        target_colors : torch.Tensor | None
+            Target color information.
 
         Returns
         -------
@@ -253,8 +256,8 @@ class CoherentPointDrift(ABC):
             target,
             estep_res,
             sigma2_p,
-            target_colors=target_colors,
             source_colors=source_colors,
+            target_colors=target_colors,
         )
         self.transformation = ret.transformation
         return ret
@@ -266,8 +269,8 @@ class CoherentPointDrift(ABC):
         target: torch.Tensor,
         estep_res: EstepResult,
         sigma2_p: float | None = None,
-        target_colors: torch.Tensor | None = None,
         source_colors: torch.Tensor | None = None,
+        target_colors: torch.Tensor | None = None,
     ) -> MstepResult:
         """Internal maximization step implementation.
 
@@ -283,10 +286,10 @@ class CoherentPointDrift(ABC):
             Result from expectation step.
         sigma2_p : float | None
             Previous variance.
-        target_colors : torch.Tensor | None
-            Target color information.
         source_colors : torch.Tensor | None
             Source color information.
+        target_colors : torch.Tensor | None
+            Target color information.
 
         Returns
         -------

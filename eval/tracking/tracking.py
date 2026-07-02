@@ -12,10 +12,28 @@ import csv
 import datetime
 import importlib.metadata
 import json
+import os
 import subprocess
 from pathlib import Path
 
 __all__ = ["log_run"]
+
+
+def _validate_run_id(run_id: str) -> None:
+    """Validate that *run_id* is safe to use as a filename stem.
+
+    Raises
+    ------
+    ValueError
+        If *run_id* is empty, contains a path separator, or starts with
+        ``".."`` or ``"/"``.
+    """
+    if not run_id:
+        raise ValueError("run_id must be a non-empty string")
+    if os.sep in run_id or (os.altsep and os.altsep in run_id):
+        raise ValueError(f"run_id must not contain path separators: {run_id!r}")
+    if run_id.startswith("..") or run_id.startswith("/"):
+        raise ValueError(f"run_id must not begin with '..' or '/': {run_id!r}")
 
 
 def log_run(
@@ -50,7 +68,9 @@ def log_run(
     ----------
     run_id : str
         Caller-provided identifier for this run.  Used as the stem of the
-        output filenames (``{run_id}.json``, ``{run_id}.csv``).
+        output filenames (``{run_id}.json``, ``{run_id}.csv``).  Must be a
+        non-empty string that does not contain path separators or begin with
+        ``".."`` or ``"/"``.
     dataset_path : str or Path
         Path to the dataset file used in this experiment.
     frame_indices : list of int
@@ -79,18 +99,29 @@ def log_run(
 
     Raises
     ------
+    ValueError
+        If ``run_id`` is empty, contains a path separator, or begins with
+        ``".."`` or ``"/"``.
+    FileExistsError
+        If a file named ``{run_id}.json`` or ``{run_id}.csv`` already exists
+        in ``output_dir``.  Use a unique ``run_id`` or remove the existing
+        files before calling this function.
     OSError
         If ``output_dir`` cannot be created or the output files cannot be
         written (e.g. permission denied, disk full).  No exception is raised
         for ``git_hash`` or ``zreg_version`` lookup failures — those silently
         fall back to ``"unknown"``.
     """
+    # --- validate run_id to prevent path traversal ---
+    _validate_run_id(run_id)
+
     # --- auto-capture git_hash ---
     try:
         result = subprocess.run(
             ["git", "rev-parse", "HEAD"],
             capture_output=True,
             text=True,
+            timeout=5,
         )
         if result.returncode == 0:
             git_hash = result.stdout.strip()
@@ -125,13 +156,20 @@ def log_run(
     # --- ensure output directory exists ---
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
-    # --- write JSON ---
+    # --- guard against run_id reuse ---
     json_path = Path(output_dir) / f"{run_id}.json"
+    csv_path = Path(output_dir) / f"{run_id}.csv"
+    if json_path.exists() or csv_path.exists():
+        raise FileExistsError(
+            f"Run ID {run_id!r} already exists in {output_dir!r}. "
+            "Use a unique run_id or remove the existing files."
+        )
+
+    # --- write JSON ---
     with open(json_path, "w") as f:
         json.dump(record, f, indent=2, default=str)
 
     # --- write CSV ---
-    csv_path = Path(output_dir) / f"{run_id}.csv"
     csv_record = {**record, "frame_indices": str(frame_indices)}
     with open(csv_path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=list(record.keys()))

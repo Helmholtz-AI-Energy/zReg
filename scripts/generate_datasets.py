@@ -22,6 +22,7 @@ Run:
     python scripts/generate_datasets.py
 """
 
+import hashlib
 import sys
 from pathlib import Path
 
@@ -148,6 +149,8 @@ def sample_bowl_frame(
     batch_mult: int = 10,
 ) -> np.ndarray:
     """Uniform sample inside bowl(R, d) via rejection sampling."""
+    if n <= 0:
+        return np.empty((0, 3), dtype=np.float32)
     collected: list[np.ndarray] = []
     total = 0
     batch = max(n * batch_mult, 2_000)
@@ -287,18 +290,29 @@ def save_as_csv(
     path: Path,
     chunk_frames: int = 50,
 ) -> None:
-    """Write trajectory to CSV, flushing every chunk_frames frames to cap RAM."""
+    """Write trajectory to CSV, flushing every chunk_frames frames to cap RAM.
+
+    Writes to a sibling .csv.tmp file first, then renames atomically on
+    success.  This prevents a partially written file from being mistaken for
+    a complete one on re-run if the process is interrupted mid-write.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path   = path.with_suffix(".csv.tmp")
     frames     = sorted(traj.keys())
     total_rows = 0
     first      = True
 
-    for start in range(0, len(frames), chunk_frames):
-        chunk = frames[start : start + chunk_frames]
-        df    = pd.concat([_frame_to_df(fi, traj[fi]) for fi in chunk])
-        df.to_csv(path, index=False, mode="w" if first else "a", header=first)
-        total_rows += len(df)
-        first = False
+    try:
+        for start in range(0, len(frames), chunk_frames):
+            chunk = frames[start : start + chunk_frames]
+            df    = pd.concat([_frame_to_df(fi, traj[fi]) for fi in chunk])
+            df.to_csv(tmp_path, index=False, mode="w" if first else "a", header=first)
+            total_rows += len(df)
+            first = False
+        tmp_path.rename(path)  # atomic on POSIX; same filesystem guaranteed
+    except BaseException:
+        tmp_path.unlink(missing_ok=True)
+        raise
 
     print(f"    → {path.relative_to(ROOT)}  ({total_rows:,} rows)")
 
@@ -324,9 +338,35 @@ def generate_fully_synthetic(rng: np.random.Generator) -> None:
             save_as_csv(traj, out_path)
 
 
+def _derive_seed(src_name: str, aug_type: str, value: float) -> int:
+    """Derive a deterministic but source/variant-specific seed.
+
+    Uses MD5 over the canonical key string so that each (source, aug_type,
+    value) triple gets an independent seed, preventing identical noise or
+    dropout patterns across sources.
+    """
+    digest = hashlib.md5(f"{src_name}_{aug_type}_{value}".encode()).hexdigest()
+    return int(digest[:8], 16) & 0x7FFF_FFFF  # positive int32
+
+
 def generate_semi_synthetic() -> None:
     print("\n=== Semi-synthetic datasets ===")
     for src_name, src_cfg in REAL_SOURCES.items():
+        # Determine which (aug_type, param_name, value) pairs still need work
+        # before paying the I/O cost of loading the source dataset.
+        pending: list[tuple[str, str, float, Path]] = []
+        for aug_type, param_list in AUGMENTATION_GRID.items():
+            for param_name, value in param_list:
+                label    = f"{param_name}{value:.1f}"
+                name     = f"{src_name}_{aug_type}_{label}"
+                out_path = SEMI_DIR / name / f"{name}.csv"
+                if not out_path.exists():
+                    pending.append((aug_type, param_name, value, out_path))
+
+        if not pending:
+            print(f"\n  skip (all exist): {src_name}")
+            continue
+
         print(f"\n  loading {src_name} …")
         if src_cfg["fmt"] == "tracklets":
             dataset, _ = load_data_from_tracklets(str(src_cfg["path"]), device="cpu")
@@ -334,20 +374,16 @@ def generate_semi_synthetic() -> None:
             dataset = load_shah_from_csv(src_cfg["path"], device="cpu")
         print(f"  loaded {len(dataset)} frames")
 
-        for aug_type, param_list in AUGMENTATION_GRID.items():
-            for param_name, value in param_list:
-                label    = f"{param_name}{value:.1f}"
-                name     = f"{src_name}_{aug_type}_{label}"
-                out_path = SEMI_DIR / name / f"{name}.csv"
-                if out_path.exists():
-                    print(f"    skip (exists): {name}")
-                    continue
-                print(f"    {aug_type} {param_name}={value} …", end="  ", flush=True)
-                # Note: dropout RNG changed from np.random (pre-Phase 28) to torch.randperm via DataFactory.drop_points; dropout point selection differs but fraction and reproducibility are preserved (D-04/D-05).
-                _aug_key = {"noise": "sigma", "scaling": "scale_factor", "dropout": "dropout_fraction"}[aug_type]
-                _cfg = EvalConfig(data_path="", augmentation_params={_aug_key: value})
-                augmented = DataFactory(_cfg).augment(dataset)
-                save_as_csv(augmented, out_path)
+        for aug_type, param_name, value, out_path in pending:
+            print(f"    {aug_type} {param_name}={value} …", end="  ", flush=True)
+            # Note: dropout RNG changed from np.random (pre-Phase 28) to torch.randperm via DataFactory.drop_points; dropout point selection differs but fraction and reproducibility are preserved (D-04/D-05).
+            _aug_key = {"noise": "sigma", "scaling": "scale_factor", "dropout": "dropout_fraction"}[aug_type]
+            _cfg = EvalConfig(data_path="", augmentation_params={_aug_key: value})
+            # Set a source/variant-specific seed so that noise and dropout
+            # patterns are independent across sources and aug types (WR-03).
+            torch.manual_seed(_derive_seed(src_name, aug_type, value))
+            augmented = DataFactory(_cfg).augment(dataset)
+            save_as_csv(augmented, out_path)
 
 
 # ---------------------------------------------------------------------------

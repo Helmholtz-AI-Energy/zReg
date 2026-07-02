@@ -152,9 +152,8 @@ def create_pairwise_distance_matrix(
             window_min = i - window
             if window_min < 0:
                 window_min = 0
-            window_max = i + window
-            if window_max > y_samples + 1:
-                window_max = y_samples + 1
+            # +1 so that range(window_min, window_max) includes j = i + window
+            window_max = min(i + window + 1, y_samples + 1)
         else:
             window_min, window_max = 0, y_samples + 1
 
@@ -376,9 +375,8 @@ def create_pairwise_distance_matrix_given_rigid_rot(
             window_min = i - window
             if window_min < 0:
                 window_min = 0
-            window_max = i + window
-            if window_max > y_samples + 1:
-                window_max = y_samples + 1
+            # +1 so that range(window_min, window_max) includes j = i + window
+            window_max = min(i + window + 1, y_samples + 1)
         else:
             window_min, window_max = 0, y_samples + 1
 

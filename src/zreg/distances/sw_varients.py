@@ -30,7 +30,10 @@ def proj_onto_unit_sphere(vectors):
     """
     input: vectors: [batchsize, num_projs, dim]
     """
-    return vectors / torch.sqrt(torch.sum(vectors**2, dim=2, keepdim=True))
+    norm = torch.sqrt(torch.sum(vectors**2, dim=2, keepdim=True))
+    # Clamp to avoid division by zero for zero-length vectors
+    norm = torch.clamp(norm, min=torch.finfo(vectors.dtype).eps)
+    return vectors / norm
 
 
 def _sample_minibatch_orthogonal_projections(batch_size, dim, num_projections):
@@ -50,6 +53,11 @@ def compute_practical_moments_sw(x, y, num_projections=30, degree=2.0, **kwargs)
     if x.dtype != y.dtype:
         raise RuntimeError(f"Different dtypes btw x/y : {x.dtype}/{y.dtype}")
     dim = x.size(2)
+    if y.size(2) != dim:
+        raise ValueError(
+            f"Expected y to have dimension {dim} to match x and projections, "
+            f"but got y.size(2)={y.size(2)}"
+        )
     batch_size = x.size(0)
     projections = minibatch_rand_projections(batch_size, dim, num_projections)
     projections = projections.to(dtype=x.dtype, device=x.device)
@@ -161,6 +169,14 @@ class BaseWD(nn.Module):
 
     def forward(self, x, y, *args, **kwargs):
         _validate_tensors(x, y, names=["x", "y"])
+
+        # Validate minimum dimensions before unsqueeze to avoid silent shape errors
+        if x.ndim < 2 or y.ndim < 2:
+            raise ValueError(
+                f"Expected x and y to have at least 2 dimensions (n_points, dim), "
+                f"but got x.ndim={x.ndim}, y.ndim={y.ndim}"
+            )
+
         xsqueeze = False
         if x.ndim < 3 or self.nobatchdim:
             x = x.unsqueeze(0)
@@ -223,10 +239,17 @@ class AdaptiveSlicedWassersteinDistance(BaseWD):
         self.step_projs = step_projs
         self.k = k
         self.loop_rate_thresh = loop_rate_thresh
-        self.projs_history = projs_history
         self.max_slices = max_slices
         self.epsilon = epsilon
         self.degree = degree
+        # Append MPI rank to filename to prevent race conditions when multiple
+        # processes write/delete the same file during parallel execution.
+        if projs_history is not None:
+            rank = int(os.environ.get("OMPI_COMM_WORLD_RANK", 0))
+            if rank != 0:
+                base, ext = os.path.splitext(projs_history)
+                projs_history = f"{base}_rank{rank}{ext}"
+        self.projs_history = projs_history
 
     def _forward(self, x, y, *args, **kwargs):
         """
@@ -351,6 +374,13 @@ class OrthogonalSlicedWassersteinDistance(BaseWD):
         """
         x, y have the same shape of [batch_size, num_points_in_point_cloud, dim_of_1_point]
         """
+        dim = x.shape[2]
+        if self.num_projs > dim:
+            raise ValueError(
+                f"OrthogonalSlicedWassersteinDistance requires num_projs <= dim, "
+                f"but got num_projs={self.num_projs}, dim={dim}"
+            )
+
         projections = torch.zeros(
             (x.shape[0], self.num_projs, x.shape[2]),
             dtype=x.dtype,

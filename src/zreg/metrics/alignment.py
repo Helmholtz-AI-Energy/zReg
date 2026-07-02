@@ -61,6 +61,11 @@ def chamfer(
         )
     _validate_tensors(source, target, names=["source", "target"])
 
+    if source.shape[0] == 0:
+        raise ValueError("source must be non-empty (N > 0)")
+    if target.shape[0] == 0:
+        raise ValueError("target must be non-empty (M > 0)")
+
     dist = torch.cdist(source, target, p=2)
     min_src = dist.min(dim=1).values
     min_tgt = dist.min(dim=0).values
@@ -118,6 +123,15 @@ def hausdorff(
         )
     _validate_tensors(source, target, names=["source", "target"])
 
+    if source.shape[0] == 0:
+        raise ValueError("source must be non-empty (N > 0)")
+    if target.shape[0] == 0:
+        raise ValueError("target must be non-empty (M > 0)")
+    if not (0.0 <= percentile <= 100.0):
+        raise ValueError(
+            f"percentile must be in [0, 100], got {percentile}"
+        )
+
     dist = torch.cdist(source, target, p=2)
     min_src = dist.min(dim=1).values
     min_tgt = dist.min(dim=0).values
@@ -127,10 +141,10 @@ def hausdorff(
 
 
 def path_smoothness(path: list[tuple[int, int]]) -> float:
-    """Compute smoothness of a DTW alignment path as variance of slope changes.
+    """Compute smoothness of a DTW alignment path as variance of cross-product curvature.
 
-    Fixes the proto stub which used a plain-slope sum instead of variance of
-    slope changes. Zero variance means perfectly linear (constant-slope) path.
+    Measures how much the alignment path "bends" between consecutive steps.
+    Zero variance means a perfectly straight (constant-direction) path.
 
     Parameters
     ----------
@@ -140,23 +154,31 @@ def path_smoothness(path: list[tuple[int, int]]) -> float:
     Returns
     -------
     float
-        Variance of consecutive slope changes along the path. Returns 0.0 if
-        fewer than 3 points are provided (need at least 2 slopes for a
-        slope-change to exist).
+        Variance of consecutive cross-product values along the path. Returns 0.0
+        if fewer than 3 points are provided (need at least 2 step vectors for a
+        cross-product to exist).
 
     Notes
     -----
-    Slope between step k-1 and step k: (j_k - j_{k-1}) / (i_k - i_{k-1} + 1e-6).
-    Uses unbiased=False so a single slope-change still yields 0.0 (not NaN).
+    Uses the 2-D cross-product of consecutive step vectors to measure curvature,
+    which avoids the numerical instability of slope-based approaches when DTW
+    paths contain axis-aligned (horizontal or vertical) steps.
+    Cross-product: (di1, dj1) x (di2, dj2) = di1*dj2 - di2*dj1.
+    Uses unbiased=False so a single cross-product value still yields 0.0 (not NaN).
     """
     if len(path) < 3:
         return 0.0
 
-    slopes = []
-    for k in range(1, len(path)):
-        dt1 = path[k][0] - path[k - 1][0]
-        dt2 = path[k][1] - path[k - 1][1]
-        slopes.append(dt2 / (dt1 + 1e-6))
-
-    deltas = [slopes[i] - slopes[i - 1] for i in range(1, len(slopes))]
-    return float(torch.tensor(deltas).var(unbiased=False).item())
+    # Step vectors between consecutive path points
+    steps = [
+        (path[k][0] - path[k - 1][0], path[k][1] - path[k - 1][1])
+        for k in range(1, len(path))
+    ]
+    # Signed curvature: cross-product of consecutive 2-D step vectors
+    # (di1, dj1) x (di2, dj2) = di1*dj2 - di2*dj1
+    cross = [
+        steps[i][0] * steps[i + 1][1] - steps[i + 1][0] * steps[i][1]
+        for i in range(len(steps) - 1)
+    ]
+    t = torch.tensor(cross, dtype=torch.float64)
+    return float(t.var(unbiased=False).item())

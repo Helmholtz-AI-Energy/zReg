@@ -193,8 +193,9 @@ class TestOrthogonalSlicedWassersteinDistance:
     def test_forward(self, point_clouds_3d):
         """Test forward pass."""
         x, y = point_clouds_3d
+        # OSWD requires num_projs <= dim; point_clouds_3d has dim=3 so cap at 3
         oswd = sw_varients.OrthogonalSlicedWassersteinDistance(
-            num_projs=50, device="cpu"
+            num_projs=3, device="cpu"
         )
         result = oswd(x, y)
         assert result.ndim == 0

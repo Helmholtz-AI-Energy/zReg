@@ -3,7 +3,7 @@
 # No target_data_format key: load_target() falls back to data_format='tracklets'.
 data_path: /data/external/sample/kobitski_data/12_11_15_embryo_ew_06_Cleaned_BackTracked_Oriented.tracklets
 data_format: tracklets
-target_data_path: /data/external/sample/kobitski_data/12_11_15_embryo_ew_06_Cleaned_BackTracked_Oriented.tracklets
+target_data_path: /data/external/sample/kobitski_data/12_11_15_embryo_ew_08_Cleaned_BackTracked_Oriented.tracklets
 pipeline_mode: paired
 tier: sanity
 n_trials: 3

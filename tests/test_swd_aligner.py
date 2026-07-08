@@ -225,14 +225,21 @@ class TestSlicedWassersteinAligner:
         assert result is not None
         assert isinstance(result, StoredTransform)
 
-    @pytest.mark.parametrize("variant", ["swd", "aswd", "oswd", "gswd", "pswd"])
-    def test_swd_variant_convergence(self, synthetic_clouds_30deg, variant):
+    @pytest.mark.parametrize("variant,extra_kwargs", [
+        ("swd", {}),
+        ("aswd", {}),
+        ("oswd", {"num_projs": 3}),  # OSWD requires num_projs <= dim=3 for 3D data
+        ("gswd", {}),
+        ("pswd", {}),
+    ])
+    def test_swd_variant_convergence(self, synthetic_clouds_30deg, variant, extra_kwargs):
         """Test convergence for all SWD variants (parametrized, ALIGN-05-04)."""
         source, target, rotation, translation = synthetic_clouds_30deg
         aligner = SlicedWassersteinAligner(
             variant=variant,
             num_iterations=40,
-            learning_rate=1e-3
+            learning_rate=1e-3,
+            **extra_kwargs
         )
 
         result = aligner.register(source, target)

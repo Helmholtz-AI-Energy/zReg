@@ -2,30 +2,23 @@
 
 ## Milestones
 
+- ✅ **v1.4 Trajectory Alignment & Optimization Enhancements** — Phases 39–43 (shipped 2026-07-08) — [archive](.planning/milestones/v1.4-ROADMAP.md)
 - ✅ **v1.2 Evaluation Framework & Debt Resolution** — Phases 12–38 (shipped 2026-06-26) — [archive](.planning/milestones/v1.2-ROADMAP.md)
 - ✅ **v1.1 Code Quality & Refactoring** — Phases 6–11.1 (shipped 2026-05-13) — [archive](.planning/milestones/v1.1-ROADMAP.md)
 - ✅ **v1.0 Consolidation** — Phases 1–5 (shipped 2026-04-09) — [archive](.planning/milestones/v1.0-ROADMAP.md)
 
 ## Phases
 
-<details open>
-<summary>🚀 v1.4 Trajectory Alignment & Optimization Enhancements (Phases 39–43) — IN PROGRESS</summary>
+<details>
+<summary>✅ v1.4 Trajectory Alignment & Optimization Enhancements (Phases 39–43) — SHIPPED 2026-07-08</summary>
 
 - [x] Phase 39: ICP Registration as CPD Alternative (2/2 plans) — completed 2026-06-29
 - [x] Phase 40: Sliced Wasserstein Variants as Alignment Method (4/4 plans) — completed 2026-06-29
-- [x] Phase 41: Alignment Preprocessing — Principal Axes + Velocity Landmarks (2/2 plans) — planned (completed 2026-06-29)
-  - [x] 41-01-PLAN.md — preprocessing.py library + config/types contracts (Wave 1)
-  - [x] 41-02-PLAN.md — alignment.py stage wiring + full test suite (Wave 2)
+- [x] Phase 41: Alignment Preprocessing — Principal Axes + Velocity Landmarks (2/2 plans) — completed 2026-06-29
 - [x] Phase 42: Sobol Quasi-Random Search as Default (2/2 plans) — completed 2026-06-30
-  - [x] 42-01-PLAN.md — SobolSearch class + config fields + optimizer dispatcher (Wave 1) — completed 2026-06-30
-  - [x] 42-02-PLAN.md — TestSobolSearch unit tests + optimizer integration tests (Wave 2) — completed 2026-06-30
-
 - [x] Phase 43: Per-Trajectory Data Standardization (1/1 plans) — completed 2026-06-30
-  - [x] 43-01-PLAN.md — DataPreprocessingConfig + DataFactory._standardize + test suite (Wave 1) — completed 2026-06-30
 
-**Status**: Phase 39–43 complete (11/11 plans). v1.4 milestone complete.
-
-Full details: [.planning/REQUIREMENTS-v1.4.md](.planning/REQUIREMENTS-v1.4.md)
+Full details: [.planning/milestones/v1.4-ROADMAP.md](.planning/milestones/v1.4-ROADMAP.md)
 
 </details>
 
@@ -99,6 +92,6 @@ Full details: [.planning/milestones/v1.0-ROADMAP.md](.planning/milestones/v1.0-R
 | v1.0 Consolidation | 1–5 (5) | 13 | ✅ Complete | 2026-04-09 |
 | v1.1 Code Quality & Refactoring | 6–11.1 (7) | 14 | ✅ Complete | 2026-05-13 |
 | v1.2 Evaluation Framework & Debt Resolution | 12–38 (27) | 55 | ✅ Complete | 2026-06-26 |
-| v1.4 Trajectory Alignment & Optimization Enhancements | 39–43 (5) | 11 | 🚀 IN PROGRESS (10/11 complete) | (target 2026-08-09) |
+| v1.4 Trajectory Alignment & Optimization Enhancements | 39–43 (5) | 11 | ✅ Complete | 2026-07-08 |
 
-_After phases 39-43: config-driven ICP + SWD alignment, preprocessing, Sobol search, data standardization. All parallel execution. Ready for `/gsd:plan-phase 39` to start._
+_Next milestone: run `/gsd:new-milestone` to define scope, requirements, and phases._

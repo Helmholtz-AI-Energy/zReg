@@ -2,29 +2,13 @@
 
 ## Current State
 
-**Shipped:** v1.0 Consolidation — 2026-04-09 | v1.1 Code Quality & Refactoring — 2026-05-13 | **v1.2 Evaluation Framework & Debt Resolution — 2026-06-26**
+**Shipped:** v1.0 Consolidation — 2026-04-09 | v1.1 Code Quality & Refactoring — 2026-05-13 | v1.2 Evaluation Framework & Debt Resolution — 2026-06-26 | **v1.4 Trajectory Alignment & Optimization Enhancements — 2026-07-08**
 
-zReg is a Python library for GPU-accelerated 3D point cloud registration, temporal alignment, and label (celltype) transfer using PyTorch — now paired with a complete, config-driven **evaluation framework** at the repo root (`eval/`). v1.2 (27 phases, 55 plans, 2026-05-13 → 2026-06-26) delivered: `EvalConfig` + `DataFactory`; `MetricsEngine` + frozen result types; isolated `AlignmentStage`/`LabelTransferStage`; `EvaluationRunner` + `viz.py`; a 3-tier `HyperparamOptimizer` (Optuna + MPI-parallel Propulate); a `run_eval.py` CLI with scenario configs; dual-mode evaluation (paired source↔target and synthetic transform-spec target generation with GT-aware HPO); heterogeneous cross-format (tracklets/CSV) paired evaluation; CPD-aligned trajectory output with stored-transform reuse (fixed the 8× scale convergence failure); trajectory export for LaTeX/pgfplots; a per-frame visualisation refactor; and full carry-forward debt closure incl. the codebase-wide `color`→`label` field rename. **976 tests pass, 18 skipped.** Closed via the v1.2 milestone audit (`.planning/v1.2-MILESTONE-AUDIT.md`).
+zReg is a Python library for GPU-accelerated 3D point cloud registration, temporal alignment, and label (celltype) transfer using PyTorch — paired with a complete, config-driven **evaluation framework** at the repo root (`eval/`). v1.4 (5 phases, 11 plans, 2026-06-29 → 2026-07-08) expanded the alignment and optimization pipeline: ICP (Open3D point-to-point) and SWD variants (SWD/ASWD/OSWD/GSWD/PSWD) as registration alternatives; preprocessing via `compute_pca_rotation` + `detect_velocity_landmarks`; Sobol quasi-random search as default HPO (`SOBOL_MIN_TRIALS=8` fallback); and per-trajectory z-score standardization as default data preprocessing — all config-driven and backward compatible. **1,156 tests pass, 18 skipped.**
 
 ## Next Milestone Goals
 
-**v1.4 (2026-06-29 onwards): Trajectory Alignment & Optimization Enhancements**
-
-Expand alignment and optimization pipeline with alternative algorithms and preprocessing. Currently CPD + grid search only; add SWD-based alignment, preprocessing (principal axes + velocity landmarks), Sobol quasi-random search as default, and per-trajectory data standardization. All config-driven with zero breaking changes.
-
-**Goals:**
-1. ICP as CPD alternative (wrap Open3D library)
-2. Sliced Wasserstein variants (SWD, ASWD, OSWD, GSWD, PSWD) as OT alignment
-3. Alignment preprocessing (principal axes alignment + velocity landmark detection)
-4. Sobol quasi-random search as default (grid search remains as optional fallback)
-5. Per-trajectory data standardization as default (with optional normalization)
-
-**Success Criteria:**
-- All 5 methods integrate into `EvalConfig`
-- Config-driven selection via YAML (e.g., `alignment_method: swd`, `search_strategy: grid` to opt out of Sobol)
-- 100% backward compatible (existing CPD + grid search workflows unchanged)
-- 80%+ test coverage for new code paths
-- <5% performance regression on existing pipelines
+Run `/gsd:new-milestone` to define v1.5 scope, requirements, and phases.
 
 ## What This Is
 
@@ -61,7 +45,15 @@ Every existing capability works correctly, fails informatively, and is covered b
 
 ### Active
 
-(None — v1.2 shipped all planned requirements. Define the next set via `/gsd:new-milestone`.)
+(None — v1.4 shipped all planned requirements. Define the next set via `/gsd:new-milestone`.)
+
+### Validated in v1.4 (2026-07-08)
+
+- ✓ ALIGN-04-01…05: ICP registration (Open3D point-to-point) + StoredTransform + AlignmentStage dispatcher — Phase 39
+- ✓ ALIGN-05-01…05: SlicedWassersteinAligner (SWD/ASWD/OSWD/GSWD/PSWD) + SO(3) projection + AlignmentStage dispatcher — Phase 40
+- ✓ ALIGN-06-01…05: `compute_pca_rotation` + `detect_velocity_landmarks` + `AlignmentPreprocessingConfig` — Phase 41
+- ✓ OPT-04-01…06: `SobolSearch` as default HPO + `SOBOL_MIN_TRIALS=8` fallback + `sobol_seed`/`sobol_randomize` config — Phase 42
+- ✓ DATA-02-01…07: `DataPreprocessingConfig` + `DataFactory._standardize()` per-trajectory z-score as default — Phase 43
 
 ### Validated in v1.2 (2026-06-26)
 

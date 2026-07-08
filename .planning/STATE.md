@@ -1,10 +1,10 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.4
-milestone_name: milestone
-status: Complete
-stopped_at: Phase 43 complete — v1.4 milestone complete (11/11 plans, 1154 tests)
-last_updated: "2026-06-30T15:00:00Z"
+milestone_name: Trajectory Alignment & Optimization Enhancements
+status: Archived
+stopped_at: v1.4 milestone archived 2026-07-08 — 1156 tests pass, all gaps closed
+last_updated: "2026-07-08T00:00:00Z"
 progress:
   total_phases: 43
   completed_phases: 43
@@ -17,19 +17,16 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-29 with v1.4 goals)
+See: .planning/PROJECT.md (updated 2026-07-08 after v1.4 milestone)
 
-**Core value:** Every existing capability works correctly, fails informatively, and is covered by tests — now expanding with alternative alignment algorithms, preprocessing, and optimized hyperparameter search.
-**Current focus:** Phase 43 — Per-Trajectory Data Standardization
+**Core value:** Every existing capability works correctly, fails informatively, and is covered by tests.
+**Current focus:** Planning next milestone — run `/gsd:new-milestone`
 
 ## Current Position
 
-Phase: 43
-Plan: All 80 plans complete
-Milestone: v1.4 Trajectory Alignment & Optimization Enhancements — **COMPLETE** (2026-06-29 → 2026-06-30)
-Phases: 39–43 (5 phases, 11 plans) — all ✅ complete
-Tests: 1154 passed, 18 skipped (baseline after Phase 43)
-Next action: `/gsd:complete-milestone` to archive v1.4
+Milestone: v1.4 Trajectory Alignment & Optimization Enhancements — **ARCHIVED** 2026-07-08
+Tests: 1156 passed, 18 skipped
+Next action: `/gsd:new-milestone` to define v1.5 scope
 
 ## Shipped Milestones
 

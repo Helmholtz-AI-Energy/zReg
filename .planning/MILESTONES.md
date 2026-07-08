@@ -42,6 +42,31 @@
 
 ---
 
+## v1.4 Trajectory Alignment & Optimization Enhancements (Shipped: 2026-07-08)
+
+**Phases completed:** 5 phases (39–43), 11 plans
+**Timeline:** 2026-06-29 → 2026-06-30 (2 days execution); gaps closed 2026-07-08
+**Stats:** 69 commits since v1.2 tag; ~13,665 LOC Python (src/ + eval/)
+**Tests:** 1,156 passed, 18 skipped (all pre-existing failures resolved at close)
+
+**Key accomplishments:**
+
+- `ICPRegistration` wrapping Open3D point-to-point ICP integrated into `AlignmentStage` dispatcher as `alignment_method: icp`; `StoredTransform` normalise→register→denormalise pattern; backward-compatible default (CPD unchanged)
+- `SlicedWassersteinAligner` with 5 SWD variants (SWD/ASWD/OSWD/GSWD/PSWD) via gradient descent + SO(3) SVD projection; `alignment_method: swd` + `swd_variant` YAML selection; MaxSWD deferred to v1.5
+- `src/zreg/preprocessing.py` with `compute_pca_rotation()` (det=+1 guarantee) + `detect_velocity_landmarks()`; `AlignmentPreprocessingConfig` pydantic model; backward-compatible `EvalConfig.alignment_preprocessing` field
+- `SobolSearch` via `scipy.stats.qmc.Sobol` as new default HPO (`search_strategy` defaults to `"sobol"`); `SOBOL_MIN_TRIALS=8` fallback to `RandomSearch`; `sobol_seed`/`sobol_randomize` config fields
+- `DataPreprocessingConfig` pydantic model; `DataFactory._standardize()` per-trajectory z-score; `EvalConfig.data_preprocessing` defaults to live instance (standardization active by default)
+
+**Requirements:** 28/28 satisfied
+
+**Gaps closed at milestone close (2026-07-08):**
+- IN-01 (43): dtype inconsistency in stats dict — all_pos cast to float32 before stats block
+- IN-04 (43): strengthened `test_load_target_without_prior_load_real_computes_own_stats` with allclose check
+- OSWD num_projs constraint: fixed in `test_swd_aligner.py` and `test_distances.py` (num_projs=3 for 3D data)
+- Cross-embryo YAML: `kobitski_vs_kobitski_cross.yaml` target_data_path corrected to ew_08
+
+---
+
 ## v1.2 Evaluation Framework & Debt Resolution (Shipped: 2026-06-26)
 
 **Phases completed:** 27 phases (12–38), 55 plans

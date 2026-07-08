@@ -163,6 +163,53 @@
 
 ---
 
+## Milestone: v1.4 — Trajectory Alignment & Optimization Enhancements
+
+**Shipped:** 2026-07-08
+**Phases:** 5 (39–43) | **Plans:** 11 | **Timeline:** 2 days execution (2026-06-29 → 2026-06-30); gaps closed 2026-07-08
+
+### What Was Built
+
+- `ICPRegistration` (Open3D point-to-point) as `alignment_method: icp` in AlignmentStage dispatcher; StoredTransform pattern
+- `SlicedWassersteinAligner` with 5 SWD variants via gradient descent + SO(3) SVD projection; `alignment_method: swd` + `swd_variant` YAML
+- `src/zreg/preprocessing.py` — `compute_pca_rotation` (det=+1 SVD fix) + `detect_velocity_landmarks`; `AlignmentPreprocessingConfig` pydantic model
+- `SobolSearch` (scipy qmc) as default HPO; `SOBOL_MIN_TRIALS=8` fallback to `RandomSearch`; `sobol_seed`/`sobol_randomize` flat config fields
+- `DataPreprocessingConfig` + `DataFactory._standardize()` per-trajectory z-score; defaults to live instance in `EvalConfig`
+- Gaps closed at milestone-close: IN-01 dtype fix, IN-04 stronger assertion, OSWD num_projs=3 for 3D, cross-embryo YAML target path
+
+### What Worked
+
+- **All 5 phases independent:** parallel execution reduced elapsed time to 2 days for 11 plans. Clear dependency modeling paid off.
+- **StoredTransform reuse:** Extending the existing normalise→compute→denormalise→cache pattern to ICP and SWD kept the aligned-cloud construction path consistent across all 3 methods.
+- **Sobol as opt-out default:** Making `search_strategy` default to `"sobol"` with `SOBOL_MIN_TRIALS=8` fallback was cleaner than opt-in — all existing configs benefit automatically without YAML changes.
+- **`default_factory` for DataPreprocessingConfig:** Defaulting to a live instance (not `None`) activated standardization for all users without requiring migration; the WR-03 shared-mutable-default fix caught this pattern early.
+
+### What Was Inefficient
+
+- **Gaps found at milestone-close, not during execution:** OSWD `num_projs=50 > dim=3` failure, cross-embryo YAML copy-paste error, and IN-01 dtype inconsistency were all addressable during Phase 40/43 execution but surfaced only at close. Running `pytest` more broadly (not just per-phase) during execution would catch these earlier.
+- **Phase 43 planning files only in worktrees:** The `43-per-trajectory-data-standardization/` directory with CONTEXT.md, REVIEW.md, VERIFICATION.md existed only in the worktree, not merged into the main worktree. Planning docs should be committed along with code at merge time.
+- **No milestone audit before close:** Skipped `/gsd:audit-milestone` for v1.4. The gaps found manually at close were exactly what an audit would have surfaced.
+
+### Patterns Established
+
+- `SlicedWassersteinAligner` gradient descent + SO(3) SVD projection (`U @ Vt` with `det=-1` sign fix) — reusable for any rotation-registration over SWD loss
+- OSWD requires `num_projs <= dim` at construction — tests must pass domain-appropriate `num_projs` (not the generic default of 50)
+- `DataPreprocessingConfig` default via `Field(default_factory=DataPreprocessingConfig)` — avoids shared-mutable-default hazard for nested pydantic sub-models
+
+### Key Lessons
+
+1. **Run the full suite at phase completion, not just phase-scoped tests.** The OSWD and cross-embryo failures were in pre-existing test files that weren't in scope for any single phase — only a full run would have caught them.
+2. **Commit planning docs at worktree merge time.** Phase 43 REVIEW.md and VERIFICATION.md were lost to the worktree; they should be included in the `chore: merge executor worktree` commit.
+3. **Run `/gsd:audit-milestone` before `/gsd:complete-milestone`.** The manual gap-finding at close replicated what an audit would have done systematically — and the audit would have caught the YAML bug too.
+
+### Cost Observations
+
+- Model: claude-sonnet-4-6 (quality profile)
+- Sessions: ~3 sessions across 10 days (2 days execution + 8 days gap before close)
+- Notable: shortest milestone by phase count (5) and elapsed execution time (2 days) — parallel independence made planning straightforward
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -172,6 +219,7 @@
 | v1.0 | 5 | 13 | First milestone — established TDD cycle and foundation-first ordering |
 | v1.1 | 7 | 14 | Restructuring milestone — package splits, Protocol APIs, inserted phase for audit gap |
 | v1.2 | 27 | 55 | Feature milestone — repo-root `eval/` framework wrapping existing `zreg.*`; dual-mode evaluation; live-suite audit caught a close-time regression |
+| v1.4 | 5 | 11 | Algorithm expansion — ICP + SWD + preprocessing + Sobol + standardization; all 5 phases independent; gaps closed at close (no audit run) |
 
 ### Cumulative Quality
 
@@ -180,3 +228,4 @@
 | v1.0 | 275 | 23/23 | 7 items (all doc/observability, non-blocking) |
 | v1.1 | +116 (391 total) | 29/29 | 5 items (typing inconsistency, Protocol doc-only, absolute import, config not top-level, no VALIDATION.md) |
 | v1.2 | +585 (976 total) | 30/30 | 5 items (Propulate live-mpirun unverified, 14 phases no VALIDATION.md, empty SUMMARY frontmatter, EXT untracked until close, open CR/WR items) |
+| v1.4 | +180 (1156 total) | 28/28 | 3 items (MaxSWD deferred v1.5, ALIGN-06-05 integration test gap, planning docs only in worktrees) |

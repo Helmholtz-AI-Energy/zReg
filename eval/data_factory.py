@@ -637,13 +637,16 @@ class DataFactory:
             if not dataset:
                 return dataset
             # Compute statistics globally across all frames (concatenated).
-            all_pos = torch.cat([pc["pos"] for pc in dataset.values()], dim=0)
+            # Cast to float32 first so all stat tensors share a consistent dtype
+            # (torch.quantile requires float and would otherwise produce mixed
+            # float32/float64 outputs when pos tensors are float64).
+            all_pos = torch.cat([pc["pos"] for pc in dataset.values()], dim=0).float()
             mean = all_pos.mean(dim=0)
             std = all_pos.std(dim=0)
             std = torch.where(torch.isnan(std), torch.zeros_like(std), std)
-            median = torch.quantile(all_pos.float(), 0.5, dim=0)
-            q25 = torch.quantile(all_pos.float(), 0.25, dim=0)
-            q75 = torch.quantile(all_pos.float(), 0.75, dim=0)
+            median = torch.quantile(all_pos, 0.5, dim=0)
+            q25 = torch.quantile(all_pos, 0.25, dim=0)
+            q75 = torch.quantile(all_pos, 0.75, dim=0)
             iqr = q75 - q25
             min_vals = all_pos.min(dim=0).values
             max_vals = all_pos.max(dim=0).values

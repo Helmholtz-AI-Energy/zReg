@@ -1412,7 +1412,14 @@ class TestDataPreprocessing:
         mock_ds = _make_dataset(n_frames=2, n_points=30, seed=11)
         with patch("eval.data_factory.load_data_from_tracklets", return_value=(mock_ds, {})):
             factory.load_target()
-        assert factory._preprocessing_stats is not None
+        stats = factory._preprocessing_stats
+        assert stats is not None
+        # Verify stats were derived from mock_ds, not a sentinel or stale value.
+        # mock_ds is drawn from N(10, 5^2) so global mean should be near 10 per dim.
+        expected_mean = torch.cat(
+            [pc["pos"] for pc in mock_ds.values()], dim=0
+        ).float().mean(dim=0)
+        assert torch.allclose(stats["mean"], expected_mean, atol=1e-4)
 
     def test_load_real_and_load_target_share_coordinate_space(self):
         """load_real() + load_target() share source stats so displacement is bounded (DATA-02-07)."""

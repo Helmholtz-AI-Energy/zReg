@@ -1454,3 +1454,19 @@ class TestDataPreprocessing:
         tgt_mean = tgt_pos.mean(dim=0)
         # Both are scaled by source stats; raw mean diff was ~40; after sharing stats it's smaller
         assert (src_mean - tgt_mean).abs().max().item() < 10.0
+
+
+class TestSubsampleToMax:
+    """DataFactory._subsample_to_max coverage (data_factory.py:704-718)."""
+
+    def test_oversized_frames_truncated(self):
+        """Frames exceeding max_points_per_frame are truncated to the limit."""
+        cfg = EvalConfig(data_path="x", max_points_per_frame=3)
+        factory = DataFactory(cfg)
+        dataset = {
+            0: zRegPointCloud(pos=torch.randn(10, 3), label=None, id=None),
+            1: zRegPointCloud(pos=torch.randn(2, 3), label=None, id=None),
+        }
+        result = factory._subsample_to_max(dataset)
+        assert result[0]["pos"].shape[0] == 3
+        assert result[1]["pos"].shape[0] == 2

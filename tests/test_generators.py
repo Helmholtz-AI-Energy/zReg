@@ -239,6 +239,12 @@ class TestCorruptionWrappers:
         with pytest.raises(ValueError, match="n_outliers"):
             add_outliers(traj, n_outliers=-1)
 
+    def test_add_outliers_negative_scale_raises(self):
+        """corruption.py:105 — scale < 0 raises ValueError matching 'scale'."""
+        traj = generate_trajectory(n_points=10, n_frames=2, seed=26)
+        with pytest.raises(ValueError, match="scale"):
+            add_outliers(traj, n_outliers=2, scale=-1.0)
+
     def test_add_outliers_zero_is_noop(self):
         """n_outliers=0 returns frames with the same pos.shape[0] as input."""
         traj = generate_trajectory(n_points=20, n_frames=3, seed=26)

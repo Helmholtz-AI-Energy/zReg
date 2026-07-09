@@ -391,3 +391,21 @@ class TestSobolSearch:
         space = {"k": [1, 2, 3, 4, 5, 6, 7, 8]}
         results = SobolSearch().search(space, self._obj, n_trials=8, seed=0)
         assert {p["k"] for p, _ in results} == set(space["k"])
+
+    def test_warm_start_duplicate_skipped(self):
+        """search_strategies.py:262->260 — duplicate entry in Sobol warm_start is deduplicated."""
+        call_order = []
+
+        def tracking_obj(p):
+            call_order.append(p.copy())
+            return 0.5
+
+        space = {"a": [1, 2]}
+        SobolSearch().search(
+            space, tracking_obj, n_trials=8,
+            warm_start=[{"a": 1}, {"a": 1}],  # exact duplicate
+            seed=0,
+        )
+        # 1 deduped warm_start + 8 Sobol = 9 evaluations (not 10 = 2 + 8)
+        assert len(call_order) == 9
+        assert call_order[0]["a"] == 1

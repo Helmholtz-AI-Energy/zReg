@@ -673,3 +673,18 @@ class TestLabelTransferAlignmentGuard:
         stage.run(dataset, dataset, _default_params())
         user_warnings = [w for w in recwarn.list if issubclass(w.category, UserWarning)]
         assert len(user_warnings) == 0
+
+
+class TestPreTransferAlignmentChamferEmptyFrames:
+    """label_transfer.py:176 — empty frames are skipped in _compute_pre_alignment_chamfer."""
+
+    def test_empty_frame_skipped_returns_zero(self, tmp_path):
+        """_compute_pre_alignment_chamfer returns 0.0 when all frames have zero points."""
+        cfg = EvalConfig(data_path=str(tmp_path / "unused.mat"))
+        empty_pos = torch.zeros(0, 3)
+        source = {0: zRegPointCloud(pos=empty_pos, label=torch.zeros(0, dtype=torch.long))}
+        target = {0: zRegPointCloud(pos=empty_pos, label=torch.zeros(0, dtype=torch.long))}
+        stage = LabelTransferStage(cfg)
+        # Call _check_alignment directly to avoid k_neighbours validation on empty data
+        result = stage._check_alignment(source, target)
+        assert result == 0.0

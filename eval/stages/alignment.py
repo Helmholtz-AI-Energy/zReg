@@ -597,5 +597,4 @@ class AlignmentStage(PipelineStage):
             )
             return source, landmarks
 
-        # Unreachable: AlignmentPreprocessingConfig.method is a validated Literal.
-        return source, []
+        return source, []  # pragma: no cover — AlignmentPreprocessingConfig.method is a validated Literal

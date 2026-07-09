@@ -148,3 +148,13 @@ class TestComputeF1PackageImport:
         """compute_f1 is importable from zreg.metrics package."""
         from zreg.metrics import compute_f1 as cf  # noqa: F401
         assert cf is compute_f1
+
+
+class TestToMatrixUnsupportedType:
+    """label_transfer.py:127 — _to_matrix raises TypeError for unknown transform type."""
+
+    def test_unsupported_type_raises_type_error(self):
+        """_to_matrix(obj) where obj is not Rigid/Affine raises TypeError."""
+        from zreg.metrics.label_transfer import _to_matrix
+        with pytest.raises(TypeError, match="Unsupported"):
+            _to_matrix("not_a_transform")

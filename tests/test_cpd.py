@@ -1002,3 +1002,55 @@ class TestGetOpen3DRegistration:
             with patch.dict(sys.modules, {"open3d": None}):
                 o3d, flag = _get_open3d()
         assert o3d is None and flag is False
+
+
+# ---------------------------------------------------------------------------
+# Coverage gaps: source_colors path in NonRigidCPD/ConstrainedNonRigidCPD
+# and source=None path in RigidCPD (lines 67, 247, 65->67)
+# ---------------------------------------------------------------------------
+
+
+class TestNonRigidCPDSourceColors:
+    """nonrigid.py:67 — set_source with source_colors not None."""
+
+    def test_set_source_with_colors_validates(self):
+        """NonRigidCPD.set_source with source_colors runs _validate_tensors on both."""
+        source = torch.randn(20, 3)
+        source_colors = torch.randn(20, 3)
+        obj = cpd.NonRigidCPD(source=source)
+        new_src = torch.randn(15, 3)
+        new_colors = torch.randn(15, 3)
+        obj.set_source(new_src, source_colors=new_colors)
+        assert obj._source is new_src
+
+    def test_set_source_colors_second_call(self):
+        """Calling set_source a second time with source_colors validates both tensors."""
+        source = torch.randn(20, 3)
+        obj = cpd.NonRigidCPD(source=source)
+        new_src = torch.randn(25, 3)
+        new_colors = torch.randn(25, 3)
+        obj.set_source(new_src, source_colors=new_colors)
+        assert obj._source is new_src
+
+
+class TestConstrainedNonRigidCPDSourceColors:
+    """nonrigid.py:247 — ConstrainedNonRigidCPD.set_source with source_colors not None."""
+
+    def test_set_source_with_colors(self):
+        """ConstrainedNonRigidCPD.set_source(source_colors=...) validates both tensors."""
+        source = torch.randn(20, 3)
+        source_colors = torch.randn(20, 3)
+        obj = cpd.ConstrainedNonRigidCPD(source=source)
+        new_src = torch.randn(15, 3)
+        new_colors = torch.randn(15, 3)
+        obj.set_source(new_src, source_colors=new_colors)
+        assert obj._source is new_src
+
+
+class TestRigidCPDSourceNone:
+    """rigid.py:65->67 — RigidCPD initialised with source=None skips fact dict."""
+
+    def test_source_none_initialises_without_error(self):
+        """RigidCPD(source=None) must not raise and leaves transform=None."""
+        obj = cpd.RigidCPD(source=None)
+        assert obj.transform is None

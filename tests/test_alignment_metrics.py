@@ -65,6 +65,22 @@ class TestChamfer:
         with pytest.raises(ValueError):
             chamfer(x, y)
 
+    def test_empty_source_raises_value_error(self):
+        """alignment.py:65 — empty source (N=0) raises ValueError."""
+        from zreg.metrics.alignment import chamfer
+        x = torch.zeros(0, 3)
+        y = torch.randn(5, 3)
+        with pytest.raises(ValueError, match="non-empty"):
+            chamfer(x, y)
+
+    def test_empty_target_raises_value_error(self):
+        """alignment.py:67 — empty target (M=0) raises ValueError."""
+        from zreg.metrics.alignment import chamfer
+        x = torch.randn(5, 3)
+        y = torch.zeros(0, 3)
+        with pytest.raises(ValueError, match="non-empty"):
+            chamfer(x, y)
+
     def test_nan_raises_value_error(self):
         """NaN in input raises ValueError (via _validate_tensors)."""
         from zreg.metrics.alignment import chamfer
@@ -135,6 +151,30 @@ class TestHausdorff:
         y = torch.randn(5, 4)
         with pytest.raises(ValueError):
             hausdorff(x, y)
+
+    def test_empty_source_raises(self):
+        """alignment.py:127 — empty source (N=0) raises ValueError."""
+        from zreg.metrics.alignment import hausdorff
+        x = torch.zeros(0, 3)
+        y = torch.randn(5, 3)
+        with pytest.raises(ValueError, match="non-empty"):
+            hausdorff(x, y)
+
+    def test_empty_target_raises(self):
+        """alignment.py:129 — empty target (M=0) raises ValueError."""
+        from zreg.metrics.alignment import hausdorff
+        x = torch.randn(5, 3)
+        y = torch.zeros(0, 3)
+        with pytest.raises(ValueError, match="non-empty"):
+            hausdorff(x, y)
+
+    def test_percentile_out_of_range_raises(self):
+        """alignment.py:131 — percentile outside [0, 100] raises ValueError."""
+        from zreg.metrics.alignment import hausdorff
+        x = torch.randn(5, 3)
+        y = torch.randn(5, 3)
+        with pytest.raises(ValueError, match="percentile"):
+            hausdorff(x, y, percentile=101.0)
 
 
 class TestPathSmoothness:

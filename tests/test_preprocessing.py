@@ -131,3 +131,36 @@ class TestDetectVelocityLandmarks:
         mean_result = detect_velocity_landmarks(traj, threshold=1.0, metric="mean")
         max_result = detect_velocity_landmarks(traj, threshold=1.0, metric="max")
         assert len(max_result) > len(mean_result)
+
+
+# ---------------------------------------------------------------------------
+# Reflection correction path (preprocessing.py:62-64)
+# ---------------------------------------------------------------------------
+
+
+class TestComputePCARotationReflectionCorrection:
+    """preprocessing.py:62-64 — det<0 reflection correction is applied."""
+
+    def test_reflection_branch_corrected_to_proper_rotation(self):
+        """Force SVD to produce a reflection; verify lines 62-64 correct it to det=+1."""
+        from unittest.mock import patch
+
+        source = torch.randn(200, 3, generator=torch.Generator().manual_seed(10))
+        target = torch.randn(200, 3, generator=torch.Generator().manual_seed(11))
+
+        _real_svd = torch.linalg.svd
+        call_count = [0]
+
+        def _flipped_svd(m, **kwargs):
+            call_count[0] += 1
+            U, S, Vt = _real_svd(m, **kwargs)
+            if call_count[0] == 2:  # second call = target — flip last row → det=-1
+                Vt = Vt.clone()
+                Vt[-1] = -Vt[-1]
+            return U, S, Vt
+
+        with patch.object(torch.linalg, "svd", side_effect=_flipped_svd):
+            rotation = compute_pca_rotation(source, target)
+
+        assert call_count[0] == 2, "SVD called exactly twice (source + target)"
+        assert torch.linalg.det(rotation).item() > 0.99

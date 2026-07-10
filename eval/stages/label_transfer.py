@@ -3,7 +3,7 @@
 This module implements ``LabelTransferStage(PipelineStage)``, a thin orchestration
 layer over ``zreg.color_transfer.transfer_colors()``.  No kNN or distance logic is
 reimplemented here — all numerical computation delegates to the existing
-``zreg.color_transfer.*`` package via KNN_VOTING (FRAME-06 explicit constraint).
+``zreg.color_transfer.*`` package via KNN_VOTING or CPD_WEIGHTED (Phase 44).
 
 Hyperparam mapping:
 
@@ -18,6 +18,9 @@ Hyperparam mapping:
 +---------------+-------------------------------------------------------+
 | threshold     | validated float >= 0.0; no-op in Phase 20 (D-05)     |
 +---------------+-------------------------------------------------------+
+| method        | 'knn_voting' (default) or 'cpd_weighted'; defaults    |
+|               | to config.label_transfer_method when absent (Phase 44)|
++---------------+-------------------------------------------------------+
 
 Notes
 -----
@@ -30,6 +33,21 @@ pass-through (D-02 + Phase 30).
 Bool exclusion guards are applied to all 4 params per WR-01 pattern from
 Phase 19.  ``isinstance(x, bool)`` must be tested before ``isinstance(x, int)``
 because ``bool`` is a subclass of ``int`` in Python.
+
+**CPD-weighted label transfer (Phase 44):**
+``method='cpd_weighted'`` reuses ``zreg.color_transfer``'s existing
+CPD-posterior-weighted-average math, fixing two call-site bugs so
+``zreg.color_transfer`` itself never needs to change:
+
+- **pmat transpose (D-04):** ``EstepResult.pmat`` from
+  ``expectation_step()`` is shaped ``(n_source, n_target)``, but the
+  underlying color-transfer helper requires ``(n_target, n_source)``.
+  The stage builds a transposed copy of the E-step result (via the
+  namedtuple's ``_replace``) before every CPD-weighted call.
+- **categorical one-hot/argmax (D-05):** a literal weighted average of
+  raw class indices is meaningless, so source labels are one-hot encoded
+  before the call and the resulting soft scores are discretized back via
+  ``argmax(dim=1)`` after.
 """
 
 import logging
@@ -47,7 +65,7 @@ import torch  # consistent import order for downstream callers (macOS-ARM zreg-b
 
 from eval.config import EvalConfig
 from eval.stages.base import PipelineStage
-from eval.types import LabelResult
+from eval.types import LabelResult, AlignResult
 
 __all__ = ["LabelTransferStage"]
 
@@ -80,6 +98,10 @@ class LabelTransferStage(PipelineStage):
         "smoothing",
         "threshold",
     )
+    OPTIONAL_PARAMS: tuple[str, ...] = (
+        "method",  # Phase 44: defaults to config.label_transfer_method
+    )
+    VALID_METHODS: tuple = ("knn_voting", "cpd_weighted")
 
     def __init__(self, config: EvalConfig) -> None:
         """Store the evaluation configuration.
@@ -98,11 +120,16 @@ class LabelTransferStage(PipelineStage):
         the type and range constraints.  Raises ``ValueError`` on the first
         failure encountered (raise-on-first-failure pattern).
 
+        Optional parameters (not in REQUIRED_PARAMS) are populated from
+        config defaults if missing (Phase 44: ``method`` defaults to
+        ``config.label_transfer_method``).
+
         Parameters
         ----------
         params : dict[str, Any]
             Hyperparameter dict to validate.  Must contain all four keys in
-            ``REQUIRED_PARAMS``.
+            ``REQUIRED_PARAMS``; keys in ``OPTIONAL_PARAMS`` are populated
+            from config if missing.
 
         Returns
         -------
@@ -121,10 +148,16 @@ class LabelTransferStage(PipelineStage):
                 ``"smoothing must be float >= 0.0; got {value!r}"``.
             If ``threshold`` is not a numeric >= 0.0 or is a bool:
                 ``"threshold must be float >= 0.0; got {value!r}"``.
+            If ``method`` is not one of ``VALID_METHODS``:
+                ``"method must be one of {VALID_METHODS}; got {value!r}"``.
         """
         for key in self.REQUIRED_PARAMS:
             if key not in params:
                 raise ValueError(f"Missing required param: {key}")
+
+        # Phase 44: populate optional params from config if missing
+        if "method" not in params:
+            params["method"] = self.config.label_transfer_method
 
         if not (
             isinstance(params["k_neighbours"], int)
@@ -149,6 +182,9 @@ class LabelTransferStage(PipelineStage):
             and params["threshold"] >= 0.0
         ):
             raise ValueError(f"threshold must be float >= 0.0; got {params['threshold']!r}")
+
+        if params["method"] not in self.VALID_METHODS:
+            raise ValueError(f"method must be one of {self.VALID_METHODS}; got {params['method']!r}")
 
     @staticmethod
     def _check_alignment(
@@ -185,6 +221,7 @@ class LabelTransferStage(PipelineStage):
         source: dict[int, zRegPointCloud],
         target: dict[int, zRegPointCloud],
         params: dict[str, Any],
+        align_result: AlignResult | None = None,
     ) -> LabelResult:
         """Run label transfer from ``source`` to ``target`` and return a ``LabelResult``.
 
@@ -200,7 +237,13 @@ class LabelTransferStage(PipelineStage):
             transferred TO each target frame.
         params : dict[str, Any]
             Must contain all four keys in ``REQUIRED_PARAMS``.  See
-            ``validate_params`` for the full constraint list.
+            ``validate_params`` for the full constraint list.  ``method``
+            (in ``OPTIONAL_PARAMS``) defaults to ``config.label_transfer_method``
+            when absent.
+        align_result : AlignResult | None, optional
+            Result of a prior ``AlignmentStage.run()`` call, required only
+            when ``params["method"] == "cpd_weighted"`` (Phase 44).  Ignored
+            for ``method == "knn_voting"``.  Defaults to ``None``.
 
         Returns
         -------
@@ -212,6 +255,17 @@ class LabelTransferStage(PipelineStage):
             - ``pre_transfer_alignment``: mean per-frame Chamfer distance
               between source and target computed before transfer.
 
+        Raises
+        ------
+        ValueError
+            If ``params["method"] == "cpd_weighted"`` and ``align_result``
+            is ``None`` (D-08), or if ``align_result.estep_results`` has no
+            entry for the current frame pair's target key (D-08) — this
+            happens when ``alignment_method`` is not ``"cpd"`` or
+            ``cpd_penalty`` is ``None``, since the CPD posterior is only
+            captured for CPD-registered frames.  See ``validate_params``
+            for the other ``ValueError`` cases.
+
         Notes
         -----
         ``validate_params(params)`` is called as the first line (D-08).
@@ -222,11 +276,16 @@ class LabelTransferStage(PipelineStage):
         frame-0 pass-through (D-02 + Phase 30).
 
         ``source_colors`` must be ``unsqueeze(-1)`` to shape (N, 1); result
-        is squeezed with ``[:, 0]`` to shape (M,).  D-12.
+        is squeezed with ``[:, 0]`` to shape (M,).  D-12.  This applies to
+        the ``knn_voting`` path only — ``cpd_weighted`` one-hot encodes
+        instead (D-05).
 
         ``params_used=dict(params)`` is a shallow copy (Pitfall 7).
         ``smoothing``, ``threshold``, ``dist_metric`` are validated but
         no-op in Phase 20.  D-04/D-05/D-06.
+
+        **CPD-weighted path (Phase 44):** see module docstring for the
+        pmat-transpose (D-04) and one-hot/argmax (D-05) fixes applied here.
         """
         self.validate_params(params)
 
@@ -281,13 +340,39 @@ class LabelTransferStage(PipelineStage):
                     f"Source frame {sk} has no 'label' field. "
                     "Label transfer requires annotated data."
                 )
-            transferred[tk] = transfer_colors(
-                src_frame["pos"],
-                tgt_frame["pos"],
-                method=ColorTransferMethod.KNN_VOTING,
-                source_colors=labels_tensor.unsqueeze(-1),
-                k=params["k_neighbours"],
-            )[:, 0]
+
+            if params["method"] == "cpd_weighted":
+                if align_result is None:
+                    raise ValueError(
+                        "method='cpd_weighted' requires align_result (got None). "
+                        "Run AlignmentStage first, or use method='knn_voting'."
+                    )
+                if tk not in align_result.estep_results:
+                    raise ValueError(
+                        f"method='cpd_weighted' requires align_result.estep_results[{tk}], "
+                        "which is missing. This happens when alignment_method is not 'cpd' "
+                        "or cpd_penalty is None — CPD posterior is only captured for CPD-"
+                        "registered frames."
+                    )
+                estep_result = align_result.estep_results[tk]
+                transposed = estep_result._replace(pmat=estep_result.pmat.T)
+                one_hot = torch.nn.functional.one_hot(labels_tensor.long()).float()
+                soft_scores = transfer_colors(
+                    src_frame["pos"],
+                    tgt_frame["pos"],
+                    method=ColorTransferMethod.CPD_WEIGHTED,
+                    source_colors=one_hot,
+                    estep_result=transposed,
+                )
+                transferred[tk] = soft_scores.argmax(dim=1)
+            else:
+                transferred[tk] = transfer_colors(
+                    src_frame["pos"],
+                    tgt_frame["pos"],
+                    method=ColorTransferMethod.KNN_VOTING,
+                    source_colors=labels_tensor.unsqueeze(-1),
+                    k=params["k_neighbours"],
+                )[:, 0]
 
         return LabelResult(
             transferred_labels=transferred,

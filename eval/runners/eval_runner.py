@@ -311,7 +311,7 @@ class EvaluationRunner:
             stage_input = source  # D-05 — use source as fallback
 
         if self.config.run_label_transfer:
-            label_result = LabelTransferStage(self.config).run(stage_input, target, params)
+            label_result = LabelTransferStage(self.config).run(stage_input, target, params, align_result=align_result)
 
         # --- Argument assembly for compute_stage_metrics (8 positional args) ---
         # Pitfall 4 — local source_pos/target_pos avoid shadowing the source/target parameters

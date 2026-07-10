@@ -758,3 +758,50 @@ class TestEvaluationRunnerCoverageGaps:
             runner = EvaluationRunner(eval_config, full_params)
             report = runner.run()
         assert isinstance(report, EvalReport)
+
+
+# ---------------------------------------------------------------------------
+# Phase 44-04: align_result threaded into LabelTransferStage.run()
+# ---------------------------------------------------------------------------
+
+
+class TestAlignResultThreadedToLabelTransfer:
+    """D-08 — EvaluationRunner passes align_result to LabelTransferStage.run()."""
+
+    @patch("eval.runners.eval_runner.DataFactory")
+    def test_align_result_passed_as_kwarg(
+        self,
+        mock_factory_cls,
+        eval_config,
+        full_params,
+        synthetic_dataset,
+    ) -> None:
+        """align_result built by AlignmentStage is threaded into LabelTransferStage.run() as a kwarg."""
+        mock_factory = mock_factory_cls.return_value
+        mock_factory.load_real.return_value = synthetic_dataset
+        mock_factory.load_target.return_value = synthetic_dataset
+        mock_factory.get_ground_truth.return_value = {
+            k: synthetic_dataset[k]["label"] for k in synthetic_dataset
+        }
+
+        fake_align_result = AlignResult(
+            aligned_cloud=synthetic_dataset,
+            warp_path=[(0, 0), (1, 1), (2, 2)],
+            dtw_distance=0.0,
+            n_changepoints=0,
+            params_used=dict(full_params),
+        )
+        fake_label_result = LabelResult(
+            transferred_labels={k: torch.zeros(20, dtype=torch.long) for k in synthetic_dataset},
+            params_used=dict(full_params),
+        )
+
+        with patch("eval.runners.eval_runner.AlignmentStage") as mock_align_cls, \
+             patch("eval.runners.eval_runner.LabelTransferStage") as mock_label_cls:
+            mock_align_cls.return_value.run.return_value = fake_align_result
+            mock_label_cls.return_value.run.return_value = fake_label_result
+
+            runner = EvaluationRunner(eval_config, full_params)
+            runner.run()
+
+        assert mock_label_cls.return_value.run.call_args.kwargs["align_result"] is fake_align_result

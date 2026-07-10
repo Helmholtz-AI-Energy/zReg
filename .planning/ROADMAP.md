@@ -119,16 +119,19 @@ Plans:
 
 **Goal:** Decide the model architecture/library approach for eGNN and PointNet++ as new
 LabelTransferStage methods (off-the-shelf library vs. hand-rolled, against this project's current
-lean torch/numpy/sklearn/open3d dependency footprint), research each architecture's implementation
-requirements, and design an evaluation strategy for learned label-transfer methods. Produces
-AI-SPEC.md via /gsd:ai-integration-phase — no production code in this phase.
-**Requirements**: TBD
+lean torch/numpy/open3d dependency footprint), research each architecture's implementation
+requirements, and design an evaluation strategy for learned label-transfer methods. Produces a
+design document (45-DESIGN.md) synthesizing the locked decisions for Phases 46–49 — no production
+code in this phase. (Note: /gsd:ai-integration-phase was evaluated and rejected as a category error —
+eGNN/PointNet++ are classical supervised point-cloud networks, not LLM/agent frameworks; see
+45-CONTEXT.md.)
+**Requirements**: D-01 through D-04 (see 45-CONTEXT.md — phase added ad hoc, no formal REQUIREMENTS.md IDs)
 **Depends on:** Phase 44
-**Plans:** 0 plans
+**Plans:** 1 plan
 
 Plans:
 
-- [ ] TBD (run /gsd:plan-phase 45 to break down)
+- [ ] 45-01-PLAN.md — Verify torch_geometric core install + write 45-DESIGN.md locking per-model library, module structure, joint-cloud adaptation, train/infer split, and eval-strategy pointers for Phases 46–49 (D-01, D-02, D-03, D-04)
 
 ### Phase 46: Training Data Pipeline for Learned Label Transfer
 

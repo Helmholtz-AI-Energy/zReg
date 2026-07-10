@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: milestone
 status: Milestone complete
-stopped_at: Completed 44-04-PLAN.md (Phase 44 complete)
-last_updated: "2026-07-10T12:47:02.318Z"
+stopped_at: Phase 45 context gathered
+last_updated: "2026-07-10T13:15:00.000Z"
 progress:
   total_phases: 1
   completed_phases: 1
@@ -20,15 +20,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-08 after v1.4 milestone)
 
 **Core value:** Every existing capability works correctly, fails informatively, and is covered by tests.
-**Current focus:** Phase 44 — cpd-weighted-label-transfer-method
+**Current focus:** Phase 45 — eGNN & PointNet++ label transfer, framework selection & evaluation strategy
 
 ## Current Position
 
-Phase: 44
-Plan: Not started
+Phase: 45
+Plan: Context gathered — not yet planned
 Milestone: v1.4 Trajectory Alignment & Optimization Enhancements — **ARCHIVED** 2026-07-08
 Tests: 1205 passed, 18 skipped, 1 xpassed, 100% coverage
-Next action: Phase 44 complete. Run `/gsd:new-milestone` to define next milestone scope, or `/gsd-transition` to close out Phase 44.
+Next action: `/gsd:plan-phase 45` to research and break Phase 45 down into plans.
 
 ## Shipped Milestones
 
@@ -57,6 +57,7 @@ v1.2 archives: .planning/milestones/v1.2-ROADMAP.md · v1.2-REQUIREMENTS.md · v
 ### Roadmap Evolution
 
 - Phase 44 added: CPD-Weighted Label Transfer Method — wire zreg.color_transfer's existing CPD_WEIGHTED method into LabelTransferStage as an alternative to the hardcoded KNN_VOTING, mirroring the alignment_method optional-param precedent from Phase 39. Added outside a formal milestone (v1.4 archived, v1.5 not yet started) at user request.
+- Phases 45–49 added: eGNN & PointNet++ as further LabelTransferStage methods — split into (45) framework selection & eval strategy design (AI-SPEC.md, no code), (46) training data pipeline, (47) model + training infra, (48) inference integration mirroring Phase 44's OPTIONAL_PARAMS precedent, (49) evaluation/benchmarking. Linear dependency chain 45→46→47→48→49. Added outside a formal milestone at user request; unlike Phase 44 (pure plumbing over existing zreg code), this is genuinely new ML system scope — no GNN/PointNet/equivariant-net code or training infra exists anywhere in this repo yet.
 
 ### v1.4 Design Decisions
 

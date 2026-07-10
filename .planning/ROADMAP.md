@@ -114,3 +114,69 @@ Plans:
 - [x] 44-04-PLAN.md — EvaluationRunner align_result threading (D-08)
 
 **Status:** ✅ Complete — all 4 plans executed, Phase 44 fully wired end-to-end.
+
+### Phase 45: eGNN & PointNet++ Label Transfer — Framework Selection & Evaluation Strategy
+
+**Goal:** Decide the model architecture/library approach for eGNN and PointNet++ as new
+LabelTransferStage methods (off-the-shelf library vs. hand-rolled, against this project's current
+lean torch/numpy/sklearn/open3d dependency footprint), research each architecture's implementation
+requirements, and design an evaluation strategy for learned label-transfer methods. Produces
+AI-SPEC.md via /gsd:ai-integration-phase — no production code in this phase.
+**Requirements**: TBD
+**Depends on:** Phase 44
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd:plan-phase 45 to break down)
+
+### Phase 46: Training Data Pipeline for Learned Label Transfer
+
+**Goal:** Extend DataFactory / generate_datasets.py to produce (source cloud + labels, target
+cloud, target labels) training triples from existing synthetic dataset generation, per Phase 45's
+data strategy — eGNN/PointNet++ are learned models and need a training set that doesn't exist yet.
+**Requirements**: TBD
+**Depends on:** Phase 45
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd:plan-phase 46 to break down)
+
+### Phase 47: eGNN and PointNet++ Model Implementation & Training Infrastructure
+
+**Goal:** Implement the eGNN and PointNet++ model architectures selected in Phase 45, plus a
+training loop and checkpoint management (none of which exists in this repo today).
+**Requirements**: TBD
+**Depends on:** Phase 46
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd:plan-phase 47 to break down)
+
+### Phase 48: LabelTransferStage Integration for Learned Methods
+
+**Goal:** Wire trained eGNN/PointNet++ models into LabelTransferStage as new selectable method
+values (checkpoint loading, inference-time dispatch), following the OPTIONAL_PARAMS +
+EvalConfig.label_transfer_method precedent established in Phase 44 for cpd_weighted.
+**Requirements**: TBD
+**Depends on:** Phase 47
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd:plan-phase 48 to break down)
+
+### Phase 49: Evaluation & Benchmarking of Learned Label-Transfer Methods
+
+**Goal:** Apply the existing F1/knn_consistency metrics plus any additional evaluation dimensions
+from Phase 45's strategy to benchmark eGNN/PointNet++ against the knn_voting/cpd_weighted
+baselines across this project's dataset sources.
+**Requirements**: TBD
+**Depends on:** Phase 48
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd:plan-phase 49 to break down)

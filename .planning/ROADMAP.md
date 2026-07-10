@@ -108,7 +108,7 @@ investigation, without touching zreg.color_transfer itself.
 
 Plans:
 
-- [ ] 44-01-PLAN.md — AlignResult.estep_results field + EvalConfig.label_transfer_method field/validator (D-06, D-09)
+- [x] 44-01-PLAN.md — AlignResult.estep_results field + EvalConfig.label_transfer_method field/validator (D-06, D-09)
 - [ ] 44-02-PLAN.md — AlignmentStage CPD posterior capture (_build_aligned_cloud + run()) (D-01, D-02, D-03)
 - [ ] 44-03-PLAN.md — LabelTransferStage cpd_weighted wiring (transpose + one-hot/argmax + align_result kwarg) (D-04, D-05, D-06, D-07, D-08)
 - [ ] 44-04-PLAN.md — EvaluationRunner align_result threading (D-08)

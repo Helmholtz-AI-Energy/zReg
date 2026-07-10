@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.4
-milestone_name: Trajectory Alignment & Optimization Enhancements
-status: Archived
-stopped_at: v1.4 milestone archived 2026-07-08 — 1156 tests pass, all gaps closed
-last_updated: "2026-07-08T00:00:00Z"
+milestone_name: milestone
+status: Executing Phase 44
+stopped_at: Plan 44-01 complete (2026-07-10)
+last_updated: "2026-07-10T11:36:13Z"
 progress:
-  total_phases: 43
-  completed_phases: 43
-  total_plans: 80
-  completed_plans: 80
-  percent: 100
+  total_phases: 1
+  completed_phases: 0
+  total_plans: 4
+  completed_plans: 1
+  percent: 25
 ---
 
 # Project State
@@ -20,13 +20,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-08 after v1.4 milestone)
 
 **Core value:** Every existing capability works correctly, fails informatively, and is covered by tests.
-**Current focus:** Planning next milestone — run `/gsd:new-milestone`
+**Current focus:** Phase 44 — cpd-weighted-label-transfer-method
 
 ## Current Position
 
+Phase: 44 (cpd-weighted-label-transfer-method) — EXECUTING
+Plan: 2 of 4
 Milestone: v1.4 Trajectory Alignment & Optimization Enhancements — **ARCHIVED** 2026-07-08
-Tests: 1156 passed, 18 skipped
-Next action: `/gsd:new-milestone` to define v1.5 scope
+Tests: 1195 passed, 18 skipped, 1 xpassed
+Next action: Execute 44-02-PLAN.md (AlignmentStage CPD posterior capture)
 
 ## Shipped Milestones
 
@@ -76,7 +78,13 @@ See: `.planning/REQUIREMENTS-v1.4.md`
 
 ### Open Blockers
 
-None — Phase 40 complete; Phase 41 ready for execution.
+None — Plan 44-01 complete; Plan 44-02 ready for execution.
+
+### Performance Metrics
+
+| Phase | Plan | Duration | Tasks | Files |
+|-------|------|----------|-------|-------|
+| 44 | 01 | 33min | 2 | 3 |
 
 ### Deferred Items (acknowledged at v1.2 close)
 
@@ -89,6 +97,6 @@ None — Phase 40 complete; Phase 41 ready for execution.
 
 ## Session Continuity
 
-Last session: 2026-06-30T14:55:40.561Z
-Stopped at: context exhaustion at 75% (2026-06-30)
-Next action: `/gsd:execute-phase 43` for Phase 43 (Per-Trajectory Data Standardization)
+Last session: 2026-07-10T11:36:13Z
+Stopped at: Completed 44-01-PLAN.md
+Next action: Execute 44-02-PLAN.md (AlignmentStage CPD posterior capture)

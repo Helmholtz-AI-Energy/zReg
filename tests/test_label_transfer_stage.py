@@ -11,10 +11,12 @@ Covers Phase 20 FRAME-06 gate criteria:
 import pytest
 
 # zreg.* before torch — macOS-ARM libomp SIGABRT rule
+from zreg.cpd import RigidCPD
 from zreg.dataset import zRegPointCloud
 from zreg.generators import generate_trajectory, generate_labels
 from zreg.generators import add_gaussian_noise
 from zreg.metrics.label_transfer import compute_f1
+import zreg.utils as utils
 
 import torch
 
@@ -532,6 +534,104 @@ class TestLabelTransferStageOutputShape:
                 f"Frame {key}: point count mismatch — "
                 f"expected {synthetic_dataset_d09[key]['pos'].shape[0]}, got {tensor.shape[0]}"
             )
+
+
+# ---------------------------------------------------------------------------
+# TestLabelTransferStageCpdWeighted — Phase 44 D-04/D-05/D-07/D-08
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def cpd_weighted_source_target():
+    """12-point labeled source + 9-point target (differing counts — exercises D-04).
+
+    Builds a real EstepResult via RigidCPD.expectation_step so the
+    cpd_weighted happy-path test exercises the actual pmat orientation
+    bug (D-04): a square matrix would mask it, so source/target
+    deliberately have different point counts.
+    """
+    source_traj = generate_labels(
+        generate_trajectory(n_points=12, n_frames=1, seed=500), n_classes=3, seed=500
+    )
+    target_traj = generate_trajectory(n_points=9, n_frames=1, seed=501)
+    source_pos = source_traj[0]["pos"]
+    target_pos = target_traj[0]["pos"]
+
+    sigma2_est = utils.squared_kernel_sum(source_pos, target_pos)
+    cpd = RigidCPD(source=source_pos, use_color=False)
+    estep_result = cpd.expectation_step(
+        t_source=source_pos, target=target_pos, sigma2=sigma2_est, sigma2_c=0.0, w=0.0
+    )
+
+    source = {0: source_traj[0]}
+    target = {0: target_traj[0]}
+    return source, target, estep_result
+
+
+class TestLabelTransferStageCpdWeighted:
+    """Phase 44: method='cpd_weighted' happy path + error cases (D-04/D-05/D-07/D-08)."""
+
+    def test_cpd_weighted_happy_path(
+        self, stage, good_params, cpd_weighted_source_target
+    ) -> None:
+        """cpd_weighted returns correctly shaped/dtyped transferred_labels via CPD posterior."""
+        source, target, estep_result = cpd_weighted_source_target
+        align_result = AlignResult(
+            aligned_cloud=source,
+            warp_path=[(0, 0)],
+            dtw_distance=0.0,
+            n_changepoints=0,
+            params_used={},
+            estep_results={0: estep_result},
+        )
+        result = stage.run(
+            source, target, {**good_params, "method": "cpd_weighted"}, align_result=align_result
+        )
+        assert result.transferred_labels[0].ndim == 1
+        assert result.transferred_labels[0].dtype == torch.long
+        assert result.transferred_labels[0].shape[0] == target[0]["pos"].shape[0]
+
+    def test_cpd_weighted_missing_align_result_raises(
+        self, stage, good_params, cpd_weighted_source_target
+    ) -> None:
+        """method='cpd_weighted' without align_result raises a clear ValueError."""
+        source, _target, _estep_result = cpd_weighted_source_target
+        with pytest.raises(ValueError, match="requires align_result"):
+            stage.run(source, source, {**good_params, "method": "cpd_weighted"})
+
+    def test_cpd_weighted_missing_estep_results_entry_raises(
+        self, stage, good_params, cpd_weighted_source_target
+    ) -> None:
+        """method='cpd_weighted' with align_result missing the frame's estep_results entry raises."""
+        source, target, _estep_result = cpd_weighted_source_target
+        align_result = AlignResult(
+            aligned_cloud=source,
+            warp_path=[(0, 0)],
+            dtw_distance=0.0,
+            n_changepoints=0,
+            params_used={},
+            estep_results={},
+        )
+        with pytest.raises(ValueError, match="estep_results"):
+            stage.run(
+                source,
+                target,
+                {**good_params, "method": "cpd_weighted"},
+                align_result=align_result,
+            )
+
+    def test_invalid_method_value_raises(self, stage, good_params) -> None:
+        """validate_params raises ValueError for an unsupported method value."""
+        with pytest.raises(ValueError, match="method must be one of"):
+            stage.validate_params({**good_params, "method": "bogus"})
+
+    def test_method_defaults_to_config_label_transfer_method(
+        self, stage, good_params, synthetic_dataset
+    ) -> None:
+        """Omitting 'method' defaults to config.label_transfer_method ('knn_voting')."""
+        assert "method" not in good_params
+        result = stage.run(synthetic_dataset, synthetic_dataset, good_params)
+        assert result.params_used["method"] == "knn_voting"
 
 
 # ---------------------------------------------------------------------------

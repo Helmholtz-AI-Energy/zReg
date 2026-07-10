@@ -104,7 +104,7 @@ optional-param precedent — fixing the pmat-orientation and categorical-averagi
 investigation, without touching zreg.color_transfer itself.
 **Requirements**: D-01 through D-09 (see 44-CONTEXT.md — phase added ad hoc, no formal REQUIREMENTS.md IDs)
 **Depends on:** Phase 43
-**Plans:** 4 plans
+**Plans:** 4/4 plans complete
 
 Plans:
 

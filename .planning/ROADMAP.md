@@ -95,3 +95,20 @@ Full details: [.planning/milestones/v1.0-ROADMAP.md](.planning/milestones/v1.0-R
 | v1.4 Trajectory Alignment & Optimization Enhancements | 39–43 (5) | 11 | ✅ Complete | 2026-07-08 |
 
 _Next milestone: run `/gsd:new-milestone` to define scope, requirements, and phases._
+
+### Phase 44: CPD-Weighted Label Transfer Method
+
+**Goal:** Wire zreg.color_transfer's existing CPD_WEIGHTED method into LabelTransferStage as a
+selectable alternative to the hardcoded KNN_VOTING, mirroring the Phase 39 alignment_method
+optional-param precedent — fixing the pmat-orientation and categorical-averaging bugs found during
+investigation, without touching zreg.color_transfer itself.
+**Requirements**: D-01 through D-09 (see 44-CONTEXT.md — phase added ad hoc, no formal REQUIREMENTS.md IDs)
+**Depends on:** Phase 43
+**Plans:** 4 plans
+
+Plans:
+
+- [ ] 44-01-PLAN.md — AlignResult.estep_results field + EvalConfig.label_transfer_method field/validator (D-06, D-09)
+- [ ] 44-02-PLAN.md — AlignmentStage CPD posterior capture (_build_aligned_cloud + run()) (D-01, D-02, D-03)
+- [ ] 44-03-PLAN.md — LabelTransferStage cpd_weighted wiring (transpose + one-hot/argmax + align_result kwarg) (D-04, D-05, D-06, D-07, D-08)
+- [ ] 44-04-PLAN.md — EvaluationRunner align_result threading (D-08)

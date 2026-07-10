@@ -51,6 +51,10 @@ v1.2 archives: .planning/milestones/v1.2-ROADMAP.md · v1.2-REQUIREMENTS.md · v
 
 ## Accumulated Context
 
+### Roadmap Evolution
+
+- Phase 44 added: CPD-Weighted Label Transfer Method — wire zreg.color_transfer's existing CPD_WEIGHTED method into LabelTransferStage as an alternative to the hardcoded KNN_VOTING, mirroring the alignment_method optional-param precedent from Phase 39. Added outside a formal milestone (v1.4 archived, v1.5 not yet started) at user request.
+
 ### v1.4 Design Decisions
 
 - **ICP**: Wrap Open3D (point-to-point) as registration method

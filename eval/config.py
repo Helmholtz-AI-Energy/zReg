@@ -217,6 +217,12 @@ class EvalConfig(BaseModel):
         SWD variant for spatial alignment when ``alignment_method='swd'``. Accepted values:
         ``'swd'``, ``'aswd'``, ``'oswd'``, ``'gswd'``, ``'pswd'``, ``'maxswd'``.
         Default ``'aswd'``. Only validated when ``alignment_method='swd'``.
+    label_transfer_method : str
+        Label transfer method used by ``LabelTransferStage`` when the stage's
+        ``params`` dict omits ``"method"``: ``'knn_voting'`` (k-nearest-neighbour
+        majority vote, existing default behaviour) or ``'cpd_weighted'``
+        (CPD E-step posterior-weighted average, requires ``AlignResult.estep_results``
+        for the frame pair being processed). Default ``'knn_voting'``.
     data_preprocessing : DataPreprocessingConfig or None
         Per-trajectory data scaling applied after subsampling in
         ``DataFactory.load_real()`` and ``DataFactory.load_target()``.  Only
@@ -275,6 +281,10 @@ class EvalConfig(BaseModel):
     swd_variant: str = Field(
         default="aswd",
         description="SWD variant for alignment_method='swd': 'swd', 'aswd', 'oswd', 'gswd', 'pswd', or 'maxswd'"
+    )
+    label_transfer_method: str = Field(
+        default="knn_voting",
+        description="Label transfer method: 'knn_voting' or 'cpd_weighted'"
     )
     alignment_preprocessing: AlignmentPreprocessingConfig | None = None
     data_preprocessing: DataPreprocessingConfig | None = Field(
@@ -371,4 +381,30 @@ class EvalConfig(BaseModel):
                 raise ValueError(
                     f"swd_variant must be one of {{'swd', 'aswd', 'oswd', 'gswd', 'pswd', 'maxswd'}}; got {v!r}"
                 )
+        return v
+
+    @field_validator("label_transfer_method")
+    @classmethod
+    def validate_label_transfer_method(cls, v: str) -> str:
+        """Validate that label_transfer_method is 'knn_voting' or 'cpd_weighted'.
+
+        Parameters
+        ----------
+        v : str
+            The label_transfer_method value to validate.
+
+        Returns
+        -------
+        str
+            The validated label_transfer_method value.
+
+        Raises
+        ------
+        ValueError
+            If label_transfer_method is not 'knn_voting' or 'cpd_weighted'.
+        """
+        if v not in ("knn_voting", "cpd_weighted"):
+            raise ValueError(
+                f"label_transfer_method must be 'knn_voting' or 'cpd_weighted'; got {v!r}"
+            )
         return v

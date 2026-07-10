@@ -48,6 +48,7 @@ from pydantic import BaseModel, ConfigDict, Field
 # zreg.dataset MUST precede import torch (libomp SIGABRT lesson from Phase 12;
 # enforced in tests/conftest.py:20-24 and eval/data_factory.py:19-35).
 from zreg.dataset import zRegPointCloud
+from zreg.cpd import EstepResult
 
 # torch AFTER zreg.* imports
 import torch
@@ -89,6 +90,13 @@ class AlignResult(BaseModel):
     params_used : dict[str, Any]
         Hyperparameters that produced this result.  Heterogeneous values
         (int / float / str / bool) — see module Pitfall 8.
+    estep_results : dict[int, EstepResult]
+        CPD E-step posterior (Phase 44, D-09), keyed the same way as
+        ``aligned_cloud`` (by target frame key).  Only populated for frames
+        that went through CPD registration (``alignment_method="cpd"`` and
+        ``cpd_penalty is not None``, D-01/D-03); empty otherwise (icp, swd,
+        temporal-only). A read-only diagnostic of registration quality — not
+        part of the transform itself.
 
     Attributes
     ----------
@@ -97,6 +105,9 @@ class AlignResult(BaseModel):
     dtw_distance : float
     n_changepoints : int
     params_used : dict[str, Any]
+    estep_results : dict[int, EstepResult]
+        CPD E-step posterior keyed by target frame key, empty unless
+        ``alignment_method="cpd"`` and ``cpd_penalty is not None``.
     """
 
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
@@ -111,6 +122,10 @@ class AlignResult(BaseModel):
     n_changepoints: int
     params_used: dict[str, Any]
     velocity_landmarks: list[int] = Field(default_factory=list)
+    # CPD E-step posterior (Phase 44, D-09), keyed the same way as aligned_cloud
+    # (by target frame key). Empty unless alignment_method="cpd" and
+    # cpd_penalty is not None (D-01/D-03).
+    estep_results: dict[int, EstepResult] = Field(default_factory=dict)
 
 
 class LabelResult(BaseModel):

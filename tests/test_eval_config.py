@@ -83,6 +83,53 @@ class TestEvalConfigAlignmentMethodValidation:
             )
 
 
+class TestEvalConfigLabelTransferMethodValidation:
+    """Tests for label_transfer_method field validation."""
+
+    def test_label_transfer_method_invalid_value_raises(self, tmp_path):
+        """Test that invalid label_transfer_method raises ValueError."""
+        with pytest.raises(
+            ValueError, match="label_transfer_method must be 'knn_voting' or 'cpd_weighted'"
+        ):
+            EvalConfig(
+                data_path=str(tmp_path / "data.mat"),
+                label_transfer_method="invalid_method",
+            )
+
+    def test_label_transfer_method_case_sensitive(self, tmp_path):
+        """Test that label_transfer_method validation is case-sensitive."""
+        with pytest.raises(
+            ValueError, match="label_transfer_method must be 'knn_voting' or 'cpd_weighted'"
+        ):
+            EvalConfig(
+                data_path=str(tmp_path / "data.mat"),
+                label_transfer_method="KNN_VOTING",  # uppercase should fail
+            )
+
+    def test_label_transfer_method_empty_string_raises(self, tmp_path):
+        """Test that empty string for label_transfer_method raises ValueError."""
+        with pytest.raises(
+            ValueError, match="label_transfer_method must be 'knn_voting' or 'cpd_weighted'"
+        ):
+            EvalConfig(
+                data_path=str(tmp_path / "data.mat"),
+                label_transfer_method="",
+            )
+
+    def test_label_transfer_method_default_is_knn_voting(self, tmp_path):
+        """Test that label_transfer_method defaults to 'knn_voting'."""
+        config = EvalConfig(data_path=str(tmp_path / "data.mat"))
+        assert config.label_transfer_method == "knn_voting"
+
+    def test_label_transfer_method_cpd_weighted_valid(self, tmp_path):
+        """Test that label_transfer_method='cpd_weighted' can be set explicitly."""
+        config = EvalConfig(
+            data_path=str(tmp_path / "data.mat"),
+            label_transfer_method="cpd_weighted",
+        )
+        assert config.label_transfer_method == "cpd_weighted"
+
+
 class TestEvalConfigYAMLLoading:
     """Tests for loading alignment_method from YAML files."""
 

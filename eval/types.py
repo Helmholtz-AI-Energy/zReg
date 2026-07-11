@@ -1,6 +1,6 @@
 """Frozen pydantic v2 result models for the zReg evaluation framework.
 
-This module defines the six typed result containers produced and consumed by
+This module defines the typed result containers produced and consumed by
 the evaluation framework (FRAME-04):
 
 - ``AlignResult``    — output of Phase 19 ``AlignmentStage``
@@ -9,8 +9,10 @@ the evaluation framework (FRAME-04):
 - ``Trial``          — single hyperparameter-search trial (Phase 22)
 - ``SearchResult``   — aggregated hyperparameter-search outcome (Phase 22)
 - ``EvalReport``     — final per-run report serialised to JSON in Phase 21
+- ``TrainingTriple``  — one (source, target) training example for Phase 47's
+  learned label-transfer training loop (Phase 46, D-02)
 
-All six models use ``ConfigDict(frozen=True, arbitrary_types_allowed=True)``
+All models use ``ConfigDict(frozen=True, arbitrary_types_allowed=True)``
 per D-02.  ``frozen=True`` signals read-only output objects;
 ``arbitrary_types_allowed=True`` is required because several fields hold
 ``torch.Tensor`` or ``zRegPointCloud`` (a ``dict`` subclass), neither of
@@ -60,6 +62,7 @@ __all__ = [
     "Trial",
     "SearchResult",
     "EvalReport",
+    "TrainingTriple",  # Phase 46 D-02
     "StageResult",  # Phase 19 D-01
 ]
 
@@ -342,6 +345,65 @@ class EvalReport(BaseModel):
     plot_paths: list[str] = Field(default_factory=list)
     trajectory_paths: list[str] = Field(default_factory=list)
     sanity_flags: list[str] = Field(default_factory=list)
+
+
+class TrainingTriple(BaseModel):
+    """One (source, target) training example for learned label transfer (Phase 46, D-02).
+
+    Produced by ``DataFactory``'s seed-driven training-triple generation method
+    (Phase 46 Plan 03) and consumed by Phase 47's training loop (not built in
+    this phase).  Frozen and arbitrary-type-allowed per D-02, matching
+    ``AlignResult``/``LabelResult`` conventions exactly.
+
+    Parameters
+    ----------
+    source_cloud : zRegPointCloud
+        Labeled source point cloud — ``pos`` and ``label`` populated, ``id``
+        is ``None``.
+    target_cloud : zRegPointCloud
+        Transformed target point cloud produced from ``source_cloud`` via
+        ``DataFactory.generate_target``.  Its ``label`` field is the
+        correctly-propagated per-point target label (already threaded through
+        every transform's index selection by ``augment()`` — no separate
+        correspondence-tracking is needed).
+    seed : int
+        The seed that produced this triple.  Callers use this to verify
+        train/val seed-set membership (D-03) — seeds are partitioned into
+        disjoint train/val ranges upstream of this model.
+
+    Attributes
+    ----------
+    source_cloud : zRegPointCloud
+    target_cloud : zRegPointCloud
+    seed : int
+
+    Notes
+    -----
+    **Label vs id discipline (45-DESIGN.md).**  ``source_labels`` and
+    ``target_labels`` read exclusively from ``pc["label"]`` — the small,
+    fixed-vocabulary categorical class assigned by ``generate_labels``'s
+    Voronoi partition.  They NEVER read ``pc["id"]`` (the monotonically
+    growing per-cell identity used for ground-truth correspondence
+    elsewhere in ``DataFactory``).  Training against ``id`` instead of
+    ``label`` would silently grow the effective number of classes over a
+    trajectory — see 45-DESIGN.md "label vs id Discipline".
+    """
+
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
+
+    source_cloud: zRegPointCloud
+    target_cloud: zRegPointCloud
+    seed: int
+
+    @property
+    def source_labels(self) -> torch.Tensor:
+        """Ground-truth source class labels, read from ``pc["label"]`` (never ``pc["id"]``)."""
+        return self.source_cloud["label"]
+
+    @property
+    def target_labels(self) -> torch.Tensor:
+        """Ground-truth target class labels, read from ``pc["label"]`` (never ``pc["id"]``)."""
+        return self.target_cloud["label"]
 
 
 StageResult: TypeAlias = Union[AlignResult, LabelResult]

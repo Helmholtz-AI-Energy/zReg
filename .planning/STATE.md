@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: milestone
-status: Milestone complete
-stopped_at: Phase 45 context gathered
-last_updated: "2026-07-10T13:15:00.000Z"
+status: Executing Phase 46
+stopped_at: Completed 45-01-PLAN.md (Phase 45 complete)
+last_updated: "2026-07-11T09:02:00.000Z"
 progress:
-  total_phases: 1
-  completed_phases: 1
-  total_plans: 4
-  completed_plans: 4
-  percent: 100
+  total_phases: 6
+  completed_phases: 2
+  total_plans: 6
+  completed_plans: 5
+  percent: 33
 ---
 
 # Project State
@@ -20,15 +20,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-08 after v1.4 milestone)
 
 **Core value:** Every existing capability works correctly, fails informatively, and is covered by tests.
-**Current focus:** Phase 45 — eGNN & PointNet++ label transfer, framework selection & evaluation strategy
+**Current focus:** Phase 46 — training-data-pipeline-for-learned-label-transfer
 
 ## Current Position
 
-Phase: 45
-Plan: Context gathered — not yet planned
+Phase: 45 (egnn-pointnet-label-transfer-framework-selection-evaluation-) — ✅ COMPLETE
+Plan: 1 of 1 complete
 Milestone: v1.4 Trajectory Alignment & Optimization Enhancements — **ARCHIVED** 2026-07-08
-Tests: 1205 passed, 18 skipped, 1 xpassed, 100% coverage
-Next action: `/gsd:plan-phase 45` to research and break Phase 45 down into plans.
+Tests: 1205 passed, 18 skipped, 1 xpassed, 100% coverage (Phase 45 was design-only — no test suite changes)
+Next action: `/gsd:plan-phase 46` to research and break Phase 46 (training data pipeline) down into plans.
 
 ## Shipped Milestones
 
@@ -51,6 +51,7 @@ v1.2 archives: .planning/milestones/v1.2-ROADMAP.md · v1.2-REQUIREMENTS.md · v
 | 42 | Sobol Quasi-Random Search as Default | 2 | ✅ Completed |
 | 43 | Per-Trajectory Data Standardization | 1 | ✅ Completed |
 | 44 | CPD-Weighted Label Transfer Method (ad hoc, post-v1.4) | 4 | ✅ Completed |
+| 45 | eGNN & PointNet++ Framework Selection & Evaluation Strategy (ad hoc, post-v1.4) | 1 | ✅ Completed |
 
 ## Accumulated Context
 
@@ -58,6 +59,7 @@ v1.2 archives: .planning/milestones/v1.2-ROADMAP.md · v1.2-REQUIREMENTS.md · v
 
 - Phase 44 added: CPD-Weighted Label Transfer Method — wire zreg.color_transfer's existing CPD_WEIGHTED method into LabelTransferStage as an alternative to the hardcoded KNN_VOTING, mirroring the alignment_method optional-param precedent from Phase 39. Added outside a formal milestone (v1.4 archived, v1.5 not yet started) at user request.
 - Phases 45–49 added: eGNN & PointNet++ as further LabelTransferStage methods — split into (45) framework selection & eval strategy design (AI-SPEC.md, no code), (46) training data pipeline, (47) model + training infra, (48) inference integration mirroring Phase 44's OPTIONAL_PARAMS precedent, (49) evaluation/benchmarking. Linear dependency chain 45→46→47→48→49. Added outside a formal milestone at user request; unlike Phase 44 (pure plumbing over existing zreg code), this is genuinely new ML system scope — no GNN/PointNet/equivariant-net code or training infra exists anywhere in this repo yet.
+- Phase 45 complete: `45-DESIGN.md` locks the per-model library decision (PointNet++ hand-rolled on Open3D; eGNN hand-rolled `MessagePassing` subclass on `torch_geometric` 2.8.0, verified installable), target `src/zreg/models/` module layout, joint-cloud conditioning adaptation, label-vs-id discipline, GPU-train/CPU-infer split, and downstream phase ownership map for Phases 46–49. New finding: `zreg` (or any `scipy`-importing module) must be imported before `torch_geometric` to avoid a libomp SIGABRT — extends the existing macOS-ARM zreg-before-torch convention.
 
 ### v1.4 Design Decisions
 
@@ -80,7 +82,7 @@ See: `.planning/REQUIREMENTS-v1.4.md`
 
 ### Open Blockers
 
-None — Phase 44 complete (all 4 plans executed).
+None — Phase 45 complete (design-only, 1 plan executed).
 
 ### Performance Metrics
 
@@ -90,6 +92,7 @@ None — Phase 44 complete (all 4 plans executed).
 | 44 | 02 | 25min | 2 | 2 |
 | 44 | 03 | 24min | 2 | 2 |
 | 44 | 04 | 12min | 1 | 2 |
+| 45 | 01 | 12min | 2 | 1 |
 
 ### Deferred Items (acknowledged at v1.2 close)
 
@@ -102,6 +105,6 @@ None — Phase 44 complete (all 4 plans executed).
 
 ## Session Continuity
 
-Last session: 2026-07-10T12:40:00Z
-Stopped at: Completed 44-04-PLAN.md (Phase 44 complete)
-Next action: Run `/gsd:new-milestone` to define next milestone scope, or `/gsd-transition` to close out Phase 44
+Last session: 2026-07-11T09:02:00Z
+Stopped at: Completed 45-01-PLAN.md (Phase 45 complete)
+Next action: Run `/gsd:plan-phase 46` to research and break down Phase 46 (training data pipeline for learned label transfer)

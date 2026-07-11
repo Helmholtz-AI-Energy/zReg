@@ -127,11 +127,13 @@ eGNN/PointNet++ are classical supervised point-cloud networks, not LLM/agent fra
 45-CONTEXT.md.)
 **Requirements**: D-01 through D-04 (see 45-CONTEXT.md — phase added ad hoc, no formal REQUIREMENTS.md IDs)
 **Depends on:** Phase 44
-**Plans:** 1 plan
+**Plans:** 1/1 plan complete
 
 Plans:
 
-- [ ] 45-01-PLAN.md — Verify torch_geometric core install + write 45-DESIGN.md locking per-model library, module structure, joint-cloud adaptation, train/infer split, and eval-strategy pointers for Phases 46–49 (D-01, D-02, D-03, D-04)
+- [x] 45-01-PLAN.md — Verify torch_geometric core install + write 45-DESIGN.md locking per-model library, module structure, joint-cloud adaptation, train/infer split, and eval-strategy pointers for Phases 46–49 (D-01, D-02, D-03, D-04)
+
+**Status:** ✅ Complete — torch_geometric core verified installable, 45-DESIGN.md locks all Phase 46-49 architecture/library decisions.
 
 ### Phase 46: Training Data Pipeline for Learned Label Transfer
 

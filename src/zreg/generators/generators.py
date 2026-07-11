@@ -29,7 +29,7 @@ import torch
 
 from zreg.dataset import zRegPointCloud
 
-__all__ = ["generate_trajectory", "sample_ball"]
+__all__ = ["generate_trajectory", "sample_ball", "sample_bowl"]
 
 
 def generate_trajectory(
@@ -163,4 +163,90 @@ def sample_ball(
 
     rng = np.random.default_rng(seed)
     arr = _sample_ball_shell(n_points, 0.0, radius, rng)
+    return torch.from_numpy(arr.astype(np.float32))
+
+
+def _in_bowl(pts: np.ndarray, R: float, d: float) -> np.ndarray:
+    """Boolean mask: True for points inside bowl(R, d).
+
+    Bowl = { p : ‖p‖ <= R  AND  ‖p-(0,0,d)‖^2 > R^2+d^2  AND  z <= 0 }
+
+    Ported from ``scripts/generate_datasets.py``'s ``in_bowl``. The carving
+    sphere (radius sqrt(R^2+d^2), centred at (0,0,d)) intersects the outer
+    sphere exactly at z = 0, so the bowl opening sits at the equatorial
+    plane with zero wall thickness there.
+    """
+    norm_sq = (pts**2).sum(axis=1)
+    carve_sq = pts[:, 0] ** 2 + pts[:, 1] ** 2 + (pts[:, 2] - d) ** 2
+    return (norm_sq <= R**2) & (carve_sq > R**2 + d**2) & (pts[:, 2] <= 0.0)
+
+
+def sample_bowl(
+    n_points: int,
+    seed: int | None = 42,
+    radius: float = 1.0,
+    d_ratio: float = 0.5,
+) -> torch.Tensor:
+    """Generate a single-frame bowl (lower-hemisphere-shell) point cloud.
+
+    Points are sampled uniformly (via rejection sampling) inside the bowl
+    region: the outer sphere of the given ``radius``, carved by an inner
+    sphere of radius ``sqrt(radius**2 + d**2)`` centred at ``(0, 0, d)``
+    where ``d = d_ratio * radius``, restricted to the lower hemisphere
+    (``z <= 0``). This is a simplified, single-frame (non-growth) adaptation
+    of ``scripts/generate_datasets.py``'s ``sample_bowl_frame``/``in_bowl``.
+    No labels, ids, or growth-over-frames logic are added — the caller (see
+    46-03) wraps the returned tensor in a ``zRegPointCloud``.
+
+    Parameters
+    ----------
+    n_points : int
+        Number of points to sample. Must be >= 1.
+    seed : int or None, optional
+        Random seed for reproducibility. Same numpy-native seed contract as
+        ``sample_ball`` (see its docstring): an integer seeds a fresh
+        ``numpy.random.default_rng(seed)``; ``None`` calls
+        ``numpy.random.default_rng()`` unseeded. Default: 42.
+    radius : float, optional
+        Outer sphere radius R. Must be > 0. Default: 1.0.
+    d_ratio : float, optional
+        Ratio used to compute the carving-sphere offset ``d = d_ratio *
+        radius``. Default: 0.5.
+
+    Returns
+    -------
+    torch.Tensor
+        A ``(n_points, 3)`` float32 tensor of positions, all satisfying the
+        bowl predicate (lower-hemisphere shell).
+
+    Raises
+    ------
+    ValueError
+        If ``n_points < 1``.
+
+    Examples
+    --------
+    >>> pos = sample_bowl(n_points=100, seed=0)
+    >>> pos.shape
+    torch.Size([100, 3])
+    >>> bool((pos[:, 2] <= 1e-6).all())
+    True
+    """
+    if n_points < 1:
+        raise ValueError(f"n_points must be >= 1, got {n_points}")
+
+    rng = np.random.default_rng(seed)
+    R = radius
+    d = d_ratio * radius
+    batch = max(n_points * 10, 2_000)
+
+    collected: list[np.ndarray] = []
+    total = 0
+    while total < n_points:
+        cands = rng.uniform(-R, R, (batch, 3))
+        keep = cands[_in_bowl(cands, R, d)]
+        collected.append(keep)
+        total += len(keep)
+
+    arr = np.concatenate(collected, axis=0)[:n_points]
     return torch.from_numpy(arr.astype(np.float32))

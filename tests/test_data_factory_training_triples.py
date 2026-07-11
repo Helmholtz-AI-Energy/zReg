@@ -145,6 +145,29 @@ class TestPointCountRegime:
         assert 100 <= triple.source_cloud["pos"].shape[0] <= 300
         assert 100 <= triple.target_cloud["pos"].shape[0] <= 300
 
+    def test_explicit_n_points_override(self):
+        """Passing n_points explicitly bypasses the [100, 300] random draw."""
+        cfg = EvalConfig(data_path="x")
+        factory = DataFactory(cfg)
+        triple = factory.generate_training_triple(seed=0, n_points=42)
+        assert triple.source_cloud["pos"].shape[0] == 42
+
+    def test_explicit_shape_override(self):
+        """Passing shape explicitly bypasses the seed-parity selection rule."""
+        cfg = EvalConfig(data_path="x")
+        factory = DataFactory(cfg)
+        # seed=0 would default to "ball"; force "bowl" instead.
+        triple = factory.generate_training_triple(seed=0, shape="bowl")
+        assert torch.all(triple.source_cloud["pos"][:, 2] <= 1e-4)
+
+    def test_unknown_shape_raises_value_error(self):
+        import pytest
+
+        cfg = EvalConfig(data_path="x")
+        factory = DataFactory(cfg)
+        with pytest.raises(ValueError):
+            factory.generate_training_triple(seed=0, shape="cube")
+
 
 # ---------------------------------------------------------------------------
 # TestSeedReproducibilityAndVariety — Task 2 / D-02

@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: milestone
 status: Executing Phase 46
-stopped_at: Completed 46-01-PLAN.md (1 of 3 plans in Phase 46)
-last_updated: "2026-07-11T10:12:58Z"
+stopped_at: Completed 46-02-PLAN.md (2 of 3 plans in Phase 46)
+last_updated: "2026-07-11T10:20:09Z"
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 8
-  completed_plans: 6
-  percent: 38
+  completed_plans: 7
+  percent: 44
 ---
 
 # Project State
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-07-08 after v1.4 milestone)
 ## Current Position
 
 Phase: 46 (training-data-pipeline-for-learned-label-transfer) — EXECUTING
-Plan: 2 of 3 (46-01 complete)
+Plan: 3 of 3 (46-01, 46-02 complete)
 Milestone: v1.4 Trajectory Alignment & Optimization Enhancements — **ARCHIVED** 2026-07-08
-Tests: 1218 passed, 18 skipped, 1 xpassed (was 1205 at Phase 45 close; +13 new tests from 46-01's sample_ball/sample_bowl samplers)
-Next action: Execute 46-02-PLAN.md (frozen TrainingTriple result model in eval/types.py)
+Tests: 1229 passed, 18 skipped, 1 xpassed (was 1218 at 46-01 close; +11 new tests from 46-02's TrainingTriple model)
+Next action: Execute 46-03-PLAN.md (split_seeds() + DataFactory.generate_training_triple()/generate_training_set() + augment() per-seed RNG threading + Wave-0 tests)
 
 ## Shipped Milestones
 
@@ -62,6 +62,7 @@ v1.2 archives: .planning/milestones/v1.2-ROADMAP.md · v1.2-REQUIREMENTS.md · v
 - Phases 45–49 added: eGNN & PointNet++ as further LabelTransferStage methods — split into (45) framework selection & eval strategy design (AI-SPEC.md, no code), (46) training data pipeline, (47) model + training infra, (48) inference integration mirroring Phase 44's OPTIONAL_PARAMS precedent, (49) evaluation/benchmarking. Linear dependency chain 45→46→47→48→49. Added outside a formal milestone at user request; unlike Phase 44 (pure plumbing over existing zreg code), this is genuinely new ML system scope — no GNN/PointNet/equivariant-net code or training infra exists anywhere in this repo yet.
 - Phase 45 complete: `45-DESIGN.md` locks the per-model library decision (PointNet++ hand-rolled on Open3D; eGNN hand-rolled `MessagePassing` subclass on `torch_geometric` 2.8.0, verified installable), target `src/zreg/models/` module layout, joint-cloud conditioning adaptation, label-vs-id discipline, GPU-train/CPU-infer split, and downstream phase ownership map for Phases 46–49. New finding: `zreg` (or any `scipy`-importing module) must be imported before `torch_geometric` to avoid a libomp SIGABRT — extends the existing macOS-ARM zreg-before-torch convention.
 - Phase 46 plan 01 complete: research found `DataFactory.generate_synthetic()` does NOT implement the bowl/ball growth model assumed by 45-CONTEXT.md/45-DESIGN.md (D-04) — it produces unlabeled Gaussian-blob frames only. Ported a simplified, single-frame (non-growth) `sample_ball()`/`sample_bowl()` pair from `scripts/generate_datasets.py`'s standalone rejection-sampling math into `zreg/generators/generators.py`, exported from `zreg.generators`. Both samplers use `np.random.default_rng(seed)` (numpy-native geometry math) rather than `torch.manual_seed`, documented as an explicit, intentional deviation from `generate_trajectory`'s seed contract.
+- Phase 46 plan 02 complete: added `TrainingTriple` frozen pydantic model to `eval/types.py` (D-02) — source_cloud/target_cloud/seed fields, `source_labels`/`target_labels` properties reading exclusively from `pc["label"]` (never `pc["id"]`, per 45-DESIGN.md's label-vs-id discipline). Matches `AlignResult`/`LabelResult`'s exact `ConfigDict(frozen=True, arbitrary_types_allowed=True)` convention — seventh frozen result model in `eval/types.py`, zero raw tuple/dict public return types anywhere in `eval/`. TDD plan-level gate followed (RED test commit `8fbc8be` → GREEN implementation commit `c750cf4`). 1229 tests pass (was 1218; +11 new), 100% coverage on `eval`/`zreg`.
 
 ### v1.4 Design Decisions
 
@@ -96,6 +97,7 @@ None — Phase 46 plan 01 complete.
 | 44 | 04 | 12min | 1 | 2 |
 | 45 | 01 | 12min | 2 | 1 |
 | 46 | 01 | 10min | 2 | 3 |
+| 46 | 02 | 10min | 1 | 2 |
 
 ### Deferred Items (acknowledged at v1.2 close)
 
@@ -108,6 +110,6 @@ None — Phase 46 plan 01 complete.
 
 ## Session Continuity
 
-Last session: 2026-07-11T10:12:58Z
-Stopped at: Completed 46-01-PLAN.md (1 of 3 plans in Phase 46)
-Next action: Execute 46-02-PLAN.md (frozen TrainingTriple result model in eval/types.py)
+Last session: 2026-07-11T10:20:09Z
+Stopped at: Completed 46-02-PLAN.md (2 of 3 plans in Phase 46)
+Next action: Execute 46-03-PLAN.md (split_seeds() + DataFactory.generate_training_triple()/generate_training_set() + augment() per-seed RNG threading + Wave-0 tests)

@@ -29,8 +29,10 @@ from zreg.generators import (
     add_outliers,
     apply_affine,  # noqa: F401  (available; not used in Phase 17 minimal generate_synthetic)
     apply_rigid,
-    generate_labels,  # noqa: F401  (available; not used in Phase 17 minimal generate_synthetic)
+    generate_labels,
     generate_trajectory,
+    sample_ball,
+    sample_bowl,
 )
 from zreg.transforms import RigidTransformation
 
@@ -39,8 +41,53 @@ import torch
 
 # local sibling module last
 from eval.config import EvalConfig, EvalConfigError
+from eval.types import TrainingTriple
 
-__all__ = ["DataFactory"]
+__all__ = ["DataFactory", "split_seeds"]
+
+
+def split_seeds(
+    n_train: int,
+    n_val: int,
+    base_seed: int = 0,
+) -> tuple[range, range]:
+    """Disjoint-by-construction train/val seed ranges (D-03 seed-level holdout).
+
+    Unlike :meth:`DataFactory.prepare_split` (which randomly samples a subset
+    of FRAME indices within a single trajectory), this function partitions
+    the SEED space itself into two non-overlapping contiguous ranges, so a
+    triple generated from a train seed and one generated from a val seed can
+    never share a seed. Disjointness is guaranteed by construction (adjacent,
+    non-overlapping ranges) — no ``isdisjoint()`` check is needed.
+
+    Parameters
+    ----------
+    n_train : int
+        Number of training seeds. Must be >= 1.
+    n_val : int
+        Number of validation seeds. Must be >= 0.
+    base_seed : int, optional
+        First seed of the training range (default 0).
+
+    Returns
+    -------
+    tuple[range, range]
+        ``(train_seeds, val_seeds)`` — ``train_seeds = range(base_seed,
+        base_seed + n_train)``; ``val_seeds = range(base_seed + n_train,
+        base_seed + n_train + n_val)``.
+
+    Raises
+    ------
+    ValueError
+        If ``n_train < 1`` or ``n_val < 0``.
+    """
+    if n_train < 1:
+        raise ValueError(f"split_seeds: n_train must be >= 1, got {n_train}")
+    if n_val < 0:
+        raise ValueError(f"split_seeds: n_val must be >= 0, got {n_val}")
+    train_seeds = range(base_seed, base_seed + n_train)
+    val_seeds = range(base_seed + n_train, base_seed + n_train + n_val)
+    return train_seeds, val_seeds
 
 
 class DataFactory:
@@ -269,6 +316,125 @@ class DataFactory:
         self._source_dataset = dataset
         self._transform_spec = transform_spec
         return result
+
+    def generate_training_triple(
+        self,
+        seed: int,
+        n_classes: int = 6,
+        shape: str | None = None,
+        n_points: int | None = None,
+    ) -> TrainingTriple:
+        """Generate ONE seed-driven (source, target) training triple (D-01/D-02/D-04).
+
+        Composes three existing/new pieces per 46-RESEARCH.md Pattern 1: (1) a
+        single-frame ``sample_ball``/``sample_bowl`` base cloud, (2) categorical
+        Voronoi labels via ``generate_labels``, (3) an exact-correspondence
+        target via :meth:`generate_target` (whose transform machinery already
+        propagates ``label`` through every step). Every call with a different
+        ``seed`` produces a genuinely different triple; the same ``seed``
+        called twice is bitwise-reproducible.
+
+        Geometry selection: when ``shape`` is not given, ``"ball"`` is used for
+        even seeds and ``"bowl"`` for odd seeds (``seed % 2 == 0`` -> ball) —
+        this documented rule is how callers/tests determine which geometry a
+        given seed produced, rather than an internal attribute.
+
+        Point count: when ``n_points`` is not given, it is drawn uniformly from
+        ``[100, 300]`` using a per-seed ``random.Random(seed)`` instance (D-01
+        small-variant regime).
+
+        CRITICAL (Pitfall 2): this method deliberately does NOT read or write
+        ``self._synthetic_dataset`` — it has no early-return cache, unlike
+        :meth:`generate_synthetic`'s D-08/D-09 "construct once, cache by
+        reference" contract. Every call recomputes from scratch so that N
+        seeds produce N distinct results. :meth:`generate_target` (called
+        internally) does write ``self._synthetic_target``/``_source_dataset``
+        as a benign side effect of its own contract — those attributes have no
+        early-return caching themselves and are simply overwritten on every
+        call, so this is safe. Do NOT "fix" this method to cache its result;
+        that would silently return the first seed's triple for every
+        subsequent seed (see 46-RESEARCH.md Pitfall 2).
+
+        The target's ``transform_spec`` deliberately excludes ``"n_new_points"``
+        (46-RESEARCH.md Anti-Patterns): points added by ``sample_new_points``
+        get a ``-1`` label sentinel, which is not a valid supervised target.
+
+        Parameters
+        ----------
+        seed : int
+            Seed driving base-cloud geometry, label assignment, transform
+            parameters, and augmentation RNG (threaded as ``"augment_seed"``).
+        n_classes : int, optional
+            Voronoi label vocabulary size (default 6).
+        shape : {"ball", "bowl"} or None, optional
+            Force a specific geometry; ``None`` (default) alternates by seed
+            parity (see above).
+        n_points : int or None, optional
+            Force a specific point count; ``None`` (default) draws uniformly
+            from ``[100, 300]`` per-seed.
+
+        Returns
+        -------
+        TrainingTriple
+            ``source_cloud`` (labeled, ``id=None``), ``target_cloud``
+            (transformed, correctly-labeled), and ``seed``.
+        """
+        rng = random.Random(seed)
+        if n_points is None:
+            n_points = rng.randint(100, 300)
+        if shape is None:
+            shape = "ball" if seed % 2 == 0 else "bowl"
+
+        if shape == "ball":
+            pos = sample_ball(n_points, seed=seed)
+        elif shape == "bowl":
+            pos = sample_bowl(n_points, seed=seed)
+        else:
+            raise ValueError(
+                f"DataFactory.generate_training_triple: unknown shape {shape!r}; "
+                f"expected 'ball' or 'bowl'"
+            )
+
+        base = {0: zRegPointCloud(pos=pos)}
+        source = generate_labels(base, n_classes=n_classes, seed=seed)
+
+        transform_spec = {
+            "type": "rigid",
+            "rotation_deg": rng.uniform(0, 360),
+            "rotation_axis": [0.0, 0.0, 1.0],
+            "scale_factor": rng.uniform(0.8, 1.2),
+            "dropout_fraction": rng.uniform(0.0, 0.2),
+            "augment_seed": seed,
+        }
+        target = self.generate_target(source, transform_spec)
+
+        return TrainingTriple(source_cloud=source[0], target_cloud=target[0], seed=seed)
+
+    def generate_training_set(
+        self,
+        seeds,
+        n_classes: int = 6,
+    ) -> list[TrainingTriple]:
+        """Batch :meth:`generate_training_triple` over an iterable of seeds.
+
+        Convenient companion to :func:`split_seeds` for constructing a full
+        train or val set: ``factory.generate_training_set(train_seeds)``.
+
+        Parameters
+        ----------
+        seeds : Iterable[int]
+            Seeds to generate triples for, e.g. a ``range`` from
+            :func:`split_seeds`.
+        n_classes : int, optional
+            Forwarded to every :meth:`generate_training_triple` call
+            (default 6).
+
+        Returns
+        -------
+        list[TrainingTriple]
+            One triple per seed, in the order ``seeds`` was iterated.
+        """
+        return [self.generate_training_triple(s, n_classes=n_classes) for s in seeds]
 
     def generate_synthetic(self) -> dict[int, zRegPointCloud]:
         """Generate a synthetic trajectory (lazy, cached).

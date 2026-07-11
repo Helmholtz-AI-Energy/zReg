@@ -145,13 +145,15 @@ train/val split. Small point-count regime only (100-300 pts/frame), on-the-fly s
 no persisted dataset.
 **Requirements**: D-01 through D-04 (see 46-CONTEXT.md — phase added ad hoc, no formal REQUIREMENTS.md IDs)
 **Depends on:** Phase 45
-**Plans:** 3 plans (2/3 complete)
+**Plans:** 3/3 plans complete
 
 Plans:
 
 - [x] 46-01-PLAN.md — Port single-frame sample_ball()/sample_bowl() geometry samplers into zreg/generators (D-04)
 - [x] 46-02-PLAN.md — Add frozen TrainingTriple result model to eval/types.py (D-02)
-- [ ] 46-03-PLAN.md — split_seeds() + DataFactory.generate_training_triple()/generate_training_set() + augment() per-seed RNG threading + Wave-0 tests (D-01, D-02, D-03, D-04)
+- [x] 46-03-PLAN.md — split_seeds() + DataFactory.generate_training_triple()/generate_training_set() + augment() per-seed RNG threading + Wave-0 tests (D-01, D-02, D-03, D-04)
+
+**Status:** ✅ Complete — 1248 tests pass (was 1229 at 46-02 close), 100% coverage on zreg/eval.
 
 ### Phase 47: eGNN and PointNet++ Model Implementation & Training Infrastructure
 

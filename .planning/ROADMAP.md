@@ -127,7 +127,7 @@ eGNN/PointNet++ are classical supervised point-cloud networks, not LLM/agent fra
 45-CONTEXT.md.)
 **Requirements**: D-01 through D-04 (see 45-CONTEXT.md — phase added ad hoc, no formal REQUIREMENTS.md IDs)
 **Depends on:** Phase 44
-**Plans:** 1/1 plan complete
+**Plans:** 1/1 plans complete
 
 Plans:
 

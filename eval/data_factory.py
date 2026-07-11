@@ -308,8 +308,8 @@ class DataFactory:
         Reads ``self.config.augmentation_params`` (a plain dict).  Recognised
         keys (in dispatch order):
 
-        - ``"sigma"`` (float): applies ``add_gaussian_noise(dataset, sigma=..., seed=42)``
-        - ``"n_outliers"`` (int): applies ``add_outliers(dataset, n_outliers=..., seed=42)``
+        - ``"sigma"`` (float): applies ``add_gaussian_noise(dataset, sigma=..., seed=augment_seed)``
+        - ``"n_outliers"`` (int): applies ``add_outliers(dataset, n_outliers=..., seed=augment_seed)``
         - ``"scale"`` (float, optional): outlier scale for ``add_outliers``, default 3.0
         - ``"scale_factor"`` (float): ``self.scale`` — multiplies every frame's pos by
           ``scale_factor``; applied after noise/outliers
@@ -320,12 +320,21 @@ class DataFactory:
           specified fraction of points per frame; applied after scale/rotate
         - ``"n_new_points"`` (int): ``self.sample_new_points`` — appends uniform-in-bbox
           points per frame; applied last
+        - ``"augment_seed"`` (int, optional): per-seed RNG override (Pitfall 3,
+          46-RESEARCH.md) forwarded to all four stochastic sub-calls above
+          (``add_gaussian_noise``, ``add_outliers``, ``drop_points``,
+          ``sample_new_points``) in place of a hardcoded ``42``.  Default: 42
+          when absent, so every existing caller that does not set
+          ``"augment_seed"`` gets byte-identical legacy behavior.  This key is
+          NOT itself a transform — it never appears in the dispatch ``if``
+          chain and does not, by itself, trigger any augmentation step.
 
         Dispatch order: sigma → n_outliers → scale_factor → rotation_deg →
         dropout_fraction → n_new_points.
 
-        Missing keys skip the corresponding step.  An empty dict is a no-op
-        and returns the input dataset unchanged.
+        Missing keys skip the corresponding step.  An empty dict (or a dict
+        containing only ``"augment_seed"``) is a no-op and returns the input
+        dataset unchanged.
 
         Both ``add_gaussian_noise`` and ``add_outliers`` deep-copy their inputs
         (verified in ``src/zreg/generators/corruption.py``), so the input
@@ -340,20 +349,22 @@ class DataFactory:
         -------
         dict[int, zRegPointCloud]
             Augmented trajectory.  Equals ``dataset`` by identity when
-            ``augmentation_params`` is empty (no-op path).
+            ``augmentation_params`` is empty (or only contains
+            ``"augment_seed"``) — the no-op path.
         """
         params = self.config.augmentation_params
+        augment_seed = params.get("augment_seed", 42)
         result = dataset
         # Step 1: Gaussian noise
         if "sigma" in params:
-            result = add_gaussian_noise(result, sigma=params["sigma"], seed=42)
+            result = add_gaussian_noise(result, sigma=params["sigma"], seed=augment_seed)
         # Step 2: outlier injection
         if "n_outliers" in params:
             result = add_outliers(
                 result,
                 n_outliers=params["n_outliers"],
                 scale=params.get("scale", 3.0),
-                seed=42,
+                seed=augment_seed,
             )
         # Step 3: uniform scaling
         if "scale_factor" in params:
@@ -375,10 +386,10 @@ class DataFactory:
             result = self.rotate(result, R)
         # Step 5: point dropout
         if "dropout_fraction" in params:
-            result = self.drop_points(result, params["dropout_fraction"])
+            result = self.drop_points(result, params["dropout_fraction"], seed=augment_seed)
         # Step 6: new point sampling
         if "n_new_points" in params:
-            result = self.sample_new_points(result, params["n_new_points"])
+            result = self.sample_new_points(result, params["n_new_points"], seed=augment_seed)
         return result
 
     def prepare_split(

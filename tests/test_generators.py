@@ -349,36 +349,36 @@ class TestLabelUtilities:
 class TestSampleBall:
     """Tests for the sample_ball single-frame solid-ball sampler."""
 
-    def test_shape_and_dtype(self):
+    def test_sample_ball_shape_and_dtype(self):
         """sample_ball(200, seed=0) returns a (200, 3) float32 torch.Tensor."""
         pos = sample_ball(n_points=200, seed=0)
         assert isinstance(pos, torch.Tensor)
         assert pos.shape == (200, 3)
         assert pos.dtype == torch.float32
 
-    def test_points_inside_default_radius(self):
+    def test_sample_ball_points_inside_default_radius(self):
         """All points lie inside the default radius=1.0 sphere."""
         pos = sample_ball(n_points=200, seed=0)
         assert pos.norm(dim=1).max().item() <= 1.0 + 1e-5
 
-    def test_seed_reproducibility(self):
+    def test_sample_ball_seed_reproducibility(self):
         """Same seed produces bitwise-equal tensors across two calls."""
         a = sample_ball(n_points=150, seed=7)
         b = sample_ball(n_points=150, seed=7)
         assert torch.equal(a, b)
 
-    def test_different_seeds_differ(self):
+    def test_sample_ball_different_seeds_differ(self):
         """Different seeds produce non-equal tensors."""
         a = sample_ball(n_points=150, seed=7)
         b = sample_ball(n_points=150, seed=8)
         assert not torch.equal(a, b)
 
-    def test_invalid_n_points(self):
+    def test_sample_ball_invalid_n_points(self):
         """sample_ball(0) raises ValueError matching 'n_points'."""
         with pytest.raises(ValueError, match="n_points"):
             sample_ball(n_points=0)
 
-    def test_non_default_radius_respected(self):
+    def test_sample_ball_non_default_radius_respected(self):
         """radius=2.5 produces points within 2.5 but with max norm > 1.0."""
         pos = sample_ball(n_points=500, seed=1, radius=2.5)
         max_norm = pos.norm(dim=1).max().item()

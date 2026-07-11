@@ -137,16 +137,21 @@ Plans:
 
 ### Phase 46: Training Data Pipeline for Learned Label Transfer
 
-**Goal:** Extend DataFactory / generate_datasets.py to produce (source cloud + labels, target
-cloud, target labels) training triples from existing synthetic dataset generation, per Phase 45's
-data strategy — eGNN/PointNet++ are learned models and need a training set that doesn't exist yet.
-**Requirements**: TBD
+**Goal:** Extend DataFactory to emit seed-driven (source cloud + labels, target cloud, target
+labels) training triples for Phase 47's eGNN/PointNet++ training loop — porting a single-frame
+ball/bowl geometry sampler into `zreg.generators`, wiring the existing Voronoi `generate_labels`,
+reusing Phase 30's transform-based exact-correspondence `generate_target`, and adding a seed-level
+train/val split. Small point-count regime only (100-300 pts/frame), on-the-fly seeded generation,
+no persisted dataset.
+**Requirements**: D-01 through D-04 (see 46-CONTEXT.md — phase added ad hoc, no formal REQUIREMENTS.md IDs)
 **Depends on:** Phase 45
-**Plans:** 0 plans
+**Plans:** 3 plans
 
 Plans:
 
-- [ ] TBD (run /gsd:plan-phase 46 to break down)
+- [ ] 46-01-PLAN.md — Port single-frame sample_ball()/sample_bowl() geometry samplers into zreg/generators (D-04)
+- [ ] 46-02-PLAN.md — Add frozen TrainingTriple result model to eval/types.py (D-02)
+- [ ] 46-03-PLAN.md — split_seeds() + DataFactory.generate_training_triple()/generate_training_set() + augment() per-seed RNG threading + Wave-0 tests (D-01, D-02, D-03, D-04)
 
 ### Phase 47: eGNN and PointNet++ Model Implementation & Training Infrastructure
 

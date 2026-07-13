@@ -159,13 +159,17 @@ Plans:
 
 **Goal:** Implement the eGNN and PointNet++ model architectures selected in Phase 45, plus a
 training loop and checkpoint management (none of which exists in this repo today).
-**Requirements**: TBD
+**Requirements**: MODEL-01 through MODEL-07 (derived in 47-RESEARCH.md — phase added ad hoc, no formal REQUIREMENTS.md IDs); binds D-01 through D-03 (see 47-CONTEXT.md)
 **Depends on:** Phase 46
-**Plans:** 0 plans
+**Plans:** 5 plans
 
 Plans:
 
-- [ ] TBD (run /gsd:plan-phase 47 to break down)
+- [ ] 47-01-PLAN.md — Foundation: declare torch_geometric in setup.cfg + src/zreg/models/_ops.py (Open3D FPS/ball-query/radius-graph, isolated-point guard) + ops tests incl. D-03 benchmark (MODEL-01, MODEL-04)
+- [ ] 47-02-PLAN.md — PointNet++ joint-cloud model: SetAbstraction/FeaturePropagation/PointNet2LabelTransfer + tests (MODEL-02, MODEL-04)
+- [ ] 47-03-PLAN.md — eGNN: verified single-propagate EGNNConv (MessagePassing subclass) + EGNNLabelTransfer + E(3) equivariance test (MODEL-03, MODEL-04)
+- [ ] 47-04-PLAN.md — Training entry point (train_label_transfer.py, MPS-aware) + models __init__ exports + smoke test (forward/backward/loss-decrease/checkpoint round-trip + MPS run) (MODEL-04, MODEL-05, MODEL-06, MODEL-07)
+- [ ] 47-05-PLAN.md — Joint-cloud output-shape==target-point-count contract test for both models (MODEL-02, MODEL-03)
 
 ### Phase 48: LabelTransferStage Integration for Learned Methods
 

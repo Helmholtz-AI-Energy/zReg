@@ -284,7 +284,23 @@ class EvalConfig(BaseModel):
     )
     label_transfer_method: str = Field(
         default="knn_voting",
-        description="Label transfer method: 'knn_voting' or 'cpd_weighted'"
+        description="Label transfer method: 'knn_voting', 'cpd_weighted', 'pointnet2', or 'egnn'"
+    )
+    egnn_checkpoint_path: str | None = Field(
+        default=None,
+        description=(
+            "Path to a Phase 47 eGNN checkpoint (.pt), required when "
+            "label_transfer_method='egnn'. Validated at LabelTransferStage.run() call "
+            "time, not at EvalConfig construction (mirrors target_data_path, D-05)."
+        ),
+    )
+    pointnet2_checkpoint_path: str | None = Field(
+        default=None,
+        description=(
+            "Path to a Phase 47 PointNet++ checkpoint (.pt), required when "
+            "label_transfer_method='pointnet2'. Validated at LabelTransferStage.run() call "
+            "time, not at EvalConfig construction (mirrors target_data_path, D-05)."
+        ),
     )
     alignment_preprocessing: AlignmentPreprocessingConfig | None = None
     data_preprocessing: DataPreprocessingConfig | None = Field(
@@ -386,7 +402,7 @@ class EvalConfig(BaseModel):
     @field_validator("label_transfer_method")
     @classmethod
     def validate_label_transfer_method(cls, v: str) -> str:
-        """Validate that label_transfer_method is 'knn_voting' or 'cpd_weighted'.
+        """Validate that label_transfer_method is one of the four supported methods.
 
         Parameters
         ----------
@@ -401,10 +417,12 @@ class EvalConfig(BaseModel):
         Raises
         ------
         ValueError
-            If label_transfer_method is not 'knn_voting' or 'cpd_weighted'.
+            If label_transfer_method is not 'knn_voting', 'cpd_weighted',
+            'pointnet2', or 'egnn'.
         """
-        if v not in ("knn_voting", "cpd_weighted"):
+        if v not in ("knn_voting", "cpd_weighted", "pointnet2", "egnn"):
             raise ValueError(
-                f"label_transfer_method must be 'knn_voting' or 'cpd_weighted'; got {v!r}"
+                "label_transfer_method must be 'knn_voting', 'cpd_weighted', "
+                f"'pointnet2', or 'egnn'; got {v!r}"
             )
         return v

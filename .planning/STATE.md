@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: milestone
 status: Executing Phase 47
-stopped_at: Completed 47-02-PLAN.md (2 of 5 plans in Phase 47)
-last_updated: "2026-07-13T10:50:01.000Z"
+stopped_at: Completed 47-03-PLAN.md (3 of 5 plans in Phase 47)
+last_updated: "2026-07-13T09:00:25.000Z"
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 13
-  completed_plans: 10
-  percent: 53
+  completed_plans: 11
+  percent: 56
 ---
 
 # Project State
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-07-08 after v1.4 milestone)
 ## Current Position
 
 Phase: 47 (egnn-and-pointnet-model-implementation-training-infrastructu) — EXECUTING
-Plan: 3 of 5 (47-01, 47-02 complete)
+Plan: 4 of 5 (47-01, 47-02, 47-03 complete)
 Milestone: v1.4 Trajectory Alignment & Optimization Enhancements — **ARCHIVED** 2026-07-08
-Tests: 1265 passed, 18 skipped, 1 xpassed (was 1259 at 47-01 close; +6 new tests from 47-02's test_zreg_models_pointnet2.py)
-Next action: Execute 47-03-PLAN.md (eGNN model) via /gsd:execute-phase 47
+Tests: 1269 passed, 18 skipped, 1 xpassed (was 1265 at 47-02 close; +4 new tests from 47-03's test_egnn_equivariance.py)
+Next action: Execute 47-04-PLAN.md (training entry point) via /gsd:execute-phase 47
 
 ## Shipped Milestones
 
@@ -66,6 +66,7 @@ v1.2 archives: .planning/milestones/v1.2-ROADMAP.md · v1.2-REQUIREMENTS.md · v
 - Phase 46 plan 03 complete (Phase 46 now fully complete, 3/3): `augment()` now threads a caller-supplied `"augment_seed"` (default 42) to its four internal stochastic sub-calls (Pitfall 3 resolved); added module-level `split_seeds(n_train, n_val, base_seed=0)` (disjoint-by-construction seed ranges, D-03); added `DataFactory.generate_training_triple(seed, n_classes=6, shape=None, n_points=None) -> TrainingTriple` composing `sample_ball`/`sample_bowl` + `generate_labels` + `generate_target` (100-300 pts/frame per D-01, ball/bowl alternates by seed parity per D-04, seed-reproducible/seed-varied per D-02, deliberately bypasses the `_synthetic_dataset` singleton cache per Pitfall 2); added `DataFactory.generate_training_set(seeds, n_classes=6)` batching companion for `split_seeds()`. `tests/test_data_factory_training_triples.py` is the Wave-0 test file mandated by 45-DESIGN.md (7 classes, 22 tests). 1248 tests pass (was 1229; +19 new), 100% coverage on `eval`/`zreg`. Phase 46's full output (`split_seeds`, `generate_training_triple`, `generate_training_set`) is ready for Phase 47's training loop.
 - Phase 47 plan 01 complete (1/5): `torch_geometric` declared in `setup.cfg install_requires` (no compiled PyG siblings). Added `src/zreg/models/_ops.py` — `farthest_point_sample`, `ball_query` (isolated-point self-fallback guard, Pitfall 2), `build_radius_graph` (directed `[2, E]` edge_index, self-loops excluded by design since `EGNNConv`'s residual update already covers the self term, isolated points fall back to a self-loop) — all device-agnostic (`pos.device`, zero bare CUDA calls). D-03 (Open3D wrapper benchmark-first) resolved: `tests/test_zreg_models_ops.py`'s benchmark test confirms combined FPS+ball-query wall-clock stays under 50ms at 100/200/300 points (1.9-4.7ms measured) — no vectorization needed. Tasks 2+3 (both `tdd="true"`) executed as a single RED (test file, `056ff84`) → GREEN (implementation, `f3aad21`) cycle. 1259 tests pass (was 1248; +11 new), zero regressions.
 - Phase 47 plan 02 complete (2/5): Added `src/zreg/models/pointnet2.py` — `SetAbstraction` (FPS → `_ops.ball_query` → per-group `[relative_pos|neighbour_feat]` MLP → max-pool, ratio-based `n_samples=max(1,int(n*ratio))`), `FeaturePropagation` (3-NN inverse-distance interpolation via `open3d.geometry.KDTreeFlann.search_knn_vector_3d(p,3)` + U-Net skip concat + MLP), and `PointNet2LabelTransfer` (2 SA hidden 32→64 + 2 symmetric FP + per-point head → `n_classes` logits over the full joint cloud). The model has no notion of `n_source` — callers slice `logits[n_source:]` for the target-only supervised subset, documented in the class docstring and exercised by tests. `_ops.ball_query`'s isolated-point self-fallback guard (from plan 01) is consumed as-is, keeping `sample_bowl`'s sparse rim regions from crashing max-pool (T-47-03). Task 1 (`e2165aa`, feat) then Task 2 (`20f9de9`, test) — Task 2's test suite passed immediately against the already-correct Task 1 implementation, no RED failures needed since Task 1's own inline verify command already gated correctness. 1265 tests pass (was 1259; +6 new), zero regressions, 100% coverage on `pointnet2.py`.
+- Phase 47 plan 03 complete (3/5): Added `src/zreg/models/egnn.py` — `EGNNConv(MessagePassing)` copied unmodified from 47-RESEARCH.md Pattern 4's session-verified code (`super().__init__(aggr=None, flow="source_to_target")`, single `propagate()` call, `message()` returns `cat([m_ij, coord_msg])`, custom `aggregate()` splits `[hidden_dim, 3]` and independently scatters sum (features) / mean (coordinates) via `torch_geometric.utils.scatter`) and `EGNNLabelTransfer` (Linear embed `n_classes+1 -> hidden_dim`, `_ops.build_radius_graph` over the joint cloud built once and reused across all layers, 4 stacked `EGNNConv`, Linear readout to `n_classes` logits — same `logits[n_source:]` slicing contract as `PointNet2LabelTransfer`). `tests/test_egnn_equivariance.py` reproduces the session's manual numerical equivariance check as an automated `atol=1e-4` regression (coordinate equivariance + feature invariance under a fixed z-rotation), plus forward/backward gradient and end-to-end joint-cloud tests. Task 1 (`cca5b1f`, feat) then Task 2 (`777e158`, test) — same no-RED-needed pattern as 47-02 since Task 1's inline verify command already gated correctness. 1269 tests pass (was 1265; +4 new), zero regressions, 100% coverage on `egnn.py`.
 
 ### v1.4 Design Decisions
 
@@ -88,7 +89,7 @@ See: `.planning/REQUIREMENTS-v1.4.md`
 
 ### Open Blockers
 
-None — 47-02 complete, no blockers for 47-03.
+None — 47-03 complete, no blockers for 47-04.
 
 ### Performance Metrics
 
@@ -104,6 +105,7 @@ None — 47-02 complete, no blockers for 47-03.
 | 46 | 03 | 35min | 3 | 2 |
 | 47 | 01 | 35min | 3 | 4 |
 | 47 | 02 | 20min | 2 | 2 |
+| 47 | 03 | 8min | 2 | 2 |
 
 ### Deferred Items (acknowledged at v1.2 close)
 
@@ -116,6 +118,6 @@ None — 47-02 complete, no blockers for 47-03.
 
 ## Session Continuity
 
-Last session: 2026-07-13T10:50:01+02:00
-Stopped at: Completed 47-02-PLAN.md (2 of 5 plans in Phase 47)
-Next action: Execute 47-03-PLAN.md (eGNN model) via /gsd:execute-phase 47
+Last session: 2026-07-13T11:00:12+02:00
+Stopped at: Completed 47-03-PLAN.md (3 of 5 plans in Phase 47)
+Next action: Execute 47-04-PLAN.md (training entry point) via /gsd:execute-phase 47

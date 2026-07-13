@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: milestone
-status: Ready to plan
-stopped_at: Phase 47 context gathered
-last_updated: "2026-07-11T17:15:00.000Z"
+status: Executing Phase 47
+stopped_at: Completed 47-01-PLAN.md (1 of 5 plans in Phase 47)
+last_updated: "2026-07-13T09:06:00.000Z"
 progress:
   total_phases: 6
   completed_phases: 3
-  total_plans: 8
-  completed_plans: 8
+  total_plans: 13
+  completed_plans: 9
   percent: 50
 ---
 
@@ -20,15 +20,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-08 after v1.4 milestone)
 
 **Core value:** Every existing capability works correctly, fails informatively, and is covered by tests.
-**Current focus:** Phase 46 — training-data-pipeline-for-learned-label-transfer
+**Current focus:** Phase 47 — egnn-and-pointnet-model-implementation-training-infrastructu
 
 ## Current Position
 
-Phase: 47
-Plan: Not started
+Phase: 47 (egnn-and-pointnet-model-implementation-training-infrastructu) — EXECUTING
+Plan: 2 of 5 (47-01 complete)
 Milestone: v1.4 Trajectory Alignment & Optimization Enhancements — **ARCHIVED** 2026-07-08
-Tests: 1248 passed, 18 skipped, 1 xpassed (was 1229 at 46-02 close; +19 new tests from 46-03's split_seeds/generate_training_triple/generate_training_set/augment_seed pipeline)
-Next action: Plan Phase 47 (eGNN and PointNet++ Model Implementation & Training Infrastructure) via /gsd:plan-phase 47
+Tests: 1259 passed, 18 skipped, 1 xpassed (was 1248 at Phase 46 close; +11 new tests from 47-01's test_zreg_models_ops.py)
+Next action: Execute 47-02-PLAN.md (PointNet++ joint-cloud model) via /gsd:execute-phase 47
 
 ## Shipped Milestones
 
@@ -64,6 +64,7 @@ v1.2 archives: .planning/milestones/v1.2-ROADMAP.md · v1.2-REQUIREMENTS.md · v
 - Phase 46 plan 01 complete: research found `DataFactory.generate_synthetic()` does NOT implement the bowl/ball growth model assumed by 45-CONTEXT.md/45-DESIGN.md (D-04) — it produces unlabeled Gaussian-blob frames only. Ported a simplified, single-frame (non-growth) `sample_ball()`/`sample_bowl()` pair from `scripts/generate_datasets.py`'s standalone rejection-sampling math into `zreg/generators/generators.py`, exported from `zreg.generators`. Both samplers use `np.random.default_rng(seed)` (numpy-native geometry math) rather than `torch.manual_seed`, documented as an explicit, intentional deviation from `generate_trajectory`'s seed contract.
 - Phase 46 plan 02 complete: added `TrainingTriple` frozen pydantic model to `eval/types.py` (D-02) — source_cloud/target_cloud/seed fields, `source_labels`/`target_labels` properties reading exclusively from `pc["label"]` (never `pc["id"]`, per 45-DESIGN.md's label-vs-id discipline). Matches `AlignResult`/`LabelResult`'s exact `ConfigDict(frozen=True, arbitrary_types_allowed=True)` convention — seventh frozen result model in `eval/types.py`, zero raw tuple/dict public return types anywhere in `eval/`. TDD plan-level gate followed (RED test commit `8fbc8be` → GREEN implementation commit `c750cf4`). 1229 tests pass (was 1218; +11 new), 100% coverage on `eval`/`zreg`.
 - Phase 46 plan 03 complete (Phase 46 now fully complete, 3/3): `augment()` now threads a caller-supplied `"augment_seed"` (default 42) to its four internal stochastic sub-calls (Pitfall 3 resolved); added module-level `split_seeds(n_train, n_val, base_seed=0)` (disjoint-by-construction seed ranges, D-03); added `DataFactory.generate_training_triple(seed, n_classes=6, shape=None, n_points=None) -> TrainingTriple` composing `sample_ball`/`sample_bowl` + `generate_labels` + `generate_target` (100-300 pts/frame per D-01, ball/bowl alternates by seed parity per D-04, seed-reproducible/seed-varied per D-02, deliberately bypasses the `_synthetic_dataset` singleton cache per Pitfall 2); added `DataFactory.generate_training_set(seeds, n_classes=6)` batching companion for `split_seeds()`. `tests/test_data_factory_training_triples.py` is the Wave-0 test file mandated by 45-DESIGN.md (7 classes, 22 tests). 1248 tests pass (was 1229; +19 new), 100% coverage on `eval`/`zreg`. Phase 46's full output (`split_seeds`, `generate_training_triple`, `generate_training_set`) is ready for Phase 47's training loop.
+- Phase 47 plan 01 complete (1/5): `torch_geometric` declared in `setup.cfg install_requires` (no compiled PyG siblings). Added `src/zreg/models/_ops.py` — `farthest_point_sample`, `ball_query` (isolated-point self-fallback guard, Pitfall 2), `build_radius_graph` (directed `[2, E]` edge_index, self-loops excluded by design since `EGNNConv`'s residual update already covers the self term, isolated points fall back to a self-loop) — all device-agnostic (`pos.device`, zero bare CUDA calls). D-03 (Open3D wrapper benchmark-first) resolved: `tests/test_zreg_models_ops.py`'s benchmark test confirms combined FPS+ball-query wall-clock stays under 50ms at 100/200/300 points (1.9-4.7ms measured) — no vectorization needed. Tasks 2+3 (both `tdd="true"`) executed as a single RED (test file, `056ff84`) → GREEN (implementation, `f3aad21`) cycle. 1259 tests pass (was 1248; +11 new), zero regressions.
 
 ### v1.4 Design Decisions
 
@@ -86,7 +87,7 @@ See: `.planning/REQUIREMENTS-v1.4.md`
 
 ### Open Blockers
 
-None — Phase 46 fully complete (3/3 plans).
+None — 47-01 complete, no blockers for 47-02.
 
 ### Performance Metrics
 
@@ -100,6 +101,7 @@ None — Phase 46 fully complete (3/3 plans).
 | 46 | 01 | 10min | 2 | 3 |
 | 46 | 02 | 10min | 1 | 2 |
 | 46 | 03 | 35min | 3 | 2 |
+| 47 | 01 | 35min | 3 | 4 |
 
 ### Deferred Items (acknowledged at v1.2 close)
 
@@ -112,6 +114,6 @@ None — Phase 46 fully complete (3/3 plans).
 
 ## Session Continuity
 
-Last session: 2026-07-11T18:36:13+02:00
-Stopped at: Completed 46-03-PLAN.md (3 of 3 plans in Phase 46) — Phase 46 fully complete
-Next action: Plan Phase 47 (eGNN and PointNet++ Model Implementation & Training Infrastructure) via /gsd:plan-phase 47
+Last session: 2026-07-13T09:06:00+02:00
+Stopped at: Completed 47-01-PLAN.md (1 of 5 plans in Phase 47)
+Next action: Execute 47-02-PLAN.md (PointNet++ joint-cloud model) via /gsd:execute-phase 47

@@ -161,7 +161,7 @@ Plans:
 training loop and checkpoint management (none of which exists in this repo today).
 **Requirements**: MODEL-01 through MODEL-07 (derived in 47-RESEARCH.md — phase added ad hoc, no formal REQUIREMENTS.md IDs); binds D-01 through D-03 (see 47-CONTEXT.md)
 **Depends on:** Phase 46
-**Plans:** 4/5 plans complete
+**Plans:** 5/5 plans complete
 
 Plans:
 
@@ -169,9 +169,9 @@ Plans:
 - [x] 47-02-PLAN.md — PointNet++ joint-cloud model: SetAbstraction/FeaturePropagation/PointNet2LabelTransfer + tests (MODEL-02, MODEL-04)
 - [x] 47-03-PLAN.md — eGNN: verified single-propagate EGNNConv (MessagePassing subclass) + EGNNLabelTransfer + E(3) equivariance test (MODEL-03, MODEL-04)
 - [x] 47-04-PLAN.md — Training entry point (train_label_transfer.py, MPS-aware) + models __init__ exports + smoke test (forward/backward/loss-decrease/checkpoint round-trip + MPS run) (MODEL-04, MODEL-05, MODEL-06, MODEL-07)
-- [ ] 47-05-PLAN.md — Joint-cloud output-shape==target-point-count contract test for both models (MODEL-02, MODEL-03)
+- [x] 47-05-PLAN.md — Joint-cloud output-shape==target-point-count contract test for both models (MODEL-02, MODEL-03)
 
-**Status:** 🔄 In progress — 47-01 through 47-04 complete (torch_geometric declared, _ops.py geometry layer done, D-03 resolved sub-50ms; PointNet2LabelTransfer joint-cloud model done; EGNNConv single-propagate MessagePassing subclass + EGNNLabelTransfer done, E(3) equivariance verified at atol=1e-4; train_label_transfer.py CLI + train_step + checkpoint I/O done, 12 smoke tests passing incl. a passing MPS iteration for both models). 1281 tests pass (was 1248 at Phase 46 close).
+**Status:** ✅ Complete — all 5 plans executed (torch_geometric declared, _ops.py geometry layer done, D-03 resolved sub-50ms; PointNet2LabelTransfer joint-cloud model done; EGNNConv single-propagate MessagePassing subclass + EGNNLabelTransfer done, E(3) equivariance verified at atol=1e-4; train_label_transfer.py CLI + train_step + checkpoint I/O done, 12 smoke tests passing incl. a passing MPS iteration for both models; tests/test_zreg_models_joint_cloud.py single-sources the both-model logits[n_source:] slicing contract across 2 point-count regimes). 1285 tests pass (was 1248 at Phase 46 close), zero regressions across the whole phase.
 
 ### Phase 48: LabelTransferStage Integration for Learned Methods
 

@@ -86,11 +86,13 @@ class TestEvalConfigAlignmentMethodValidation:
 class TestEvalConfigLabelTransferMethodValidation:
     """Tests for label_transfer_method field validation."""
 
+    LABEL_TRANSFER_METHOD_MESSAGE = (
+        "label_transfer_method must be 'knn_voting', 'cpd_weighted', 'pointnet2', or 'egnn'"
+    )
+
     def test_label_transfer_method_invalid_value_raises(self, tmp_path):
         """Test that invalid label_transfer_method raises ValueError."""
-        with pytest.raises(
-            ValueError, match="label_transfer_method must be 'knn_voting' or 'cpd_weighted'"
-        ):
+        with pytest.raises(ValueError, match=self.LABEL_TRANSFER_METHOD_MESSAGE):
             EvalConfig(
                 data_path=str(tmp_path / "data.mat"),
                 label_transfer_method="invalid_method",
@@ -98,9 +100,7 @@ class TestEvalConfigLabelTransferMethodValidation:
 
     def test_label_transfer_method_case_sensitive(self, tmp_path):
         """Test that label_transfer_method validation is case-sensitive."""
-        with pytest.raises(
-            ValueError, match="label_transfer_method must be 'knn_voting' or 'cpd_weighted'"
-        ):
+        with pytest.raises(ValueError, match=self.LABEL_TRANSFER_METHOD_MESSAGE):
             EvalConfig(
                 data_path=str(tmp_path / "data.mat"),
                 label_transfer_method="KNN_VOTING",  # uppercase should fail
@@ -108,9 +108,7 @@ class TestEvalConfigLabelTransferMethodValidation:
 
     def test_label_transfer_method_empty_string_raises(self, tmp_path):
         """Test that empty string for label_transfer_method raises ValueError."""
-        with pytest.raises(
-            ValueError, match="label_transfer_method must be 'knn_voting' or 'cpd_weighted'"
-        ):
+        with pytest.raises(ValueError, match=self.LABEL_TRANSFER_METHOD_MESSAGE):
             EvalConfig(
                 data_path=str(tmp_path / "data.mat"),
                 label_transfer_method="",
@@ -128,6 +126,61 @@ class TestEvalConfigLabelTransferMethodValidation:
             label_transfer_method="cpd_weighted",
         )
         assert config.label_transfer_method == "cpd_weighted"
+
+    def test_label_transfer_method_pointnet2_valid(self, tmp_path):
+        """Test that label_transfer_method='pointnet2' can be set explicitly."""
+        config = EvalConfig(
+            data_path=str(tmp_path / "data.mat"),
+            label_transfer_method="pointnet2",
+        )
+        assert config.label_transfer_method == "pointnet2"
+
+    def test_label_transfer_method_egnn_valid(self, tmp_path):
+        """Test that label_transfer_method='egnn' can be set explicitly."""
+        config = EvalConfig(
+            data_path=str(tmp_path / "data.mat"),
+            label_transfer_method="egnn",
+        )
+        assert config.label_transfer_method == "egnn"
+
+
+class TestEvalConfigCheckpointPathFields:
+    """Phase 48: egnn_checkpoint_path / pointnet2_checkpoint_path fields (D-02)."""
+
+    def test_checkpoint_paths_default_to_none(self, tmp_path):
+        """Both checkpoint-path fields default to None when unset."""
+        config = EvalConfig(data_path=str(tmp_path / "data.mat"))
+        assert config.egnn_checkpoint_path is None
+        assert config.pointnet2_checkpoint_path is None
+
+    def test_checkpoint_paths_independently_settable(self, tmp_path):
+        """Both checkpoint-path fields can be set to distinct values independently."""
+        config = EvalConfig(
+            data_path=str(tmp_path / "data.mat"),
+            egnn_checkpoint_path=str(tmp_path / "egnn.pt"),
+            pointnet2_checkpoint_path=str(tmp_path / "pointnet2.pt"),
+        )
+        assert config.egnn_checkpoint_path == str(tmp_path / "egnn.pt")
+        assert config.pointnet2_checkpoint_path == str(tmp_path / "pointnet2.pt")
+
+    def test_checkpoint_paths_construction_does_not_require_existing_files(self, tmp_path):
+        """Construction succeeds even when checkpoint paths point at nonexistent files.
+
+        Existence is validated at LabelTransferStage.run() call time (Pitfall 4),
+        mirroring target_data_path's use-time validation (D-05) — not here.
+        """
+        nonexistent_egnn = str(tmp_path / "does_not_exist_egnn.pt")
+        nonexistent_pointnet2 = str(tmp_path / "does_not_exist_pointnet2.pt")
+        assert not Path(nonexistent_egnn).exists()
+        assert not Path(nonexistent_pointnet2).exists()
+
+        config = EvalConfig(
+            data_path=str(tmp_path / "data.mat"),
+            egnn_checkpoint_path=nonexistent_egnn,
+            pointnet2_checkpoint_path=nonexistent_pointnet2,
+        )
+        assert config.egnn_checkpoint_path == nonexistent_egnn
+        assert config.pointnet2_checkpoint_path == nonexistent_pointnet2
 
 
 class TestEvalConfigYAMLLoading:

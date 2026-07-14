@@ -193,11 +193,16 @@ Plans:
 
 **Goal:** Apply the existing F1/knn_consistency metrics plus any additional evaluation dimensions
 from Phase 45's strategy to benchmark eGNN/PointNet++ against the knn_voting/cpd_weighted
-baselines across this project's dataset sources.
-**Requirements**: TBD
+baselines across this project's dataset sources. Verified this session via a freshly-initialized
+smoke-test checkpoint (D-01) — the real meaningful comparison run happens once the user has
+trained real weights on their external cluster.
+**Requirements**: D-01 through D-03, D-02.1 through D-02.4 (see 49-CONTEXT.md — phase added ad hoc,
+no formal REQUIREMENTS.md IDs)
 **Depends on:** Phase 48
-**Plans:** 0 plans
+**Plans:** 3 plans
 
 Plans:
 
-- [ ] TBD (run /gsd:plan-phase 49 to break down)
+- [ ] 49-01-PLAN.md — MethodBenchmarkResult/BenchmarkReport types + Wave-0 verification that cpd_weighted succeeds with raw non-CPD-aligned input (D-01, D-02.2 fixtures)
+- [ ] 49-02-PLAN.md — LabelTransferBenchmark orchestration class (compare_methods, run_leakage_guard, save_report) covering all four evaluation dimensions (D-01, D-02.1–D-02.4, D-03)
+- [ ] 49-03-PLAN.md — benchmark_label_transfer.py CLI entry point mirroring run_eval.py's convention (D-01)

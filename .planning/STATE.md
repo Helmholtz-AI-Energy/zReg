@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: milestone
-status: Ready to plan
-stopped_at: Phase 49 context gathered
-last_updated: "2026-07-14T07:00:00.000Z"
+status: Executing Phase 49
+stopped_at: Completed 49-01-PLAN.md (1 of 3 plans in Phase 49)
+last_updated: "2026-07-14T16:18:45Z"
 progress:
   total_phases: 6
   completed_phases: 5
-  total_plans: 15
-  completed_plans: 15
+  total_plans: 18
+  completed_plans: 16
   percent: 83
 ---
 
@@ -20,15 +20,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-08 after v1.4 milestone)
 
 **Core value:** Every existing capability works correctly, fails informatively, and is covered by tests.
-**Current focus:** Phase 49 — evaluation-benchmarking-of-learned-label-transfer-methods (not yet planned)
+**Current focus:** Phase 49 — evaluation-benchmarking-of-learned-label-transfer-methods
 
 ## Current Position
 
-Phase: 49
-Plan: Not started
+Phase: 49 (evaluation-benchmarking-of-learned-label-transfer-methods) — EXECUTING
+Plan: 2 of 3 (49-01 complete; 49-02 next)
 Milestone: v1.4 Trajectory Alignment & Optimization Enhancements — **ARCHIVED** 2026-07-08
-Tests: 1300 passed, 18 skipped, 1 xpassed (was 1290 at 48-01 close; +10 new tests from 48-02's TestLabelTransferStageLearnedMethods)
-Next action: Plan Phase 49 (Evaluation & Benchmarking of Learned Label-Transfer Methods) via /gsd:plan-phase 49
+Tests: 1303 passed, 18 skipped, 1 xpassed (was 1300 at 48-02 close; +3 new tests from 49-01's Wave-0 verification)
+Next action: Execute 49-02-PLAN.md (LabelTransferBenchmark orchestration class) via /gsd:execute-phase 49
 
 ## Shipped Milestones
 
@@ -73,6 +73,7 @@ v1.2 archives: .planning/milestones/v1.2-ROADMAP.md · v1.2-REQUIREMENTS.md · v
 - Phase 47 plan 05 complete (5/5, Phase 47 now fully complete): added `tests/test_zreg_models_joint_cloud.py`, the mandated 45-DESIGN.md Wave-0 test single-sourcing the joint-cloud slicing contract for BOTH `PointNet2LabelTransfer` and `EGNNLabelTransfer` — parametrized over both model classes and two (n_source, n_target) size regimes ((100,100), (300,200)), asserting `logits[n_source:].shape == (n_target, n_classes)` in every case (4 collected tests, all green immediately since both models' contracts were already correct from 47-02/47-03). Both models imported directly from their submodules, independent of 47-04's `__init__.py` rewrite. Single task (`6a8d7e1`, test) — no RED phase needed, same pattern as 47-02/47-03/47-04. 1285 tests pass (was 1281; +4 new), zero regressions. Full-suite run (all of Phase 47's tests) confirms no regressions across the whole phase.
 - Phase 48 plan 01 complete (1/2): Added `egnn_checkpoint_path`/`pointnet2_checkpoint_path` `str | None = None` fields to `EvalConfig` (D-02, independently settable, no construction-time filesystem check) and extended `validate_label_transfer_method`'s allowlist from 2 to 4 values (`knn_voting`, `cpd_weighted`, `pointnet2`, `egnn`) with a matching error message. `tests/test_eval_config.py` updated: 3 pre-existing validator-message assertions fixed for the new 4-value message, plus 5 new tests (pointnet2/egnn acceptance, checkpoint-path defaults, independent settability, construction-succeeds-with-nonexistent-path). Task 1 (`40a2c3b`, feat) → Task 2 (`911387f`, test) — session was interrupted by a connection error mid-Task-2 and resumed cleanly from the Task 1 commit with no rework. 1290 tests pass (was 1285; +5 new), zero regressions. Sets up config surface for Plan 02's `LabelTransferStage` dispatcher wiring.
 - Phase 48 plan 02 complete (2/2, Phase 48 now fully complete): Wired `PointNet2LabelTransfer`/`EGNNLabelTransfer` into `LabelTransferStage` as `method="pointnet2"`/`"egnn"`. `VALID_METHODS` extended to 4 values; new `MODEL_REGISTRY` dict + `_load_learned_model` staticmethod (three `ValueError` guards: missing checkpoint-path config, file not found, `model_class` mismatch; `torch.load(..., weights_only=True, map_location="cpu")`); new per-frame-loop branch builds the joint cloud byte-for-byte matching `train_label_transfer.py:train_step`'s encoding (source-then-target concat, one-hot over `[:n_src, :n_classes]`, unknown-flag at `[n_src:, -1] = 1.0`), reading `n_classes` from `learned_model.n_classes` (never re-derived from data). Checkpoint loaded exactly once per `run()` call, before the per-frame loop. `tests/test_label_transfer_stage.py`'s new `TestLabelTransferStageLearnedMethods` (10 tests, direct-construction smoke-test checkpoints via `save_checkpoint`, no subprocess) includes `test_learned_encoding_parity` — the single highest-risk item, proven via `torch.equal` against an independently-reconstructed `train_step`-style reference for both model classes. RED (`4936a80`, test) → GREEN (`acfbde4`, feat) TDD cycle, gate sequence confirmed in git log. 1300 tests pass (was 1290; +10 new), zero regressions. No point-count-regime guard added (D-03 deferred to Phase 49). Phase 48 complete — ready for Phase 49 (evaluation/benchmarking against real trained checkpoints on the user's external cluster).
+- Phase 49 plan 01 complete (1/3): Added `MethodBenchmarkResult`/`BenchmarkReport` frozen pydantic models to `eval/types.py` (method, dataset_source, f1_score, knn_consistency, latency_seconds, n_pairs, error / params, results, notes — RESEARCH Pattern 6, ninth/tenth frozen result models in `eval/types.py`). `tests/test_benchmark_runner.py`'s `test_cpd_weighted_raw_input` empirically proves the phase's single highest-risk assumption (RESEARCH Assumption A1 / Pattern 2): `method='cpd_weighted'` succeeds against RAW (non-CPD-aligned) source/target fed alongside an `align_result` from one `AlignmentStage(alignment_method="cpd")` run — no `aligned_cloud` substitution needed, de-risking Plan 02's comparison-runner design before it's built. Shipped `benchmark_smoke_checkpoint` fixture (mirrors `learned_smoke_checkpoint`) and `write_shah_fixture_csv` helper for Plan 02/03 reuse. Task 1 (`72628ad`, feat) → Task 2 (`d50e74a`, test). 1303 tests pass (was 1300; +3 new), zero regressions.
 
 ### v1.4 Design Decisions
 
@@ -95,7 +96,7 @@ See: `.planning/REQUIREMENTS-v1.4.md`
 
 ### Open Blockers
 
-None — Phase 48 complete (2/2 plans). No blockers for Phase 49 planning.
+None — Phase 49 plan 01 complete (1/3 plans). No blockers for Phase 49 plan 02.
 
 ### Performance Metrics
 
@@ -116,6 +117,7 @@ None — Phase 48 complete (2/2 plans). No blockers for Phase 49 planning.
 | 47 | 05 | 12min | 1 | 1 |
 | 48 | 01 | ~15min | 2 | 2 |
 | 48 | 02 | ~25min | 2 | 2 |
+| 49 | 01 | ~20min | 2 | 2 |
 
 ### Deferred Items (acknowledged at v1.2 close)
 
@@ -128,6 +130,6 @@ None — Phase 48 complete (2/2 plans). No blockers for Phase 49 planning.
 
 ## Session Continuity
 
-Last session: 2026-07-14T09:00:00+02:00
-Stopped at: Completed 48-02-PLAN.md (2 of 2 plans in Phase 48 — Phase 48 fully complete)
-Next action: Plan Phase 49 (Evaluation & Benchmarking of Learned Label-Transfer Methods) via /gsd:plan-phase 49
+Last session: 2026-07-14T16:18:45Z
+Stopped at: Completed 49-01-PLAN.md (1 of 3 plans in Phase 49)
+Next action: Execute 49-02-PLAN.md (LabelTransferBenchmark orchestration class) via /gsd:execute-phase 49

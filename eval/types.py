@@ -11,6 +11,10 @@ the evaluation framework (FRAME-04):
 - ``EvalReport``     — final per-run report serialised to JSON in Phase 21
 - ``TrainingTriple``  — one (source, target) training example for Phase 47's
   learned label-transfer training loop (Phase 46, D-02)
+- ``MethodBenchmarkResult`` — per-method/per-dataset-source benchmark outcome
+  for Phase 49's label-transfer method comparison (Phase 49, RESEARCH Pattern 6)
+- ``BenchmarkReport``       — aggregated multi-method benchmark report (Phase 49,
+  RESEARCH Pattern 6)
 
 All models use ``ConfigDict(frozen=True, arbitrary_types_allowed=True)``
 per D-02.  ``frozen=True`` signals read-only output objects;
@@ -64,6 +68,8 @@ __all__ = [
     "EvalReport",
     "TrainingTriple",  # Phase 46 D-02
     "StageResult",  # Phase 19 D-01
+    "MethodBenchmarkResult",  # Phase 49
+    "BenchmarkReport",  # Phase 49
 ]
 
 
@@ -404,6 +410,102 @@ class TrainingTriple(BaseModel):
     def target_labels(self) -> torch.Tensor:
         """Ground-truth target class labels, read from ``pc["label"]`` (never ``pc["id"]``)."""
         return self.target_cloud["label"]
+
+
+class MethodBenchmarkResult(BaseModel):
+    """Per-method, per-dataset-source benchmark outcome (Phase 49, RESEARCH Pattern 6).
+
+    One instance per ``(method, dataset_source)`` combination evaluated by the
+    Phase 49 benchmark runner (not built in this plan).  Frozen and
+    arbitrary-type-allowed per D-02, matching ``AlignResult``/``LabelResult``
+    conventions exactly.
+
+    Parameters
+    ----------
+    method : str
+        Label-transfer method name evaluated, e.g. ``"knn_voting"``,
+        ``"cpd_weighted"``, ``"pointnet2"``, or ``"egnn"``.
+    dataset_source : str
+        Identifier for the dataset this result was computed against, e.g.
+        ``"synthetic_holdout"`` or ``"real_shah"`` (49-CONTEXT D-02 item 2 —
+        generalization across dataset sources).
+    f1_score : float or None
+        Weighted F1 score of transferred labels vs ground truth, in
+        ``[0, 1]``.  ``None`` means no ground truth was available for this
+        dataset source (the real-data dimension — RESEARCH Pitfall 1) or the
+        run failed (see ``error``).
+    knn_consistency : float or None
+        Fraction of k-NN-consistent labels, in ``[0, 1]``.  ``None`` under the
+        same conditions as ``f1_score``.
+    latency_seconds : float or None
+        Wall-clock inference time, amortized per frame pair (RESEARCH
+        Pattern 4 — CPU inference-latency benchmarking, 49-CONTEXT D-02
+        item 3).  ``None`` if not measured or the run failed.
+    n_pairs : int
+        Number of source/target frame pairs evaluated to produce this result.
+        Defaults to ``0``.
+    error : str or None
+        Non-``None`` when this ``(method, dataset_source)`` combination
+        failed (graceful degradation, 49-CONTEXT D-03) — in that case all
+        other metric fields are ``None`` and this field carries a short
+        diagnostic message.  ``None`` on success.
+
+    Attributes
+    ----------
+    method : str
+    dataset_source : str
+    f1_score : float or None
+    knn_consistency : float or None
+    latency_seconds : float or None
+    n_pairs : int
+    error : str or None
+    """
+
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
+
+    method: str
+    dataset_source: str
+    f1_score: float | None = None
+    knn_consistency: float | None = None
+    latency_seconds: float | None = None
+    n_pairs: int = 0
+    error: str | None = None
+
+
+class BenchmarkReport(BaseModel):
+    """Aggregated multi-method benchmark report (Phase 49, RESEARCH Pattern 6).
+
+    Collects one ``MethodBenchmarkResult`` per ``(method, dataset_source)``
+    combination evaluated by the Phase 49 benchmark runner (not built in this
+    plan), plus the run parameters and free-form notes (e.g. D-03's
+    point-count scale-mismatch findings).  Frozen and arbitrary-type-allowed
+    per D-02, matching ``AlignResult``/``LabelResult`` conventions exactly.
+
+    Parameters
+    ----------
+    params : dict[str, Any]
+        Run parameters that produced this report.  Heterogeneous values
+        (int / float / str / bool) — see module Pitfall 8.  Must stay
+        JSON-primitive so ``model_dump()`` round-trips through
+        ``json.dump`` (T-49-02).
+    results : list[MethodBenchmarkResult]
+        One entry per ``(method, dataset_source)`` combination evaluated.
+    notes : list[str]
+        Free-form diagnostic strings (e.g. D-03 point-count scale-mismatch
+        findings).  Default empty list.
+
+    Attributes
+    ----------
+    params : dict[str, Any]
+    results : list[MethodBenchmarkResult]
+    notes : list[str]
+    """
+
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
+
+    params: dict[str, Any]
+    results: list[MethodBenchmarkResult]
+    notes: list[str] = Field(default_factory=list)
 
 
 StageResult: TypeAlias = Union[AlignResult, LabelResult]

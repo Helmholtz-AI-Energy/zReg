@@ -16,6 +16,7 @@ from zreg.dataset import zRegPointCloud
 from zreg.generators import generate_trajectory, generate_labels
 from zreg.generators import add_gaussian_noise
 from zreg.metrics.label_transfer import compute_f1
+from zreg.models import PointNet2LabelTransfer, EGNNLabelTransfer
 import zreg.utils as utils
 
 import torch
@@ -25,6 +26,7 @@ from eval.stages import LabelTransferStage, PipelineStage
 from eval.stages.label_transfer import LabelTransferStage as LabelTransferStageDirect
 from eval.stages.label_transfer import ALIGNMENT_WARN_THRESHOLD
 from eval.types import LabelResult, AlignResult
+from train_label_transfer import save_checkpoint
 
 
 # ---------------------------------------------------------------------------
@@ -621,9 +623,15 @@ class TestLabelTransferStageCpdWeighted:
             )
 
     def test_invalid_method_value_raises(self, stage, good_params) -> None:
-        """validate_params raises ValueError for an unsupported method value."""
-        with pytest.raises(ValueError, match="method must be one of"):
+        """validate_params raises ValueError for an unsupported method value.
+
+        Now that VALID_METHODS has four entries (48-02), the error message must
+        name all four valid values, including 'pointnet2' and 'egnn'.
+        """
+        with pytest.raises(ValueError, match="method must be one of") as excinfo:
             stage.validate_params({**good_params, "method": "bogus"})
+        assert "pointnet2" in str(excinfo.value)
+        assert "egnn" in str(excinfo.value)
 
     def test_method_defaults_to_config_label_transfer_method(
         self, stage, good_params, synthetic_dataset
@@ -632,6 +640,196 @@ class TestLabelTransferStageCpdWeighted:
         assert "method" not in good_params
         result = stage.run(synthetic_dataset, synthetic_dataset, good_params)
         assert result.params_used["method"] == "knn_voting"
+
+
+# ---------------------------------------------------------------------------
+# TestLabelTransferStageLearnedMethods — Phase 48 D-01/D-02/D-03
+# ---------------------------------------------------------------------------
+
+LEARNED_METHOD_CASES = [
+    (
+        "pointnet2",
+        "pointnet2_checkpoint_path",
+        PointNet2LabelTransfer,
+        {"n_classes": 4, "hidden_dim": 32},
+    ),
+    (
+        "egnn",
+        "egnn_checkpoint_path",
+        EGNNLabelTransfer,
+        {"n_classes": 4, "hidden_dim": 32, "n_layers": 4},
+    ),
+]
+
+
+@pytest.fixture
+def learned_smoke_checkpoint(tmp_path):
+    """Factory fixture: build a fresh, untrained model + smoke-test checkpoint.
+
+    Direct-construction approach (48-RESEARCH.md Wave 0 Gaps recommendation) —
+    does NOT invoke train_label_transfer.py's CLI/subprocess. A structurally
+    valid checkpoint (freshly-initialized weights) is all D-01 requires: this
+    phase's tests prove the load->infer->LabelResult *wiring* is correct, not
+    model quality.
+
+    n_classes=4 MATCHES synthetic_dataset's generate_labels(..., n_classes=4)
+    label vocabulary (Pitfall 1 — a mismatch makes one_hot raise a RuntimeError
+    unrelated to wiring).
+    """
+
+    def _build(method: str) -> str:
+        for m, _field, model_cls, hyperparams in LEARNED_METHOD_CASES:
+            if m == method:
+                model = model_cls(**hyperparams)
+                path = str(tmp_path / f"{method}.pt")
+                save_checkpoint(model, method, hyperparams, epoch=0, path=path)
+                return path
+        raise ValueError(f"unknown method: {method!r}")
+
+    return _build
+
+
+@pytest.mark.parametrize("method,path_field,model_cls,hyperparams", LEARNED_METHOD_CASES)
+class TestLabelTransferStageLearnedMethods:
+    """Phase 48: method='pointnet2'/'egnn' happy path + encoding parity + error cases."""
+
+    def test_learned_happy_path(
+        self,
+        method,
+        path_field,
+        model_cls,
+        hyperparams,
+        tmp_path,
+        good_params,
+        synthetic_dataset,
+        learned_smoke_checkpoint,
+    ) -> None:
+        """Checkpoint loads, model constructs, inference runs, output shape/dtype matches
+        LabelResult's contract (1-D torch.long, sized to the target frame's point count)."""
+        ckpt_path = learned_smoke_checkpoint(method)
+        config = EvalConfig(
+            data_path=str(tmp_path / "unused.mat"), **{path_field: ckpt_path}
+        )
+        stage = LabelTransferStage(config)
+        result = stage.run(
+            synthetic_dataset, synthetic_dataset, {**good_params, "method": method}
+        )
+        for tk in synthetic_dataset:
+            tensor = result.transferred_labels[tk]
+            assert tensor.ndim == 1
+            assert tensor.dtype == torch.long
+            assert tensor.shape[0] == synthetic_dataset[tk]["pos"].shape[0]
+
+    def test_learned_encoding_parity(
+        self,
+        method,
+        path_field,
+        model_cls,
+        hyperparams,
+        tmp_path,
+        good_params,
+        synthetic_dataset,
+        learned_smoke_checkpoint,
+    ) -> None:
+        """THE critical joint-cloud-correctness test.
+
+        Loads the SAME checkpoint manually and builds the reference joint
+        cloud EXACTLY as train_step does (source-then-target concatenation,
+        one_hot over [:n_src, :n_classes], unknown-flag at [n_src:, -1] = 1.0).
+        Asserts torch.equal against the stage's output — fails on any
+        deviation in concatenation order, one-hot width, or unknown-flag
+        position.
+        """
+        ckpt_path = learned_smoke_checkpoint(method)
+        config = EvalConfig(
+            data_path=str(tmp_path / "unused.mat"), **{path_field: ckpt_path}
+        )
+        stage = LabelTransferStage(config)
+        result = stage.run(
+            synthetic_dataset, synthetic_dataset, {**good_params, "method": method}
+        )
+
+        # Manually reconstruct the reference model + joint cloud.
+        ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=True)
+        ref_model = model_cls(**ckpt["hyperparams"])
+        ref_model.load_state_dict(ckpt["model_state_dict"])
+        ref_model.eval()
+        n_classes = ref_model.n_classes
+
+        source_keys = sorted(synthetic_dataset.keys())
+        target_keys = sorted(synthetic_dataset.keys())
+        sk = source_keys[0]
+        tk = target_keys[0]
+        src_frame = synthetic_dataset[sk]
+        tgt_frame = synthetic_dataset[tk]
+        src_pos = src_frame["pos"]
+        tgt_pos = tgt_frame["pos"]
+        src_labels = src_frame["label"]
+        n_src = src_pos.shape[0]
+
+        joint_pos = torch.cat([src_pos, tgt_pos], dim=0)  # source THEN target
+        joint_feat = torch.zeros(joint_pos.shape[0], n_classes + 1)
+        joint_feat[:n_src, :n_classes] = torch.nn.functional.one_hot(
+            src_labels.long(), num_classes=n_classes
+        ).float()
+        joint_feat[n_src:, -1] = 1.0
+
+        with torch.no_grad():
+            ref_logits = ref_model(joint_pos, joint_feat)
+        ref = ref_logits[n_src:].argmax(dim=1)
+
+        assert torch.equal(result.transferred_labels[tk], ref)
+
+    def test_learned_missing_checkpoint_path_raises(
+        self, method, path_field, model_cls, hyperparams, tmp_path, good_params, synthetic_dataset
+    ) -> None:
+        """EvalConfig WITHOUT the checkpoint path field (defaults None) raises ValueError
+        naming the method and the config path field."""
+        config = EvalConfig(data_path=str(tmp_path / "unused.mat"))
+        stage = LabelTransferStage(config)
+        with pytest.raises(ValueError, match=method) as excinfo:
+            stage.run(
+                synthetic_dataset, synthetic_dataset, {**good_params, "method": method}
+            )
+        assert path_field in str(excinfo.value)
+
+    def test_learned_checkpoint_not_found_raises(
+        self, method, path_field, model_cls, hyperparams, tmp_path, good_params, synthetic_dataset
+    ) -> None:
+        """A non-existent checkpoint path raises ValueError matching 'not found'."""
+        nonexistent = str(tmp_path / "nope.pt")
+        config = EvalConfig(
+            data_path=str(tmp_path / "unused.mat"), **{path_field: nonexistent}
+        )
+        stage = LabelTransferStage(config)
+        with pytest.raises(ValueError, match="not found"):
+            stage.run(
+                synthetic_dataset, synthetic_dataset, {**good_params, "method": method}
+            )
+
+    def test_learned_model_class_mismatch_raises(
+        self,
+        method,
+        path_field,
+        model_cls,
+        hyperparams,
+        tmp_path,
+        good_params,
+        synthetic_dataset,
+        learned_smoke_checkpoint,
+    ) -> None:
+        """Pointing <path_field> at the OTHER model's checkpoint raises ValueError
+        matching 'model_class'."""
+        other_method = "egnn" if method == "pointnet2" else "pointnet2"
+        other_ckpt_path = learned_smoke_checkpoint(other_method)
+        config = EvalConfig(
+            data_path=str(tmp_path / "unused.mat"), **{path_field: other_ckpt_path}
+        )
+        stage = LabelTransferStage(config)
+        with pytest.raises(ValueError, match="model_class"):
+            stage.run(
+                synthetic_dataset, synthetic_dataset, {**good_params, "method": method}
+            )
 
 
 # ---------------------------------------------------------------------------

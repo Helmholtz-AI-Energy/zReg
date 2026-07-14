@@ -180,11 +180,11 @@ values (checkpoint loading, inference-time dispatch), following the OPTIONAL_PAR
 EvalConfig.label_transfer_method precedent established in Phase 44 for cpd_weighted.
 **Requirements**: D-01 through D-03 (see 48-CONTEXT.md — phase added ad hoc, no formal REQUIREMENTS.md IDs)
 **Depends on:** Phase 47
-**Plans:** 2 plans
+**Plans:** 1/2 plans complete
 
 Plans:
 
-- [ ] 48-01-PLAN.md — EvalConfig egnn_checkpoint_path/pointnet2_checkpoint_path fields + 4-value label_transfer_method validator (D-02)
+- [x] 48-01-PLAN.md — EvalConfig egnn_checkpoint_path/pointnet2_checkpoint_path fields + 4-value label_transfer_method validator (D-02)
 - [ ] 48-02-PLAN.md — LabelTransferStage learned-method wiring: VALID_METHODS + _load_learned_model + train_step-parity joint-cloud branch + smoke-test verification (D-01, D-02, D-03)
 
 ### Phase 49: Evaluation & Benchmarking of Learned Label-Transfer Methods

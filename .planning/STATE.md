@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: milestone
-status: Ready to plan
-stopped_at: Phase 48 context gathered
-last_updated: "2026-07-13T10:00:00.000Z"
+status: Executing Phase 48
+stopped_at: Completed 48-01-PLAN.md (1 of 2 plans in Phase 48)
+last_updated: "2026-07-14T06:10:00.000Z"
 progress:
   total_phases: 6
   completed_phases: 4
-  total_plans: 13
-  completed_plans: 13
-  percent: 67
+  total_plans: 15
+  completed_plans: 14
+  percent: 71
 ---
 
 # Project State
@@ -20,15 +20,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-08 after v1.4 milestone)
 
 **Core value:** Every existing capability works correctly, fails informatively, and is covered by tests.
-**Current focus:** Phase 47 — egnn-and-pointnet-model-implementation-training-infrastructu
+**Current focus:** Phase 48 — labeltransferstage-integration-for-learned-methods
 
 ## Current Position
 
-Phase: 48
-Plan: Not started
+Phase: 48 (labeltransferstage-integration-for-learned-methods) — EXECUTING
+Plan: 2 of 2 (48-01 complete; 48-02 not started)
 Milestone: v1.4 Trajectory Alignment & Optimization Enhancements — **ARCHIVED** 2026-07-08
-Tests: 1285 passed, 18 skipped, 1 xpassed (was 1281 at 47-04 close; +4 new tests from 47-05's test_zreg_models_joint_cloud.py)
-Next action: Plan Phase 48 (LabelTransferStage integration for learned methods) via /gsd:plan-phase 48
+Tests: 1290 passed, 18 skipped, 1 xpassed (was 1285 at 47-05 close; +5 new tests from 48-01's test_eval_config.py updates)
+Next action: Execute 48-02-PLAN.md (LabelTransferStage learned-method wiring) via /gsd:execute-phase 48
 
 ## Shipped Milestones
 
@@ -70,6 +70,7 @@ v1.2 archives: .planning/milestones/v1.2-ROADMAP.md · v1.2-REQUIREMENTS.md · v
 - Phase 47 plan 03 complete (3/5): Added `src/zreg/models/egnn.py` — `EGNNConv(MessagePassing)` copied unmodified from 47-RESEARCH.md Pattern 4's session-verified code (`super().__init__(aggr=None, flow="source_to_target")`, single `propagate()` call, `message()` returns `cat([m_ij, coord_msg])`, custom `aggregate()` splits `[hidden_dim, 3]` and independently scatters sum (features) / mean (coordinates) via `torch_geometric.utils.scatter`) and `EGNNLabelTransfer` (Linear embed `n_classes+1 -> hidden_dim`, `_ops.build_radius_graph` over the joint cloud built once and reused across all layers, 4 stacked `EGNNConv`, Linear readout to `n_classes` logits — same `logits[n_source:]` slicing contract as `PointNet2LabelTransfer`). `tests/test_egnn_equivariance.py` reproduces the session's manual numerical equivariance check as an automated `atol=1e-4` regression (coordinate equivariance + feature invariance under a fixed z-rotation), plus forward/backward gradient and end-to-end joint-cloud tests. Task 1 (`cca5b1f`, feat) then Task 2 (`777e158`, test) — same no-RED-needed pattern as 47-02 since Task 1's inline verify command already gated correctness. 1269 tests pass (was 1265; +4 new), zero regressions, 100% coverage on `egnn.py`.
 - Phase 47 plan 04 complete (4/5): `src/zreg/models/__init__.py` now exports the full public API (`PointNet2LabelTransfer`, `EGNNLabelTransfer` alongside the existing `_ops` functions). Added repo-root `train_label_transfer.py` mirroring `run_eval.py`'s argparse/sys.path convention (47-RESEARCH.md Open Question 3): `resolve_device` (MPS-aware, cuda->mps->cpu, D-01), shared model-agnostic `train_step` (Pattern 5 — joint-cloud build, one-hot source labels + unknown-flag target rows, masked cross-entropy over `logits[n_source:]`, optimizer step), a per-triple training loop over `DataFactory.generate_training_set`, and `save_checkpoint` (Pattern 6 — plain dict of `state_dict`/`model_class`/`hyperparams`/`epoch`, `weights_only=True`-compatible). `tests/test_train_label_transfer.py` (12 tests): forward/backward gradient flow, loss-decrease over a handful of steps, checkpoint round-trip via `torch.equal`, and an explicit MPS iteration test guarded by a local (file-scoped) MPS-aware device fixture — `tests/conftest.py`'s shared CUDA-only fixture was left untouched. Notably, the MPS iteration test **passed** (not skipped) for both models on this dev machine — empirically resolves 47-RESEARCH.md Open Question 2 for this dev machine's op coverage. Task 1 (`0e7f386`, feat) → Task 2 (`d057b25`, feat) → Task 3 (`7f8f941`, test) — same no-RED-needed pattern as 47-02/47-03 since Task 2's own inline verify command already gated correctness. 1281 tests pass (was 1269; +12 new), zero regressions. `checkpoints/` added to `.gitignore` (training artifacts, not source).
 - Phase 47 plan 05 complete (5/5, Phase 47 now fully complete): added `tests/test_zreg_models_joint_cloud.py`, the mandated 45-DESIGN.md Wave-0 test single-sourcing the joint-cloud slicing contract for BOTH `PointNet2LabelTransfer` and `EGNNLabelTransfer` — parametrized over both model classes and two (n_source, n_target) size regimes ((100,100), (300,200)), asserting `logits[n_source:].shape == (n_target, n_classes)` in every case (4 collected tests, all green immediately since both models' contracts were already correct from 47-02/47-03). Both models imported directly from their submodules, independent of 47-04's `__init__.py` rewrite. Single task (`6a8d7e1`, test) — no RED phase needed, same pattern as 47-02/47-03/47-04. 1285 tests pass (was 1281; +4 new), zero regressions. Full-suite run (all of Phase 47's tests) confirms no regressions across the whole phase.
+- Phase 48 plan 01 complete (1/2): Added `egnn_checkpoint_path`/`pointnet2_checkpoint_path` `str | None = None` fields to `EvalConfig` (D-02, independently settable, no construction-time filesystem check) and extended `validate_label_transfer_method`'s allowlist from 2 to 4 values (`knn_voting`, `cpd_weighted`, `pointnet2`, `egnn`) with a matching error message. `tests/test_eval_config.py` updated: 3 pre-existing validator-message assertions fixed for the new 4-value message, plus 5 new tests (pointnet2/egnn acceptance, checkpoint-path defaults, independent settability, construction-succeeds-with-nonexistent-path). Task 1 (`40a2c3b`, feat) → Task 2 (`911387f`, test) — session was interrupted by a connection error mid-Task-2 and resumed cleanly from the Task 1 commit with no rework. 1290 tests pass (was 1285; +5 new), zero regressions. Sets up config surface for Plan 02's `LabelTransferStage` dispatcher wiring.
 
 ### v1.4 Design Decisions
 
@@ -92,7 +93,7 @@ See: `.planning/REQUIREMENTS-v1.4.md`
 
 ### Open Blockers
 
-None — Phase 47 complete (5/5 plans). No blockers for Phase 48 planning.
+None — Phase 48 plan 01 complete (1/2 plans). No blockers for 48-02 execution.
 
 ### Performance Metrics
 
@@ -111,6 +112,7 @@ None — Phase 47 complete (5/5 plans). No blockers for Phase 48 planning.
 | 47 | 03 | 8min | 2 | 2 |
 | 47 | 04 | 25min | 3 | 4 |
 | 47 | 05 | 12min | 1 | 1 |
+| 48 | 01 | ~15min | 2 | 2 |
 
 ### Deferred Items (acknowledged at v1.2 close)
 
@@ -123,6 +125,6 @@ None — Phase 47 complete (5/5 plans). No blockers for Phase 48 planning.
 
 ## Session Continuity
 
-Last session: 2026-07-13T11:50:00+02:00
-Stopped at: Completed 47-05-PLAN.md (5 of 5 plans in Phase 47 — Phase 47 fully complete)
-Next action: Plan Phase 48 (LabelTransferStage integration for learned methods) via /gsd:plan-phase 48
+Last session: 2026-07-14T08:05:00+02:00
+Stopped at: Completed 48-01-PLAN.md (1 of 2 plans in Phase 48)
+Next action: Execute 48-02-PLAN.md (LabelTransferStage learned-method wiring) via /gsd:execute-phase 48

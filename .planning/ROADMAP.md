@@ -180,12 +180,14 @@ values (checkpoint loading, inference-time dispatch), following the OPTIONAL_PAR
 EvalConfig.label_transfer_method precedent established in Phase 44 for cpd_weighted.
 **Requirements**: D-01 through D-03 (see 48-CONTEXT.md — phase added ad hoc, no formal REQUIREMENTS.md IDs)
 **Depends on:** Phase 47
-**Plans:** 1/2 plans complete
+**Plans:** 2/2 plans complete
 
 Plans:
 
 - [x] 48-01-PLAN.md — EvalConfig egnn_checkpoint_path/pointnet2_checkpoint_path fields + 4-value label_transfer_method validator (D-02)
-- [ ] 48-02-PLAN.md — LabelTransferStage learned-method wiring: VALID_METHODS + _load_learned_model + train_step-parity joint-cloud branch + smoke-test verification (D-01, D-02, D-03)
+- [x] 48-02-PLAN.md — LabelTransferStage learned-method wiring: VALID_METHODS + _load_learned_model + train_step-parity joint-cloud branch + smoke-test verification (D-01, D-02, D-03)
+
+**Status:** ✅ Complete — both plans executed. `LabelTransferStage.VALID_METHODS` now `("knn_voting", "cpd_weighted", "pointnet2", "egnn")`; `_load_learned_model` staticmethod loads a Phase 47 checkpoint once per `run()` call with three `ValueError` guards; the per-frame learned-method branch builds the joint cloud byte-for-byte matching `train_step`'s encoding, proven via a `torch.equal` parity test for both model classes. 1300 tests pass (was 1285 at Phase 47 close), zero regressions. No point-count-regime guard added (D-03 deferred to Phase 49).
 
 ### Phase 49: Evaluation & Benchmarking of Learned Label-Transfer Methods
 

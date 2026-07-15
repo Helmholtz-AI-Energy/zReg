@@ -17,9 +17,12 @@ module load compiler/gnu                  # [VERIFY ON HOREKA]
 module load mpi/openmpi                   # [VERIFY ON HOREKA]
 module load devel/python/3.12             # [VERIFY ON HOREKA]
 
+set -euo pipefail  # fail fast: broken module load, bad activate, or missing cd will abort job
+
 source ~/regvenv_horeka/bin/activate
 
 cd /hkfs/work/workspace/<name>/zReg      # [VERIFY ON HOREKA] — absolute workspace repo checkout path
+mkdir -p baseline_experiments/logs       # ensure --output parent dir exists before SLURM writes to it
 
 export KMP_DUPLICATE_LIB_OK=TRUE         # harmless on Linux; matches HOREKA_PLAN.md template
 

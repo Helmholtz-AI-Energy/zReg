@@ -31,6 +31,7 @@ pip install -e ".[propulate]"
 #    The pip wheel bundles its own MPICH, which is incompatible with srun/pspmix.
 #    Source build against the loaded mpi/openmpi module is mandatory for srun jobs.
 # ---------------------------------------------------------------------------
+export MPICC=$(which mpicc)  # ensure setuptools picks up the loaded MPI compiler, not system cc
 pip install mpi4py --no-binary mpi4py --force-reinstall
 
 # ---------------------------------------------------------------------------
@@ -66,5 +67,7 @@ python -c "from mpi4py import MPI; print('mpi4py OK, rank', MPI.COMM_WORLD.Get_r
 
 echo "=== torch CUDA sanity ==="
 python -c "import torch; print('CUDA available:', torch.cuda.is_available(), '| device count:', torch.cuda.device_count())"
+
+mkdir -p baseline_experiments/logs  # required before SLURM can write --output files
 
 echo "Setup complete."

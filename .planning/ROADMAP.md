@@ -18,7 +18,7 @@
 
 **Milestone Goal:** Run the `baseline_experiments` evaluation suite on the HoreKa HPC cluster with GPU support, replacing the current laptop-constrained (CPU-only, subsampled) execution, within a 3-hour GPU time budget.
 
-- [ ] **Phase 44: Environment & Access** - Operator can activate the HoreKa environment, transfer real datasets, and submit a working end-to-end job script
+- [ ] **Phase 44: Environment & Access** - Operator can activate the HoreKa environment, transfer real datasets, and submit a working end-to-end job script *(1 plan — ready to execute)*
 - [ ] **Phase 45: Multi-Rank Parallelism & Validation** - HPO trials run concurrently across MPI ranks via propulate, orchestration stays single-writer, validated on a short test job
 - [ ] **Phase 46: GPU Acceleration** - Real per-operation GPU acceleration threaded through EvalConfig, DataFactory, and AlignmentStage
 - [ ] **Phase 47: Budget Calibration & Full-Suite Gate** - Full 7-run suite is calibrated and verified to fit the 3-hour GPU cap before the full allocation is submitted
@@ -159,7 +159,7 @@ Phases execute in numeric order: 44 → 45 → 46 → 47
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|-----------------|--------|-----------|
-| 44. Environment & Access | v1.5 | 0/1 | Not started | - |
+| 44. Environment & Access | v1.5 | 0/1 | Planned | - |
 | 45. Multi-Rank Parallelism & Validation | v1.5 | 0/TBD | Not started | - |
 | 46. GPU Acceleration | v1.5 | 0/TBD | Not started | - |
 | 47. Budget Calibration & Full-Suite Gate | v1.5 | 0/TBD | Not started | - |

@@ -9,9 +9,9 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Environment & Access
 
-- [ ] **ENV-01**: Operator can activate a working Python environment on HoreKa with all zReg dependencies plus the `propulate`/`mpi4py` extras installed, with `mpi4py` built against HoreKa's system MPI
-- [ ] **ENV-02**: Operator can transfer the real datasets (Kobitski tracklets, Shah CSV — currently gitignored, laptop-only) to HoreKa and have every config's `data_path`/`target_data_path` resolve correctly
-- [ ] **ENV-03**: Operator can submit a SLURM job script that requests GPU nodes/ranks and launches the experiment suite end-to-end
+- [x] **ENV-01**: Operator can activate a working Python environment on HoreKa with all zReg dependencies plus the `propulate`/`mpi4py` extras installed, with `mpi4py` built against HoreKa's system MPI
+- [x] **ENV-02**: Operator can transfer the real datasets (Kobitski tracklets, Shah CSV — currently gitignored, laptop-only) to HoreKa and have every config's `data_path`/`target_data_path` resolve correctly
+- [x] **ENV-03**: Operator can submit a SLURM job script that requests GPU nodes/ranks and launches the experiment suite end-to-end
 
 ### Multi-Trial Parallelism
 
@@ -34,7 +34,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Output & Verification
 
-- [ ] **OUT-01**: Suite outputs land in the same `baseline_experiments/experiments/<phase>/<name>/` directory convention as local runs, hosted on HoreKa's workspace filesystem
+- [x] **OUT-01**: Suite outputs land in the same `baseline_experiments/experiments/<phase>/<name>/` directory convention as local runs, hosted on HoreKa's workspace filesystem
 
 ## v2 Requirements
 
@@ -80,6 +80,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | OUT-01 | Phase 44 | Mapped |
 
 **Coverage:**
+
 - v1 requirements: 14 total
 - Mapped to phases: 14 (Phases 44–47)
 - Unmapped: 0 ✓

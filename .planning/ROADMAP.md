@@ -204,7 +204,9 @@ no formal REQUIREMENTS.md IDs)
 Plans:
 
 - [x] 49-01-PLAN.md — MethodBenchmarkResult/BenchmarkReport types + Wave-0 verification that cpd_weighted succeeds with raw non-CPD-aligned input (D-01, D-02.2 fixtures)
-- [ ] 49-02-PLAN.md — LabelTransferBenchmark orchestration class (compare_methods, run_leakage_guard, save_report) covering all four evaluation dimensions (D-01, D-02.1–D-02.4, D-03)
+- [x] 49-02-PLAN.md — LabelTransferBenchmark orchestration class (compare_methods, run_leakage_guard, save_report) covering all four evaluation dimensions (D-01, D-02.1–D-02.4, D-03)
 - [ ] 49-03-PLAN.md — benchmark_label_transfer.py CLI entry point mirroring run_eval.py's convention (D-01)
 
 **Plan 49-01 status:** ✅ Complete — `MethodBenchmarkResult`/`BenchmarkReport` frozen pydantic models added to `eval/types.py`; `tests/test_benchmark_runner.py`'s `test_cpd_weighted_raw_input` empirically proves RESEARCH Assumption A1 (cpd_weighted succeeds on raw source/target + a real `AlignmentStage(alignment_method="cpd")` result, no `aligned_cloud` substitution needed); `benchmark_smoke_checkpoint`/`write_shah_fixture_csv` fixtures shipped for Plan 02/03 reuse. 1303 tests pass (was 1300 at Phase 48 close), zero regressions.
+
+**Plan 49-02 status:** ✅ Complete — `LabelTransferBenchmark` (`eval/runners/benchmark_runner.py`) runs all four `LabelTransferStage` methods against an identical raw source/target pair with a single guarded `AlignmentStage` call (only when `cpd_weighted` is requested); `compare_methods`/`run_leakage_guard`/`save_report` exported from `eval.runners`. Fixed a latent bug found during test-writing: the internal `AlignmentStage` call's `cpd_penalty` default was `1.0` (invalid — `AlignmentStage.VALID_CPD` requires a string), corrected to `"rigid"`. `tests/test_benchmark_runner.py` covers all four D-02 dimensions (F1/knn comparison, real-data f1=None, latency>0, held-out-seed leakage guard) plus graceful degradation and save_report round-trip. 1309 tests pass (was 1303 at Plan 01 close), zero regressions.

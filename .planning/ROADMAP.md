@@ -2,12 +2,71 @@
 
 ## Milestones
 
+- 🚧 **v1.5 HoreKa Cluster Execution** — Phases 44–47 (in progress)
 - ✅ **v1.4 Trajectory Alignment & Optimization Enhancements** — Phases 39–43 (shipped 2026-07-08) — [archive](.planning/milestones/v1.4-ROADMAP.md)
 - ✅ **v1.2 Evaluation Framework & Debt Resolution** — Phases 12–38 (shipped 2026-06-26) — [archive](.planning/milestones/v1.2-ROADMAP.md)
 - ✅ **v1.1 Code Quality & Refactoring** — Phases 6–11.1 (shipped 2026-05-13) — [archive](.planning/milestones/v1.1-ROADMAP.md)
 - ✅ **v1.0 Consolidation** — Phases 1–5 (shipped 2026-04-09) — [archive](.planning/milestones/v1.0-ROADMAP.md)
 
 ## Phases
+
+**Phase Numbering:**
+- Integer phases (44, 45, 46, 47): Planned milestone work
+- Decimal phases (44.1, 44.2): Urgent insertions (marked with INSERTED)
+
+### 🚧 v1.5 HoreKa Cluster Execution (In Progress)
+
+**Milestone Goal:** Run the `baseline_experiments` evaluation suite on the HoreKa HPC cluster with GPU support, replacing the current laptop-constrained (CPU-only, subsampled) execution, within a 3-hour GPU time budget.
+
+- [ ] **Phase 44: Environment & Access** - Operator can activate the HoreKa environment, transfer real datasets, and submit a working end-to-end job script
+- [ ] **Phase 45: Multi-Rank Parallelism & Validation** - HPO trials run concurrently across MPI ranks via propulate, orchestration stays single-writer, validated on a short test job
+- [ ] **Phase 46: GPU Acceleration** - Real per-operation GPU acceleration threaded through EvalConfig, DataFactory, and AlignmentStage
+- [ ] **Phase 47: Budget Calibration & Full-Suite Gate** - Full 7-run suite is calibrated and verified to fit the 3-hour GPU cap before the full allocation is submitted
+
+## Phase Details
+
+### Phase 44: Environment & Access
+**Goal**: Operator can stand up a working HoreKa environment — Python + MPI-built dependencies, real data transferred, and a SLURM job script that launches the suite end-to-end with outputs landing in the correct directory convention.
+**Depends on**: Nothing (first phase of v1.5)
+**Requirements**: ENV-01, ENV-02, ENV-03, OUT-01
+**Success Criteria** (what must be TRUE):
+  1. Operator can activate a Python environment on HoreKa with zReg plus the `propulate`/`mpi4py` extras installed, and `mpi4py` is built against HoreKa's system MPI (verified via a successful import on a compute node)
+  2. Operator can transfer the real datasets (Kobitski tracklets, Shah CSV) to HoreKa, and every existing eval config's `data_path`/`target_data_path` resolves without a file-not-found error
+  3. Operator can submit a SLURM job script that requests GPU nodes/ranks and launches the experiment suite end-to-end (job runs to completion or a defined stopping point, not a script/config error)
+  4. Suite outputs land in the same `baseline_experiments/experiments/<phase>/<name>/` directory convention as local runs, hosted on HoreKa's workspace filesystem
+**Plans**: TBD
+
+### Phase 45: Multi-Rank Parallelism & Validation
+**Goal**: HPO trials execute concurrently across MPI ranks via the existing propulate backend, run_all.py orchestration is single-writer regardless of world size, cluster configs exist independently of laptop configs, and correct multi-rank behavior is proven on a short test job before committing to a full allocation.
+**Depends on**: Phase 44
+**Requirements**: PARA-01, PARA-02, PARA-03, BUDG-01, BUDG-04
+**Success Criteria** (what must be TRUE):
+  1. HPO trials for an optimize run execute concurrently across MPI ranks (not sequentially) when a config specifies `search_strategy: propulate`
+  2. `run_all.py`'s orchestration (file writes, `EvaluationRunner` calls, per-run bookkeeping) executes exactly once per run regardless of MPI world size, while `HyperparamOptimizer.run()` remains collective across ranks
+  3. Cluster-targeted configs (`search_strategy: propulate`/`auto`) exist as separate files from the local laptop configs (`search_strategy: sobol`), and both remain independently runnable without interfering
+  4. Cluster configs default to the same `max_points_per_frame`/`step` subsampling already calibrated on the laptop, not full point density
+  5. A short test job on HoreKa validates correct multi-rank behavior (no duplicated or racing output writes) and produces real per-trial timing data, completed before any full 3-hour allocation is submitted
+**Plans**: TBD
+
+### Phase 46: GPU Acceleration
+**Goal**: Real per-operation GPU acceleration is threaded through the pipeline — configurable device, data loaded onto that device, and registration provably executing on GPU tensors with no silent CPU fallback.
+**Depends on**: Phase 45
+**Requirements**: GPU-01, GPU-02, GPU-03
+**Success Criteria** (what must be TRUE):
+  1. `EvalConfig` exposes a `device` field that controls where tensors are loaded and computed
+  2. `DataFactory` loads real/target/ground-truth data onto the configured device instead of the current hardcoded CPU
+  3. Operator can verify end-to-end that `AlignmentStage`/CPD registration actually runs on GPU tensors, with no silent CPU fallback anywhere in the path
+**Plans**: TBD
+
+### Phase 47: Budget Calibration & Full-Suite Gate
+**Goal**: Calibration constants are environment-aware, and the full 7-run suite's projected runtime is verified to fit the 3-hour GPU cap before the full allocation is submitted.
+**Depends on**: Phase 46
+**Requirements**: BUDG-02, BUDG-03
+**Success Criteria** (what must be TRUE):
+  1. `aggregate_cost.py`'s calibration constants are parameterized per environment (laptop vs. HoreKa), so cluster timing data doesn't silently mix with or overwrite laptop calibration
+  2. Operator can run an `aggregate_cost.py`-style estimation using HoreKa GPU timing data (from Phase 45's short test job plus Phase 46's GPU path) to project the full 7-run suite's total runtime
+  3. The projected total runtime for the full suite is confirmed to fit within the 3-hour GPU time cap before the full allocation is submitted (or the plan is revised if it doesn't fit)
+**Plans**: TBD
 
 <details>
 <summary>✅ v1.4 Trajectory Alignment & Optimization Enhancements (Phases 39–43) — SHIPPED 2026-07-08</summary>
@@ -87,11 +146,23 @@ Full details: [.planning/milestones/v1.0-ROADMAP.md](.planning/milestones/v1.0-R
 
 ## Progress
 
+**Execution Order:**
+Phases execute in numeric order: 44 → 45 → 46 → 47
+
+| Phase | Milestone | Plans Complete | Status | Completed |
+|-------|-----------|-----------------|--------|-----------|
+| 44. Environment & Access | v1.5 | 0/TBD | Not started | - |
+| 45. Multi-Rank Parallelism & Validation | v1.5 | 0/TBD | Not started | - |
+| 46. GPU Acceleration | v1.5 | 0/TBD | Not started | - |
+| 47. Budget Calibration & Full-Suite Gate | v1.5 | 0/TBD | Not started | - |
+
 | Milestone | Phases | Plans | Status | Shipped |
 |-----------|--------|-------|--------|---------|
 | v1.0 Consolidation | 1–5 (5) | 13 | ✅ Complete | 2026-04-09 |
 | v1.1 Code Quality & Refactoring | 6–11.1 (7) | 14 | ✅ Complete | 2026-05-13 |
 | v1.2 Evaluation Framework & Debt Resolution | 12–38 (27) | 55 | ✅ Complete | 2026-06-26 |
 | v1.4 Trajectory Alignment & Optimization Enhancements | 39–43 (5) | 11 | ✅ Complete | 2026-07-08 |
+| v1.5 HoreKa Cluster Execution | 44–47 (4) | TBD | 🚧 In progress | - |
 
-_Next milestone: run `/gsd:new-milestone` to define scope, requirements, and phases._
+_Next: `/gsd:plan-phase 44` to plan Phase 44 (Environment & Access)._
+</content>

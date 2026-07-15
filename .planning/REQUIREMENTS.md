@@ -64,26 +64,26 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| ENV-01 | TBD | Pending |
-| ENV-02 | TBD | Pending |
-| ENV-03 | TBD | Pending |
-| PARA-01 | TBD | Pending |
-| PARA-02 | TBD | Pending |
-| PARA-03 | TBD | Pending |
-| GPU-01 | TBD | Pending |
-| GPU-02 | TBD | Pending |
-| GPU-03 | TBD | Pending |
-| BUDG-01 | TBD | Pending |
-| BUDG-02 | TBD | Pending |
-| BUDG-03 | TBD | Pending |
-| BUDG-04 | TBD | Pending |
-| OUT-01 | TBD | Pending |
+| ENV-01 | Phase 44 | Mapped |
+| ENV-02 | Phase 44 | Mapped |
+| ENV-03 | Phase 44 | Mapped |
+| PARA-01 | Phase 45 | Mapped |
+| PARA-02 | Phase 45 | Mapped |
+| PARA-03 | Phase 45 | Mapped |
+| GPU-01 | Phase 46 | Mapped |
+| GPU-02 | Phase 46 | Mapped |
+| GPU-03 | Phase 46 | Mapped |
+| BUDG-01 | Phase 45 | Mapped |
+| BUDG-02 | Phase 47 | Mapped |
+| BUDG-03 | Phase 47 | Mapped |
+| BUDG-04 | Phase 45 | Mapped |
+| OUT-01 | Phase 44 | Mapped |
 
 **Coverage:**
 - v1 requirements: 14 total
-- Mapped to phases: 0 (pending roadmap creation)
-- Unmapped: 14 ⚠️
+- Mapped to phases: 14 (Phases 44–47)
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-07-15*
-*Last updated: 2026-07-15 after initial definition*
+*Last updated: 2026-07-15 after ROADMAP.md creation (Phases 44-47, 14/14 mapped)*

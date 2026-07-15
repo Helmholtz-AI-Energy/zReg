@@ -212,3 +212,21 @@ Plans:
 **Plan 49-02 status:** ✅ Complete — `LabelTransferBenchmark` (`eval/runners/benchmark_runner.py`) runs all four `LabelTransferStage` methods against an identical raw source/target pair with a single guarded `AlignmentStage` call (only when `cpd_weighted` is requested); `compare_methods`/`run_leakage_guard`/`save_report` exported from `eval.runners`. Fixed a latent bug found during test-writing: the internal `AlignmentStage` call's `cpd_penalty` default was `1.0` (invalid — `AlignmentStage.VALID_CPD` requires a string), corrected to `"rigid"`. `tests/test_benchmark_runner.py` covers all four D-02 dimensions (F1/knn comparison, real-data f1=None, latency>0, held-out-seed leakage guard) plus graceful degradation and save_report round-trip. 1309 tests pass (was 1303 at Plan 01 close), zero regressions.
 
 **Plan 49-03 status:** ✅ Complete — `benchmark_label_transfer.py` repo-root CLI wraps `LabelTransferBenchmark`, mirroring `run_eval.py`'s sys.path/argparse/`EvalConfigError` conventions exactly. `--held-out-seeds` ("start:stop") is parsed into a `range` at the CLI boundary and forwarded to `run_leakage_guard` — never hardcoded (Pattern 3 / A2). Always-run synthetic held-out dimension seeds the report; optional real-data dimension (`compare_methods`, `has_ground_truth=False`) only attempted when `config.data_path != "unused"`, guarded by `try/except (FileNotFoundError, ValueError)` recording a note instead of crashing (D-03). `tests/test_benchmark_cli.py` (3 tests) proves the CLI runs end-to-end against inline smoke checkpoints, writes a 4-result `benchmark_report.json`, returns 1 on invalid config, and parses `--held-out-seeds` as caller-supplied. Full repo suite (whole eGNN/PointNet++ track) green: 1312 passed, 18 skipped, 1 xpassed (was 1309 at Plan 02 close), zero regressions. **Phase 49 complete — eGNN/PointNet++ track (Phases 45→49) fully complete.**
+
+### Phase 50: GPU-Native Geometry Ops for Cluster Deployment
+
+**Goal:** Investigate replacing Phase 47's Open3D-CPU-based FPS/ball-query ops
+(`src/zreg/models/_ops.py`) with `torch_cluster`'s GPU-native equivalents for PointNet++, if the
+user's target cluster (Linux/CUDA) can actually install `torch_cluster` — a build failure that
+was only ever reproduced on this dev machine (macOS ARM). `zRegPointCloud` is unaffected either
+way (the ops already take/return plain `torch.Tensor`, not Open3D objects). eGNN's hand-rolled
+equivariant conv layer is out of scope — that choice was architecture-fit-driven (no suitable
+packaged implementation exists at any point-cloud scale), not platform-driven, and stays
+unchanged regardless of this phase's outcome.
+**Requirements**: TBD (see 50-CONTEXT.md — phase added ad hoc, no formal REQUIREMENTS.md IDs)
+**Depends on:** Phase 49
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd:plan-phase 50 to break down)

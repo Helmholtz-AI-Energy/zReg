@@ -59,8 +59,8 @@ Plans:
 
 **Plans**: 3 plans
 Plans:
-- [ ] 52-01-PLAN.md — run_all.py rank-awareness + --configs-dir arg (PARA-01, PARA-02)
-- [ ] 52-02-PLAN.md — Cluster configs (configs_horeka/ — 7 mirrored YAMLs) (PARA-03, BUDG-01)
+- [x] 52-01-PLAN.md — run_all.py rank-awareness + --configs-dir arg (PARA-01, PARA-02)
+- [x] 52-02-PLAN.md — Cluster configs (configs_horeka/ — 7 mirrored YAMLs) (PARA-03, BUDG-01)
 - [ ] 52-03-PLAN.md — Multi-rank test job (smoke config + launch_horeka_multirank_test.sbatch) (BUDG-04)
 
 ### Phase 53: GPU Acceleration

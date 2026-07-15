@@ -3,15 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: HoreKa Cluster Execution
 status: executing
-stopped_at: context exhaustion at 77% (2026-07-15)
 last_updated: "2026-07-15T00:00:00.000Z"
 last_activity: 2026-07-15
 progress:
   total_phases: 4
   completed_phases: 1
-  total_plans: 4
-  completed_plans: 1
-  percent: 25
+  total_plans: 7
+  completed_plans: 3
+  percent: 43
 ---
 
 # Project State
@@ -26,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-07-15 after v1.5/v1.6 roadmap creation)
 ## Current Position
 
 Phase: 52
-Plan: Not started (3 plans ready to execute)
-Status: Phase 52 planned — ready to execute
-Tests: 1312 passed, 18 skipped, 1 xpassed (after Phase 49)
+Plan: 52-03 (Wave 2 — smoke config + SLURM test job)
+Status: Phase 52 executing — 2/3 plans complete, Wave 2 in progress
+Tests: 1312 passed, 19 skipped, 1 xpassed (after Phase 52 Wave 1)
 Last activity: 2026-07-15
 
-Progress (v1.6): [░░░░░░░░░░] 0%
+Progress (v1.6): [██░░░░░░░░] 17%
 
 ## Shipped Milestones
 
@@ -60,8 +59,8 @@ Full history: .planning/MILESTONES.md · Retrospective: .planning/RETROSPECTIVE.
 
 | Phase | Name | Requirements | Status |
 |-------|------|---------------|--------|
-| 51 | Environment & Access | ENV-01, ENV-02, ENV-03, OUT-01 | Planned (1 plan) |
-| 52 | Multi-Rank Parallelism & Validation | PARA-01, PARA-02, PARA-03, BUDG-01, BUDG-04 | Planned (3 plans) |
+| 51 | Environment & Access | ENV-01, ENV-02, ENV-03, OUT-01 | ✅ Completed |
+| 52 | Multi-Rank Parallelism & Validation | PARA-01, PARA-02, PARA-03, BUDG-01, BUDG-04 | Executing (2/3 plans done) |
 | 53 | GPU Acceleration | GPU-01, GPU-02, GPU-03 | Not started |
 | 54 | Budget Calibration & Full-Suite Gate | BUDG-02, BUDG-03 | Not started |
 

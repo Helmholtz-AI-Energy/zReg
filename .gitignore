@@ -24,6 +24,9 @@ __pycache__/*
 .planning/*
 tags
 
+# Training artifacts (Phase 47 — train_label_transfer.py checkpoint output)
+checkpoints/
+
 # Package files
 *.egg
 *.eggs/

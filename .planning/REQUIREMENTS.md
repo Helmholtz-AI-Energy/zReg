@@ -1,4 +1,4 @@
-# Requirements: zReg v1.5 HoreKa Cluster Execution
+# Requirements: zReg v1.6 HoreKa Cluster Execution
 
 **Defined:** 2026-07-15
 **Core Value:** Every existing capability works correctly, fails informatively, and is covered by tests.

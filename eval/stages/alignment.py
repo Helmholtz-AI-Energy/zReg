@@ -43,7 +43,7 @@ from typing import Any
 # zreg.* MUST precede torch on macOS-ARM (libomp SIGABRT).
 # Enforced in tests/conftest.py:20-24, eval/data_factory.py:18-35,
 # eval/metrics.py:53-67, eval/types.py:48-53.
-from zreg.cpd import RigidCPD, AffineCPD, NonRigidCPD
+from zreg.cpd import RigidCPD, AffineCPD, NonRigidCPD, EstepResult
 from zreg.dataset import zRegPointCloud
 from zreg.dtw import DynamicTimeWarping
 from zreg.registration import ICPRegistration, SlicedWassersteinAligner
@@ -223,6 +223,9 @@ class AlignmentStage(PipelineStage):
             - ``n_changepoints``: diagonal/non-diagonal transition count,
               capped at ``params["n_breakpoints"]`` (D-06).
             - ``params_used``: shallow copy of ``params`` (Pitfall 7).
+            - ``estep_results``: CPD posterior (``EstepResult``) captured at each
+              CPD-registered frame's final position, keyed by full target keys
+              (Phase 44). Empty for icp/swd/no-cpd runs (D-03 scope guard).
 
         Notes
         -----
@@ -266,7 +269,7 @@ class AlignmentStage(PipelineStage):
         n_jumps = self._count_jumps(result.warping_path)
         n_changepoints = min(n_jumps, params["n_breakpoints"])  # D-06 cap
 
-        aligned_cloud = self._build_aligned_cloud(
+        aligned_cloud, estep_results = self._build_aligned_cloud(
             source=working_source,
             target=target,
             source_sub=source_sub,
@@ -284,6 +287,7 @@ class AlignmentStage(PipelineStage):
             n_changepoints=n_changepoints,
             params_used=dict(params),  # shallow copy — Pitfall 7
             velocity_landmarks=velocity_landmarks,
+            estep_results=estep_results,
         )
 
     @staticmethod
@@ -337,7 +341,7 @@ class AlignmentStage(PipelineStage):
         alignment_method: str = "cpd",
         stored_transforms: dict[tuple[int, int], StoredTransform] | None = None,
         **kwargs,  # Captures swd_num_iterations, swd_variant if passed (Phase 40)
-    ) -> dict[int, zRegPointCloud]:
+    ) -> tuple[dict[int, zRegPointCloud], dict[int, EstepResult]]:
         """Build the spatially-registered aligned source trajectory.
 
         For each target frame (full dataset), find the temporally corresponding
@@ -372,10 +376,14 @@ class AlignmentStage(PipelineStage):
 
         Returns
         -------
-        dict[int, zRegPointCloud]
-            Aligned trajectory with same keys as target.  Each frame is a
-            deep copy of the corresponding source frame, optionally
-            spatially registered via CPD.
+        tuple[dict[int, zRegPointCloud], dict[int, EstepResult]]
+            ``(aligned, estep_results)``. ``aligned`` is the trajectory with
+            same keys as target — each frame is a deep copy of the
+            corresponding source frame, optionally spatially registered via
+            CPD. ``estep_results`` is the CPD posterior (``EstepResult``)
+            captured at each CPD-registered frame's final position, keyed by
+            the same target key ``tk``; empty for icp/swd/no-cpd frames
+            (Phase 44, D-01/D-02/D-03).
         """
         if stored_transforms is None:
             stored_transforms = {}
@@ -392,6 +400,7 @@ class AlignmentStage(PipelineStage):
         fallback_src_sub_idx = warp_path[0][0] if warp_path else 0
 
         aligned: dict[int, zRegPointCloud] = {}
+        estep_results: dict[int, EstepResult] = {}
 
         for pos, tk in enumerate(target_keys_sorted):
             # Nearest strided target index for this full-resolution position
@@ -460,6 +469,22 @@ class AlignmentStage(PipelineStage):
                     reg_result = cpd_obj.registration(matched_target_frame["pos"], w=0.0, maxiter=1000, tol=1e-5)
                     matched_source_frame["pos"] = reg_result.transformation.transform(matched_source_frame["pos"])
 
+                # Phase 44 (D-01/D-02): capture the CPD posterior at the final registered
+                # position — shared insertion point for both the reuse and fallback
+                # sub-paths above. Read-only diagnostic; does not affect aligned_cloud.
+                sigma2_est = utils.squared_kernel_sum(
+                    matched_source_frame["pos"], matched_target_frame["pos"]
+                )
+                _posterior_cpd = RigidCPD(source=matched_source_frame["pos"], use_color=False)
+                estep_result = _posterior_cpd.expectation_step(
+                    t_source=matched_source_frame["pos"],
+                    target=matched_target_frame["pos"],
+                    sigma2=sigma2_est,
+                    sigma2_c=0.0,
+                    w=0.0,
+                )
+                estep_results[tk] = estep_result
+
                 aligned[tk] = matched_source_frame
             elif alignment_method == "icp":
                 # ICP spatial registration
@@ -496,7 +521,7 @@ class AlignmentStage(PipelineStage):
                 # Temporal-only fallback (shouldn't reach here with valid params)
                 aligned[tk] = matched_source_frame
 
-        return aligned
+        return aligned, estep_results
 
     @staticmethod
     def _apply_stored_transform(

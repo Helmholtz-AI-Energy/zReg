@@ -20,7 +20,7 @@
 
 **Milestone Goal:** Run the `baseline_experiments` evaluation suite on the HoreKa HPC cluster with GPU support, replacing the current laptop-constrained (CPU-only, subsampled) execution, within a 3-hour GPU time budget.
 
-- [ ] **Phase 51: Environment & Access** - Operator can activate the HoreKa environment, transfer real datasets, and submit a working end-to-end job script *(1 plan — ready to execute)*
+- [x] **Phase 51: Environment & Access** - Operator can activate the HoreKa environment, transfer real datasets, and submit a working end-to-end job script *(1 plan — ready to execute)* (completed 2026-07-15)
 - [ ] **Phase 52: Multi-Rank Parallelism & Validation** - HPO trials run concurrently across MPI ranks via propulate, orchestration stays single-writer, validated on a short test job
 - [ ] **Phase 53: GPU Acceleration** - Real per-operation GPU acceleration threaded through EvalConfig, DataFactory, and AlignmentStage
 - [ ] **Phase 54: Budget Calibration & Full-Suite Gate** - Full 7-run suite is calibrated and verified to fit the 3-hour GPU cap before the full allocation is submitted
@@ -111,7 +111,7 @@ packaged implementation exists at any point-cloud scale), not platform-driven, a
 unchanged regardless of this phase's outcome.
 **Requirements**: TBD (see 50-CONTEXT.md — phase added ad hoc, no formal REQUIREMENTS.md IDs)
 **Depends on:** Phase 49
-**Plans:** 2 plans
+**Plans:** 1/1 plans complete
 
 Plans:
 
@@ -318,7 +318,7 @@ Phases execute in numeric order: 51 → 52 → 53 → 54
 | 48. LabelTransferStage Integration | v1.5 | 2/2 | ✅ Complete | 2026-07-15 |
 | 49. Benchmarking of Learned Methods | v1.5 | 3/3 | ✅ Complete | 2026-07-15 |
 | 50. GPU-Native Geometry Ops | v1.5 | 0/TBD | Pending | - |
-| 51. Environment & Access | v1.6 | 1/1 | Complete   | 2026-07-15 |
+| 51. Environment & Access | v1.6 | 1/1 | Complete    | 2026-07-15 |
 | 52. Multi-Rank Parallelism & Validation | v1.6 | 0/TBD | Not started | - |
 | 53. GPU Acceleration | v1.6 | 0/TBD | Not started | - |
 | 54. Budget Calibration & Full-Suite Gate | v1.6 | 0/TBD | Not started | - |

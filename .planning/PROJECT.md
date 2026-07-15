@@ -15,7 +15,7 @@ zReg is a Python library for GPU-accelerated 3D point cloud registration, tempor
 - `baseline_experiments/scripts/run_all.py` made MPI-rank-aware
 - HoreKa job script + environment setup + data transfer
 - Real per-operation GPU acceleration (`device` field on `EvalConfig`, threaded through `DataFactory`)
-- Revisit `max_points_per_frame`/`step` subsampling now that real GPU/RAM headroom is available
+- Subsampling stays the default on the cluster (not full point density) — suite is budgeted to a **3-hour GPU time cap**, validated on a short test job before any full allocation
 
 ## What This Is
 

@@ -4,12 +4,12 @@ milestone: v1.6
 milestone_name: HoreKa Cluster Execution
 status: executing
 stopped_at: context exhaustion at 77% (2026-07-15)
-last_updated: "2026-07-15T13:01:35.480Z"
-last_activity: 2026-07-15 — Phase 51 planned; v1.5 eGNN/PointNet++ track complete (Phases 44–49)
+last_updated: "2026-07-15T17:20:24.143Z"
+last_activity: 2026-07-15 -- Phase 51 execution started
 progress:
   total_phases: 4
   completed_phases: 0
-  total_plans: 0
+  total_plans: 1
   completed_plans: 0
   percent: 0
 ---
@@ -21,15 +21,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-15 after v1.5/v1.6 roadmap creation)
 
 **Core value:** Every existing capability works correctly, fails informatively, and is covered by tests.
-**Current focus:** Phase 51 — Environment & Access (ready to execute). v1.5 ML track (Phases 44–49) fully complete.
+**Current focus:** Phase 51 — environment-access
 
 ## Current Position
 
-Phase: 51 of 54 (Environment & Access)
-Plan: 1 plan in 1 wave (51-01-PLAN.md)
-Status: Ready to execute
+Phase: 51 (environment-access) — EXECUTING
+Plan: 1 of 1
+Status: Executing Phase 51
 Tests: 1312 passed, 18 skipped, 1 xpassed (after Phase 49)
-Last activity: 2026-07-15 — Phase 51 planned; v1.5 eGNN/PointNet++ track complete (Phases 44–49)
+Last activity: 2026-07-15 -- Phase 51 execution started
 
 Progress (v1.6): [░░░░░░░░░░] 0%
 

@@ -12,6 +12,7 @@
 ## Phases
 
 **Phase Numbering:**
+
 - Integer phases (44–54): Active or planned work
 - Decimal phases (e.g. 44.1): Urgent insertions (marked with INSERTED)
 
@@ -27,48 +28,61 @@
 ## Phase Details
 
 ### Phase 51: Environment & Access
+
 **Goal**: Operator can stand up a working HoreKa environment — Python + MPI-built dependencies, real data transferred, and a SLURM job script that launches the suite end-to-end with outputs landing in the correct directory convention.
 **Depends on**: Nothing (first phase of v1.5)
 **Requirements**: ENV-01, ENV-02, ENV-03, OUT-01
 **Success Criteria** (what must be TRUE):
+
   1. Operator can activate a Python environment on HoreKa with zReg plus the `propulate`/`mpi4py` extras installed, and `mpi4py` is built against HoreKa's system MPI (verified via a successful import on a compute node)
   2. Operator can transfer the real datasets (Kobitski tracklets, Shah CSV) to HoreKa, and every existing eval config's `data_path`/`target_data_path` resolves without a file-not-found error
   3. Operator can submit a SLURM job script that requests GPU nodes/ranks and launches the experiment suite end-to-end (job runs to completion or a defined stopping point, not a script/config error)
   4. Suite outputs land in the same `baseline_experiments/experiments/<phase>/<name>/` directory convention as local runs, hosted on HoreKa's workspace filesystem
+
 **Plans**: 1 plan
 Plans:
-- [ ] 51-01-PLAN.md — Setup script, smoke config, and SLURM job scripts (all 4 ENV-01/02/03 + OUT-01 artifacts)
+
+- [x] 51-01-PLAN.md — Setup script, smoke config, and SLURM job scripts (all 4 ENV-01/02/03 + OUT-01 artifacts)
 
 ### Phase 52: Multi-Rank Parallelism & Validation
+
 **Goal**: HPO trials execute concurrently across MPI ranks via the existing propulate backend, run_all.py orchestration is single-writer regardless of world size, cluster configs exist independently of laptop configs, and correct multi-rank behavior is proven on a short test job before committing to a full allocation.
 **Depends on**: Phase 51
 **Requirements**: PARA-01, PARA-02, PARA-03, BUDG-01, BUDG-04
 **Success Criteria** (what must be TRUE):
+
   1. HPO trials for an optimize run execute concurrently across MPI ranks (not sequentially) when a config specifies `search_strategy: propulate`
   2. `run_all.py`'s orchestration (file writes, `EvaluationRunner` calls, per-run bookkeeping) executes exactly once per run regardless of MPI world size, while `HyperparamOptimizer.run()` remains collective across ranks
   3. Cluster-targeted configs (`search_strategy: propulate`/`auto`) exist as separate files from the local laptop configs (`search_strategy: sobol`), and both remain independently runnable without interfering
   4. Cluster configs default to the same `max_points_per_frame`/`step` subsampling already calibrated on the laptop, not full point density
   5. A short test job on HoreKa validates correct multi-rank behavior (no duplicated or racing output writes) and produces real per-trial timing data, completed before any full 3-hour allocation is submitted
+
 **Plans**: TBD
 
 ### Phase 53: GPU Acceleration
+
 **Goal**: Real per-operation GPU acceleration is threaded through the pipeline — configurable device, data loaded onto that device, and registration provably executing on GPU tensors with no silent CPU fallback.
 **Depends on**: Phase 52
 **Requirements**: GPU-01, GPU-02, GPU-03
 **Success Criteria** (what must be TRUE):
+
   1. `EvalConfig` exposes a `device` field that controls where tensors are loaded and computed
   2. `DataFactory` loads real/target/ground-truth data onto the configured device instead of the current hardcoded CPU
   3. Operator can verify end-to-end that `AlignmentStage`/CPD registration actually runs on GPU tensors, with no silent CPU fallback anywhere in the path
+
 **Plans**: TBD
 
 ### Phase 54: Budget Calibration & Full-Suite Gate
+
 **Goal**: Calibration constants are environment-aware, and the full 7-run suite's projected runtime is verified to fit the 3-hour GPU cap before the full allocation is submitted.
 **Depends on**: Phase 53
 **Requirements**: BUDG-02, BUDG-03
 **Success Criteria** (what must be TRUE):
+
   1. `aggregate_cost.py`'s calibration constants are parameterized per environment (laptop vs. HoreKa), so cluster timing data doesn't silently mix with or overwrite laptop calibration
   2. Operator can run an `aggregate_cost.py`-style estimation using HoreKa GPU timing data (from Phase 52's short test job plus Phase 53's GPU path) to project the full 7-run suite's total runtime
   3. The projected total runtime for the full suite is confirmed to fit within the 3-hour GPU time cap before the full allocation is submitted (or the plan is revised if it doesn't fit)
+
 **Plans**: TBD
 
 ### 🚧 v1.5 Learned Label Transfer Methods (Phases 44–49 complete, Phase 50 pending)
@@ -304,7 +318,7 @@ Phases execute in numeric order: 51 → 52 → 53 → 54
 | 48. LabelTransferStage Integration | v1.5 | 2/2 | ✅ Complete | 2026-07-15 |
 | 49. Benchmarking of Learned Methods | v1.5 | 3/3 | ✅ Complete | 2026-07-15 |
 | 50. GPU-Native Geometry Ops | v1.5 | 0/TBD | Pending | - |
-| 51. Environment & Access | v1.6 | 0/1 | Planned | - |
+| 51. Environment & Access | v1.6 | 1/1 | Complete   | 2026-07-15 |
 | 52. Multi-Rank Parallelism & Validation | v1.6 | 0/TBD | Not started | - |
 | 53. GPU Acceleration | v1.6 | 0/TBD | Not started | - |
 | 54. Budget Calibration & Full-Suite Gate | v1.6 | 0/TBD | Not started | - |

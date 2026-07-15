@@ -57,7 +57,11 @@ Plans:
   4. Cluster configs default to the same `max_points_per_frame`/`step` subsampling already calibrated on the laptop, not full point density
   5. A short test job on HoreKa validates correct multi-rank behavior (no duplicated or racing output writes) and produces real per-trial timing data, completed before any full 3-hour allocation is submitted
 
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 52-01-PLAN.md — run_all.py rank-awareness + --configs-dir arg (PARA-01, PARA-02)
+- [ ] 52-02-PLAN.md — Cluster configs (configs_horeka/ — 7 mirrored YAMLs) (PARA-03, BUDG-01)
+- [ ] 52-03-PLAN.md — Multi-rank test job (smoke config + launch_horeka_multirank_test.sbatch) (BUDG-04)
 
 ### Phase 53: GPU Acceleration
 

@@ -92,7 +92,10 @@ def create_pairwise_distance_matrix(
             - cost_matrix (torch.Tensor): The pairwise distance matrix.
             - rotations (torch.Tensor | None): The rotations from rigid CPD registration, or None.
             - stored_transforms (dict[tuple[int, int], StoredTransform]): Stored CPD transforms
-              keyed by (i, j) pair indices; empty dict when cpd_type is None.
+              keyed by (i, j) pair indices; empty dict when cpd_type is None. Entries are also
+              never stored when cpd_type == "nonrigid" (unbounded-memory guard — see inline
+              comment at the storage site) — callers needing a nonrigid transform for a specific
+              pair must recompute it themselves.
     """
     # Use first available frame from each dict so callers with non-zero-based keys don't crash
     # (WR-01: x[0] / y[0] raised KeyError when keys did not include 0).
@@ -214,7 +217,19 @@ def create_pairwise_distance_matrix(
                 # Only store when normalize=True: when normalize=False, src_min/src_max/tgt_min/
                 # tgt_max remain None and the reuse path in _build_aligned_cloud would apply
                 # normalisation that was never done in Step 1, corrupting the output (CR-02).
-                if normalize:
+                #
+                # cpd_type == "nonrigid" is excluded from caching: NonRigidTransformation
+                # retains a dense (n_points, n_points) RBF kernel matrix (see
+                # zreg.transforms.nonrigid.NonRigidTransformation.g). With real, full-resolution
+                # point clouds (tens of thousands of points/frame) and a windowed sweep touching
+                # thousands of (i, j) pairs, retaining one of these per pair grows this dict
+                # unboundedly into the hundreds of GB, exhausting memory/swap well before the
+                # sweep completes. _build_aligned_cloud already has a tested, correctness-
+                # preserving fallback for missing cache entries (D-10: fresh CPD from raw data,
+                # eval/stages/alignment.py) — losing the nonrigid cache only means that fallback
+                # runs for the (bounded, ~len(target)) frames actually selected by the DTW warp
+                # path, instead of reusing a precomputed transform.
+                if normalize and cpd_type != "nonrigid":
                     stored_transforms[(i, j)] = StoredTransform(
                         transform=reg.transformation,
                         src_min=src_min,

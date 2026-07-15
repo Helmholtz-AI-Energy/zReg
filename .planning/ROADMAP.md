@@ -97,11 +97,12 @@ packaged implementation exists at any point-cloud scale), not platform-driven, a
 unchanged regardless of this phase's outcome.
 **Requirements**: TBD (see 50-CONTEXT.md — phase added ad hoc, no formal REQUIREMENTS.md IDs)
 **Depends on:** Phase 49
-**Plans:** 0 plans
+**Plans:** 2 plans
 
 Plans:
 
-- [ ] TBD (run /gsd:plan-phase 50 to break down)
+- [ ] 50-01-PLAN.md — HoreKa torch_cluster install verification gate (autonomous: false, human-executed) (D-01, D-02)
+- [ ] 50-02-PLAN.md — torch_cluster dual-path in _ops.py for all three ops + setup.cfg cluster extra + smoke tests (D-03–D-08)
 
 ### Phase 44: CPD-Weighted Label Transfer Method
 

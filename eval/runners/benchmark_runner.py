@@ -137,8 +137,9 @@ class LabelTransferBenchmark:
             (``window_size``, ``step``, ``dtw_dist_fn``, ``n_breakpoints``) —
             the caller is responsible for supplying these so the internal
             ``AlignmentStage`` call has everything it needs.  ``cpd_penalty``
-            is read from ``params`` (defaulting to ``1.0``) but is NOT one of
-            AlignmentStage's semantic CPD-type values — see Notes.
+            (a CPD-type string — ``"rigid"``, ``"affine"``, or ``"nonrigid"``,
+            NOT a numeric magnitude despite the name) is read from ``params``
+            if present, defaulting to ``"rigid"`` otherwise — see Notes.
         dataset_source : str
             Identifier for the dataset this run was computed against, e.g.
             ``"synthetic_holdout"`` or ``"real_shah_qualitative"``. Stamped
@@ -169,7 +170,12 @@ class LabelTransferBenchmark:
         """
         align_result = None
         if "cpd_weighted" in self.methods:
-            align_params = {**params, "cpd_penalty": params.get("cpd_penalty", 1.0)}
+            # AlignmentStage.VALID_CPD = (None, "rigid", "affine", "nonrigid") — the
+            # default here MUST be one of these string CPD-type values, never a bare
+            # penalty magnitude (a float default would make validate_params raise
+            # unconditionally). "rigid" mirrors 49-01's own Wave-0 precedent (Pitfall 3
+            # — "only 'rigid' dispatches correctly upstream").
+            align_params = {**params, "cpd_penalty": params.get("cpd_penalty", "rigid")}
             align_result = AlignmentStage(
                 self.config.model_copy(update={"alignment_method": "cpd"})
             ).run(source, target, align_params)

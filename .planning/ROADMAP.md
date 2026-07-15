@@ -34,7 +34,9 @@
   2. Operator can transfer the real datasets (Kobitski tracklets, Shah CSV) to HoreKa, and every existing eval config's `data_path`/`target_data_path` resolves without a file-not-found error
   3. Operator can submit a SLURM job script that requests GPU nodes/ranks and launches the experiment suite end-to-end (job runs to completion or a defined stopping point, not a script/config error)
   4. Suite outputs land in the same `baseline_experiments/experiments/<phase>/<name>/` directory convention as local runs, hosted on HoreKa's workspace filesystem
-**Plans**: TBD
+**Plans**: 1 plan
+Plans:
+- [ ] 44-01-PLAN.md — Setup script, smoke config, and SLURM job scripts (all 4 ENV-01/02/03 + OUT-01 artifacts)
 
 ### Phase 45: Multi-Rank Parallelism & Validation
 **Goal**: HPO trials execute concurrently across MPI ranks via the existing propulate backend, run_all.py orchestration is single-writer regardless of world size, cluster configs exist independently of laptop configs, and correct multi-rank behavior is proven on a short test job before committing to a full allocation.
@@ -46,7 +48,9 @@
   3. Cluster-targeted configs (`search_strategy: propulate`/`auto`) exist as separate files from the local laptop configs (`search_strategy: sobol`), and both remain independently runnable without interfering
   4. Cluster configs default to the same `max_points_per_frame`/`step` subsampling already calibrated on the laptop, not full point density
   5. A short test job on HoreKa validates correct multi-rank behavior (no duplicated or racing output writes) and produces real per-trial timing data, completed before any full 3-hour allocation is submitted
-**Plans**: TBD
+**Plans**: 1 plan
+Plans:
+- [ ] 44-01-PLAN.md — Setup script, smoke config, and SLURM job scripts (all 4 ENV-01/02/03 + OUT-01 artifacts)
 
 ### Phase 46: GPU Acceleration
 **Goal**: Real per-operation GPU acceleration is threaded through the pipeline — configurable device, data loaded onto that device, and registration provably executing on GPU tensors with no silent CPU fallback.
@@ -56,7 +60,9 @@
   1. `EvalConfig` exposes a `device` field that controls where tensors are loaded and computed
   2. `DataFactory` loads real/target/ground-truth data onto the configured device instead of the current hardcoded CPU
   3. Operator can verify end-to-end that `AlignmentStage`/CPD registration actually runs on GPU tensors, with no silent CPU fallback anywhere in the path
-**Plans**: TBD
+**Plans**: 1 plan
+Plans:
+- [ ] 44-01-PLAN.md — Setup script, smoke config, and SLURM job scripts (all 4 ENV-01/02/03 + OUT-01 artifacts)
 
 ### Phase 47: Budget Calibration & Full-Suite Gate
 **Goal**: Calibration constants are environment-aware, and the full 7-run suite's projected runtime is verified to fit the 3-hour GPU cap before the full allocation is submitted.
@@ -66,7 +72,9 @@
   1. `aggregate_cost.py`'s calibration constants are parameterized per environment (laptop vs. HoreKa), so cluster timing data doesn't silently mix with or overwrite laptop calibration
   2. Operator can run an `aggregate_cost.py`-style estimation using HoreKa GPU timing data (from Phase 45's short test job plus Phase 46's GPU path) to project the full 7-run suite's total runtime
   3. The projected total runtime for the full suite is confirmed to fit within the 3-hour GPU time cap before the full allocation is submitted (or the plan is revised if it doesn't fit)
-**Plans**: TBD
+**Plans**: 1 plan
+Plans:
+- [ ] 44-01-PLAN.md — Setup script, smoke config, and SLURM job scripts (all 4 ENV-01/02/03 + OUT-01 artifacts)
 
 <details>
 <summary>✅ v1.4 Trajectory Alignment & Optimization Enhancements (Phases 39–43) — SHIPPED 2026-07-08</summary>
@@ -151,7 +159,7 @@ Phases execute in numeric order: 44 → 45 → 46 → 47
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|-----------------|--------|-----------|
-| 44. Environment & Access | v1.5 | 0/TBD | Not started | - |
+| 44. Environment & Access | v1.5 | 0/1 | Not started | - |
 | 45. Multi-Rank Parallelism & Validation | v1.5 | 0/TBD | Not started | - |
 | 46. GPU Acceleration | v1.5 | 0/TBD | Not started | - |
 | 47. Budget Calibration & Full-Suite Gate | v1.5 | 0/TBD | Not started | - |

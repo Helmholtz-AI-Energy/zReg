@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.4
-milestone_name: Trajectory Alignment & Optimization Enhancements
-status: Archived
-stopped_at: v1.4 milestone archived 2026-07-08 — 1156 tests pass, all gaps closed
-last_updated: "2026-07-08T00:00:00Z"
+milestone: v1.5
+milestone_name: HoreKa Cluster Execution
+status: planning
+last_updated: "2026-07-15T11:02:14.175Z"
+last_activity: 2026-07-15
 progress:
-  total_phases: 43
-  completed_phases: 43
-  total_plans: 80
-  completed_plans: 80
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -24,9 +24,10 @@ See: .planning/PROJECT.md (updated 2026-07-08 after v1.4 milestone)
 
 ## Current Position
 
-Milestone: v1.4 Trajectory Alignment & Optimization Enhancements — **ARCHIVED** 2026-07-08
-Tests: 1156 passed, 18 skipped
-Next action: `/gsd:new-milestone` to define v1.5 scope
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-07-15 — Milestone v1.5 started
 
 ## Shipped Milestones
 

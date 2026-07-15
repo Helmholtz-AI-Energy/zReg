@@ -41,6 +41,7 @@ Usage
     python baseline_experiments/scripts/run_all.py --phase selfcal
     python baseline_experiments/scripts/run_all.py --phase all --dry-run
     python baseline_experiments/scripts/run_all.py --phase all --force
+    python baseline_experiments/scripts/run_all.py --phase all --configs-dir baseline_experiments/configs_horeka
 """
 
 from __future__ import annotations
@@ -62,6 +63,12 @@ for p in (str(REPO_ROOT), str(REPO_ROOT / "src")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
+try:
+    from mpi4py import MPI
+    RANK = MPI.COMM_WORLD.Get_rank()
+except ImportError:
+    RANK = 0  # single-process / no-MPI — unchanged local behaviour
+
 from eval.config import EvalConfig, EvalConfigError  # noqa: E402
 from eval.runners import EvaluationRunner, HyperparamOptimizer  # noqa: E402
 
@@ -69,42 +76,58 @@ from merge_params import merge_selfcal_params  # noqa: E402
 
 log = logging.getLogger("run_all")
 
-CONFIGS = SUITE_ROOT / "configs"
-
-# (phase, name, config_path) — order within a phase is execution order.
-SELFCAL = [
-    ("selfcal", "kobitski_ew06_alignment", CONFIGS / "selfcal" / "kobitski_ew06_alignment.yaml"),
-    ("selfcal", "shah_alignment", CONFIGS / "selfcal" / "shah_alignment.yaml"),
-    ("selfcal", "shah_label_transfer", CONFIGS / "selfcal" / "shah_label_transfer.yaml"),
-]
-# Scoped down to a single pair (ew06_vs_shah — the embryo already used for
-# selfcal calibration) instead of all 4 Kobitski embryos, after real-data
-# testing showed even a single eval-only pass on full-resolution Kobitski
-# data can take 30-90+ min; running all 4 pairs here on top of the 5
-# optimize-mode runs was not worth the added wall-clock. configs/baseline_
-# no_hpo/{ew08,ew11,ew12}_vs_shah.yaml and configs/baseline_with_selfcal/
-# {ew08,ew11,ew12}_vs_shah.yaml still exist on disk if you want to run any
-# of them manually later (see README.md "Running").
-BASELINE_NO_HPO = [
-    ("baseline_no_hpo", name, CONFIGS / "baseline_no_hpo" / f"{name}.yaml")
-    for name in ("ew06_vs_shah",)
-]
-GROUND_TRUTH = [
-    ("ground_truth", "kobitski_ew06", CONFIGS / "ground_truth" / "kobitski_ew06.yaml"),
-    ("ground_truth", "shah_sample1", CONFIGS / "ground_truth" / "shah_sample1.yaml"),
-]
-BASELINE_WITH_SELFCAL = [
-    ("baseline_with_selfcal", name, CONFIGS / "baseline_with_selfcal" / f"{name}.yaml")
-    for name in ("ew06_vs_shah",)
-]
-
-PHASES = {
-    "selfcal": SELFCAL,
-    "baseline_no_hpo": BASELINE_NO_HPO,
-    "ground_truth": GROUND_TRUTH,
-    "baseline_with_selfcal": BASELINE_WITH_SELFCAL,
-}
+# PHASE_ORDER does not reference CONFIGS and stays as a module-level constant.
 PHASE_ORDER = ["selfcal", "baseline_no_hpo", "ground_truth", "baseline_with_selfcal"]
+
+
+def _build_phase_lists(configs_dir: Path) -> dict[str, list]:
+    """Build phase run lists from the given configs directory.
+
+    Parameters
+    ----------
+    configs_dir:
+        Root configs directory (e.g. ``SUITE_ROOT / "configs"`` locally or
+        ``SUITE_ROOT / "configs_horeka"`` on the cluster).
+
+    Returns
+    -------
+    dict
+        Keys: ``"selfcal"``, ``"baseline_no_hpo"``, ``"ground_truth"``,
+        ``"baseline_with_selfcal"``.  Values: lists of
+        ``(phase, name, config_path)`` tuples.
+    """
+    # (phase, name, config_path) — order within a phase is execution order.
+    selfcal = [
+        ("selfcal", "kobitski_ew06_alignment", configs_dir / "selfcal" / "kobitski_ew06_alignment.yaml"),
+        ("selfcal", "shah_alignment", configs_dir / "selfcal" / "shah_alignment.yaml"),
+        ("selfcal", "shah_label_transfer", configs_dir / "selfcal" / "shah_label_transfer.yaml"),
+    ]
+    # Scoped down to a single pair (ew06_vs_shah — the embryo already used for
+    # selfcal calibration) instead of all 4 Kobitski embryos, after real-data
+    # testing showed even a single eval-only pass on full-resolution Kobitski
+    # data can take 30-90+ min; running all 4 pairs here on top of the 5
+    # optimize-mode runs was not worth the added wall-clock. configs/baseline_
+    # no_hpo/{ew08,ew11,ew12}_vs_shah.yaml and configs/baseline_with_selfcal/
+    # {ew08,ew11,ew12}_vs_shah.yaml still exist on disk if you want to run any
+    # of them manually later (see README.md "Running").
+    baseline_no_hpo = [
+        ("baseline_no_hpo", name, configs_dir / "baseline_no_hpo" / f"{name}.yaml")
+        for name in ("ew06_vs_shah",)
+    ]
+    ground_truth = [
+        ("ground_truth", "kobitski_ew06", configs_dir / "ground_truth" / "kobitski_ew06.yaml"),
+        ("ground_truth", "shah_sample1", configs_dir / "ground_truth" / "shah_sample1.yaml"),
+    ]
+    baseline_with_selfcal = [
+        ("baseline_with_selfcal", name, configs_dir / "baseline_with_selfcal" / f"{name}.yaml")
+        for name in ("ew06_vs_shah",)
+    ]
+    return {
+        "selfcal": selfcal,
+        "baseline_no_hpo": baseline_no_hpo,
+        "ground_truth": ground_truth,
+        "baseline_with_selfcal": baseline_with_selfcal,
+    }
 
 
 def _load_config(config_path: Path) -> EvalConfig:
@@ -135,25 +158,37 @@ def run_optimize_then_eval(name: str, config_path: Path, force: bool, dry_run: b
     config = _load_config(config_path)
     output_dir = Path(config.output_dir)
 
-    if not force and _already_done(output_dir):
-        log.info("[%s] SKIP (eval_report.json already exists at %s)", name, output_dir)
-        return
-    log.info("[%s] optimize+eval -> %s (tier=%s n_trials=%s)", name, output_dir, config.tier, config.n_trials)
-    if dry_run:
-        return
+    if RANK == 0:
+        if not force and _already_done(output_dir):
+            log.info("[%s] SKIP (eval_report.json already exists at %s)", name, output_dir)
+            return
+        log.info("[%s] optimize+eval -> %s (tier=%s n_trials=%s)", name, output_dir, config.tier, config.n_trials)
+        if dry_run:
+            return
+        _write_run_config(config_path, output_dir)
 
-    _write_run_config(config_path, output_dir)
+    # HyperparamOptimizer.run() is a collective MPI operation — every rank
+    # must call this (propulate needs all ranks to participate; gating on
+    # rank-0 only would deadlock on the internal comm.Barrier()).
     HyperparamOptimizer(config).run()
 
-    best_params_path = output_dir / "best_params.json"
-    optimized = _read_json(best_params_path) if best_params_path.exists() else {}
-    params = {**config.default_params, **optimized}
+    if RANK == 0:
+        best_params_path = output_dir / "best_params.json"
+        optimized = _read_json(best_params_path) if best_params_path.exists() else {}
+        params = {**config.default_params, **optimized}
 
-    EvaluationRunner(config, params).run()
-    log.info("[%s] done", name)
+        EvaluationRunner(config, params).run()
+        log.info("[%s] done", name)
+    else:
+        log.debug("[rank %d] non-rank-0: participated in collective HPO, skipping orchestration", RANK)
 
 
 def run_eval_only(name: str, config_path: Path, params: dict | None, force: bool, dry_run: bool) -> None:
+    # Eval-only phases have no collective MPI operation — skip entirely on
+    # non-rank-0 to avoid duplicate file writes and EvaluationRunner calls.
+    if RANK != 0:
+        return
+
     config = _load_config(config_path)
     output_dir = Path(config.output_dir)
 
@@ -170,8 +205,13 @@ def run_eval_only(name: str, config_path: Path, params: dict | None, force: bool
     log.info("[%s] done", name)
 
 
-def _selfcal_best_params() -> tuple[dict, dict, dict, dict]:
+def _selfcal_best_params(configs_dir: Path) -> tuple[dict, dict, dict, dict]:
     """Load the three selfcal best_params.json files plus a defaults dict.
+
+    Parameters
+    ----------
+    configs_dir:
+        Root configs directory used for this run (resolved absolute path).
 
     Returns
     -------
@@ -185,9 +225,9 @@ def _selfcal_best_params() -> tuple[dict, dict, dict, dict]:
         ``selfcal`` phase first.
     """
     paths = {
-        "kobitski_alignment": CONFIGS / "selfcal" / "kobitski_ew06_alignment.yaml",
-        "shah_alignment": CONFIGS / "selfcal" / "shah_alignment.yaml",
-        "shah_label_transfer": CONFIGS / "selfcal" / "shah_label_transfer.yaml",
+        "kobitski_alignment": configs_dir / "selfcal" / "kobitski_ew06_alignment.yaml",
+        "shah_alignment": configs_dir / "selfcal" / "shah_alignment.yaml",
+        "shah_label_transfer": configs_dir / "selfcal" / "shah_label_transfer.yaml",
     }
     results = {}
     for key, cfg_path in paths.items():
@@ -199,7 +239,7 @@ def _selfcal_best_params() -> tuple[dict, dict, dict, dict]:
             )
         results[key] = _read_json(bp_path)
 
-    defaults_config = _load_config(CONFIGS / "baseline_with_selfcal" / "ew06_vs_shah.yaml")
+    defaults_config = _load_config(configs_dir / "baseline_with_selfcal" / "ew06_vs_shah.yaml")
     return (
         results["kobitski_alignment"],
         results["shah_alignment"],
@@ -208,8 +248,8 @@ def _selfcal_best_params() -> tuple[dict, dict, dict, dict]:
     )
 
 
-def run_phase(phase: str, force: bool, dry_run: bool) -> None:
-    runs = PHASES[phase]
+def run_phase(phase: str, phases_map: dict[str, list], configs_dir: Path, force: bool, dry_run: bool) -> None:
+    runs = phases_map[phase]
 
     if phase in ("selfcal", "ground_truth"):
         for _, name, cfg_path in runs:
@@ -220,15 +260,16 @@ def run_phase(phase: str, force: bool, dry_run: bool) -> None:
             run_eval_only(name, cfg_path, params=None, force=force, dry_run=dry_run)
 
     elif phase == "baseline_with_selfcal":
+        selfcal_runs = phases_map["selfcal"]
         if dry_run and not all(
-            (Path(_load_config(sc[2]).output_dir) / "best_params.json").exists() for sc in SELFCAL
+            (Path(_load_config(sc[2]).output_dir) / "best_params.json").exists() for sc in selfcal_runs
         ):
             log.info("[baseline_with_selfcal] DRY-RUN: selfcal best_params.json not yet available — would merge at real run time")
             for _, name, cfg_path in runs:
                 run_eval_only(name, cfg_path, params=None, force=force, dry_run=True)
             return
 
-        kobitski_align, shah_align, shah_lt, defaults = _selfcal_best_params()
+        kobitski_align, shah_align, shah_lt, defaults = _selfcal_best_params(configs_dir)
         merged = merge_selfcal_params(kobitski_align, shah_align, shah_lt, defaults)
         log.info("[baseline_with_selfcal] merged params: %s", merged)
         for _, name, cfg_path in runs:
@@ -241,7 +282,17 @@ def main(argv=None) -> int:
     parser.add_argument("--force", action="store_true", help="Re-run even if eval_report.json already exists")
     parser.add_argument("--dry-run", action="store_true", help="Print the execution plan without running any pipeline")
     parser.add_argument("--verbose", action="store_true")
+    parser.add_argument(
+        "--configs-dir",
+        default=str(SUITE_ROOT / "configs"),
+        help="Root configs directory (default: baseline_experiments/configs/). Pass baseline_experiments/configs_horeka for cluster runs.",
+    )
     args = parser.parse_args(argv)
+
+    # Resolve --configs-dir to absolute BEFORE os.chdir(REPO_ROOT) — a
+    # relative path passed on the CLI would be silently broken by the chdir
+    # (D-02).
+    configs_dir = Path(args.configs_dir).resolve()
 
     logging.basicConfig(level=logging.INFO if not args.verbose else logging.DEBUG, format="%(asctime)s [%(name)s] %(message)s")
 
@@ -249,11 +300,13 @@ def main(argv=None) -> int:
     # output_dir) — make that resolution robust regardless of invocation cwd.
     os.chdir(REPO_ROOT)
 
+    phases_map = _build_phase_lists(configs_dir)
+
     phases = PHASE_ORDER if args.phase == "all" else [args.phase]
     try:
         for phase in phases:
             log.info("=== phase: %s ===", phase)
-            run_phase(phase, force=args.force, dry_run=args.dry_run)
+            run_phase(phase, phases_map, configs_dir, force=args.force, dry_run=args.dry_run)
     except (EvalConfigError, FileNotFoundError) as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1

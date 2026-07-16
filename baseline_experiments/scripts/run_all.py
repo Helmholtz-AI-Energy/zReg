@@ -65,8 +65,10 @@ for p in (str(REPO_ROOT), str(REPO_ROOT / "src")):
 
 try:
     from mpi4py import MPI
-    RANK = MPI.COMM_WORLD.Get_rank()
+    COMM = MPI.COMM_WORLD
+    RANK = COMM.Get_rank()
 except ImportError:
+    COMM = None
     RANK = 0  # single-process / no-MPI — unchanged local behaviour
 
 from eval.config import EvalConfig, EvalConfigError  # noqa: E402
@@ -158,14 +160,25 @@ def run_optimize_then_eval(name: str, config_path: Path, force: bool, dry_run: b
     config = _load_config(config_path)
     output_dir = Path(config.output_dir)
 
+    skip = False
     if RANK == 0:
         if not force and _already_done(output_dir):
             log.info("[%s] SKIP (eval_report.json already exists at %s)", name, output_dir)
-            return
-        log.info("[%s] optimize+eval -> %s (tier=%s n_trials=%s)", name, output_dir, config.tier, config.n_trials)
-        if dry_run:
-            return
-        _write_run_config(config_path, output_dir)
+            skip = True
+        else:
+            log.info("[%s] optimize+eval -> %s (tier=%s n_trials=%s)", name, output_dir, config.tier, config.n_trials)
+            if dry_run:
+                skip = True
+            else:
+                _write_run_config(config_path, output_dir)
+
+    # Broadcast skip decision so every rank agrees before the collective call.
+    # Without this, rank-0 returning early leaves other ranks deadlocked on
+    # the internal comm.Barrier() inside HyperparamOptimizer.run().
+    if COMM is not None:
+        skip = COMM.bcast(skip, root=0)
+    if skip:
+        return
 
     # HyperparamOptimizer.run() is a collective MPI operation — every rank
     # must call this (propulate needs all ranks to participate; gating on

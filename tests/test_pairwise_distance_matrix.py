@@ -966,3 +966,64 @@ class TestPairwiseResult:
         )
         assert result.rotations is not None
         assert isinstance(result.rotations, torch.Tensor)
+
+    def test_stored_transforms_empty_with_nonrigid_cpd(self, small_trajectory_pair):
+        """stored_transforms stays empty when cpd_type='nonrigid' — memory guard.
+
+        NonRigidTransformation retains a dense (n_points, n_points) RBF kernel
+        matrix; caching one per (i, j) pair is unbounded and, on real
+        full-resolution data, exhausts memory before a windowed sweep
+        completes. Unlike rigid/affine (test_stored_transforms_populated_with_cpd),
+        nonrigid entries must never be stored — eval.stages.alignment
+        ._build_aligned_cloud already has a tested fallback (D-10) for missing
+        cache entries.
+        """
+        x, y = small_trajectory_pair
+        try:
+            result = pairwise_distance_matrix.create_pairwise_distance_matrix(
+                x, y,
+                normalize=True,
+                distance_metric="euclidean",
+                cpd_type="nonrigid",
+                downsample_method="random",
+            )
+        except AttributeError:
+            pytest.skip("upstream NonRigidCPD bug on tiny data — see test_cpd_type_nonrigid")
+        assert result.stored_transforms == {}
+
+    def test_cpd_with_normalize_false_skips_stored_transform(self, small_trajectory_pair):
+        """pairwise_distance_matrix.py:217->225 — normalize=False skips StoredTransform storage."""
+        x, y = small_trajectory_pair
+        result = pairwise_distance_matrix.create_pairwise_distance_matrix(
+            x, y,
+            normalize=False,
+            distance_metric="euclidean",
+            cpd_type="rigid",
+            downsample_method="random",
+        )
+        # StoredTransforms dict should be empty because normalize=False
+        assert result.stored_transforms == {}
+
+    def test_maxswd_metric(self, small_trajectory_pair):
+        """pairwise_distance_matrix.py:641-650 — maxswd distance metric is handled."""
+        x, y = small_trajectory_pair
+        fns, _, _ = pairwise_distance_matrix._sanitize_pairwise_distance_matrix(
+            distance_kwargs=None,
+            distance_metrics="maxswd",
+            downsample_method="random",
+            x=x,
+            y=y,
+        )
+        assert fns[0] is not None
+
+    def test_maxswd_with_preset_device_skips_default(self, small_trajectory_pair):
+        """pairwise_distance_matrix.py:648->647 — False branch when key already in dist_kwargs."""
+        x, y = small_trajectory_pair
+        fns, _, _ = pairwise_distance_matrix._sanitize_pairwise_distance_matrix(
+            distance_kwargs={"device": "cpu"},
+            distance_metrics="maxswd",
+            downsample_method="random",
+            x=x,
+            y=y,
+        )
+        assert fns[0] is not None

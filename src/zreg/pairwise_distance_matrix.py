@@ -92,7 +92,10 @@ def create_pairwise_distance_matrix(
             - cost_matrix (torch.Tensor): The pairwise distance matrix.
             - rotations (torch.Tensor | None): The rotations from rigid CPD registration, or None.
             - stored_transforms (dict[tuple[int, int], StoredTransform]): Stored CPD transforms
-              keyed by (i, j) pair indices; empty dict when cpd_type is None.
+              keyed by (i, j) pair indices; empty dict when cpd_type is None. Entries are also
+              never stored when cpd_type == "nonrigid" (unbounded-memory guard — see inline
+              comment at the storage site) — callers needing a nonrigid transform for a specific
+              pair must recompute it themselves.
     """
     # Use first available frame from each dict so callers with non-zero-based keys don't crash
     # (WR-01: x[0] / y[0] raised KeyError when keys did not include 0).
@@ -152,9 +155,8 @@ def create_pairwise_distance_matrix(
             window_min = i - window
             if window_min < 0:
                 window_min = 0
-            window_max = i + window
-            if window_max > y_samples + 1:
-                window_max = y_samples + 1
+            # +1 so that range(window_min, window_max) includes j = i + window
+            window_max = min(i + window + 1, y_samples + 1)
         else:
             window_min, window_max = 0, y_samples + 1
 
@@ -215,7 +217,19 @@ def create_pairwise_distance_matrix(
                 # Only store when normalize=True: when normalize=False, src_min/src_max/tgt_min/
                 # tgt_max remain None and the reuse path in _build_aligned_cloud would apply
                 # normalisation that was never done in Step 1, corrupting the output (CR-02).
-                if normalize:
+                #
+                # cpd_type == "nonrigid" is excluded from caching: NonRigidTransformation
+                # retains a dense (n_points, n_points) RBF kernel matrix (see
+                # zreg.transforms.nonrigid.NonRigidTransformation.g). With real, full-resolution
+                # point clouds (tens of thousands of points/frame) and a windowed sweep touching
+                # thousands of (i, j) pairs, retaining one of these per pair grows this dict
+                # unboundedly into the hundreds of GB, exhausting memory/swap well before the
+                # sweep completes. _build_aligned_cloud already has a tested, correctness-
+                # preserving fallback for missing cache entries (D-10: fresh CPD from raw data,
+                # eval/stages/alignment.py) — losing the nonrigid cache only means that fallback
+                # runs for the (bounded, ~len(target)) frames actually selected by the DTW warp
+                # path, instead of reusing a precomputed transform.
+                if normalize and cpd_type != "nonrigid":
                     stored_transforms[(i, j)] = StoredTransform(
                         transform=reg.transformation,
                         src_min=src_min,
@@ -376,9 +390,8 @@ def create_pairwise_distance_matrix_given_rigid_rot(
             window_min = i - window
             if window_min < 0:
                 window_min = 0
-            window_max = i + window
-            if window_max > y_samples + 1:
-                window_max = y_samples + 1
+            # +1 so that range(window_min, window_max) includes j = i + window
+            window_max = min(i + window + 1, y_samples + 1)
         else:
             window_min, window_max = 0, y_samples + 1
 
@@ -506,6 +519,7 @@ def _sanitize_pairwise_distance_matrix(distance_kwargs, distance_metrics, downsa
     "oswd"      | OrthogonalSlicedWassersteinDistance| Requires downsampling
     "gswd"      | GeneralisedSlicedWassersteinDistance| Requires downsampling
     "pswd"      | ProjectedWassersteinDistance     | Requires downsampling
+    "maxswd"    | MaxSlicedWassersteinDistance     | Requires downsampling
     "euclidean" | partial(euclidean_distance, ...) | No downsampling required
     "manhattan" | partial(manhattan_distance, ...) | No downsampling required
     "minkowski" | partial(minkowski_distance, ...) | No downsampling required
@@ -638,6 +652,17 @@ def _sanitize_pairwise_distance_matrix(distance_kwargs, distance_metrics, downsa
                 if kw not in dist_kwargs:
                     dist_kwargs[kw] = val
             distance_fn = distances.ProjectedWassersteinDistance(**dist_kwargs)
+        elif dist == "maxswd":
+            log.info("Using Max Sliced Wasserstein Distance for distance metric")
+            # set default kwargs
+            defaults = [
+                ["device", _x0_san["pos"].device],
+                ["max_sw_num_iters", 100],
+            ]
+            for kw, val in defaults:
+                if kw not in dist_kwargs:
+                    dist_kwargs[kw] = val
+            distance_fn = distances.MaxSlicedWassersteinDistance(**dist_kwargs)
         elif dist == "euclidean":
             log.info("Using Euclidean Distance for distance metric")
             distance_fn = partial(distances.euclidean_distance, **dist_kwargs)

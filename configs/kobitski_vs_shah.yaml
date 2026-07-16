@@ -1,8 +1,8 @@
 # Phase 32 HETERO-01: Kobitski ew06 (tracklets) as source, Shah sample-1 (csv) as target.
 # Exercises target_data_format to load a different format for the target dataset.
-data_path: /Users/valeriekieslinger/Documents/Hiwi/BA/data/kobitski_data/12_11_15_embryo_ew_06_Cleaned_BackTracked_Oriented.tracklets
+data_path: /data/external/sample/kobitski_data/12_11_15_embryo_ew_06_Cleaned_BackTracked_Oriented.tracklets
 data_format: tracklets
-target_data_path: /Users/valeriekieslinger/Documents/Hiwi/BA/data/shah_data/sample-1/sample-1-cell-tracks.csv
+target_data_path: /data/external/sample/shah_data/sample-1/sample-1-cell-tracks.csv
 target_data_format: csv
 pipeline_mode: paired
 tier: sanity

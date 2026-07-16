@@ -3,7 +3,7 @@
 This module implements ``LabelTransferStage(PipelineStage)``, a thin orchestration
 layer over ``zreg.color_transfer.transfer_colors()``.  No kNN or distance logic is
 reimplemented here — all numerical computation delegates to the existing
-``zreg.color_transfer.*`` package via KNN_VOTING (FRAME-06 explicit constraint).
+``zreg.color_transfer.*`` package via KNN_VOTING or CPD_WEIGHTED (Phase 44).
 
 Hyperparam mapping:
 
@@ -18,6 +18,10 @@ Hyperparam mapping:
 +---------------+-------------------------------------------------------+
 | threshold     | validated float >= 0.0; no-op in Phase 20 (D-05)     |
 +---------------+-------------------------------------------------------+
+| method        | 'knn_voting' (default), 'cpd_weighted', 'pointnet2', |
+|               | or 'egnn'; defaults to config.label_transfer_method   |
+|               | when absent (Phase 44; pointnet2/egnn added Phase 48) |
++---------------+-------------------------------------------------------+
 
 Notes
 -----
@@ -30,10 +34,39 @@ pass-through (D-02 + Phase 30).
 Bool exclusion guards are applied to all 4 params per WR-01 pattern from
 Phase 19.  ``isinstance(x, bool)`` must be tested before ``isinstance(x, int)``
 because ``bool`` is a subclass of ``int`` in Python.
+
+**CPD-weighted label transfer (Phase 44):**
+``method='cpd_weighted'`` reuses ``zreg.color_transfer``'s existing
+CPD-posterior-weighted-average math, fixing two call-site bugs so
+``zreg.color_transfer`` itself never needs to change:
+
+- **pmat transpose (D-04):** ``EstepResult.pmat`` from
+  ``expectation_step()`` is shaped ``(n_source, n_target)``, but the
+  underlying color-transfer helper requires ``(n_target, n_source)``.
+  The stage builds a transposed copy of the E-step result (via the
+  namedtuple's ``_replace``) before every CPD-weighted call.
+- **categorical one-hot/argmax (D-05):** a literal weighted average of
+  raw class indices is meaningless, so source labels are one-hot encoded
+  before the call and the resulting soft scores are discretized back via
+  ``argmax(dim=1)`` after.
+
+**Learned label transfer (Phase 48):**
+``method='pointnet2'`` and ``method='egnn'`` load a Phase 47 checkpoint
+(via ``self.config.pointnet2_checkpoint_path`` / ``self.config.egnn_checkpoint_path``,
+D-02) once per ``run()`` call, before the per-frame loop (Pattern 3 — never
+reloaded inside the loop), then run inference per frame pair. The joint
+cloud fed to the model MUST byte-for-byte mirror
+``train_label_transfer.py:train_step``'s encoding (source-then-target
+concatenation, one-hot over the first ``n_classes`` feature dims, unknown-
+flag bit at the last column for target rows) or predictions are silently
+meaningless. See ``_load_learned_model`` for the checkpoint-loading
+contract (three ``ValueError`` guards: missing path config, file not found,
+``model_class`` mismatch).
 """
 
 import logging
 import warnings
+from pathlib import Path
 from typing import Any
 
 # zreg.* MUST precede torch on macOS-ARM (libomp SIGABRT).
@@ -42,17 +75,23 @@ from typing import Any
 from zreg.color_transfer import transfer_colors, ColorTransferMethod
 from zreg.dataset import zRegPointCloud
 from zreg.metrics import chamfer
+from zreg.models import PointNet2LabelTransfer, EGNNLabelTransfer
 
 import torch  # consistent import order for downstream callers (macOS-ARM zreg-before-torch rule)
 
 from eval.config import EvalConfig
 from eval.stages.base import PipelineStage
-from eval.types import LabelResult
+from eval.types import LabelResult, AlignResult
 
 __all__ = ["LabelTransferStage"]
 
 ALIGNMENT_WARN_THRESHOLD: float = 1.0
 _log = logging.getLogger(__name__)
+
+# Phase 48: model-class dispatch, single source of truth (mirrors
+# train_label_transfer.py:80 — the training script this phase's checkpoints
+# come from).
+MODEL_REGISTRY = {"pointnet2": PointNet2LabelTransfer, "egnn": EGNNLabelTransfer}
 
 
 class LabelTransferStage(PipelineStage):
@@ -80,6 +119,11 @@ class LabelTransferStage(PipelineStage):
         "smoothing",
         "threshold",
     )
+    OPTIONAL_PARAMS: tuple[str, ...] = (
+        "method",  # defaults to config.label_transfer_method (Phase 44 knn_voting/
+        # cpd_weighted; Phase 48 adds pointnet2/egnn)
+    )
+    VALID_METHODS: tuple = ("knn_voting", "cpd_weighted", "pointnet2", "egnn")
 
     def __init__(self, config: EvalConfig) -> None:
         """Store the evaluation configuration.
@@ -98,11 +142,16 @@ class LabelTransferStage(PipelineStage):
         the type and range constraints.  Raises ``ValueError`` on the first
         failure encountered (raise-on-first-failure pattern).
 
+        Optional parameters (not in REQUIRED_PARAMS) are populated from
+        config defaults if missing (Phase 44: ``method`` defaults to
+        ``config.label_transfer_method``).
+
         Parameters
         ----------
         params : dict[str, Any]
             Hyperparameter dict to validate.  Must contain all four keys in
-            ``REQUIRED_PARAMS``.
+            ``REQUIRED_PARAMS``; keys in ``OPTIONAL_PARAMS`` are populated
+            from config if missing.
 
         Returns
         -------
@@ -121,10 +170,16 @@ class LabelTransferStage(PipelineStage):
                 ``"smoothing must be float >= 0.0; got {value!r}"``.
             If ``threshold`` is not a numeric >= 0.0 or is a bool:
                 ``"threshold must be float >= 0.0; got {value!r}"``.
+            If ``method`` is not one of ``VALID_METHODS``:
+                ``"method must be one of {VALID_METHODS}; got {value!r}"``.
         """
         for key in self.REQUIRED_PARAMS:
             if key not in params:
                 raise ValueError(f"Missing required param: {key}")
+
+        # Phase 44: populate optional params from config if missing
+        if "method" not in params:
+            params["method"] = self.config.label_transfer_method
 
         if not (
             isinstance(params["k_neighbours"], int)
@@ -149,6 +204,73 @@ class LabelTransferStage(PipelineStage):
             and params["threshold"] >= 0.0
         ):
             raise ValueError(f"threshold must be float >= 0.0; got {params['threshold']!r}")
+
+        if params["method"] not in self.VALID_METHODS:
+            raise ValueError(f"method must be one of {self.VALID_METHODS}; got {params['method']!r}")
+
+    @staticmethod
+    def _load_learned_model(method: str, checkpoint_path: str | None) -> torch.nn.Module:
+        """Load a Phase 47 checkpoint and construct a ``.eval()``-mode model (Phase 48).
+
+        Performs the full verified load sequence (48-RESEARCH.md Pattern 1):
+        checkpoint-path presence, file existence, safe deserialization
+        (``weights_only=True``), and ``model_class`` consistency, each guarded
+        by a specific ``ValueError`` so failures are diagnosable without
+        inspecting a traceback.
+
+        Parameters
+        ----------
+        method : str
+            ``"pointnet2"`` or ``"egnn"`` — selects ``MODEL_REGISTRY[method]``.
+        checkpoint_path : str or None
+            Path to a ``.pt`` checkpoint produced by ``train_label_transfer.py``'s
+            ``save_checkpoint`` (Phase 47). ``None`` means the corresponding
+            ``EvalConfig`` field (``{method}_checkpoint_path``) was never set.
+
+        Returns
+        -------
+        torch.nn.Module
+            A ``model_cls(**ckpt["hyperparams"])`` instance with
+            ``load_state_dict`` applied, in ``.eval()`` mode.
+
+        Raises
+        ------
+        ValueError
+            If ``checkpoint_path`` is ``None``, if the file does not exist,
+            if ``torch.load`` fails for any reason, or if the checkpoint's
+            ``model_class`` does not match ``method``.
+
+        Notes
+        -----
+        Uses ``torch.load(checkpoint_path, map_location="cpu", weights_only=True)``
+        (45-DESIGN.md security mandate — safe deserialization; CPU-only
+        inference convention). No extra ``.to("cpu")`` call is added since
+        ``map_location="cpu"`` already places all tensors on CPU before
+        ``load_state_dict`` copies into the already-CPU-constructed model.
+        """
+        if checkpoint_path is None:
+            raise ValueError(
+                f"method={method!r} requires config.{method}_checkpoint_path to be set "
+                "(got None). Set it in your EvalConfig/YAML, or use a different method."
+            )
+        if not Path(checkpoint_path).exists():
+            raise ValueError(f"method={method!r} checkpoint file not found: {checkpoint_path!r}")
+        try:
+            ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+        except Exception as e:
+            raise ValueError(
+                f"method={method!r} checkpoint at {checkpoint_path!r} failed to load: {e}"
+            ) from e
+        if ckpt.get("model_class") != method:
+            raise ValueError(
+                f"method={method!r} checkpoint at {checkpoint_path!r} has "
+                f"model_class={ckpt.get('model_class')!r}, expected {method!r}."
+            )
+        model_cls = MODEL_REGISTRY[method]
+        model = model_cls(**ckpt["hyperparams"])
+        model.load_state_dict(ckpt["model_state_dict"])
+        model.eval()
+        return model
 
     @staticmethod
     def _check_alignment(
@@ -185,6 +307,7 @@ class LabelTransferStage(PipelineStage):
         source: dict[int, zRegPointCloud],
         target: dict[int, zRegPointCloud],
         params: dict[str, Any],
+        align_result: AlignResult | None = None,
     ) -> LabelResult:
         """Run label transfer from ``source`` to ``target`` and return a ``LabelResult``.
 
@@ -200,7 +323,13 @@ class LabelTransferStage(PipelineStage):
             transferred TO each target frame.
         params : dict[str, Any]
             Must contain all four keys in ``REQUIRED_PARAMS``.  See
-            ``validate_params`` for the full constraint list.
+            ``validate_params`` for the full constraint list.  ``method``
+            (in ``OPTIONAL_PARAMS``) defaults to ``config.label_transfer_method``
+            when absent.
+        align_result : AlignResult | None, optional
+            Result of a prior ``AlignmentStage.run()`` call, required only
+            when ``params["method"] == "cpd_weighted"`` (Phase 44).  Ignored
+            for ``method == "knn_voting"``.  Defaults to ``None``.
 
         Returns
         -------
@@ -212,6 +341,17 @@ class LabelTransferStage(PipelineStage):
             - ``pre_transfer_alignment``: mean per-frame Chamfer distance
               between source and target computed before transfer.
 
+        Raises
+        ------
+        ValueError
+            If ``params["method"] == "cpd_weighted"`` and ``align_result``
+            is ``None`` (D-08), or if ``align_result.estep_results`` has no
+            entry for the current frame pair's target key (D-08) — this
+            happens when ``alignment_method`` is not ``"cpd"`` or
+            ``cpd_penalty`` is ``None``, since the CPD posterior is only
+            captured for CPD-registered frames.  See ``validate_params``
+            for the other ``ValueError`` cases.
+
         Notes
         -----
         ``validate_params(params)`` is called as the first line (D-08).
@@ -222,11 +362,16 @@ class LabelTransferStage(PipelineStage):
         frame-0 pass-through (D-02 + Phase 30).
 
         ``source_colors`` must be ``unsqueeze(-1)`` to shape (N, 1); result
-        is squeezed with ``[:, 0]`` to shape (M,).  D-12.
+        is squeezed with ``[:, 0]`` to shape (M,).  D-12.  This applies to
+        the ``knn_voting`` path only — ``cpd_weighted`` one-hot encodes
+        instead (D-05).
 
         ``params_used=dict(params)`` is a shallow copy (Pitfall 7).
         ``smoothing``, ``threshold``, ``dist_metric`` are validated but
         no-op in Phase 20.  D-04/D-05/D-06.
+
+        **CPD-weighted path (Phase 44):** see module docstring for the
+        pmat-transpose (D-04) and one-hot/argmax (D-05) fixes applied here.
         """
         self.validate_params(params)
 
@@ -264,6 +409,17 @@ class LabelTransferStage(PipelineStage):
         n_pairs = min(len(source_keys), len(target_keys))
         transferred: dict[int, torch.Tensor] = {}
 
+        # Phase 48: load the learned model ONCE per run() call, before the
+        # per-frame loop (Pattern 3) — never reloaded per frame pair.
+        learned_model: torch.nn.Module | None = None
+        if params["method"] in ("pointnet2", "egnn"):
+            checkpoint_path = (
+                self.config.pointnet2_checkpoint_path
+                if params["method"] == "pointnet2"
+                else self.config.egnn_checkpoint_path
+            )
+            learned_model = self._load_learned_model(params["method"], checkpoint_path)
+
         for k in range(n_pairs):
             sk = source_keys[k]
             tk = target_keys[k]
@@ -281,13 +437,56 @@ class LabelTransferStage(PipelineStage):
                     f"Source frame {sk} has no 'label' field. "
                     "Label transfer requires annotated data."
                 )
-            transferred[tk] = transfer_colors(
-                src_frame["pos"],
-                tgt_frame["pos"],
-                method=ColorTransferMethod.KNN_VOTING,
-                source_colors=labels_tensor.unsqueeze(-1),
-                k=params["k_neighbours"],
-            )[:, 0]
+
+            if params["method"] == "cpd_weighted":
+                if align_result is None:
+                    raise ValueError(
+                        "method='cpd_weighted' requires align_result (got None). "
+                        "Run AlignmentStage first, or use method='knn_voting'."
+                    )
+                if tk not in align_result.estep_results:
+                    raise ValueError(
+                        f"method='cpd_weighted' requires align_result.estep_results[{tk}], "
+                        "which is missing. This happens when alignment_method is not 'cpd' "
+                        "or cpd_penalty is None — CPD posterior is only captured for CPD-"
+                        "registered frames."
+                    )
+                estep_result = align_result.estep_results[tk]
+                transposed = estep_result._replace(pmat=estep_result.pmat.T)
+                one_hot = torch.nn.functional.one_hot(labels_tensor.long()).float()
+                soft_scores = transfer_colors(
+                    src_frame["pos"],
+                    tgt_frame["pos"],
+                    method=ColorTransferMethod.CPD_WEIGHTED,
+                    source_colors=one_hot,
+                    estep_result=transposed,
+                )
+                transferred[tk] = soft_scores.argmax(dim=1)
+            elif params["method"] in ("pointnet2", "egnn"):
+                # Phase 48: joint-cloud construction MUST byte-for-byte mirror
+                # train_label_transfer.py:train_step's encoding (48-RESEARCH.md
+                # Pattern 2) — source-then-target concatenation, one-hot over
+                # [:n_src, :n_classes], unknown-flag at [n_src:, -1] = 1.0.
+                n_classes = learned_model.n_classes  # read from the model, NOT
+                # the data (Anti-Patterns — data-derived n_classes could
+                # silently under-size joint_feat).
+                joint_pos = torch.cat([src_frame["pos"], tgt_frame["pos"]], dim=0)
+                joint_feat = torch.zeros(joint_pos.shape[0], n_classes + 1)
+                joint_feat[:n_src, :n_classes] = torch.nn.functional.one_hot(
+                    labels_tensor.long(), num_classes=n_classes
+                ).float()
+                joint_feat[n_src:, -1] = 1.0  # "unknown" flag for target rows
+                with torch.no_grad():
+                    logits = learned_model(joint_pos, joint_feat)  # (n_joint, n_classes)
+                transferred[tk] = logits[n_src:].argmax(dim=1)
+            else:
+                transferred[tk] = transfer_colors(
+                    src_frame["pos"],
+                    tgt_frame["pos"],
+                    method=ColorTransferMethod.KNN_VOTING,
+                    source_colors=labels_tensor.unsqueeze(-1),
+                    k=params["k_neighbours"],
+                )[:, 0]
 
         return LabelResult(
             transferred_labels=transferred,

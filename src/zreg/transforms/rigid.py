@@ -160,18 +160,14 @@ class RigidTransformation(TransformBase):
         rot_composed = torch.matmul(self.rot, other.rot)
 
         # Validate composed rotation (per D-10, D-11, D-12, D-13)
+        # Compute both metrics before raising so the error message always includes
+        # full context regardless of which constraint is violated.
         det = torch.det(rot_composed)
-        if abs(det.item() - 1.0) > 1e-6:
-            raise ValueError(
-                f"RigidTransformation composition produced invalid rotation: "
-                f"det={det.item():.6f}, expected 1.0"
-            )
-
         cond = torch.linalg.cond(rot_composed)
-        if cond.item() > 1e6:
+        if abs(det.item() - 1.0) > 1e-6 or cond.item() > 1e6:
             raise ValueError(
                 f"RigidTransformation composition produced invalid rotation: "
-                f"cond={cond.item():.2e}, expected < 1e6"
+                f"det={det.item():.6f}, cond={cond.item():.2e} (expected det=1.0, cond<1e6)"
             )
 
         return RigidTransformation(

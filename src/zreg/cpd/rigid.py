@@ -61,7 +61,9 @@ class RigidCPD(CoherentPointDrift):
         )
         if tf_init_params is None:
             tf_init_params = {}
-        fact = {"dtype": source.dtype, "device": source.device}
+        fact = {}
+        if source is not None:
+            fact = {"dtype": source.dtype, "device": source.device}
         self._tf_type = tf.RigidTransformation
         self._update_scale = update_scale
         self.transform = None

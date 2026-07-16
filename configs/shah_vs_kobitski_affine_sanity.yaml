@@ -4,9 +4,9 @@
 # so that CPD can fit rotation + translation + scale + shear. The scale
 # mismatch visible in the rigid run (Shah ~50 units vs Kobitski ~400 units)
 # is a global transform that affine CPD can directly model.
-data_path: /Users/valeriekieslinger/Documents/Hiwi/BA/data/shah_data/sample-1/sample-1-cell-tracks.csv
+data_path: /data/external/sample/shah_data/sample-1/sample-1-cell-tracks.csv
 data_format: csv
-target_data_path: /Users/valeriekieslinger/Documents/Hiwi/BA/data/kobitski_data/12_11_15_embryo_ew_06_Cleaned_BackTracked_Oriented.tracklets
+target_data_path: /data/external/sample/kobitski_data/12_11_15_embryo_ew_06_Cleaned_BackTracked_Oriented.tracklets
 target_data_format: tracklets
 pipeline_mode: paired
 tier: sanity

@@ -48,9 +48,9 @@ def add_gaussian_noise(
     """
     if sigma < 0:
         raise ValueError(f"sigma must be >= 0, got {sigma}")
+    result = copy.deepcopy(trajectory)
     if seed is not None:
         torch.manual_seed(seed)
-    result = copy.deepcopy(trajectory)
     for pc in result.values():
         noise = torch.randn_like(pc["pos"]) * sigma
         pc["pos"] = pc["pos"] + noise
@@ -101,9 +101,11 @@ def add_outliers(
     """
     if n_outliers < 0:
         raise ValueError(f"n_outliers must be >= 0, got {n_outliers}")
+    if scale < 0:
+        raise ValueError(f"scale must be >= 0, got {scale}")
+    result = copy.deepcopy(trajectory)
     if seed is not None:
         torch.manual_seed(seed)
-    result = copy.deepcopy(trajectory)
     for pc in result.values():
         pos = pc["pos"]
         outliers = torch.randn(

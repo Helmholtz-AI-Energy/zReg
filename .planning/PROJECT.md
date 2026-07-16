@@ -2,13 +2,20 @@
 
 ## Current State
 
-**Shipped:** v1.0 Consolidation — 2026-04-09 | v1.1 Code Quality & Refactoring — 2026-05-13 | **v1.2 Evaluation Framework & Debt Resolution — 2026-06-26**
+**Shipped:** v1.0 Consolidation — 2026-04-09 | v1.1 Code Quality & Refactoring — 2026-05-13 | v1.2 Evaluation Framework & Debt Resolution — 2026-06-26 | **v1.4 Trajectory Alignment & Optimization Enhancements — 2026-07-08**
 
-zReg is a Python library for GPU-accelerated 3D point cloud registration, temporal alignment, and label (celltype) transfer using PyTorch — now paired with a complete, config-driven **evaluation framework** at the repo root (`eval/`). v1.2 (27 phases, 55 plans, 2026-05-13 → 2026-06-26) delivered: `EvalConfig` + `DataFactory`; `MetricsEngine` + frozen result types; isolated `AlignmentStage`/`LabelTransferStage`; `EvaluationRunner` + `viz.py`; a 3-tier `HyperparamOptimizer` (Optuna + MPI-parallel Propulate); a `run_eval.py` CLI with scenario configs; dual-mode evaluation (paired source↔target and synthetic transform-spec target generation with GT-aware HPO); heterogeneous cross-format (tracklets/CSV) paired evaluation; CPD-aligned trajectory output with stored-transform reuse (fixed the 8× scale convergence failure); trajectory export for LaTeX/pgfplots; a per-frame visualisation refactor; and full carry-forward debt closure incl. the codebase-wide `color`→`label` field rename. **976 tests pass, 18 skipped.** Closed via the v1.2 milestone audit (`.planning/v1.2-MILESTONE-AUDIT.md`).
+zReg is a Python library for GPU-accelerated 3D point cloud registration, temporal alignment, and label (celltype) transfer using PyTorch — paired with a complete, config-driven **evaluation framework** at the repo root (`eval/`). v1.4 (5 phases, 11 plans, 2026-06-29 → 2026-07-08) expanded the alignment and optimization pipeline: ICP (Open3D point-to-point) and SWD variants (SWD/ASWD/OSWD/GSWD/PSWD) as registration alternatives; preprocessing via `compute_pca_rotation` + `detect_velocity_landmarks`; Sobol quasi-random search as default HPO (`SOBOL_MIN_TRIALS=8` fallback); and per-trajectory z-score standardization as default data preprocessing — all config-driven and backward compatible. **1,156 tests pass, 18 skipped.**
 
-## Next Milestone Goals
+## Current Milestone: v1.5 HoreKa Cluster Execution
 
-Not yet defined — run `/gsd:new-milestone` to scope the next version. Candidate directions (from Future Requirements below): property-based invariant testing (Hypothesis), performance regression benchmarks, `py.typed` marker, structured result objects for all registration returns, and a first real-data HPO calibration run using the new framework.
+**Goal:** Run the `baseline_experiments` evaluation suite on the HoreKa HPC cluster with GPU support, replacing the current laptop-constrained (CPU-only, subsampled) execution.
+
+**Target features:**
+- Multi-trial parallelism via the already-built `propulate`/MPI search backend (`eval/runners/optimizer.py`, `eval/search_strategies.py`)
+- `baseline_experiments/scripts/run_all.py` made MPI-rank-aware
+- HoreKa job script + environment setup + data transfer
+- Real per-operation GPU acceleration (`device` field on `EvalConfig`, threaded through `DataFactory`)
+- Subsampling stays the default on the cluster (not full point density) — suite is budgeted to a **3-hour GPU time cap**, validated on a short test job before any full allocation
 
 ## What This Is
 
@@ -45,7 +52,15 @@ Every existing capability works correctly, fails informatively, and is covered b
 
 ### Active
 
-(None — v1.2 shipped all planned requirements. Define the next set via `/gsd:new-milestone`.)
+v1.5 HoreKa Cluster Execution — requirements being defined, see `.planning/REQUIREMENTS.md`.
+
+### Validated in v1.4 (2026-07-08)
+
+- ✓ ALIGN-04-01…05: ICP registration (Open3D point-to-point) + StoredTransform + AlignmentStage dispatcher — Phase 39
+- ✓ ALIGN-05-01…05: SlicedWassersteinAligner (SWD/ASWD/OSWD/GSWD/PSWD) + SO(3) projection + AlignmentStage dispatcher — Phase 40
+- ✓ ALIGN-06-01…05: `compute_pca_rotation` + `detect_velocity_landmarks` + `AlignmentPreprocessingConfig` — Phase 41
+- ✓ OPT-04-01…06: `SobolSearch` as default HPO + `SOBOL_MIN_TRIALS=8` fallback + `sobol_seed`/`sobol_randomize` config — Phase 42
+- ✓ DATA-02-01…07: `DataPreprocessingConfig` + `DataFactory._standardize()` per-trajectory z-score as default — Phase 43
 
 ### Validated in v1.2 (2026-06-26)
 
@@ -156,4 +171,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-26 after v1.2 milestone — Evaluation Framework & Debt Resolution shipped (27 phases, 55 plans, 976 tests pass)*
+*Last updated: 2026-07-15 — v1.5 HoreKa Cluster Execution milestone started*

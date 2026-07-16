@@ -1,0 +1,62 @@
+# HoreKa cluster variant of configs/ground_truth/shah_sample1.yaml. Only change: search_strategy sobol → auto (auto resolves to propulate when SLURM_JOB_ID is set or world_size > 1 — see eval/runners/optimizer.py _detect_backend).
+# Ground-Truth full eval pipeline — Shah sample-1, both stages, with HPO.
+#
+# Same self-registration structure as selfcal/shah_label_transfer.yaml, but
+# with a RANDOM rigid perturbation instead of the fixed 15 degree rotation
+# used for selfcal calibration.
+#
+# Random transform generated once with `random.Random(456)` (documented here
+# for reproducibility — see baseline_experiments/README.md):
+#   rotation_deg = 28.71, rotation_axis = [0.933, -0.13, 0.589], sigma = 0.0883
+
+data_path: data/external/sample/shah_data/sample-1/sample-1-cell-tracks.csv
+data_format: csv
+max_points_per_frame: 1000  # spatial subsampling - calibrated together with step to fit a ~3-5h total suite runtime, see README.md Runtime section
+device: "cuda"  # GPU-03: GPU tensor placement for HoreKa runs
+
+run_alignment: true
+run_label_transfer: true
+
+pipeline_mode: synthetic
+transform_spec:
+  type: rigid
+  rotation_deg: 28.71
+  rotation_axis: [0.933, -0.13, 0.589]
+  sigma: 0.0883
+
+tier: dev
+n_trials: 50  # inert at tier=dev (dev tier fixes 20 trials via optimizer.py DEV_N_TRIALS); kept for when tier is raised to full
+search_strategy: auto
+n_synthetic: 0
+
+search_space:
+  cpd_penalty: [null, "rigid", "affine"]  # "nonrigid" excluded - NonRigidCPD.registration() never sets self.transformation in create_pairwise_distance_matrix, crashes every trial that samples it (confirmed via direct testing, see README.md Runtime section)
+  window_size: [5, 10, 20]
+  step: [8]  # single-value list, not a real search - see README.md Runtime section: HyperparamOptimizer._objective merges its own hardcoded _default_params (step=1) with the trial's sampled params, so default_params.step alone is silently ignored unless step is also a search_space key
+  dtw_dist_fn: [euclidean, cosine]
+  k_neighbours: [3, 5, 10]
+  dist_metric: [euclidean, cosine]
+  smoothing: [0.0, 0.1, 0.3]
+  threshold: [0.0, 0.3, 0.5]
+
+default_params:
+  window_size: 10
+  step: 8  # fixed temporal downsampling - was searched over [1,2], now fixed & excluded from search_space so every trial gets the full stride benefit (see README.md Runtime section)
+  cpd_penalty: 1.0
+  dtw_dist_fn: euclidean
+  n_breakpoints: 5
+  k_neighbours: 5
+  dist_metric: euclidean
+  smoothing: 0.0
+  threshold: 0.0
+
+val_split: 0.2
+output_dir: baseline_experiments/experiments/ground_truth/shah_sample1
+
+metric_weights:
+  chamfer: 0.30
+  hausdorff: 0.15
+  path_smoothness: 0.10
+  temporal_stability: 0.10
+  f1: 0.25
+  knn_consistency: 0.10

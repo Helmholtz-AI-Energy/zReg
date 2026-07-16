@@ -406,7 +406,7 @@ class TestRenderDatasetTriptych:
 # ---------------------------------------------------------------------------
 
 
-class TestVizCoverageGaps:
+class TestVizSubsamplingAndRenderCoverage:
     """Coverage gaps: subsampling >4000 pts, empty CSV, ValueError paths."""
 
     def test_plot_trajectory_large_dataset_subsamples(self, tmp_path):
@@ -519,3 +519,77 @@ class TestGetSourceLabels:
         pc = zRegPointCloud(pos=torch.zeros(5, 3), label=None, id=torch.arange(5))
         result = _get_source_labels(pc)
         assert result is None  # id fallback removed; label=None → return None
+
+
+# ---------------------------------------------------------------------------
+# Coverage gaps: viz.py lines 90->89, 439->447, 486, 503, 531
+# ---------------------------------------------------------------------------
+
+
+class TestVizCoverageGaps:
+    """Lines 90->89, 439->447, 486, 503, 531 — edge cases in plot_trajectory."""
+
+    def _make_pc(self, n=5):
+        return zRegPointCloud(
+            pos=torch.randn(n, 3),
+            label=torch.zeros(n, dtype=torch.long),
+        )
+
+    def test_duplicate_target_in_warp_path_skips_second(self, tmp_path):
+        """viz.py:90->89 — duplicate target index in warp_path: second mapping skipped."""
+        ds = {0: self._make_pc(), 1: self._make_pc()}
+        aligned = {0: self._make_pc(), 1: self._make_pc()}
+        # warp_path: target 0 appears twice (from source 0 and source 1)
+        align_result = AlignResult(
+            aligned_cloud=aligned,
+            warp_path=[(0, 0), (1, 0), (1, 1)],
+            dtw_distance=0.0,
+            n_changepoints=0,
+            params_used={},
+        )
+        result = plot_trajectory(align_result, None, ds, None, tmp_path)
+        assert len(result) > 0
+
+    def test_target_with_no_overlapping_keys_skips_target_figure(self, tmp_path):
+        """viz.py:439->447 — target provided but no frame keys overlap with align_frame_indices."""
+        ds = {0: self._make_pc(), 1: self._make_pc(), 2: self._make_pc()}
+        aligned = {0: self._make_pc(), 1: self._make_pc(), 2: self._make_pc()}
+        # target has completely different keys → per_frame_target is empty → target figure skipped
+        target = {10: self._make_pc(), 11: self._make_pc(), 12: self._make_pc()}
+        align_result = AlignResult(
+            aligned_cloud=aligned,
+            warp_path=[(0, 0), (1, 1), (2, 2)],
+            dtw_distance=0.0,
+            n_changepoints=0,
+            params_used={},
+        )
+        result = plot_trajectory(align_result, None, ds, None, tmp_path, target=target)
+        # No target figure written (3 figures × 2 formats = 6, not 8)
+        from pathlib import Path
+        assert not (Path(tmp_path) / "alignment_target_trajectory.pdf").exists()
+
+    def test_label_frame_not_in_dataset_skipped_when_in_target(self, tmp_path):
+        """viz.py:486+503 — label frame not in dataset but present in target: continue branches hit."""
+        ds = {0: self._make_pc()}
+        target_extra = {0: self._make_pc(), 99: self._make_pc()}
+        # label_result has key 99 which is not in dataset
+        label_result = LabelResult(
+            transferred_labels={
+                0: torch.zeros(5, dtype=torch.long),
+                99: torch.zeros(5, dtype=torch.long),
+            },
+            params_used={},
+        )
+        # Should complete without error; fk=99 skipped in union_labels and source_pos_map
+        result = plot_trajectory(None, label_result, ds, None, tmp_path, target=target_extra)
+        assert isinstance(result, list)
+
+    def test_label_frame_not_in_dataset_or_target_raises_key_error(self, tmp_path):
+        """viz.py:531 — label frame not in dataset, target, or align_result raises KeyError."""
+        ds = {0: self._make_pc()}
+        label_result = LabelResult(
+            transferred_labels={99: torch.zeros(5, dtype=torch.long)},
+            params_used={},
+        )
+        with pytest.raises(KeyError):
+            plot_trajectory(None, label_result, ds, None, tmp_path)

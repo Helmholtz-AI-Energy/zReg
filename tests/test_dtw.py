@@ -1135,3 +1135,23 @@ class TestDTWResultStoredTransforms:
         result = dtw_obj.compute()
         assert isinstance(result.stored_transforms, dict)
         assert len(result.stored_transforms) == 0
+
+
+class TestLoadWithoutCompanionFile:
+    """DynamicTimeWarping.load() when .transforms.pkl companion is absent (core.py:578->582)."""
+
+    def test_load_without_companion_uses_empty_stored_transforms(self, small_trajectory_pair, tmp_path):
+        """False branch of 'if transforms_path.exists()': load() without companion gives {}."""
+        x, y = small_trajectory_pair
+        dtw_obj = DynamicTimeWarping(
+            x, y, distance_metric="euclidean", downsample_method=None, cpd_type=None
+        )
+        dtw_obj.compute()
+        path = tmp_path / "result.pt"
+        dtw_obj.save(path)
+        # Remove the companion file to simulate loading an older saved result
+        companion = path.parent / (path.name + ".transforms.pkl")
+        companion.unlink()
+        loaded = DynamicTimeWarping.load(path)
+        assert isinstance(loaded, DTWResult)
+        assert loaded.stored_transforms == {}

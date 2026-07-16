@@ -193,8 +193,9 @@ class TestOrthogonalSlicedWassersteinDistance:
     def test_forward(self, point_clouds_3d):
         """Test forward pass."""
         x, y = point_clouds_3d
+        # OSWD requires num_projs <= dim; point_clouds_3d has dim=3 so cap at 3
         oswd = sw_varients.OrthogonalSlicedWassersteinDistance(
-            num_projs=50, device="cpu"
+            num_projs=3, device="cpu"
         )
         result = oswd(x, y)
         assert result.ndim == 0
@@ -500,3 +501,59 @@ class TestBaseWDForwardStub:
         base = sw_varients.BaseWD(nobatchdim=True, device="cpu")
         result = base._forward(torch.randn(4, 3), torch.randn(4, 3))
         assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Coverage gaps: sw_varients.py lines 57, 175, 250-251, 379
+# ---------------------------------------------------------------------------
+
+
+class TestComputePracticalMomentsDimMismatch:
+    """sw_varients.py:57 — ValueError when y.size(2) != x.size(2)."""
+
+    def test_dim_mismatch_raises_value_error(self):
+        """compute_practical_moments_sw raises ValueError when y has different dim than x."""
+        x = torch.randn(2, 10, 3)
+        y = torch.randn(2, 10, 2)  # dim=2 vs dim=3
+        with pytest.raises(ValueError, match="dimension"):
+            sw_varients.compute_practical_moments_sw(x, y, num_projections=5)
+
+
+class TestBaseWDForwardNdimCheck:
+    """sw_varients.py:175 — ValueError when input has fewer than 2 dimensions."""
+
+    def test_1d_input_raises_value_error(self):
+        """BaseWD.forward raises ValueError for 1-D tensors (ndim < 2)."""
+        swd = sw_varients.SlicedWassersteinDistance(num_projs=10, device="cpu")
+        x = torch.randn(10)  # 1-D
+        y = torch.randn(10, 3)
+        with pytest.raises(ValueError, match="2 dimensions"):
+            swd(x, y)
+
+
+class TestAdaptiveSWDRankNonZero:
+    """sw_varients.py:250-251 — projs_history filename gets rank suffix when OMPI rank != 0."""
+
+    def test_rank_nonzero_appends_rank_to_filename(self, tmp_path):
+        """When OMPI_COMM_WORLD_RANK=2, projs_history path gets _rank2 suffix."""
+        import os
+        history_path = str(tmp_path / "projs.txt")
+        env = {**os.environ, "OMPI_COMM_WORLD_RANK": "2"}
+        with pytest.MonkeyPatch().context() as mp:
+            mp.setenv("OMPI_COMM_WORLD_RANK", "2")
+            obj = sw_varients.AdaptiveSlicedWassersteinDistance(
+                projs_history=history_path,
+                device="cpu",
+            )
+        assert "_rank2" in obj.projs_history
+
+
+class TestOrthogonalSWDNumProjsConstraint:
+    """sw_varients.py:379 — ValueError when num_projs > dim."""
+
+    def test_num_projs_exceeds_dim_raises(self, point_clouds_3d):
+        """OrthogonalSlicedWassersteinDistance raises when num_projs > 3 for 3-D data."""
+        x, y = point_clouds_3d
+        oswd = sw_varients.OrthogonalSlicedWassersteinDistance(num_projs=5, device="cpu")
+        with pytest.raises(ValueError, match="num_projs"):
+            oswd(x, y)

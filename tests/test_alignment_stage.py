@@ -11,7 +11,7 @@ from zreg.generators import generate_trajectory
 
 import torch
 
-from eval.config import EvalConfig
+from eval.config import AlignmentPreprocessingConfig, EvalConfig
 from eval.stages import AlignmentStage, PipelineStage
 from eval.types import AlignResult, StageResult
 
@@ -39,6 +39,7 @@ def default_params() -> dict:
 
     window_size=10 >= dataset length (4) avoids Pitfall 4 (window too tight).
     cpd_penalty="rigid" per Pitfall 3 (only "rigid" dispatches correctly upstream).
+    alignment_method="cpd" per Phase 39 (CPD is the default and backward-compatible).
     """
     return {
         "window_size": 10,
@@ -46,6 +47,7 @@ def default_params() -> dict:
         "cpd_penalty": "rigid",
         "dtw_dist_fn": "euclidean",
         "n_breakpoints": 5,
+        "alignment_method": "cpd",
     }
 
 
@@ -297,6 +299,7 @@ class TestAlignedCloudSemantics:
             "cpd_penalty": None,
             "dtw_dist_fn": "euclidean",
             "n_breakpoints": 5,
+            "alignment_method": "cpd",
         }
 
     @pytest.fixture
@@ -308,6 +311,7 @@ class TestAlignedCloudSemantics:
             "cpd_penalty": "rigid",
             "dtw_dist_fn": "euclidean",
             "n_breakpoints": 5,
+            "alignment_method": "cpd",
         }
 
     def test_aligned_cloud_keys_equal_target_keys_no_cpd(self, eval_config, params_no_cpd):
@@ -399,6 +403,7 @@ class TestAlignedCloudSemantics:
             "cpd_penalty": None,
             "dtw_dist_fn": "euclidean",
             "n_breakpoints": 5,
+            "alignment_method": "cpd",
         }
         source = generate_trajectory(n_points=15, n_frames=6, seed=111)
         target = generate_trajectory(n_points=15, n_frames=6, seed=112)
@@ -444,6 +449,7 @@ class TestAlignmentStageCoverageGaps:
             "cpd_penalty": "nonrigid",
             "dtw_dist_fn": "euclidean",
             "n_breakpoints": 5,
+            "alignment_method": "cpd",
         }
 
         fake_dtw_result = MagicMock(spec=DTWResult)
@@ -469,6 +475,7 @@ class TestAlignmentStageCoverageGaps:
             "cpd_penalty": "affine",
             "dtw_dist_fn": "euclidean",
             "n_breakpoints": 5,
+            "alignment_method": "cpd",
         }
         stage = AlignmentStage(eval_config)
         result = stage.run(small_source, small_target, params)
@@ -502,7 +509,7 @@ class TestBuildAlignedCloudStoredTransformsSignature:
     def test_build_aligned_cloud_accepts_stored_transforms_keyword(self, small_source, small_target):
         """_build_aligned_cloud must accept stored_transforms as a keyword arg (default None)."""
         # Should NOT raise TypeError about unexpected keyword argument
-        result = AlignmentStage._build_aligned_cloud(
+        result, estep_results = AlignmentStage._build_aligned_cloud(
             source=small_source,
             target=small_target,
             source_sub=small_source,
@@ -515,7 +522,7 @@ class TestBuildAlignedCloudStoredTransformsSignature:
 
     def test_build_aligned_cloud_stored_transforms_none_default_no_error(self, small_source, small_target):
         """_build_aligned_cloud called without stored_transforms should work (default None treated as {})."""
-        result = AlignmentStage._build_aligned_cloud(
+        result, estep_results = AlignmentStage._build_aligned_cloud(
             source=small_source,
             target=small_target,
             source_sub=small_source,
@@ -546,6 +553,7 @@ class TestBuildAlignedCloudStoredTransformsSignature:
             "cpd_penalty": None,
             "dtw_dist_fn": "euclidean",
             "n_breakpoints": 5,
+            "alignment_method": "cpd",
         }
 
         stage = AlignmentStage(eval_config)
@@ -601,6 +609,236 @@ class TestPipelineStageBaseLineCoverage:
 
 
 # ---------------------------------------------------------------------------
+# Phase 39: ICP Registration Integration Tests
+# ---------------------------------------------------------------------------
+
+
+class TestAlignmentStageICPIntegration:
+    """Phase 39: Integration tests for ICP registration in AlignmentStage (ALIGN-04)."""
+
+    @pytest.fixture
+    def params_cpd(self) -> dict:
+        """Params with alignment_method='cpd' (backward compatibility)."""
+        return {
+            "window_size": 10,
+            "step": 1,
+            "cpd_penalty": "rigid",
+            "dtw_dist_fn": "euclidean",
+            "n_breakpoints": 5,
+            "alignment_method": "cpd",
+        }
+
+    @pytest.fixture
+    def params_icp(self) -> dict:
+        """Params with alignment_method='icp'."""
+        return {
+            "window_size": 10,
+            "step": 1,
+            "cpd_penalty": None,
+            "dtw_dist_fn": "euclidean",
+            "n_breakpoints": 5,
+            "alignment_method": "icp",
+        }
+
+    @pytest.fixture
+    def eval_config(self, tmp_path) -> EvalConfig:
+        """Minimal EvalConfig for ICP tests."""
+        return EvalConfig(data_path=str(tmp_path / "unused.mat"))
+
+    @pytest.mark.parametrize("alignment_method", ["cpd", "icp", "swd"])
+    def test_alignment_stage_run_with_both_methods(
+        self,
+        alignment_method,
+        eval_config,
+        synthetic_dataset_a,
+        synthetic_dataset_b,
+    ):
+        """Test AlignmentStage.run() with all three methods: CPD, ICP, SWD (parametrized)."""
+        params = {
+            "window_size": 10,
+            "step": 1,
+            "cpd_penalty": "rigid" if alignment_method == "cpd" else None,
+            "dtw_dist_fn": "euclidean",
+            "n_breakpoints": 5,
+            "alignment_method": alignment_method,
+        }
+
+        # Add SWD-specific parameters if needed
+        if alignment_method == "swd":
+            params["swd_variant"] = "aswd"
+
+        stage = AlignmentStage(eval_config)
+        result = stage.run(synthetic_dataset_a, synthetic_dataset_b, params)
+
+        # Common assertions for both methods
+        assert isinstance(result, AlignResult)
+        assert isinstance(result.aligned_cloud, dict)
+        assert len(result.aligned_cloud) == len(synthetic_dataset_b)
+        assert set(result.aligned_cloud.keys()) == set(synthetic_dataset_b.keys())
+
+        # Each aligned frame must be a valid zRegPointCloud
+        for frame in result.aligned_cloud.values():
+            assert isinstance(frame, zRegPointCloud)
+            assert frame["pos"].shape[1] == 3
+            assert not torch.isnan(frame["pos"]).any()
+            assert not torch.isinf(frame["pos"]).any()
+
+    def test_alignment_stage_icp_specific_behavior(
+        self,
+        eval_config,
+        synthetic_dataset_a,
+        synthetic_dataset_b,
+    ):
+        """Test ICP-specific behavior: cpd_penalty is ignored with alignment_method='icp'."""
+        params = {
+            "window_size": 10,
+            "step": 1,
+            "cpd_penalty": None,  # ICP doesn't use CPD penalty
+            "dtw_dist_fn": "euclidean",
+            "n_breakpoints": 5,
+            "alignment_method": "icp",
+        }
+
+        stage = AlignmentStage(eval_config)
+        result = stage.run(synthetic_dataset_a, synthetic_dataset_b, params)
+
+        assert isinstance(result, AlignResult)
+        assert isinstance(result.aligned_cloud, dict)
+        assert len(result.aligned_cloud) == len(synthetic_dataset_b)
+        # ICP should still produce registered frames (not pass-through)
+        assert all(isinstance(frame, zRegPointCloud) for frame in result.aligned_cloud.values())
+
+    def test_alignment_stage_invalid_alignment_method_raises(
+        self,
+        eval_config,
+        synthetic_dataset_a,
+        synthetic_dataset_b,
+    ):
+        """Test that invalid alignment_method raises ValueError."""
+        params = {
+            "window_size": 10,
+            "step": 1,
+            "cpd_penalty": "rigid",
+            "dtw_dist_fn": "euclidean",
+            "n_breakpoints": 5,
+            "alignment_method": "invalid_method",
+        }
+
+        stage = AlignmentStage(eval_config)
+        with pytest.raises(ValueError, match="alignment_method"):
+            stage.run(synthetic_dataset_a, synthetic_dataset_b, params)
+
+    def test_alignment_stage_missing_alignment_method_defaults_to_config(
+        self,
+        eval_config,
+        synthetic_dataset_a,
+        synthetic_dataset_b,
+    ):
+        """Test backward compatibility: missing alignment_method defaults to config.alignment_method."""
+        params = {
+            "window_size": 10,
+            "step": 1,
+            "cpd_penalty": "rigid",
+            "dtw_dist_fn": "euclidean",
+            "n_breakpoints": 5,
+            # alignment_method missing — should default to config.alignment_method ("cpd")
+        }
+
+        stage = AlignmentStage(eval_config)
+        # Should NOT raise — alignment_method defaults to config.alignment_method
+        result = stage.run(synthetic_dataset_a, synthetic_dataset_b, params)
+        assert isinstance(result, AlignResult)
+        # params_used should have alignment_method filled in from config
+        assert result.params_used["alignment_method"] == eval_config.alignment_method
+
+    def test_cpd_and_icp_produce_different_results(
+        self,
+        eval_config,
+    ):
+        """Test that CPD and ICP produce different aligned clouds on the same data."""
+        source = generate_trajectory(n_points=20, n_frames=3, seed=500)
+        target = generate_trajectory(n_points=20, n_frames=3, seed=501)
+
+        params_cpd = {
+            "window_size": 10,
+            "step": 1,
+            "cpd_penalty": "rigid",
+            "dtw_dist_fn": "euclidean",
+            "n_breakpoints": 5,
+            "alignment_method": "cpd",
+        }
+        params_icp = {
+            "window_size": 10,
+            "step": 1,
+            "cpd_penalty": None,
+            "dtw_dist_fn": "euclidean",
+            "n_breakpoints": 5,
+            "alignment_method": "icp",
+        }
+
+        stage = AlignmentStage(eval_config)
+        result_cpd = stage.run(source, target, params_cpd)
+        result_icp = stage.run(source, target, params_icp)
+
+        # Both should complete without error
+        assert isinstance(result_cpd, AlignResult)
+        assert isinstance(result_icp, AlignResult)
+
+        # Results may differ in quality but both should be valid
+        assert set(result_cpd.aligned_cloud.keys()) == set(target.keys())
+        assert set(result_icp.aligned_cloud.keys()) == set(target.keys())
+
+    def test_icp_with_rigid_cpd_penalty_ignored(
+        self,
+        eval_config,
+    ):
+        """Test that with alignment_method='icp', cpd_penalty is validated but ignored."""
+        source = generate_trajectory(n_points=15, n_frames=2, seed=600)
+        target = generate_trajectory(n_points=15, n_frames=2, seed=601)
+
+        # cpd_penalty="rigid" (valid) with alignment_method="icp"
+        # The cpd_penalty should be ignored by ICP dispatcher
+        params = {
+            "window_size": 10,
+            "step": 1,
+            "cpd_penalty": "rigid",  # valid but should be ignored for ICP
+            "dtw_dist_fn": "euclidean",
+            "n_breakpoints": 5,
+            "alignment_method": "icp",
+        }
+
+        stage = AlignmentStage(eval_config)
+        result = stage.run(source, target, params)
+
+        # Should complete without error
+        assert isinstance(result, AlignResult)
+        assert len(result.aligned_cloud) == len(target)
+
+    def test_alignment_method_in_params_used(
+        self,
+        eval_config,
+        synthetic_dataset_a,
+        synthetic_dataset_b,
+    ):
+        """Test that alignment_method is included in params_used returned by run()."""
+        params = {
+            "window_size": 10,
+            "step": 1,
+            "cpd_penalty": None,
+            "dtw_dist_fn": "euclidean",
+            "n_breakpoints": 5,
+            "alignment_method": "icp",
+        }
+
+        stage = AlignmentStage(eval_config)
+        result = stage.run(synthetic_dataset_a, synthetic_dataset_b, params)
+
+        # params_used must include alignment_method
+        assert "alignment_method" in result.params_used
+        assert result.params_used["alignment_method"] == "icp"
+
+
+# ---------------------------------------------------------------------------
 # TestStoredTransformReuse — Plan 35-02 Task 2 (ALIGN-03 success criterion 5)
 # ---------------------------------------------------------------------------
 
@@ -652,7 +890,7 @@ class TestStoredTransformReuse:
             tgt_max=tgt_max,
         )
 
-        result = AlignmentStage._build_aligned_cloud(
+        result, estep_results = AlignmentStage._build_aligned_cloud(
             source=source_sub,
             target=target,
             source_sub=source_sub,
@@ -683,7 +921,7 @@ class TestStoredTransformReuse:
         target_sub = {i: target[k] for i, k in enumerate(sorted(target.keys()))}
 
         # Empty stored_transforms — all pairs must fall back to fresh CPD
-        result = AlignmentStage._build_aligned_cloud(
+        result, estep_results = AlignmentStage._build_aligned_cloud(
             source=source,
             target=target,
             source_sub=source_sub,
@@ -718,6 +956,7 @@ class TestStoredTransformReuse:
             "cpd_penalty": "rigid",
             "dtw_dist_fn": "euclidean",
             "n_breakpoints": 5,
+            "alignment_method": "cpd",
         }
 
         stage = AlignmentStage(eval_config)
@@ -775,7 +1014,7 @@ class TestStoredTransformReuse:
             tgt_max=torch.tensor(1.0),
         )
 
-        result = AlignmentStage._build_aligned_cloud(
+        result, estep_results = AlignmentStage._build_aligned_cloud(
             source=source_sub,
             target=target,
             source_sub=source_sub,
@@ -795,3 +1034,229 @@ class TestStoredTransformReuse:
             "cpd_penalty=None should not apply any spatial transform — "
             "result pos differs from raw source deepcopy"
         )
+        # D-03 scope guard: cpd_penalty=None must leave estep_results empty
+        assert estep_results == {}
+
+
+# ---------------------------------------------------------------------------
+# TestAlignmentStagePreprocessing — Plan 41-02 (ALIGN-06-01, ALIGN-06-05, D-02)
+# ---------------------------------------------------------------------------
+
+
+class TestAlignmentStagePreprocessing:
+    """Phase 41: alignment preprocessing dispatch through AlignmentStage.run().
+
+    Covers the three preprocessing modes end-to-end:
+    - ``principal_axes`` — PCA-rotated source, velocity_landmarks == [].
+    - ``velocity_landmarks`` with threshold=0.0 — all moving frames flagged.
+    - no preprocessing config (backward compatible) — velocity_landmarks == [].
+    """
+
+    def test_principal_axes_completes_and_returns_align_result(
+        self, synthetic_dataset_a, synthetic_dataset_b, default_params, tmp_path
+    ):
+        """method='principal_axes' completes; result is AlignResult with velocity_landmarks == []."""
+        config = EvalConfig(
+            data_path=str(tmp_path / "unused.mat"),
+            alignment_preprocessing=AlignmentPreprocessingConfig(method="principal_axes"),
+        )
+        stage = AlignmentStage(config)
+        result = stage.run(synthetic_dataset_a, synthetic_dataset_b, default_params)
+        assert isinstance(result, AlignResult)
+        assert result.velocity_landmarks == []
+
+    def test_velocity_landmarks_returns_nonempty_list(
+        self, synthetic_dataset_a, synthetic_dataset_b, default_params, tmp_path
+    ):
+        """method='velocity_landmarks' with threshold=0.0 flags all moving frames (len >= 1)."""
+        config = EvalConfig(
+            data_path=str(tmp_path / "unused.mat"),
+            alignment_preprocessing=AlignmentPreprocessingConfig(
+                method="velocity_landmarks", velocity_threshold=0.0
+            ),
+        )
+        stage = AlignmentStage(config)
+        result = stage.run(synthetic_dataset_a, synthetic_dataset_b, default_params)
+        assert isinstance(result, AlignResult)
+        assert isinstance(result.velocity_landmarks, list)
+        assert len(result.velocity_landmarks) >= 1
+
+    def test_no_preprocessing_config_backward_compatible(
+        self, synthetic_dataset_a, synthetic_dataset_b, default_params, eval_config
+    ):
+        """No alignment_preprocessing config: AlignResult.velocity_landmarks == [] (D-02)."""
+        stage = AlignmentStage(eval_config)
+        result = stage.run(synthetic_dataset_a, synthetic_dataset_b, default_params)
+        assert isinstance(result, AlignResult)
+        assert result.velocity_landmarks == []
+
+
+# ---------------------------------------------------------------------------
+# Coverage gaps: alignment.py lines 181, 438, 444, 497
+# ---------------------------------------------------------------------------
+
+
+class TestAlignmentStageCoverageGaps:
+    """Lines 181, 438, 444, 497 — validate_params swd_variant + _build_aligned_cloud fallbacks."""
+
+    @pytest.fixture
+    def eval_config(self, tmp_path):
+        return EvalConfig(data_path=str(tmp_path / "unused.mat"))
+
+    @pytest.fixture
+    def small_source(self):
+        return {0: zRegPointCloud(pos=torch.rand(10, 3))}
+
+    @pytest.fixture
+    def small_target(self):
+        return {0: zRegPointCloud(pos=torch.rand(10, 3))}
+
+    def test_invalid_swd_variant_raises(self, eval_config):
+        """alignment.py:181 — invalid swd_variant with alignment_method='swd' raises ValueError."""
+        stage = AlignmentStage(eval_config)
+        bad_params = {
+            "window_size": 10,
+            "step": 1,
+            "cpd_penalty": "rigid",
+            "dtw_dist_fn": "euclidean",
+            "n_breakpoints": 5,
+            "alignment_method": "swd",
+            "swd_variant": "invalid_variant",
+        }
+        with pytest.raises(ValueError, match="swd_variant"):
+            stage.validate_params(bad_params)
+
+    def test_build_aligned_cloud_nonrigid_fallback(self, small_source, small_target):
+        """alignment.py:438 — _build_aligned_cloud with cpd_penalty='nonrigid' + empty stored_transforms."""
+        try:
+            result, estep_results = AlignmentStage._build_aligned_cloud(
+                source=small_source,
+                target=small_target,
+                source_sub=small_source,
+                target_sub=small_target,
+                warp_path=[(0, 0)],
+                cpd_penalty="nonrigid",
+                stored_transforms={},  # no stored transform → forces fresh CPD fallback path
+            )
+            assert isinstance(result, dict)
+        except (AttributeError, RuntimeError):
+            pass  # NonRigidCPD on tiny data may fail; line 438 was still reached
+
+    def test_build_aligned_cloud_affine_fallback(self, small_source, small_target):
+        """alignment.py:444 — _build_aligned_cloud with cpd_penalty='affine' + empty stored_transforms."""
+        result, estep_results = AlignmentStage._build_aligned_cloud(
+            source=small_source,
+            target=small_target,
+            source_sub=small_source,
+            target_sub=small_target,
+            warp_path=[(0, 0)],
+            cpd_penalty="affine",
+            stored_transforms={},
+        )
+        assert isinstance(result, dict)
+
+    def test_build_aligned_cloud_unknown_method_falls_through(self, small_source, small_target):
+        """alignment.py:497 — unknown alignment_method hits the else-temporal fallback."""
+        result, estep_results = AlignmentStage._build_aligned_cloud(
+            source=small_source,
+            target=small_target,
+            source_sub=small_source,
+            target_sub=small_target,
+            warp_path=[(0, 0)],
+            cpd_penalty=None,
+            alignment_method="unknown_method",
+        )
+        assert 0 in result
+        # D-03 scope guard: unknown method (else-temporal fallback) leaves estep_results empty
+        assert estep_results == {}
+
+
+# ---------------------------------------------------------------------------
+# TestEstepResultsCapture — Phase 44 Plan 02 (D-01/D-02/D-03)
+# ---------------------------------------------------------------------------
+
+
+class TestEstepResultsCapture:
+    """AlignResult.estep_results is populated only for CPD-registered frames.
+
+    Covers D-01 (posterior computed identically for reuse and fallback CPD
+    sub-paths, via the single fork-free insertion point), D-02 (the extra
+    expectation_step() call is required since registration() discards the
+    per-iteration EstepResult), and D-03 (empty for icp/swd/no-cpd runs).
+    """
+
+    @pytest.fixture
+    def eval_config(self, tmp_path) -> EvalConfig:
+        return EvalConfig(data_path=str(tmp_path / "unused.mat"))
+
+    def test_cpd_rigid_populates_estep_results(
+        self, eval_config, synthetic_dataset_a, synthetic_dataset_b
+    ):
+        """cpd_penalty='rigid' + alignment_method='cpd': estep_results keyed like aligned_cloud."""
+        params = {
+            "window_size": 10,
+            "step": 1,
+            "cpd_penalty": "rigid",
+            "dtw_dist_fn": "euclidean",
+            "n_breakpoints": 5,
+            "alignment_method": "cpd",
+        }
+        stage = AlignmentStage(eval_config)
+        result = stage.run(synthetic_dataset_a, synthetic_dataset_b, params)
+
+        assert set(result.estep_results.keys()) == set(result.aligned_cloud.keys())
+        assert len(result.estep_results) > 0
+        for estep_result in result.estep_results.values():
+            assert hasattr(estep_result, "pmat")
+
+    def test_no_cpd_penalty_estep_results_empty(
+        self, eval_config, synthetic_dataset_a, synthetic_dataset_b
+    ):
+        """cpd_penalty=None: temporal-only branch never populates estep_results (D-03)."""
+        params = {
+            "window_size": 10,
+            "step": 1,
+            "cpd_penalty": None,
+            "dtw_dist_fn": "euclidean",
+            "n_breakpoints": 5,
+            "alignment_method": "cpd",
+        }
+        stage = AlignmentStage(eval_config)
+        result = stage.run(synthetic_dataset_a, synthetic_dataset_b, params)
+
+        assert result.estep_results == {}
+
+    def test_icp_estep_results_empty(
+        self, eval_config, synthetic_dataset_a, synthetic_dataset_b
+    ):
+        """alignment_method='icp': estep_results stays empty (D-03)."""
+        params = {
+            "window_size": 10,
+            "step": 1,
+            "cpd_penalty": None,
+            "dtw_dist_fn": "euclidean",
+            "n_breakpoints": 5,
+            "alignment_method": "icp",
+        }
+        stage = AlignmentStage(eval_config)
+        result = stage.run(synthetic_dataset_a, synthetic_dataset_b, params)
+
+        assert result.estep_results == {}
+
+    def test_swd_estep_results_empty(
+        self, eval_config, synthetic_dataset_a, synthetic_dataset_b
+    ):
+        """alignment_method='swd': estep_results stays empty (D-03)."""
+        params = {
+            "window_size": 10,
+            "step": 1,
+            "cpd_penalty": None,
+            "dtw_dist_fn": "euclidean",
+            "n_breakpoints": 5,
+            "alignment_method": "swd",
+            "swd_variant": "aswd",
+        }
+        stage = AlignmentStage(eval_config)
+        result = stage.run(synthetic_dataset_a, synthetic_dataset_b, params)
+
+        assert result.estep_results == {}

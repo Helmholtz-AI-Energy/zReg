@@ -1,20 +1,21 @@
 ---
 phase: 34-label-transfer-alignment-guard
 verified: 2026-06-19T00:00:00Z
-status: human_needed
+status: passed
 score: 9/9 must-haves verified
 overrides_applied: 0
 human_verification:
   - test: "ALIGN-02 requirement ID is not defined in REQUIREMENTS.md — confirm whether it was intentionally omitted or needs to be added to the traceability table"
     expected: "Either ALIGN-02 is added to REQUIREMENTS.md under an 'Alignment Quality' category with a traceability entry, or the project owner confirms ROADMAP.md is the sole source of truth for ALIGN-* requirement IDs"
     why_human: "REQUIREMENTS.md has no ALIGN-* section and no traceability row for ALIGN-02. ROADMAP.md references it at Phase 34 line 94. The requirement is functionally implemented and tested, but the requirement register itself is incomplete. Cannot determine programmatically whether this omission is intentional."
+    resolved: "2026-07-01 — ALIGN-02 is tracked in .planning/milestones/v1.2-REQUIREMENTS.md (the active requirements file) as [x] complete with traceability row 'ALIGN-02 | 34 | Complete 2026-06-19'. The human_needed flag was stale; the requirement register was complete at the milestone level."
 ---
 
 # Phase 34: Alignment Quality Guard in LabelTransferStage — Verification Report
 
 **Phase Goal:** Add a pre-transfer alignment check to `LabelTransferStage.run()` that computes mean per-frame Chamfer distance between the received source and target, stores it in `LabelResult.pre_transfer_alignment`, and emits a `warnings.warn()` when `config.run_alignment=False` and the distance exceeds `ALIGNMENT_WARN_THRESHOLD` (default 1.0). When alignment was run upstream (`run_alignment=True`), log the metric at INFO level instead.
 **Verified:** 2026-06-19T00:00:00Z
-**Status:** human_needed
+**Status:** passed
 **Re-verification:** No — initial verification
 
 ---

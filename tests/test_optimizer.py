@@ -33,11 +33,12 @@ except ImportError:
     HyperparamOptimizer = None  # type: ignore[assignment,misc]
 
 try:
-    from eval.search_strategies import GridSearch, RandomSearch, BayesianSearch
+    from eval.search_strategies import GridSearch, RandomSearch, BayesianSearch, SobolSearch
 except ImportError:
     GridSearch = None  # type: ignore[assignment,misc]
     RandomSearch = None  # type: ignore[assignment,misc]
     BayesianSearch = None  # type: ignore[assignment,misc]
+    SobolSearch = None  # type: ignore[assignment,misc]
 
 from eval.types import Trial, SearchResult, StageMetrics
 
@@ -1025,3 +1026,38 @@ class TestHyperparamOptimizerCoverageGaps:
             result = optimizer._tier_dataset("dev")
         mock_factory.load_real.assert_called_once()
         assert result is synthetic_dataset
+
+
+# ---------------------------------------------------------------------------
+# test_sobol_is_default_when_strategy_absent + TestSobolOptimizerIntegration
+# ---------------------------------------------------------------------------
+
+
+def test_sobol_is_default_when_strategy_absent():
+    """EvalConfig without search_strategy defaults to 'sobol' (OPT-04-06)."""
+    cfg = EvalConfig(data_path="/unused.mat")
+    assert cfg.search_strategy == "sobol"
+
+
+class TestSobolOptimizerIntegration:
+    """Integration: HyperparamOptimizer dispatches SobolSearch when search_strategy='sobol'."""
+
+    @patch("eval.runners.optimizer.DataFactory")
+    def test_sobol_strategy_runs_and_returns_result(
+        self, mock_factory_cls, tmp_path, synthetic_dataset
+    ) -> None:
+        """search_strategy='sobol' dispatches SobolSearch and returns SearchResult (OPT-04-05)."""
+        mock_factory = mock_factory_cls.return_value
+        mock_factory.load_real.return_value = synthetic_dataset
+        mock_factory.load_target.return_value = synthetic_dataset
+
+        cfg = EvalConfig(
+            data_path=str(tmp_path / "unused.mat"),
+            output_dir=str(tmp_path / "output"),
+            search_strategy="sobol",
+            tier="sanity",
+            n_trials=8,
+            search_space={"window_size": [3, 5], "k_neighbours": [3, 5]},
+        )
+        result = HyperparamOptimizer(cfg).run()
+        assert isinstance(result, SearchResult)

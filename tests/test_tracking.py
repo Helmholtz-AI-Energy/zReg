@@ -347,3 +347,92 @@ class TestLogRun:
         with open(tmp_path / f"{RUN_ID}.json") as f:
             data = json.load(f)
         assert data["git_hash"] == "unknown"
+
+
+# ---------------------------------------------------------------------------
+# TestValidateRunId — coverage for lines 32, 34, 36, 163
+# ---------------------------------------------------------------------------
+
+
+class TestValidateRunId:
+    """Unit tests for the _validate_run_id guard (called by log_run)."""
+
+    def test_empty_run_id_raises(self, tmp_path):
+        """tracking.py:32 — empty run_id raises ValueError."""
+        with pytest.raises(ValueError, match="non-empty"):
+            log_run(
+                run_id="",
+                dataset_path=DATASET_PATH,
+                frame_indices=FRAME_INDICES,
+                seed=SEED,
+                n_points_before=N_POINTS_BEFORE,
+                n_points_after=N_POINTS_AFTER,
+                output_dir=str(tmp_path),
+            )
+
+    def test_run_id_with_path_separator_raises(self, tmp_path):
+        """tracking.py:34 — run_id containing os.sep raises ValueError."""
+        import os
+        bad_id = f"dir{os.sep}run"
+        with pytest.raises(ValueError, match="path separator"):
+            log_run(
+                run_id=bad_id,
+                dataset_path=DATASET_PATH,
+                frame_indices=FRAME_INDICES,
+                seed=SEED,
+                n_points_before=N_POINTS_BEFORE,
+                n_points_after=N_POINTS_AFTER,
+                output_dir=str(tmp_path),
+            )
+
+    def test_run_id_starting_with_dotdot_raises(self, tmp_path):
+        """tracking.py:36 — run_id beginning with '..' raises ValueError (no sep so line 34 skipped)."""
+        with pytest.raises(ValueError):
+            log_run(
+                run_id="..escape",  # starts with '..' but no path separator → hits line 36
+                dataset_path=DATASET_PATH,
+                frame_indices=FRAME_INDICES,
+                seed=SEED,
+                n_points_before=N_POINTS_BEFORE,
+                n_points_after=N_POINTS_AFTER,
+                output_dir=str(tmp_path),
+            )
+
+    def test_run_id_starting_with_slash_raises(self, tmp_path):
+        """tracking.py:34 — run_id beginning with '/' is caught as path separator."""
+        with pytest.raises(ValueError):
+            log_run(
+                run_id="/absolute",
+                dataset_path=DATASET_PATH,
+                frame_indices=FRAME_INDICES,
+                seed=SEED,
+                n_points_before=N_POINTS_BEFORE,
+                n_points_after=N_POINTS_AFTER,
+                output_dir=str(tmp_path),
+            )
+
+    def test_duplicate_run_id_raises_file_exists_error(self, tmp_path):
+        """tracking.py:163 — calling log_run twice with same run_id raises FileExistsError."""
+        with patch("eval.tracking.tracking.subprocess.run", return_value=_MOCK_GIT_RESULT), \
+             patch("eval.tracking.tracking.importlib.metadata.version", return_value="0.0.1"):
+            log_run(
+                run_id=RUN_ID,
+                dataset_path=DATASET_PATH,
+                frame_indices=FRAME_INDICES,
+                seed=SEED,
+                n_points_before=N_POINTS_BEFORE,
+                n_points_after=N_POINTS_AFTER,
+                output_dir=str(tmp_path),
+            )
+        with patch("eval.tracking.tracking.subprocess.run", return_value=_MOCK_GIT_RESULT), \
+             patch("eval.tracking.tracking.importlib.metadata.version", return_value="0.0.1"):
+            with pytest.raises(FileExistsError, match=RUN_ID):
+                log_run(
+                    run_id=RUN_ID,
+                    dataset_path=DATASET_PATH,
+                    frame_indices=FRAME_INDICES,
+                    seed=SEED,
+                    n_points_before=N_POINTS_BEFORE,
+                    n_points_after=N_POINTS_AFTER,
+                    output_dir=str(tmp_path),
+                )

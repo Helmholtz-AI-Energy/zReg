@@ -25,6 +25,7 @@ from zreg.generators import (
     generate_labels,
     remove_labels,
 )
+from zreg.generators.generators import sample_ball, sample_bowl
 from zreg.dataset import zRegPointCloud
 from zreg.transforms import RigidTransformation, AffineTransformation
 from zreg.metrics.label_transfer import compute_f1
@@ -239,6 +240,12 @@ class TestCorruptionWrappers:
         with pytest.raises(ValueError, match="n_outliers"):
             add_outliers(traj, n_outliers=-1)
 
+    def test_add_outliers_negative_scale_raises(self):
+        """corruption.py:105 — scale < 0 raises ValueError matching 'scale'."""
+        traj = generate_trajectory(n_points=10, n_frames=2, seed=26)
+        with pytest.raises(ValueError, match="scale"):
+            add_outliers(traj, n_outliers=2, scale=-1.0)
+
     def test_add_outliers_zero_is_noop(self):
         """n_outliers=0 returns frames with the same pos.shape[0] as input."""
         traj = generate_trajectory(n_points=20, n_frames=3, seed=26)
@@ -332,6 +339,108 @@ class TestLabelUtilities:
         for i in labelled:
             assert labelled[i]["label"] is not None
             assert torch.equal(labelled[i]["label"], original_colors[i])
+
+
+# ---------------------------------------------------------------------------
+# TestSampleBall
+# ---------------------------------------------------------------------------
+
+
+class TestSampleBall:
+    """Tests for the sample_ball single-frame solid-ball sampler."""
+
+    def test_sample_ball_shape_and_dtype(self):
+        """sample_ball(200, seed=0) returns a (200, 3) float32 torch.Tensor."""
+        pos = sample_ball(n_points=200, seed=0)
+        assert isinstance(pos, torch.Tensor)
+        assert pos.shape == (200, 3)
+        assert pos.dtype == torch.float32
+
+    def test_sample_ball_points_inside_default_radius(self):
+        """All points lie inside the default radius=1.0 sphere."""
+        pos = sample_ball(n_points=200, seed=0)
+        assert pos.norm(dim=1).max().item() <= 1.0 + 1e-5
+
+    def test_sample_ball_seed_reproducibility(self):
+        """Same seed produces bitwise-equal tensors across two calls."""
+        a = sample_ball(n_points=150, seed=7)
+        b = sample_ball(n_points=150, seed=7)
+        assert torch.equal(a, b)
+
+    def test_sample_ball_different_seeds_differ(self):
+        """Different seeds produce non-equal tensors."""
+        a = sample_ball(n_points=150, seed=7)
+        b = sample_ball(n_points=150, seed=8)
+        assert not torch.equal(a, b)
+
+    def test_sample_ball_invalid_n_points(self):
+        """sample_ball(0) raises ValueError matching 'n_points'."""
+        with pytest.raises(ValueError, match="n_points"):
+            sample_ball(n_points=0)
+
+    def test_sample_ball_non_default_radius_respected(self):
+        """radius=2.5 produces points within 2.5 but with max norm > 1.0."""
+        pos = sample_ball(n_points=500, seed=1, radius=2.5)
+        max_norm = pos.norm(dim=1).max().item()
+        assert max_norm <= 2.5 + 1e-5
+        assert max_norm > 1.0
+
+
+# ---------------------------------------------------------------------------
+# TestSampleBowl
+# ---------------------------------------------------------------------------
+
+
+class TestSampleBowl:
+    """Tests for the sample_bowl single-frame lower-hemisphere-shell sampler."""
+
+    def test_sample_bowl_shape_and_dtype(self):
+        """sample_bowl(300, seed=1) returns a (300, 3) float32 torch.Tensor."""
+        pos = sample_bowl(n_points=300, seed=1)
+        assert isinstance(pos, torch.Tensor)
+        assert pos.shape == (300, 3)
+        assert pos.dtype == torch.float32
+
+    def test_sample_bowl_satisfies_in_bowl_predicate(self):
+        """Every returned point satisfies the bowl predicate for R=1.0, d=0.5."""
+        pos = sample_bowl(n_points=300, seed=1).numpy()
+        R = 1.0
+        d = 0.5
+        norm_sq = (pos**2).sum(axis=1)
+        carve_sq = pos[:, 0] ** 2 + pos[:, 1] ** 2 + (pos[:, 2] - d) ** 2
+        assert (norm_sq <= R**2 + 1e-4).all()
+        assert (carve_sq > R**2 + d**2 - 1e-4).all()
+        assert (pos[:, 2] <= 1e-6).all()
+
+    def test_sample_bowl_lower_hemisphere(self):
+        """All returned points have z <= 1e-6."""
+        pos = sample_bowl(n_points=300, seed=1)
+        assert (pos[:, 2] <= 1e-6).all()
+
+    def test_sample_bowl_seed_reproducibility(self):
+        """Same seed produces bitwise-equal tensors across two calls."""
+        a = sample_bowl(n_points=120, seed=3)
+        b = sample_bowl(n_points=120, seed=3)
+        assert torch.equal(a, b)
+
+    def test_sample_bowl_different_seeds_differ(self):
+        """Different seeds produce non-equal tensors."""
+        a = sample_bowl(n_points=120, seed=3)
+        b = sample_bowl(n_points=120, seed=4)
+        assert not torch.equal(a, b)
+
+    def test_sample_bowl_invalid_n_points(self):
+        """sample_bowl(0) raises ValueError matching 'n_points'."""
+        with pytest.raises(ValueError, match="n_points"):
+            sample_bowl(n_points=0)
+
+    def test_sample_ball_bowl_package_export(self):
+        """from zreg.generators import sample_ball, sample_bowl succeeds."""
+        from zreg.generators import sample_ball as pkg_sample_ball
+        from zreg.generators import sample_bowl as pkg_sample_bowl
+
+        assert pkg_sample_ball is sample_ball
+        assert pkg_sample_bowl is sample_bowl
 
 
 # ---------------------------------------------------------------------------

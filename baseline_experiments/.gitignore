@@ -1,0 +1,3 @@
+# Run outputs — large, per-run, regeneratable by re-running the suite.
+# See README.md "Layout": "output root (gitignored — large per-run artifacts)".
+experiments/

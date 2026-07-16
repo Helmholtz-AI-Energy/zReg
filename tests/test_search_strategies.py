@@ -21,7 +21,7 @@ from zreg.dataset import zRegPointCloud
 
 import torch
 
-from eval.search_strategies import GridSearch, RandomSearch, BayesianSearch
+from eval.search_strategies import GridSearch, RandomSearch, BayesianSearch, SobolSearch
 
 
 # ---------------------------------------------------------------------------
@@ -317,3 +317,95 @@ class TestPropulateSearchMocked:
                 PropulateSearch().search(
                     {"k": [1, 2]}, lambda p: 0.5, n_trials=2, output_dir="/tmp"
                 )
+
+
+# ---------------------------------------------------------------------------
+# TestSobolSearch
+# ---------------------------------------------------------------------------
+
+
+class TestSobolSearch:
+    """SobolSearch: quasi-random sampling, SOBOL_MIN_TRIALS fallback, warm_start prepend, space-filling coverage."""
+
+    def _obj(self, params):
+        return 0.5
+
+    def test_returns_n_trials_results(self):
+        """SobolSearch with n_trials=8 returns 8 results (no fallback; 8 == SOBOL_MIN_TRIALS)."""
+        results = SobolSearch().search(
+            {"k": [1, 2, 3]}, self._obj, n_trials=8
+        )
+        assert len(results) == 8
+
+    def test_each_result_is_params_score_tuple(self):
+        """Each result element is a (dict, float) tuple."""
+        results = SobolSearch().search({"k": [1, 2]}, self._obj, n_trials=8)
+        for params, score in results:
+            assert isinstance(params, dict)
+            assert isinstance(score, float)
+
+    def test_warm_start_prepended(self):
+        """warm_start=[{'k': 99}] is evaluated before Sobol samples."""
+        call_order = []
+
+        def tracking_obj(p):
+            call_order.append(p.copy())
+            return 0.5
+
+        SobolSearch().search(
+            {"k": [1, 2, 3]}, tracking_obj, n_trials=8, warm_start=[{"k": 99}]
+        )
+        assert call_order[0]["k"] == 99
+
+    def test_fallback_when_n_trials_below_min(self):
+        """n_trials < 8 falls back to RandomSearch (D-10); returns results without error."""
+        results = SobolSearch().search({"k": [1, 2]}, self._obj, n_trials=3, seed=42)
+        assert len(results) == 3
+
+    def test_empty_search_space_returns_empty(self):
+        """Empty search_space (d=0) returns [] silently (D-08)."""
+        results = SobolSearch().search({}, self._obj, n_trials=8)
+        assert results == []
+
+    def test_seed_reproducibility(self):
+        """Same seed produces identical params sequence (scrambled Owen with seed=0)."""
+        r1 = SobolSearch().search({"k": [1, 2, 3, 4]}, self._obj, n_trials=8, seed=0)
+        r2 = SobolSearch().search({"k": [1, 2, 3, 4]}, self._obj, n_trials=8, seed=0)
+        assert [p for p, _ in r1] == [p for p, _ in r2]
+
+    def test_values_always_within_search_space(self):
+        """All sampled values are members of the provided choice lists."""
+        space = {"a": [10, 20, 30], "b": ["x", "y"]}
+        results = SobolSearch().search(space, self._obj, n_trials=16, seed=42)
+        for params, _ in results:
+            assert params["a"] in space["a"]
+            assert params["b"] in space["b"]
+
+    def test_full_coverage_in_single_dim_space(self):
+        """Sobol covers all 8 distinct values when n_trials equals space size (space-filling property, OPT-04-05).
+
+        For n_trials=2^k with d=1, the (t,m,s)-net property guarantees exactly one
+        sample in each interval [i/n, (i+1)/n), so all n discrete values are visited.
+        This space-filling advantage does not hold for random sampling.
+        """
+        space = {"k": [1, 2, 3, 4, 5, 6, 7, 8]}
+        results = SobolSearch().search(space, self._obj, n_trials=8, seed=0)
+        assert {p["k"] for p, _ in results} == set(space["k"])
+
+    def test_warm_start_duplicate_skipped(self):
+        """search_strategies.py:262->260 — duplicate entry in Sobol warm_start is deduplicated."""
+        call_order = []
+
+        def tracking_obj(p):
+            call_order.append(p.copy())
+            return 0.5
+
+        space = {"a": [1, 2]}
+        SobolSearch().search(
+            space, tracking_obj, n_trials=8,
+            warm_start=[{"a": 1}, {"a": 1}],  # exact duplicate
+            seed=0,
+        )
+        # 1 deduped warm_start + 8 Sobol = 9 evaluations (not 10 = 2 + 8)
+        assert len(call_order) == 9
+        assert call_order[0]["a"] == 1

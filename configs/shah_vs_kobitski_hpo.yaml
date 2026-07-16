@@ -5,9 +5,9 @@
 # step is fixed at 2 to keep per-trial runtime manageable on a laptop (~2 min
 # per trial). tier: dev runs sanity (5 synthetic trials, fast) then dev
 # (20 real-data trials, ~40 min total).
-data_path: /Users/valeriekieslinger/Documents/Hiwi/BA/data/shah_data/sample-1/sample-1-cell-tracks.csv
+data_path: /data/external/sample/shah_data/sample-1/sample-1-cell-tracks.csv
 data_format: csv
-target_data_path: /Users/valeriekieslinger/Documents/Hiwi/BA/data/kobitski_data/12_11_15_embryo_ew_06_Cleaned_BackTracked_Oriented.tracklets
+target_data_path: /data/external/sample/kobitski_data/12_11_15_embryo_ew_06_Cleaned_BackTracked_Oriented.tracklets
 target_data_format: tracklets
 pipeline_mode: paired
 tier: dev

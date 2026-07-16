@@ -11,9 +11,9 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
-__all__ = ["EvalConfig", "EvalConfigError"]
+__all__ = ["EvalConfig", "EvalConfigError", "AlignmentPreprocessingConfig", "DataPreprocessingConfig"]
 
 
 class EvalConfigError(ValueError):
@@ -24,6 +24,75 @@ class EvalConfigError(ValueError):
     message so that run_eval.py (Phase 23) can catch this and print the message
     without exposing a pydantic stacktrace to the user (D-03).
     """
+
+
+class AlignmentPreprocessingConfig(BaseModel):
+    """Pre-DTW alignment preprocessing options (Phase 41).
+
+    Selects a preprocessing strategy applied before DTW inside
+    ``AlignmentStage.run`` (wired in plan 41-02).  ``method`` is required;
+    the velocity-landmark parameters carry defaults and are only consulted
+    when ``method='velocity_landmarks'``.  Unknown keys are rejected with
+    ``extra='forbid'`` so config typos are caught at parse time.
+
+    Parameters
+    ----------
+    method : {"principal_axes", "velocity_landmarks"}
+        Preprocessing strategy.  ``"principal_axes"`` applies a PCA rotation
+        (``zreg.preprocessing.compute_pca_rotation``); ``"velocity_landmarks"``
+        flags high-velocity frames (``detect_velocity_landmarks``).
+    velocity_threshold : float
+        Velocity above which a frame is recorded as a landmark.  Default 0.5.
+    velocity_metric : {"mean", "max"}
+        Reduction applied to per-point displacement norms.  Default "mean".
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    method: Literal["principal_axes", "velocity_landmarks"]
+    velocity_threshold: float = 0.5
+    velocity_metric: Literal["mean", "max"] = "mean"
+
+
+class DataPreprocessingConfig(BaseModel):
+    """Per-trajectory data preprocessing options (Phase 43).
+
+    Selects a scaling strategy applied to the ``pos`` field of each trajectory
+    after subsampling in ``DataFactory.load_real()`` and
+    ``DataFactory.load_target()``.  Only the ``pos`` field is scaled; ``label``,
+    ``id``, and ``fps-idx`` are passed through unchanged.  Statistics are
+    computed globally across all frames of the trajectory (concatenated).
+
+    Three methods are supported:
+
+    - ``"standardize"`` (default, D-01): z-score normalization — subtract the
+      per-dimension mean and divide by the per-dimension standard deviation
+      (Bessel-corrected).  After scaling, each dimension has mean ≈ 0 and
+      std ≈ 1.
+    - ``"normalize"``: min-max scaling — maps each dimension to the range
+      ``[0, 1]`` using ``(pos - min) / (max - min + eps)``.
+    - ``"robust"``: robust scaling — subtract the per-dimension median, divide
+      by the per-dimension inter-quartile range (IQR = Q75 - Q25), then clip to
+      ``±robust_outlier_threshold``.  Resistant to outliers.
+
+    Unknown keys are rejected with ``extra='forbid'`` so config typos are caught
+    at parse time.
+
+    Parameters
+    ----------
+    method : {"standardize", "normalize", "robust"}
+        Scaling strategy.  Default ``"standardize"`` (z-score, D-01).
+    robust_outlier_threshold : float
+        Clipping threshold used only when ``method="robust"``.  Values are
+        clipped to ``[-robust_outlier_threshold, +robust_outlier_threshold]``
+        after IQR scaling.  Silently ignored for other methods — not an error.
+        Default ``3.0`` (D-07).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    method: Literal["standardize", "normalize", "robust"] = "standardize"
+    robust_outlier_threshold: float = 3.0
 
 
 class EvalConfig(BaseModel):
@@ -65,18 +134,31 @@ class EvalConfig(BaseModel):
     search_space : dict
         Hyper-parameter grid / search space for the optimizer.
     search_strategy : str
-        Optimizer strategy: ``"grid"``, ``"random"``, ``"bayesian"``,
-        ``"propulate"`` (MPI-parallel evolutionary search via the propulate
-        library; requires the ``zreg[propulate]`` optional extra), or
-        ``"auto"`` (resolved at run-time by
-        ``HyperparamOptimizer._detect_backend`` based on MPI world size and
-        the ``SLURM_JOB_ID`` environment variable — returns ``"propulate"``
-        when running under MPI with world_size > 1 or when ``SLURM_JOB_ID``
-        is set, otherwise ``"bayesian"``).  EXT-03.
+        Optimizer strategy: ``"grid"``, ``"random"``, ``"sobol"``
+        (quasi-random Sobol sequence sampling — low-discrepancy, reproducible
+        via ``sobol_seed``; falls back to ``RandomSearch`` when
+        ``n_trials < 8``), ``"bayesian"``, ``"propulate"`` (MPI-parallel
+        evolutionary search via the propulate library; requires the
+        ``zreg[propulate]`` optional extra), or ``"auto"`` (resolved at
+        run-time by ``HyperparamOptimizer._detect_backend`` based on MPI
+        world size and the ``SLURM_JOB_ID`` environment variable — returns
+        ``"propulate"`` when running under MPI with world_size > 1 or when
+        ``SLURM_JOB_ID`` is set, otherwise ``"bayesian"``).  EXT-03.
+        Default ``"sobol"`` (OPT-04-02).
     tier : str
         Search tier: ``"sanity"``, ``"dev"``, or ``"full"``.
     n_trials : int
         Number of optimizer trials (default 10).
+    sobol_seed : int
+        Seed passed to ``scipy.stats.qmc.Sobol`` when ``sobol_randomize=True``
+        (scrambled Owen sequence); silently ignored when
+        ``sobol_randomize=False`` (classical Van der Corput, D-04).
+        Default 42, consistent with ``BayesianSearch`` (``TPESampler(seed=42)``).
+    sobol_randomize : bool
+        When ``True`` (default), uses the scrambled Owen sequence (better
+        uniformity, fully reproducible via ``sobol_seed``).  When ``False``,
+        uses the classical Van der Corput sequence and ``sobol_seed`` is
+        silently ignored (D-04).  Default ``True``.
     output_dir : str
         Directory for experiment outputs (default ``"experiments/runs"``).
     save_plots : bool
@@ -126,6 +208,29 @@ class EvalConfig(BaseModel):
         ``None`` (default) disables subsampling — all points are kept.
         Applied by ``DataFactory.load_real()`` and ``DataFactory.load_target()``
         immediately after loading so all downstream stages see the reduced cloud.
+    alignment_method : str
+        Registration method for spatial alignment: ``'cpd'`` (Coherent Point Drift),
+        ``'icp'`` (Open3D ICP, point-to-point rigid), or ``'swd'`` (Sliced Wasserstein
+        Distance with variant selection). Default ``'cpd'``. Independent of ``dtw_dist_fn``
+        (Phase 40 Pitfall 1: alignment_method and dtw_dist_fn are independent choices).
+    swd_variant : str
+        SWD variant for spatial alignment when ``alignment_method='swd'``. Accepted values:
+        ``'swd'``, ``'aswd'``, ``'oswd'``, ``'gswd'``, ``'pswd'``, ``'maxswd'``.
+        Default ``'aswd'``. Only validated when ``alignment_method='swd'``.
+    label_transfer_method : str
+        Label transfer method used by ``LabelTransferStage`` when the stage's
+        ``params`` dict omits ``"method"``: ``'knn_voting'`` (k-nearest-neighbour
+        majority vote, existing default behaviour) or ``'cpd_weighted'``
+        (CPD E-step posterior-weighted average, requires ``AlignResult.estep_results``
+        for the frame pair being processed). Default ``'knn_voting'``.
+    data_preprocessing : DataPreprocessingConfig or None
+        Per-trajectory data scaling applied after subsampling in
+        ``DataFactory.load_real()`` and ``DataFactory.load_target()``.  Only
+        the ``pos`` field is scaled; ``label``, ``id``, and ``fps-idx`` are
+        passed through unchanged.  Defaults to ``DataPreprocessingConfig()``
+        (z-score standardization, D-01) — standardization is ON for all
+        existing configs without any YAML change.  Set to ``None`` to disable
+        preprocessing entirely (D-02).
 
     Notes
     -----
@@ -147,9 +252,11 @@ class EvalConfig(BaseModel):
     run_label_transfer: bool = True
     default_params: dict = Field(default_factory=dict)
     search_space: dict = Field(default_factory=dict)
-    search_strategy: Literal["grid", "random", "bayesian", "propulate", "auto"] = "grid"
+    search_strategy: Literal["grid", "random", "bayesian", "propulate", "sobol", "auto"] = "sobol"
     tier: Literal["sanity", "dev", "full"] = "sanity"
     n_trials: int = 10
+    sobol_seed: int = 42
+    sobol_randomize: bool = True
     output_dir: str = "experiments/runs"
     save_plots: bool = True
     verbose: bool = False
@@ -170,6 +277,39 @@ class EvalConfig(BaseModel):
     transform_spec: dict | None = None
     target_data_format: str | None = None
     max_points_per_frame: int | None = None
+    alignment_method: str = Field(default="cpd", description="Registration method: 'cpd', 'icp', or 'swd'")
+    swd_variant: str = Field(
+        default="aswd",
+        description="SWD variant for alignment_method='swd': 'swd', 'aswd', 'oswd', 'gswd', 'pswd', or 'maxswd'"
+    )
+    label_transfer_method: str = Field(
+        default="knn_voting",
+        description="Label transfer method: 'knn_voting', 'cpd_weighted', 'pointnet2', or 'egnn'"
+    )
+    device: str = Field(
+        default="cpu",
+        description="Compute device: 'cpu', 'cuda', 'cuda:0', 'cuda:1', or 'mps'"
+    )
+    egnn_checkpoint_path: str | None = Field(
+        default=None,
+        description=(
+            "Path to a Phase 47 eGNN checkpoint (.pt), required when "
+            "label_transfer_method='egnn'. Validated at LabelTransferStage.run() call "
+            "time, not at EvalConfig construction (mirrors target_data_path, D-05)."
+        ),
+    )
+    pointnet2_checkpoint_path: str | None = Field(
+        default=None,
+        description=(
+            "Path to a Phase 47 PointNet++ checkpoint (.pt), required when "
+            "label_transfer_method='pointnet2'. Validated at LabelTransferStage.run() call "
+            "time, not at EvalConfig construction (mirrors target_data_path, D-05)."
+        ),
+    )
+    alignment_preprocessing: AlignmentPreprocessingConfig | None = None
+    data_preprocessing: DataPreprocessingConfig | None = Field(
+        default_factory=DataPreprocessingConfig
+    )
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "EvalConfig":
@@ -207,3 +347,139 @@ class EvalConfig(BaseModel):
             first = e.errors()[0]
             field = ".".join(str(x) for x in first["loc"])
             raise EvalConfigError(f"EvalConfig: field '{field}': {first['msg']}") from e
+
+    @field_validator("alignment_method")
+    @classmethod
+    def validate_alignment_method(cls, v: str) -> str:
+        """Validate that alignment_method is 'cpd', 'icp', or 'swd'.
+
+        Parameters
+        ----------
+        v : str
+            The alignment_method value to validate.
+
+        Returns
+        -------
+        str
+            The validated alignment_method value.
+
+        Raises
+        ------
+        ValueError
+            If alignment_method is not 'cpd', 'icp', or 'swd'.
+        """
+        if v not in ("cpd", "icp", "swd"):
+            raise ValueError(f"alignment_method must be 'cpd', 'icp', or 'swd'; got {v!r}")
+        return v
+
+    @field_validator("swd_variant")
+    @classmethod
+    def validate_swd_variant(cls, v: str, info) -> str:
+        """Validate swd_variant only when alignment_method='swd'.
+
+        Parameters
+        ----------
+        v : str
+            The swd_variant value to validate.
+        info : ValidationInfo
+            Pydantic validation info containing data from other fields.
+
+        Returns
+        -------
+        str
+            The validated swd_variant value.
+
+        Raises
+        ------
+        ValueError
+            If alignment_method='swd' and swd_variant is not one of the allowed values.
+        """
+        # Only validate swd_variant if alignment_method is explicitly 'swd'
+        # data contains all fields being validated
+        if info.data.get("alignment_method") == "swd":
+            if v not in ("swd", "aswd", "oswd", "gswd", "pswd", "maxswd"):
+                raise ValueError(
+                    f"swd_variant must be one of {{'swd', 'aswd', 'oswd', 'gswd', 'pswd', 'maxswd'}}; got {v!r}"
+                )
+        return v
+
+    @field_validator("label_transfer_method")
+    @classmethod
+    def validate_label_transfer_method(cls, v: str) -> str:
+        """Validate that label_transfer_method is one of the four supported methods.
+
+        Parameters
+        ----------
+        v : str
+            The label_transfer_method value to validate.
+
+        Returns
+        -------
+        str
+            The validated label_transfer_method value.
+
+        Raises
+        ------
+        ValueError
+            If label_transfer_method is not 'knn_voting', 'cpd_weighted',
+            'pointnet2', or 'egnn'.
+        """
+        if v not in ("knn_voting", "cpd_weighted", "pointnet2", "egnn"):
+            raise ValueError(
+                "label_transfer_method must be 'knn_voting', 'cpd_weighted', "
+                f"'pointnet2', or 'egnn'; got {v!r}"
+            )
+        return v
+
+    @field_validator("device")
+    @classmethod
+    def validate_device(cls, v: str) -> str:
+        """Validate that device is one of the supported compute device identifiers.
+
+        Parameters
+        ----------
+        v : str
+            The device value to validate.
+
+        Returns
+        -------
+        str
+            The validated device value.
+
+        Raises
+        ------
+        ValueError
+            If device is not one of 'cpu', 'cuda', 'cuda:0', 'cuda:1', or 'mps'.
+        """
+        _VALID_DEVICES = {"cpu", "cuda", "cuda:0", "cuda:1", "mps"}
+        if v not in _VALID_DEVICES:
+            raise ValueError(
+                f"device must be one of {{'cpu', 'cuda', 'cuda:0', 'cuda:1', 'mps'}}; got {v!r}"
+            )
+        return v
+
+    @model_validator(mode="after")
+    def validate_device_icp_compat(self) -> "EvalConfig":
+        """Raise ValueError when device is not 'cpu' and alignment_method is 'icp'.
+
+        Open3D ICP requires CPU-resident tensors and performs explicit
+        .cpu().numpy() round-trips in icp.py (lines 114-115 and 196-197).
+        Requesting a non-CPU device with ICP is therefore always an error.
+
+        Returns
+        -------
+        EvalConfig
+            The validated model instance (self).
+
+        Raises
+        ------
+        ValueError
+            If device is not 'cpu' and alignment_method is 'icp'.
+        """
+        if self.device != "cpu" and self.alignment_method == "icp":
+            raise ValueError(
+                f"device='{self.device}' is incompatible with alignment_method='icp': "
+                "Open3D ICP requires CPU-resident tensors "
+                "(explicit .cpu().numpy() round-trips in icp.py:114-115, 196-197)"
+            )
+        return self

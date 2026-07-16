@@ -212,23 +212,24 @@ class TestLoadReal:
         return {0: zRegPointCloud(pos=torch.zeros(3, 3), label=None, id=torch.arange(3))}
 
     def test_dispatches_tracklets(self):
-        """data_format='tracklets' calls load_data_from_tracklets with device='cpu'."""
+        """data_format='tracklets' calls load_data_from_tracklets with device=cfg.device."""
         cfg = EvalConfig(data_path="x.mat", data_format="tracklets")
         factory = DataFactory(cfg)
         mock_ds = self._make_mock_ds()
         with patch("eval.data_factory.load_data_from_tracklets", return_value=(mock_ds, {})) as m:
             result = factory.load_real()
-        m.assert_called_once_with("x.mat", device="cpu")
-        assert result is mock_ds
+        m.assert_called_once_with("x.mat", device=cfg.device)
+        # _standardize produces a new dict (pos scaled); check keys are preserved
+        assert set(result.keys()) == set(mock_ds.keys())
 
     def test_dispatches_csv(self):
-        """data_format='csv' calls load_shah_from_csv with explicit device='cpu' (Pitfall 5)."""
+        """data_format='csv' calls load_shah_from_csv with device=cfg.device (Pitfall 5)."""
         cfg = EvalConfig(data_path="x.csv", data_format="csv")
         factory = DataFactory(cfg)
         mock_ds = self._make_mock_ds()
         with patch("eval.data_factory.load_shah_from_csv", return_value=mock_ds) as m:
             factory.load_real()
-        m.assert_called_once_with("x.csv", device="cpu")
+        m.assert_called_once_with("x.csv", device=cfg.device)
 
     def test_caches(self):
         """D-09: second load_real() call returns same reference and does not re-invoke loader."""
@@ -255,23 +256,24 @@ class TestLoadTarget:
         return {0: zRegPointCloud(pos=torch.zeros(3, 3), label=None, id=torch.arange(3))}
 
     def test_dispatches_tracklets(self):
-        """data_format='tracklets' calls load_data_from_tracklets with target_data_path and device='cpu'."""
+        """data_format='tracklets' calls load_data_from_tracklets with target_data_path and device=cfg.device."""
         cfg = EvalConfig(data_path="x.mat", target_data_path="y.mat", data_format="tracklets")
         factory = DataFactory(cfg)
         mock_ds = self._make_mock_ds()
         with patch("eval.data_factory.load_data_from_tracklets", return_value=(mock_ds, {})) as m:
             result = factory.load_target()
-        m.assert_called_once_with("y.mat", device="cpu")
-        assert result is mock_ds
+        m.assert_called_once_with("y.mat", device=cfg.device)
+        # _standardize produces a new dict (pos scaled); check keys are preserved
+        assert set(result.keys()) == set(mock_ds.keys())
 
     def test_dispatches_csv(self):
-        """data_format='csv' calls load_shah_from_csv with target_data_path and device='cpu' (Pitfall 5)."""
+        """data_format='csv' calls load_shah_from_csv with target_data_path and device=cfg.device (Pitfall 5)."""
         cfg = EvalConfig(data_path="x.csv", target_data_path="y.csv", data_format="csv")
         factory = DataFactory(cfg)
         mock_ds = self._make_mock_ds()
         with patch("eval.data_factory.load_shah_from_csv", return_value=mock_ds) as m:
             factory.load_target()
-        m.assert_called_once_with("y.csv", device="cpu")
+        m.assert_called_once_with("y.csv", device=cfg.device)
 
     def test_caches(self):
         """D-09: second load_target() call returns same reference; loader invoked exactly once."""
@@ -340,7 +342,8 @@ class TestLoadTargetFormatDispatch:
         with patch("eval.data_factory.load_shah_from_csv", return_value=mock_ds) as m:
             result = factory.load_target()
         m.assert_called_once_with("y.csv", device="cpu")
-        assert result is mock_ds
+        # _standardize produces a new dict (pos scaled); check keys are preserved
+        assert set(result.keys()) == set(mock_ds.keys())
 
     def test_target_format_tracklets_overrides_source_csv(self):
         """target_data_format='tracklets' routes to tracklets loader even though data_format='csv'."""
@@ -355,7 +358,8 @@ class TestLoadTargetFormatDispatch:
         with patch("eval.data_factory.load_data_from_tracklets", return_value=(mock_ds, {})) as m:
             result = factory.load_target()
         m.assert_called_once_with("y.mat", device="cpu")
-        assert result is mock_ds
+        # _standardize produces a new dict (pos scaled); check keys are preserved
+        assert set(result.keys()) == set(mock_ds.keys())
 
     def test_none_falls_back_to_data_format_csv(self):
         """target_data_format=None falls back to data_format='csv' (backward compat)."""
@@ -1210,3 +1214,303 @@ class TestSampleNewPointsWithNoneLabelAndId:
         assert out[0]["label"].shape == (n + n_extra, 3)
         # appended rows should be zeros
         assert out[0]["label"][n:].sum().item() == 0.0
+
+
+# ---------------------------------------------------------------------------
+# TestDataPreprocessing — DataFactory._standardize() behavior (Phase 43)
+# ---------------------------------------------------------------------------
+
+
+def _make_dataset(n_frames=3, n_points=50, seed=7):
+    """Build a small dataset with non-zero mean/std for standardization testing.
+
+    Uses torch.manual_seed for reproducibility.  pos is drawn from
+    N(10, 5^2) so mean ≈ 10, std ≈ 5 — effect of standardization is
+    clearly measurable.
+
+    Parameters
+    ----------
+    n_frames : int
+        Number of frames in the returned dict.
+    n_points : int
+        Points per frame.
+    seed : int
+        Torch manual seed.
+
+    Returns
+    -------
+    dict[int, zRegPointCloud]
+    """
+    torch.manual_seed(seed)
+    result = {}
+    for i in range(n_frames):
+        pos = torch.randn(n_points, 3) * 5 + 10
+        label = torch.zeros(n_points, dtype=torch.long)
+        id_ = torch.arange(n_points, dtype=torch.long)
+        pc = zRegPointCloud(pos=pos, label=label, id=id_)
+        pc["fps-idx"] = None
+        result[i] = pc
+    return result
+
+
+class TestDataPreprocessing:
+    """DataFactory._standardize() behavior and integration tests.
+
+    Covers requirements DATA-02-01 through DATA-02-07:
+    - DATA-02-01: z-score standardization (mean≈0, std≈1)
+    - DATA-02-02: min-max normalization ([0, 1])
+    - DATA-02-03: robust scaling with clipping
+    - DATA-02-04: only pos field is scaled; label/id/fps-idx unchanged
+    - DATA-02-05: load_target without prior load_real computes own stats
+    - DATA-02-06: zero-std stability (eps=1e-8)
+    - DATA-02-07: paired mode — source and target share coordinate space
+    """
+
+    def _make_factory(self, method="standardize", threshold=3.0, preprocessing=True):
+        """Build a DataFactory with the specified preprocessing config."""
+        if preprocessing:
+            from eval.config import DataPreprocessingConfig
+            dp = DataPreprocessingConfig(method=method, robust_outlier_threshold=threshold)
+        else:
+            dp = None
+        cfg = EvalConfig(data_path="x", data_preprocessing=dp)
+        from eval.data_factory import DataFactory
+        return DataFactory(cfg)
+
+    def test_standardize_returns_near_zero_mean(self):
+        """After standardize, per-dimension mean is ≈ 0 (abs < 0.01)."""
+        factory = self._make_factory(method="standardize")
+        dataset = _make_dataset()
+        result = factory._standardize(dataset)
+        all_pos = torch.cat([pc["pos"] for pc in result.values()], dim=0)
+        assert all_pos.mean(dim=0).abs().max().item() < 0.01
+
+    def test_standardize_returns_near_unit_std(self):
+        """After standardize, per-dimension std is within 0.05 of 1.0."""
+        factory = self._make_factory(method="standardize")
+        dataset = _make_dataset()
+        result = factory._standardize(dataset)
+        all_pos = torch.cat([pc["pos"] for pc in result.values()], dim=0)
+        std = all_pos.std(dim=0)
+        assert (std - 1.0).abs().max().item() < 0.05
+
+    def test_normalize_range_zero_to_one(self):
+        """After normalize, all pos values are in [0, 1] and extremes hit 0 and 1."""
+        factory = self._make_factory(method="normalize")
+        dataset = _make_dataset()
+        result = factory._standardize(dataset)
+        all_pos = torch.cat([pc["pos"] for pc in result.values()], dim=0)
+        assert all_pos.min().item() >= 0.0 - 1e-6
+        assert all_pos.max().item() <= 1.0 + 1e-6
+        # min per dim should be ≈ 0, max per dim ≈ 1
+        assert all_pos.min(dim=0).values.abs().max().item() < 1e-4
+        assert (all_pos.max(dim=0).values - 1.0).abs().max().item() < 1e-4
+
+    def test_robust_clips_outlier_threshold(self):
+        """After robust scaling with threshold=1.0, all abs(pos) <= 1.0 + eps."""
+        factory = self._make_factory(method="robust", threshold=1.0)
+        dataset = _make_dataset()
+        result = factory._standardize(dataset)
+        all_pos = torch.cat([pc["pos"] for pc in result.values()], dim=0)
+        assert all_pos.abs().max().item() <= 1.0 + 1e-6
+
+    def test_zero_std_no_error(self):
+        """Constant pos (zero std) does not raise — eps=1e-8 prevents ZeroDivisionError."""
+        factory = self._make_factory(method="standardize")
+        # All points identical in all dimensions
+        pc = zRegPointCloud(
+            pos=torch.ones(10, 3) * 5.0,
+            label=torch.zeros(10, dtype=torch.long),
+            id=torch.arange(10, dtype=torch.long),
+        )
+        pc["fps-idx"] = None
+        dataset = {0: pc}
+        result = factory._standardize(dataset)
+        all_pos = torch.cat([pc["pos"] for pc in result.values()], dim=0)
+        assert torch.isfinite(all_pos).all()
+
+    def test_standardize_empty_dataset_no_crash(self):
+        """Empty dataset returns empty dict without raising RuntimeError (IN-02 / CR-01 regression)."""
+        factory = self._make_factory(method="standardize")
+        result = factory._standardize({})
+        assert result == {}
+
+    def test_standardize_single_point_no_nan(self):
+        """Single point across all frames: Bessel-corrected std is NaN but guard replaces it with 0 (IN-03 / WR-01 regression)."""
+        factory = self._make_factory(method="standardize")
+        pc = zRegPointCloud(
+            pos=torch.tensor([[1.0, 2.0, 3.0]]),
+            label=torch.zeros(1, dtype=torch.long),
+            id=torch.zeros(1, dtype=torch.long),
+        )
+        pc["fps-idx"] = None
+        result = factory._standardize({0: pc})
+        assert torch.isfinite(result[0]["pos"]).all()
+
+    def test_preprocessing_none_passthrough(self):
+        """When data_preprocessing=None, _standardize returns same dict object (identity)."""
+        factory = self._make_factory(preprocessing=False)
+        dataset = _make_dataset()
+        result = factory._standardize(dataset)
+        assert result is dataset
+
+    def test_label_id_fps_idx_unchanged(self):
+        """_standardize preserves label, id, and fps-idx tensors unchanged."""
+        factory = self._make_factory(method="standardize")
+        dataset = _make_dataset(n_frames=1, n_points=20)
+        orig_label = dataset[0]["label"].clone()
+        orig_id = dataset[0]["id"].clone()
+        result = factory._standardize(dataset)
+        assert torch.equal(result[0]["label"], orig_label)
+        assert torch.equal(result[0]["id"], orig_id)
+        assert result[0]["fps-idx"] is None
+
+    def test_stats_stored_after_standardize(self):
+        """_standardize with stats=None stores computed stats in _preprocessing_stats."""
+        factory = self._make_factory(method="standardize")
+        dataset = _make_dataset()
+        factory._standardize(dataset)
+        stats = factory._preprocessing_stats
+        assert isinstance(stats, dict)
+        expected_keys = {"mean", "std", "median", "iqr", "min", "max"}
+        assert set(stats.keys()) == expected_keys
+        for key in expected_keys:
+            assert isinstance(stats[key], torch.Tensor)
+            assert stats[key].shape == (3,)
+
+    def test_paired_mode_reuses_source_stats(self):
+        """_standardize(target, stats=...) does not overwrite _preprocessing_stats cache."""
+        factory = self._make_factory(method="standardize")
+        source_ds = _make_dataset(seed=7)
+        target_ds = _make_dataset(seed=99)
+        # First call: compute and cache source stats
+        factory._standardize(source_ds)
+        source_stats = factory._preprocessing_stats
+        # Second call: pass source stats explicitly for target
+        factory._standardize(target_ds, stats=source_stats)
+        # Cache should still be the same source stats object
+        assert factory._preprocessing_stats is source_stats
+
+    def test_robust_default_threshold_no_error(self):
+        """Robust scaling with default threshold=3.0 does not raise (DATA-02-03 smoke)."""
+        factory = self._make_factory(method="robust", threshold=3.0)
+        dataset = _make_dataset()
+        result = factory._standardize(dataset)
+        all_pos = torch.cat([pc["pos"] for pc in result.values()], dim=0)
+        # Clipped to [-3, 3] with default threshold
+        assert all_pos.abs().max().item() <= 3.0 + 1e-6
+
+    def test_load_target_without_prior_load_real_computes_own_stats(self):
+        """load_target() on a fresh factory computes own stats (DATA-02-05)."""
+        cfg = EvalConfig(
+            data_path="x.mat",
+            target_data_path="y.mat",
+            data_format="tracklets",
+        )
+        from eval.data_factory import DataFactory
+        factory = DataFactory(cfg)
+        mock_ds = _make_dataset(n_frames=2, n_points=30, seed=11)
+        with patch("eval.data_factory.load_data_from_tracklets", return_value=(mock_ds, {})):
+            factory.load_target()
+        stats = factory._preprocessing_stats
+        assert stats is not None
+        # Verify stats were derived from mock_ds, not a sentinel or stale value.
+        # mock_ds is drawn from N(10, 5^2) so global mean should be near 10 per dim.
+        expected_mean = torch.cat(
+            [pc["pos"] for pc in mock_ds.values()], dim=0
+        ).float().mean(dim=0)
+        assert torch.allclose(stats["mean"], expected_mean, atol=1e-4)
+
+    def test_load_real_and_load_target_share_coordinate_space(self):
+        """load_real() + load_target() share source stats so displacement is bounded (DATA-02-07)."""
+        cfg = EvalConfig(
+            data_path="x.mat",
+            target_data_path="y.mat",
+            data_format="tracklets",
+        )
+        from eval.data_factory import DataFactory
+        factory = DataFactory(cfg)
+        # Source dataset: mean ≈ 10
+        source_ds = _make_dataset(n_frames=2, n_points=40, seed=7)
+        # Target dataset: mean ≈ 50 (very different range)
+        torch.manual_seed(42)
+        target_ds = {
+            0: zRegPointCloud(
+                pos=torch.randn(40, 3) * 5 + 50,
+                label=torch.zeros(40, dtype=torch.long),
+                id=torch.arange(40, dtype=torch.long),
+            )
+        }
+        target_ds[0]["fps-idx"] = None
+
+        with patch("eval.data_factory.load_data_from_tracklets") as m:
+            m.side_effect = [(source_ds, {}), (target_ds, {})]
+            src_result = factory.load_real()
+            tgt_result = factory.load_target()
+
+        src_pos = torch.cat([pc["pos"] for pc in src_result.values()], dim=0)
+        tgt_pos = torch.cat([pc["pos"] for pc in tgt_result.values()], dim=0)
+        src_mean = src_pos.mean(dim=0)
+        tgt_mean = tgt_pos.mean(dim=0)
+        # Both are scaled by source stats; raw mean diff was ~40; after sharing stats it's smaller
+        assert (src_mean - tgt_mean).abs().max().item() < 10.0
+
+
+class TestSubsampleToMax:
+    """DataFactory._subsample_to_max coverage (data_factory.py:704-718)."""
+
+    def test_oversized_frames_truncated(self):
+        """Frames exceeding max_points_per_frame are truncated to the limit."""
+        cfg = EvalConfig(data_path="x", max_points_per_frame=3)
+        factory = DataFactory(cfg)
+        dataset = {
+            0: zRegPointCloud(pos=torch.randn(10, 3), label=None, id=None),
+            1: zRegPointCloud(pos=torch.randn(2, 3), label=None, id=None),
+        }
+        result = factory._subsample_to_max(dataset)
+        assert result[0]["pos"].shape[0] == 3
+        assert result[1]["pos"].shape[0] == 2
+
+
+# ---------------------------------------------------------------------------
+# TestDataFactoryDeviceGuard — Phase 53 GPU-02 / D-03 availability guard
+# ---------------------------------------------------------------------------
+
+
+class TestDataFactoryDeviceGuard:
+    """DataFactory.__init__ raises RuntimeError when requested device is unavailable — D-03."""
+
+    def test_cuda_unavailable_raises_runtime_error(self):
+        """device='cuda' + torch.cuda.is_available()=False → RuntimeError."""
+        cfg = EvalConfig(data_path="x.mat", device="cuda")
+        with patch("torch.cuda.is_available", return_value=False):
+            with pytest.raises(RuntimeError, match="torch.cuda.is_available\\(\\) is False"):
+                DataFactory(cfg)
+
+    def test_cuda_0_unavailable_raises_runtime_error(self):
+        """device='cuda:0' + torch.cuda.is_available()=False → RuntimeError."""
+        cfg = EvalConfig(data_path="x.mat", device="cuda:0")
+        with patch("torch.cuda.is_available", return_value=False):
+            with pytest.raises(RuntimeError, match="torch.cuda.is_available\\(\\) is False"):
+                DataFactory(cfg)
+
+    def test_mps_unavailable_raises_runtime_error(self):
+        """device='mps' + torch.backends.mps.is_available()=False → RuntimeError."""
+        cfg = EvalConfig(data_path="x.mat", device="mps")
+        with patch("torch.backends.mps.is_available", return_value=False):
+            with pytest.raises(RuntimeError, match="torch.backends.mps.is_available\\(\\) is False"):
+                DataFactory(cfg)
+
+    def test_cpu_skips_guard(self):
+        """device='cpu' constructs without error regardless of CUDA availability."""
+        cfg = EvalConfig(data_path="x.mat", device="cpu")
+        with patch("torch.cuda.is_available", return_value=False):
+            factory = DataFactory(cfg)
+        assert factory.config.device == "cpu"
+
+    def test_cuda_available_constructs_successfully(self):
+        """device='cuda' + torch.cuda.is_available()=True → constructs, factory.config.device=='cuda'."""
+        cfg = EvalConfig(data_path="x.mat", device="cuda")
+        with patch("torch.cuda.is_available", return_value=True):
+            factory = DataFactory(cfg)
+        assert factory.config.device == "cuda"

@@ -228,7 +228,15 @@ def temporal_stability(
     .b/.t (Affine). No .to_matrix method is called on any transform object.
     Uses torch.norm(..., p="fro") for Frobenius norm computation.
     """
+    for tf in transforms:
+        if not isinstance(tf, (RigidTransformation, AffineTransformation)):
+            raise TypeError(
+                f"Unsupported transformation type: {type(tf).__name__}"
+            )
     if len(transforms) < 2:
+        if transforms:
+            ref = _to_matrix(transforms[0])
+            return torch.tensor(0.0, dtype=ref.dtype, device=ref.device)
         return torch.tensor(0.0)
 
     matrices = [_to_matrix(tf) for tf in transforms]

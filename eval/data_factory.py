@@ -12,6 +12,7 @@ inputs, so chaining ``augment(load_real())`` is inherently safe.
 """
 
 # stdlib first
+import logging
 import math
 import random
 from pathlib import Path  # noqa: F401  (available for future use)
@@ -28,8 +29,10 @@ from zreg.generators import (
     add_outliers,
     apply_affine,  # noqa: F401  (available; not used in Phase 17 minimal generate_synthetic)
     apply_rigid,
-    generate_labels,  # noqa: F401  (available; not used in Phase 17 minimal generate_synthetic)
+    generate_labels,
     generate_trajectory,
+    sample_ball,
+    sample_bowl,
 )
 from zreg.transforms import RigidTransformation
 
@@ -38,8 +41,53 @@ import torch
 
 # local sibling module last
 from eval.config import EvalConfig, EvalConfigError
+from eval.types import TrainingTriple
 
-__all__ = ["DataFactory"]
+__all__ = ["DataFactory", "split_seeds"]
+
+
+def split_seeds(
+    n_train: int,
+    n_val: int,
+    base_seed: int = 0,
+) -> tuple[range, range]:
+    """Disjoint-by-construction train/val seed ranges (D-03 seed-level holdout).
+
+    Unlike :meth:`DataFactory.prepare_split` (which randomly samples a subset
+    of FRAME indices within a single trajectory), this function partitions
+    the SEED space itself into two non-overlapping contiguous ranges, so a
+    triple generated from a train seed and one generated from a val seed can
+    never share a seed. Disjointness is guaranteed by construction (adjacent,
+    non-overlapping ranges) — no ``isdisjoint()`` check is needed.
+
+    Parameters
+    ----------
+    n_train : int
+        Number of training seeds. Must be >= 1.
+    n_val : int
+        Number of validation seeds. Must be >= 0.
+    base_seed : int, optional
+        First seed of the training range (default 0).
+
+    Returns
+    -------
+    tuple[range, range]
+        ``(train_seeds, val_seeds)`` — ``train_seeds = range(base_seed,
+        base_seed + n_train)``; ``val_seeds = range(base_seed + n_train,
+        base_seed + n_train + n_val)``.
+
+    Raises
+    ------
+    ValueError
+        If ``n_train < 1`` or ``n_val < 0``.
+    """
+    if n_train < 1:
+        raise ValueError(f"split_seeds: n_train must be >= 1, got {n_train}")
+    if n_val < 0:
+        raise ValueError(f"split_seeds: n_val must be >= 0, got {n_val}")
+    train_seeds = range(base_seed, base_seed + n_train)
+    val_seeds = range(base_seed + n_train, base_seed + n_train + n_val)
+    return train_seeds, val_seeds
 
 
 class DataFactory:
@@ -76,12 +124,28 @@ class DataFactory:
             ``EvalConfig.from_yaml`` or direct construction.
         """
         self.config = config
+        # D-03: fast-fail availability check — before any I/O so no resource can be leaked.
+        if config.device != "cpu":
+            if config.device.startswith("cuda"):
+                # Covers "cuda", "cuda:0", "cuda:1" (Pitfall 4 — startswith, not ==)
+                if not torch.cuda.is_available():
+                    raise RuntimeError(
+                        f"DataFactory: config.device={config.device!r} requested "
+                        "but torch.cuda.is_available() is False"
+                    )
+            elif config.device == "mps":
+                if not torch.backends.mps.is_available():
+                    raise RuntimeError(
+                        f"DataFactory: config.device={config.device!r} requested "
+                        "but torch.backends.mps.is_available() is False"
+                    )
         self._real_dataset: dict[int, zRegPointCloud] | None = None
         self._synthetic_dataset: dict[int, zRegPointCloud] | None = None
         self._target_dataset: dict[int, zRegPointCloud] | None = None
         self._synthetic_target: dict[int, zRegPointCloud] | None = None
         self._source_dataset: dict[int, zRegPointCloud] | None = None
         self._transform_spec: dict | None = None
+        self._preprocessing_stats: dict | None = None
 
     def load_real(self) -> dict[int, zRegPointCloud]:
         """Load the real dataset from disk (lazy, cached).
@@ -106,10 +170,10 @@ class DataFactory:
 
         if self.config.data_format == "tracklets":
             # Pitfall 4: discard raw tracklets dict (second tuple element)
-            dataset, _ = load_data_from_tracklets(self.config.data_path, device="cpu")
+            dataset, _ = load_data_from_tracklets(self.config.data_path, device=self.config.device)
         elif self.config.data_format == "csv":
             # Pitfall 5: device has NO default in load_shah_from_csv
-            dataset = load_shah_from_csv(self.config.data_path, device="cpu")
+            dataset = load_shah_from_csv(self.config.data_path, device=self.config.device)
         else:
             raise ValueError(
                 f"DataFactory: unknown data_format {self.config.data_format!r}; "
@@ -117,6 +181,10 @@ class DataFactory:
             )
 
         dataset = self._subsample_to_max(dataset)
+        dataset = self._standardize(dataset)
+        logging.info(
+            "Loaded %s dataset on %s (%d frames)", "source", self.config.device, len(dataset)
+        )
         self._real_dataset = dataset
         return dataset
 
@@ -155,13 +223,26 @@ class DataFactory:
                 "but was None. Set target_data_path in the YAML config."
             )
 
+        if (
+            self.config.data_preprocessing is not None
+            and self._preprocessing_stats is None
+            and self._real_dataset is None
+        ):
+            import warnings
+            warnings.warn(
+                "DataFactory.load_target() called before load_real() in paired mode. "
+                "Statistics will be computed from the TARGET dataset, not the source. "
+                "Call load_real() first to share coordinate space.",
+                stacklevel=2,
+            )
+
         fmt = self.config.target_data_format or self.config.data_format
         if fmt == "tracklets":
             # Pitfall 4: discard raw tracklets dict (second tuple element)
-            dataset, _ = load_data_from_tracklets(self.config.target_data_path, device="cpu")
+            dataset, _ = load_data_from_tracklets(self.config.target_data_path, device=self.config.device)
         elif fmt == "csv":
             # Pitfall 5: device has NO default in load_shah_from_csv
-            dataset = load_shah_from_csv(self.config.target_data_path, device="cpu")
+            dataset = load_shah_from_csv(self.config.target_data_path, device=self.config.device)
         else:
             raise ValueError(
                 f"DataFactory: unknown data_format {fmt!r}; "
@@ -169,6 +250,10 @@ class DataFactory:
             )
 
         dataset = self._subsample_to_max(dataset)
+        dataset = self._standardize(dataset, stats=self._preprocessing_stats)
+        logging.info(
+            "Loaded %s dataset on %s (%d frames)", "target", self.config.device, len(dataset)
+        )
         self._target_dataset = dataset
         return dataset
 
@@ -253,6 +338,125 @@ class DataFactory:
         self._transform_spec = transform_spec
         return result
 
+    def generate_training_triple(
+        self,
+        seed: int,
+        n_classes: int = 6,
+        shape: str | None = None,
+        n_points: int | None = None,
+    ) -> TrainingTriple:
+        """Generate ONE seed-driven (source, target) training triple (D-01/D-02/D-04).
+
+        Composes three existing/new pieces per 46-RESEARCH.md Pattern 1: (1) a
+        single-frame ``sample_ball``/``sample_bowl`` base cloud, (2) categorical
+        Voronoi labels via ``generate_labels``, (3) an exact-correspondence
+        target via :meth:`generate_target` (whose transform machinery already
+        propagates ``label`` through every step). Every call with a different
+        ``seed`` produces a genuinely different triple; the same ``seed``
+        called twice is bitwise-reproducible.
+
+        Geometry selection: when ``shape`` is not given, ``"ball"`` is used for
+        even seeds and ``"bowl"`` for odd seeds (``seed % 2 == 0`` -> ball) —
+        this documented rule is how callers/tests determine which geometry a
+        given seed produced, rather than an internal attribute.
+
+        Point count: when ``n_points`` is not given, it is drawn uniformly from
+        ``[100, 300]`` using a per-seed ``random.Random(seed)`` instance (D-01
+        small-variant regime).
+
+        CRITICAL (Pitfall 2): this method deliberately does NOT read or write
+        ``self._synthetic_dataset`` — it has no early-return cache, unlike
+        :meth:`generate_synthetic`'s D-08/D-09 "construct once, cache by
+        reference" contract. Every call recomputes from scratch so that N
+        seeds produce N distinct results. :meth:`generate_target` (called
+        internally) does write ``self._synthetic_target``/``_source_dataset``
+        as a benign side effect of its own contract — those attributes have no
+        early-return caching themselves and are simply overwritten on every
+        call, so this is safe. Do NOT "fix" this method to cache its result;
+        that would silently return the first seed's triple for every
+        subsequent seed (see 46-RESEARCH.md Pitfall 2).
+
+        The target's ``transform_spec`` deliberately excludes ``"n_new_points"``
+        (46-RESEARCH.md Anti-Patterns): points added by ``sample_new_points``
+        get a ``-1`` label sentinel, which is not a valid supervised target.
+
+        Parameters
+        ----------
+        seed : int
+            Seed driving base-cloud geometry, label assignment, transform
+            parameters, and augmentation RNG (threaded as ``"augment_seed"``).
+        n_classes : int, optional
+            Voronoi label vocabulary size (default 6).
+        shape : {"ball", "bowl"} or None, optional
+            Force a specific geometry; ``None`` (default) alternates by seed
+            parity (see above).
+        n_points : int or None, optional
+            Force a specific point count; ``None`` (default) draws uniformly
+            from ``[100, 300]`` per-seed.
+
+        Returns
+        -------
+        TrainingTriple
+            ``source_cloud`` (labeled, ``id=None``), ``target_cloud``
+            (transformed, correctly-labeled), and ``seed``.
+        """
+        rng = random.Random(seed)
+        if n_points is None:
+            n_points = rng.randint(100, 300)
+        if shape is None:
+            shape = "ball" if seed % 2 == 0 else "bowl"
+
+        if shape == "ball":
+            pos = sample_ball(n_points, seed=seed)
+        elif shape == "bowl":
+            pos = sample_bowl(n_points, seed=seed)
+        else:
+            raise ValueError(
+                f"DataFactory.generate_training_triple: unknown shape {shape!r}; "
+                f"expected 'ball' or 'bowl'"
+            )
+
+        base = {0: zRegPointCloud(pos=pos)}
+        source = generate_labels(base, n_classes=n_classes, seed=seed)
+
+        transform_spec = {
+            "type": "rigid",
+            "rotation_deg": rng.uniform(0, 360),
+            "rotation_axis": [0.0, 0.0, 1.0],
+            "scale_factor": rng.uniform(0.8, 1.2),
+            "dropout_fraction": rng.uniform(0.0, 0.2),
+            "augment_seed": seed,
+        }
+        target = self.generate_target(source, transform_spec)
+
+        return TrainingTriple(source_cloud=source[0], target_cloud=target[0], seed=seed)
+
+    def generate_training_set(
+        self,
+        seeds,
+        n_classes: int = 6,
+    ) -> list[TrainingTriple]:
+        """Batch :meth:`generate_training_triple` over an iterable of seeds.
+
+        Convenient companion to :func:`split_seeds` for constructing a full
+        train or val set: ``factory.generate_training_set(train_seeds)``.
+
+        Parameters
+        ----------
+        seeds : Iterable[int]
+            Seeds to generate triples for, e.g. a ``range`` from
+            :func:`split_seeds`.
+        n_classes : int, optional
+            Forwarded to every :meth:`generate_training_triple` call
+            (default 6).
+
+        Returns
+        -------
+        list[TrainingTriple]
+            One triple per seed, in the order ``seeds`` was iterated.
+        """
+        return [self.generate_training_triple(s, n_classes=n_classes) for s in seeds]
+
     def generate_synthetic(self) -> dict[int, zRegPointCloud]:
         """Generate a synthetic trajectory (lazy, cached).
 
@@ -291,8 +495,8 @@ class DataFactory:
         Reads ``self.config.augmentation_params`` (a plain dict).  Recognised
         keys (in dispatch order):
 
-        - ``"sigma"`` (float): applies ``add_gaussian_noise(dataset, sigma=..., seed=42)``
-        - ``"n_outliers"`` (int): applies ``add_outliers(dataset, n_outliers=..., seed=42)``
+        - ``"sigma"`` (float): applies ``add_gaussian_noise(dataset, sigma=..., seed=augment_seed)``
+        - ``"n_outliers"`` (int): applies ``add_outliers(dataset, n_outliers=..., seed=augment_seed)``
         - ``"scale"`` (float, optional): outlier scale for ``add_outliers``, default 3.0
         - ``"scale_factor"`` (float): ``self.scale`` — multiplies every frame's pos by
           ``scale_factor``; applied after noise/outliers
@@ -303,12 +507,21 @@ class DataFactory:
           specified fraction of points per frame; applied after scale/rotate
         - ``"n_new_points"`` (int): ``self.sample_new_points`` — appends uniform-in-bbox
           points per frame; applied last
+        - ``"augment_seed"`` (int, optional): per-seed RNG override (Pitfall 3,
+          46-RESEARCH.md) forwarded to all four stochastic sub-calls above
+          (``add_gaussian_noise``, ``add_outliers``, ``drop_points``,
+          ``sample_new_points``) in place of a hardcoded ``42``.  Default: 42
+          when absent, so every existing caller that does not set
+          ``"augment_seed"`` gets byte-identical legacy behavior.  This key is
+          NOT itself a transform — it never appears in the dispatch ``if``
+          chain and does not, by itself, trigger any augmentation step.
 
         Dispatch order: sigma → n_outliers → scale_factor → rotation_deg →
         dropout_fraction → n_new_points.
 
-        Missing keys skip the corresponding step.  An empty dict is a no-op
-        and returns the input dataset unchanged.
+        Missing keys skip the corresponding step.  An empty dict (or a dict
+        containing only ``"augment_seed"``) is a no-op and returns the input
+        dataset unchanged.
 
         Both ``add_gaussian_noise`` and ``add_outliers`` deep-copy their inputs
         (verified in ``src/zreg/generators/corruption.py``), so the input
@@ -323,20 +536,22 @@ class DataFactory:
         -------
         dict[int, zRegPointCloud]
             Augmented trajectory.  Equals ``dataset`` by identity when
-            ``augmentation_params`` is empty (no-op path).
+            ``augmentation_params`` is empty (or only contains
+            ``"augment_seed"``) — the no-op path.
         """
         params = self.config.augmentation_params
+        augment_seed = params.get("augment_seed", 42)
         result = dataset
         # Step 1: Gaussian noise
         if "sigma" in params:
-            result = add_gaussian_noise(result, sigma=params["sigma"], seed=42)
+            result = add_gaussian_noise(result, sigma=params["sigma"], seed=augment_seed)
         # Step 2: outlier injection
         if "n_outliers" in params:
             result = add_outliers(
                 result,
                 n_outliers=params["n_outliers"],
                 scale=params.get("scale", 3.0),
-                seed=42,
+                seed=augment_seed,
             )
         # Step 3: uniform scaling
         if "scale_factor" in params:
@@ -358,10 +573,10 @@ class DataFactory:
             result = self.rotate(result, R)
         # Step 5: point dropout
         if "dropout_fraction" in params:
-            result = self.drop_points(result, params["dropout_fraction"])
+            result = self.drop_points(result, params["dropout_fraction"], seed=augment_seed)
         # Step 6: new point sampling
         if "n_new_points" in params:
-            result = self.sample_new_points(result, params["n_new_points"])
+            result = self.sample_new_points(result, params["n_new_points"], seed=augment_seed)
         return result
 
     def prepare_split(
@@ -443,9 +658,9 @@ class DataFactory:
         """
         if self.config.ground_truth_path is not None:
             if self.config.data_format == "tracklets":
-                gt_ds, _ = load_data_from_tracklets(self.config.ground_truth_path, device="cpu")
+                gt_ds, _ = load_data_from_tracklets(self.config.ground_truth_path, device=self.config.device)
             else:
-                gt_ds = load_shah_from_csv(self.config.ground_truth_path, device="cpu")
+                gt_ds = load_shah_from_csv(self.config.ground_truth_path, device=self.config.device)
             return {i: pc["id"] for i, pc in gt_ds.items()}
         return {i: pc["id"] for i, pc in dataset.items()}
 
@@ -572,6 +787,100 @@ class DataFactory:
             scale=1.0,
         )
         return apply_rigid(dataset, tf)
+
+    def _standardize(
+        self,
+        dataset: dict[int, zRegPointCloud],
+        stats: dict | None = None,
+    ) -> dict[int, zRegPointCloud]:
+        """Apply per-trajectory scaling to the ``pos`` field of every frame.
+
+        When ``self.config.data_preprocessing`` is ``None``, returns ``dataset``
+        unchanged by reference (no-op early return).
+
+        Statistics are computed globally across all frames (concatenated pos
+        tensors) when ``stats`` is ``None``; in that case the computed stats are
+        stored in ``self._preprocessing_stats`` for reuse by
+        ``load_target()`` in paired mode.  When ``stats`` is provided (not
+        ``None``), it is used directly without updating ``self._preprocessing_stats``
+        — the target reuses source statistics by reference (D-03).
+
+        Only the ``pos`` field is scaled; ``label``, ``id``, and ``fps-idx``
+        are passed through unchanged.
+
+        Parameters
+        ----------
+        dataset : dict[int, zRegPointCloud]
+            Input trajectory.  Not modified.
+        stats : dict or None
+            Pre-computed statistics dict with keys ``"mean"``, ``"std"``,
+            ``"median"``, ``"iqr"``, ``"min"``, ``"max"`` (each a Tensor of
+            shape ``[3]``).  When ``None``, statistics are computed from
+            ``dataset`` and stored in ``self._preprocessing_stats``.
+
+        Returns
+        -------
+        dict[int, zRegPointCloud]
+            New trajectory with scaled ``pos``; all other fields preserved.
+            Returns the input ``dataset`` by reference when
+            ``config.data_preprocessing`` is ``None``.
+        """
+        if self.config.data_preprocessing is None:
+            return dataset
+
+        cfg = self.config.data_preprocessing
+        eps = 1e-8
+
+        if stats is None:
+            if not dataset:
+                return dataset
+            # Compute statistics globally across all frames (concatenated).
+            # Cast to float32 first so all stat tensors share a consistent dtype
+            # (torch.quantile requires float and would otherwise produce mixed
+            # float32/float64 outputs when pos tensors are float64).
+            all_pos = torch.cat([pc["pos"] for pc in dataset.values()], dim=0).float()
+            mean = all_pos.mean(dim=0)
+            std = all_pos.std(dim=0)
+            std = torch.where(torch.isnan(std), torch.zeros_like(std), std)
+            median = torch.quantile(all_pos, 0.5, dim=0)
+            q25 = torch.quantile(all_pos, 0.25, dim=0)
+            q75 = torch.quantile(all_pos, 0.75, dim=0)
+            iqr = q75 - q25
+            min_vals = all_pos.min(dim=0).values
+            max_vals = all_pos.max(dim=0).values
+            stats = {
+                "mean": mean,
+                "std": std,
+                "median": median,
+                "iqr": iqr,
+                "min": min_vals,
+                "max": max_vals,
+            }
+            self._preprocessing_stats = stats
+
+        logging.debug(
+            "DataFactory._standardize: method=%s mean=%s", cfg.method, stats["mean"]
+        )
+
+        result: dict[int, zRegPointCloud] = {}
+        for i, pc in dataset.items():
+            pos = pc["pos"]
+            if cfg.method == "standardize":
+                scaled_pos = (pos - stats["mean"]) / (stats["std"] + eps)
+            elif cfg.method == "normalize":
+                scaled_pos = (pos - stats["min"]) / (stats["max"] - stats["min"] + eps)
+            else:  # robust
+                scaled_pos = (pos - stats["median"]) / (stats["iqr"] + eps)
+                scaled_pos = scaled_pos.clamp(
+                    -cfg.robust_outlier_threshold, cfg.robust_outlier_threshold
+                )
+            result[i] = zRegPointCloud(
+                pos=scaled_pos,
+                label=pc["label"],
+                id=pc["id"],
+            )
+            result[i]["fps-idx"] = pc["fps-idx"]
+        return result
 
     def _subsample_to_max(
         self,

@@ -43,9 +43,10 @@ from typing import Any
 # zreg.* MUST precede torch on macOS-ARM (libomp SIGABRT).
 # Enforced in tests/conftest.py:20-24, eval/data_factory.py:18-35,
 # eval/metrics.py:53-67, eval/types.py:48-53.
-from zreg.cpd import RigidCPD, AffineCPD, NonRigidCPD
+from zreg.cpd import RigidCPD, AffineCPD, NonRigidCPD, EstepResult
 from zreg.dataset import zRegPointCloud
 from zreg.dtw import DynamicTimeWarping
+from zreg.registration import ICPRegistration, SlicedWassersteinAligner
 from zreg.types import StoredTransform
 import zreg.utils as utils
 
@@ -85,6 +86,9 @@ class AlignmentStage(PipelineStage):
         "dtw_dist_fn",
         "n_breakpoints",
     )
+    OPTIONAL_PARAMS: tuple[str, ...] = (
+        "alignment_method",  # Phase 39: defaults to config.alignment_method
+    )
     VALID_CPD: tuple = (None, "rigid", "affine", "nonrigid")
 
     def __init__(self, config: EvalConfig) -> None:
@@ -104,11 +108,16 @@ class AlignmentStage(PipelineStage):
         the type and range constraints.  Raises ``ValueError`` on the first
         failure encountered.
 
+        Optional parameters (not in REQUIRED_PARAMS) are populated from
+        config defaults if missing (Phase 39: alignment_method defaults to
+        config.alignment_method).
+
         Parameters
         ----------
         params : dict[str, Any]
-            Hyperparameter dict to validate.  Must contain all five keys in
-            ``REQUIRED_PARAMS``.
+            Hyperparameter dict to validate.  Must contain all keys in
+            ``REQUIRED_PARAMS``; keys in ``OPTIONAL_PARAMS`` are populated
+            from config if missing.
 
         Returns
         -------
@@ -134,6 +143,10 @@ class AlignmentStage(PipelineStage):
             if key not in params:
                 raise ValueError(f"Missing required param: {key}")
 
+        # Phase 39: populate optional params from config if missing
+        if "alignment_method" not in params:
+            params["alignment_method"] = self.config.alignment_method
+
         if not (isinstance(params["window_size"], int)
                 and not isinstance(params["window_size"], bool)
                 and params["window_size"] > 0):
@@ -157,13 +170,26 @@ class AlignmentStage(PipelineStage):
                 and params["n_breakpoints"] >= 0):
             raise ValueError(f"n_breakpoints must be int >= 0; got {params['n_breakpoints']!r}")
 
+        if params["alignment_method"] not in ("cpd", "icp", "swd"):
+            raise ValueError(
+                f"alignment_method must be 'cpd', 'icp', or 'swd'; got {params['alignment_method']!r}"
+            )
+
+        # Phase 40: validate swd_variant if present and alignment_method is 'swd'
+        if "swd_variant" in params and params["alignment_method"] == "swd":
+            if params["swd_variant"] not in ("swd", "aswd", "oswd", "gswd", "pswd", "maxswd"):
+                raise ValueError(
+                    f"swd_variant must be one of {{'swd', 'aswd', 'oswd', 'gswd', 'pswd', 'maxswd'}}; "
+                    f"got {params['swd_variant']!r}"
+                )
+
     def run(
         self,
         source: dict[int, zRegPointCloud],
         target: dict[int, zRegPointCloud],
         params: dict[str, Any],
     ) -> AlignResult:
-        """Run DTW + CPD alignment from ``source`` to ``target`` and return an ``AlignResult``.
+        """Run DTW + spatial registration (CPD or ICP) from ``source`` to ``target`` and return an ``AlignResult``.
 
         Calls ``self.validate_params(params)`` as the first line (D-09 guarantee).
 
@@ -178,23 +204,28 @@ class AlignmentStage(PipelineStage):
             ``source`` against ``target``; ``target`` is not returned in the
             result (D-06).
         params : dict[str, Any]
-            Must contain all five keys in ``REQUIRED_PARAMS``.  See
-            ``validate_params`` for the full constraint list.
+            Must contain all keys in ``REQUIRED_PARAMS`` (including
+            ``alignment_method``).  See ``validate_params`` for the full
+            constraint list.
 
         Returns
         -------
         AlignResult
             Pydantic-frozen result with:
-            - ``aligned_cloud``: CPD-transformed (or DTW-resampled) source
-              trajectory keyed by full target keys.  When ``cpd_penalty=None``,
-              contains temporally-resampled deep-copy source frames.  When
-              ``cpd_penalty`` is set, each frame is spatially registered to
-              its paired target frame via CPD.
+            - ``aligned_cloud``: spatially registered (or DTW-resampled) source
+              trajectory keyed by full target keys.  When ``cpd_penalty=None``
+              and ``alignment_method`` is not applicable, contains temporally-
+              resampled deep-copy source frames.  When spatial registration is
+              enabled, each frame is spatially registered to its paired target
+              frame via the chosen method (CPD or ICP).
             - ``warp_path``: DTW optimal alignment path.
             - ``dtw_distance``: accumulated DTW cost.
             - ``n_changepoints``: diagonal/non-diagonal transition count,
               capped at ``params["n_breakpoints"]`` (D-06).
             - ``params_used``: shallow copy of ``params`` (Pitfall 7).
+            - ``estep_results``: CPD posterior (``EstepResult``) captured at each
+              CPD-registered frame's final position, keyed by full target keys
+              (Phase 44). Empty for icp/swd/no-cpd runs (D-03 scope guard).
 
         Notes
         -----
@@ -209,10 +240,19 @@ class AlignmentStage(PipelineStage):
         """
         self.validate_params(params)
 
+        # Phase 41: optional alignment preprocessing (PCA principal-axes rotation or
+        # velocity-landmark detection). Returns the working source dict (rotated for
+        # principal_axes, unchanged otherwise) and the list of velocity landmark keys.
+        working_source, velocity_landmarks = self._apply_preprocessing(
+            source, target, self.config.alignment_preprocessing
+        )
+
         # Build strided sub-dicts symmetrically for source and target (Pitfall 1).
         # sorted() makes key order deterministic for non-contiguous key sets.
-        source_sorted = sorted(source.keys())
-        source_sub = {i: source[k] for i, k in enumerate(source_sorted[:: params["step"]])}
+        # Source striding operates on working_source (Pitfall 4: PCA rotation must
+        # propagate into the strided sub-dict fed to DTW), not the original source.
+        source_sorted = sorted(working_source.keys())
+        source_sub = {i: working_source[k] for i, k in enumerate(source_sorted[:: params["step"]])}
 
         target_sorted = sorted(target.keys())
         target_sub = {i: target[k] for i, k in enumerate(target_sorted[:: params["step"]])}
@@ -229,13 +269,14 @@ class AlignmentStage(PipelineStage):
         n_jumps = self._count_jumps(result.warping_path)
         n_changepoints = min(n_jumps, params["n_breakpoints"])  # D-06 cap
 
-        aligned_cloud = self._build_aligned_cloud(
-            source=source,
+        aligned_cloud, estep_results = self._build_aligned_cloud(
+            source=working_source,
             target=target,
             source_sub=source_sub,
             target_sub=target_sub,
             warp_path=result.warping_path,
             cpd_penalty=params["cpd_penalty"],
+            alignment_method=params["alignment_method"],
             stored_transforms=result.stored_transforms,
         )
 
@@ -245,6 +286,8 @@ class AlignmentStage(PipelineStage):
             dtw_distance=result.distance,
             n_changepoints=n_changepoints,
             params_used=dict(params),  # shallow copy — Pitfall 7
+            velocity_landmarks=velocity_landmarks,
+            estep_results=estep_results,
         )
 
     @staticmethod
@@ -295,13 +338,15 @@ class AlignmentStage(PipelineStage):
         target_sub: dict[int, zRegPointCloud],
         warp_path: list[tuple[int, int]],
         cpd_penalty: str | None,
+        alignment_method: str = "cpd",
         stored_transforms: dict[tuple[int, int], StoredTransform] | None = None,
-    ) -> dict[int, zRegPointCloud]:
-        """Build the CPD-transformed aligned source trajectory.
+        **kwargs,  # Captures swd_num_iterations, swd_variant if passed (Phase 40)
+    ) -> tuple[dict[int, zRegPointCloud], dict[int, EstepResult]]:
+        """Build the spatially-registered aligned source trajectory.
 
         For each target frame (full dataset), find the temporally corresponding
-        source frame from the warp path and optionally apply CPD spatial
-        registration.  Returns a dict keyed by full target keys.
+        source frame from the warp path and optionally apply spatial registration
+        (CPD or ICP).  Returns a dict keyed by full target keys.
 
         Parameters
         ----------
@@ -318,6 +363,10 @@ class AlignmentStage(PipelineStage):
         cpd_penalty : str | None
             CPD type (``"rigid"``, ``"affine"``, ``"nonrigid"``) or ``None``
             for temporal-only alignment.
+        alignment_method : str, default "cpd"
+            Registration method: ``"cpd"`` for Coherent Point Drift, ``"icp"``
+            for Open3D ICP (point-to-point, rigid), or ``"swd"`` for Sliced Wasserstein
+            Distance with variant selection (Phase 40).
         stored_transforms : dict[tuple[int, int], StoredTransform] | None, optional
             Mapping from ``(src_sub_idx, tgt_sub_idx)`` to ``StoredTransform``,
             captured during Step 1 (pairwise distance computation).  When a key is
@@ -327,10 +376,14 @@ class AlignmentStage(PipelineStage):
 
         Returns
         -------
-        dict[int, zRegPointCloud]
-            Aligned trajectory with same keys as target.  Each frame is a
-            deep copy of the corresponding source frame, optionally
-            spatially registered via CPD.
+        tuple[dict[int, zRegPointCloud], dict[int, EstepResult]]
+            ``(aligned, estep_results)``. ``aligned`` is the trajectory with
+            same keys as target — each frame is a deep copy of the
+            corresponding source frame, optionally spatially registered via
+            CPD. ``estep_results`` is the CPD posterior (``EstepResult``)
+            captured at each CPD-registered frame's final position, keyed by
+            the same target key ``tk``; empty for icp/swd/no-cpd frames
+            (Phase 44, D-01/D-02/D-03).
         """
         if stored_transforms is None:
             stored_transforms = {}
@@ -347,6 +400,7 @@ class AlignmentStage(PipelineStage):
         fallback_src_sub_idx = warp_path[0][0] if warp_path else 0
 
         aligned: dict[int, zRegPointCloud] = {}
+        estep_results: dict[int, EstepResult] = {}
 
         for pos, tk in enumerate(target_keys_sorted):
             # Nearest strided target index for this full-resolution position
@@ -356,8 +410,14 @@ class AlignmentStage(PipelineStage):
 
             # Retrieve and deep-copy the source frame (no in-place mutation)
             src_frame = deepcopy(source_sub[src_sub_idx])
+            matched_source_frame = src_frame
+            matched_target_frame = target[tk]
 
-            if cpd_penalty is not None:
+            if cpd_penalty is None and alignment_method == "cpd":
+                # Temporal-only: no spatial registration
+                aligned[tk] = matched_source_frame
+            elif cpd_penalty is not None and alignment_method == "cpd":
+                # CPD spatial registration
                 key = (src_sub_idx, tgt_sub_idx)
                 # None-guard (CR-02): a StoredTransform with None normalisation params was
                 # created when normalize=False in Step 1. Since no normalisation was applied
@@ -368,39 +428,37 @@ class AlignmentStage(PipelineStage):
                     # denormalise into target coordinate space. Avoids re-running CPD from
                     # identity on raw unnormalised data (fixes 8× scale convergence failure).
                     src_norm, _ = utils.normalize_point_cloud(
-                        src_frame["pos"], min_vals=_st.src_min, max_vals=_st.src_max
+                        matched_source_frame["pos"], min_vals=_st.src_min, max_vals=_st.src_max
                     )
                     transformed = _st.transform.transform(src_norm)
-                    src_frame["pos"] = utils.undo_normalize(
+                    matched_source_frame["pos"] = utils.undo_normalize(
                         transformed, maxvals=_st.tgt_max, minvals=_st.tgt_min
                     )
                 else:
                     # FALLBACK PATH (D-10): fresh CPD on raw data — covers edge frames outside
                     # the DTW window that were never computed in Step 1.
-                    # CR-03: use full target frame for spatial registration, not strided sub-dict
-                    tgt_frame = target[tk]
                     tf_params = {
-                        "device": src_frame["pos"].device,
-                        "dtype": src_frame["pos"].dtype,
+                        "device": matched_source_frame["pos"].device,
+                        "dtype": matched_source_frame["pos"].dtype,
                     }
 
                     if cpd_penalty == "nonrigid":
                         # NonRigidCPD does not accept tf_init_params (P5)
                         cpd_obj = NonRigidCPD(
-                            source=src_frame["pos"],
+                            source=matched_source_frame["pos"],
                             use_color=False,
                             log_freq=-1,
                         )
                     elif cpd_penalty == "affine":
                         cpd_obj = AffineCPD(
-                            source=src_frame["pos"],
+                            source=matched_source_frame["pos"],
                             use_color=False,
                             tf_init_params=tf_params,
                             log_freq=-1,
                         )
                     else:  # "rigid"
                         cpd_obj = RigidCPD(
-                            source=src_frame["pos"],
+                            source=matched_source_frame["pos"],
                             use_color=False,
                             tf_init_params=tf_params,
                             log_freq=-1,
@@ -408,9 +466,160 @@ class AlignmentStage(PipelineStage):
 
                     # CR-01: use registration() return value — NonRigidCPD does not set
                     # self.transformation (overrides maximization_step without super() call)
-                    reg_result = cpd_obj.registration(tgt_frame["pos"], w=0.0, maxiter=1000, tol=1e-5)
-                    src_frame["pos"] = reg_result.transformation.transform(src_frame["pos"])
+                    reg_result = cpd_obj.registration(matched_target_frame["pos"], w=0.0, maxiter=1000, tol=1e-5)
+                    matched_source_frame["pos"] = reg_result.transformation.transform(matched_source_frame["pos"])
 
-            aligned[tk] = src_frame
+                # Phase 44 (D-01/D-02): capture the CPD posterior at the final registered
+                # position — shared insertion point for both the reuse and fallback
+                # sub-paths above. Read-only diagnostic; does not affect aligned_cloud.
+                sigma2_est = utils.squared_kernel_sum(
+                    matched_source_frame["pos"], matched_target_frame["pos"]
+                )
+                _posterior_cpd = RigidCPD(source=matched_source_frame["pos"], use_color=False)
+                estep_result = _posterior_cpd.expectation_step(
+                    t_source=matched_source_frame["pos"],
+                    target=matched_target_frame["pos"],
+                    sigma2=sigma2_est,
+                    sigma2_c=0.0,
+                    w=0.0,
+                )
+                estep_results[tk] = estep_result
 
-        return aligned
+                aligned[tk] = matched_source_frame
+            elif alignment_method == "icp":
+                # ICP spatial registration
+                icp = ICPRegistration()
+                stored_transform = icp.register(
+                    source=matched_source_frame,
+                    target=matched_target_frame,
+                )
+                # Apply stored transform to frame (denormalised space)
+                registered_frame = AlignmentStage._apply_stored_transform(
+                    matched_source_frame,
+                    stored_transform,
+                )
+                aligned[tk] = registered_frame
+            elif alignment_method == "swd":
+                # SWD spatial registration (Phase 40)
+                swd_variant = kwargs.get("swd_variant", "aswd")  # Default from EvalConfig
+                swd_num_iterations = kwargs.get("swd_num_iterations", 50)  # Default
+
+                aligner = SlicedWassersteinAligner(
+                    variant=swd_variant,
+                    num_iterations=swd_num_iterations,
+                )
+                stored_transform = aligner.register(
+                    source=matched_source_frame,
+                    target=matched_target_frame,
+                )
+                registered_frame = AlignmentStage._apply_stored_transform(
+                    matched_source_frame,
+                    stored_transform,
+                )
+                aligned[tk] = registered_frame
+            else:
+                # Temporal-only fallback (shouldn't reach here with valid params)
+                aligned[tk] = matched_source_frame
+
+        return aligned, estep_results
+
+    @staticmethod
+    def _apply_stored_transform(
+        cloud: zRegPointCloud,
+        stored_transform: StoredTransform,
+    ) -> zRegPointCloud:
+        """Apply a stored transformation matrix to a point cloud.
+
+        Parameters
+        ----------
+        cloud : zRegPointCloud
+            Point cloud to transform.
+        stored_transform : StoredTransform
+            Cached transformation (ICPTransformation wrapper with matrix
+            in denormalised space).
+
+        Returns
+        -------
+        zRegPointCloud
+            Transformed cloud (deep copy with updated pos field).
+        """
+        result = deepcopy(cloud)
+        # Extract matrix from ICPTransformation wrapper
+        matrix = torch.tensor(
+            stored_transform.transform.matrix,
+            dtype=cloud["pos"].dtype,
+            device=cloud["pos"].device,
+        )
+        # Transform: pos_new = (matrix @ [pos, 1]^T)[:3]
+        ones = torch.ones(
+            (cloud["pos"].shape[0], 1),
+            dtype=cloud["pos"].dtype,
+            device=cloud["pos"].device,
+        )
+        pos_homog = torch.cat([cloud["pos"], ones], dim=1)  # [N, 4]
+        pos_transformed = (matrix @ pos_homog.T).T  # [N, 4]
+        result["pos"] = pos_transformed[:, :3]
+        return result
+
+    @staticmethod
+    def _apply_preprocessing(
+        source: dict[int, zRegPointCloud],
+        target: dict[int, zRegPointCloud],
+        config: "AlignmentPreprocessingConfig | None",
+    ) -> tuple[dict[int, zRegPointCloud], list[int]]:
+        """Apply optional alignment preprocessing before DTW (Phase 41).
+
+        Dispatches on ``config.method``:
+
+        - ``None`` — no preprocessing; returns ``(source, [])`` unchanged.
+        - ``"principal_axes"`` — computes a PCA proper-rotation ``R`` from the
+          concatenated source/target point clouds and returns a deep-copied,
+          rotated source dict (original ``source`` never mutated) plus ``[]``.
+        - ``"velocity_landmarks"`` — returns ``source`` unchanged plus the list
+          of frame keys whose per-point velocity exceeds the configured
+          threshold (frame 0 always excluded by ``detect_velocity_landmarks``).
+
+        Parameters
+        ----------
+        source : dict[int, zRegPointCloud]
+            Source trajectory keyed by integer frame index. Never mutated.
+        target : dict[int, zRegPointCloud]
+            Target trajectory. Used only to fit the PCA target axes; never
+            preprocessed or returned.
+        config : AlignmentPreprocessingConfig | None
+            Preprocessing configuration from ``EvalConfig.alignment_preprocessing``.
+
+        Returns
+        -------
+        tuple[dict[int, zRegPointCloud], list[int]]
+            ``(working_source, velocity_landmarks)``. ``working_source`` is the
+            rotated deep copy for ``principal_axes`` and the original ``source``
+            otherwise. ``velocity_landmarks`` is non-empty only for the
+            ``velocity_landmarks`` method.
+        """
+        from eval.config import AlignmentPreprocessingConfig  # noqa: F401
+        from zreg import preprocessing
+
+        if config is None:
+            return source, []
+
+        if config.method == "principal_axes":
+            src_keys = sorted(source.keys())
+            tgt_keys = sorted(target.keys())
+            src_all = torch.cat([source[k]["pos"] for k in src_keys], dim=0)
+            tgt_all = torch.cat([target[k]["pos"] for k in tgt_keys], dim=0)
+            rotation = preprocessing.compute_pca_rotation(src_all, tgt_all)
+            rotated: dict[int, zRegPointCloud] = {}
+            for k in src_keys:
+                frame = deepcopy(source[k])  # never mutate the original source dict
+                frame["pos"] = (rotation @ frame["pos"].T).T
+                rotated[k] = frame
+            return rotated, []
+
+        if config.method == "velocity_landmarks":
+            landmarks = preprocessing.detect_velocity_landmarks(
+                source, config.velocity_threshold, config.velocity_metric
+            )
+            return source, landmarks
+
+        return source, []  # pragma: no cover — AlignmentPreprocessingConfig.method is a validated Literal

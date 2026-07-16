@@ -63,3 +63,6 @@ srun --mpi=pspmix --label \
 #   grep "rank" baseline_experiments/logs/slurm-${SLURM_JOB_ID}.out | head -20
 #   find baseline_experiments/experiments/smoke/kobitski_ew06_alignment -name "best_params.json" | wc -l
 #   grep -i "traceback\|error\|exception" baseline_experiments/logs/slurm-${SLURM_JOB_ID}.out | head -20
+
+# [VERIFY ON HOREKA] GPU-03: grep 'Loaded source dataset on cuda' in SLURM output to confirm GPU tensors
+#   grep "Loaded source dataset on cuda" baseline_experiments/logs/slurm-${SLURM_JOB_ID}.out

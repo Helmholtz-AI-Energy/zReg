@@ -32,7 +32,10 @@ export KMP_DUPLICATE_LIB_OK=TRUE         # harmless on Linux; matches HOREKA_PLA
 # search_strategy in configs_horeka/ must be 'auto' or 'propulate' for multi-rank HPO
 # — see Phase 52 PARA-03
 srun --mpi=pspmix --label \
-  python -u baseline_experiments/scripts/run_all.py --phase all --verbose
+  python -u baseline_experiments/scripts/run_all.py \
+    --phase all \
+    --configs-dir baseline_experiments/configs_horeka \
+    --verbose
 
 # [VERIFY ON HOREKA] GPU-03: grep 'Loaded source dataset on cuda' in SLURM output to confirm GPU tensors
 #   grep "Loaded source dataset on cuda" baseline_experiments/logs/slurm-${SLURM_JOB_ID}.out

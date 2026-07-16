@@ -12,7 +12,7 @@ set -euo pipefail
 module load devel/cuda/12.x              # [VERIFY ON HOREKA] — check exact CUDA version available
 module load compiler/gnu                  # [VERIFY ON HOREKA] — check gcc version required by mpi4py build
 module load mpi/openmpi                   # [VERIFY ON HOREKA] — check exact OpenMPI module name
-module load devel/python/3.12             # [VERIFY ON HOREKA] — check exact Python 3.12 module name
+# Python 3.9.21 is available by default — no module load needed
 
 # ---------------------------------------------------------------------------
 # 2. Create virtual environment (matches JUWELS convention regvenv311)

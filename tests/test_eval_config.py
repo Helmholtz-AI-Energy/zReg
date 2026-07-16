@@ -326,3 +326,101 @@ class TestAlignmentPreprocessingConfig:
         """EvalConfig.alignment_preprocessing defaults to None (backward compatible)."""
         config = EvalConfig(data_path=str(tmp_path / "x.mat"))
         assert config.alignment_preprocessing is None
+
+
+class TestEvalConfigDevice:
+    """Phase 53: device field validation — GPU-01 / D-01 / D-02."""
+
+    def test_device_default_is_cpu(self, tmp_path):
+        """EvalConfig constructed without device field defaults to 'cpu'."""
+        config = EvalConfig(data_path=str(tmp_path / "data.mat"))
+        assert config.device == "cpu"
+
+    def test_device_cpu_explicit(self, tmp_path):
+        """device='cpu' can be set explicitly and round-trips correctly."""
+        config = EvalConfig(data_path=str(tmp_path / "data.mat"), device="cpu")
+        assert config.device == "cpu"
+
+    def test_device_cuda_accepted(self, tmp_path):
+        """device='cuda' is accepted at construction time."""
+        config = EvalConfig(data_path=str(tmp_path / "data.mat"), device="cuda")
+        assert config.device == "cuda"
+
+    def test_device_cuda_0_accepted(self, tmp_path):
+        """device='cuda:0' is accepted at construction time."""
+        config = EvalConfig(data_path=str(tmp_path / "data.mat"), device="cuda:0")
+        assert config.device == "cuda:0"
+
+    def test_device_cuda_1_accepted(self, tmp_path):
+        """device='cuda:1' is accepted at construction time."""
+        config = EvalConfig(data_path=str(tmp_path / "data.mat"), device="cuda:1")
+        assert config.device == "cuda:1"
+
+    def test_device_mps_accepted(self, tmp_path):
+        """device='mps' is accepted at construction time."""
+        config = EvalConfig(data_path=str(tmp_path / "data.mat"), device="mps")
+        assert config.device == "mps"
+
+    def test_device_invalid_raises(self, tmp_path):
+        """device='gpu' (not in whitelist) raises ValueError at construction time."""
+        with pytest.raises(ValueError, match="device must be one of"):
+            EvalConfig(data_path=str(tmp_path / "data.mat"), device="gpu")
+
+    def test_device_cuda_7_raises(self, tmp_path):
+        """device='cuda:7' (not in whitelist) raises ValueError at construction time."""
+        with pytest.raises(ValueError, match="device must be one of"):
+            EvalConfig(data_path=str(tmp_path / "data.mat"), device="cuda:7")
+
+    def test_device_yaml_round_trip(self, tmp_path):
+        """YAML with device: 'cuda' round-trips through EvalConfig.from_yaml."""
+        yaml_path = tmp_path / "config.yaml"
+        yaml_content = {
+            "data_path": str(tmp_path / "data.mat"),
+            "device": "cuda",
+        }
+        with open(yaml_path, "w") as f:
+            import yaml as _yaml
+            _yaml.dump(yaml_content, f)
+        config = EvalConfig.from_yaml(str(yaml_path))
+        assert config.device == "cuda"
+
+
+class TestEvalConfigDeviceICPGuard:
+    """Phase 53: device / alignment_method cross-field incompatibility guard — D-05."""
+
+    def test_device_cuda_plus_icp_raises(self, tmp_path):
+        """device='cuda' + alignment_method='icp' raises ValueError (D-05)."""
+        with pytest.raises(ValueError, match="incompatible with alignment_method='icp'"):
+            EvalConfig(
+                data_path=str(tmp_path / "data.mat"),
+                device="cuda",
+                alignment_method="icp",
+            )
+
+    def test_device_mps_plus_icp_raises(self, tmp_path):
+        """device='mps' + alignment_method='icp' raises ValueError (D-05)."""
+        with pytest.raises(ValueError, match="incompatible with alignment_method='icp'"):
+            EvalConfig(
+                data_path=str(tmp_path / "data.mat"),
+                device="mps",
+                alignment_method="icp",
+            )
+
+    def test_device_cuda_plus_cpd_succeeds(self, tmp_path):
+        """device='cuda' + alignment_method='cpd' constructs successfully."""
+        config = EvalConfig(
+            data_path=str(tmp_path / "data.mat"),
+            device="cuda",
+            alignment_method="cpd",
+        )
+        assert config.device == "cuda"
+
+    def test_device_cpu_plus_icp_succeeds(self, tmp_path):
+        """device='cpu' + alignment_method='icp' constructs successfully (no guard)."""
+        config = EvalConfig(
+            data_path=str(tmp_path / "data.mat"),
+            device="cpu",
+            alignment_method="icp",
+        )
+        assert config.device == "cpu"
+        assert config.alignment_method == "icp"

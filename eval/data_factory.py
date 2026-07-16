@@ -124,6 +124,21 @@ class DataFactory:
             ``EvalConfig.from_yaml`` or direct construction.
         """
         self.config = config
+        # D-03: fast-fail availability check — before any I/O so no resource can be leaked.
+        if config.device != "cpu":
+            if config.device.startswith("cuda"):
+                # Covers "cuda", "cuda:0", "cuda:1" (Pitfall 4 — startswith, not ==)
+                if not torch.cuda.is_available():
+                    raise RuntimeError(
+                        f"DataFactory: config.device={config.device!r} requested "
+                        "but torch.cuda.is_available() is False"
+                    )
+            elif config.device == "mps":
+                if not torch.backends.mps.is_available():
+                    raise RuntimeError(
+                        f"DataFactory: config.device={config.device!r} requested "
+                        "but torch.backends.mps.is_available() is False"
+                    )
         self._real_dataset: dict[int, zRegPointCloud] | None = None
         self._synthetic_dataset: dict[int, zRegPointCloud] | None = None
         self._target_dataset: dict[int, zRegPointCloud] | None = None
@@ -155,10 +170,10 @@ class DataFactory:
 
         if self.config.data_format == "tracklets":
             # Pitfall 4: discard raw tracklets dict (second tuple element)
-            dataset, _ = load_data_from_tracklets(self.config.data_path, device="cpu")
+            dataset, _ = load_data_from_tracklets(self.config.data_path, device=self.config.device)
         elif self.config.data_format == "csv":
             # Pitfall 5: device has NO default in load_shah_from_csv
-            dataset = load_shah_from_csv(self.config.data_path, device="cpu")
+            dataset = load_shah_from_csv(self.config.data_path, device=self.config.device)
         else:
             raise ValueError(
                 f"DataFactory: unknown data_format {self.config.data_format!r}; "
@@ -167,6 +182,9 @@ class DataFactory:
 
         dataset = self._subsample_to_max(dataset)
         dataset = self._standardize(dataset)
+        logging.info(
+            "Loaded %s dataset on %s (%d frames)", "source", self.config.device, len(dataset)
+        )
         self._real_dataset = dataset
         return dataset
 
@@ -221,10 +239,10 @@ class DataFactory:
         fmt = self.config.target_data_format or self.config.data_format
         if fmt == "tracklets":
             # Pitfall 4: discard raw tracklets dict (second tuple element)
-            dataset, _ = load_data_from_tracklets(self.config.target_data_path, device="cpu")
+            dataset, _ = load_data_from_tracklets(self.config.target_data_path, device=self.config.device)
         elif fmt == "csv":
             # Pitfall 5: device has NO default in load_shah_from_csv
-            dataset = load_shah_from_csv(self.config.target_data_path, device="cpu")
+            dataset = load_shah_from_csv(self.config.target_data_path, device=self.config.device)
         else:
             raise ValueError(
                 f"DataFactory: unknown data_format {fmt!r}; "
@@ -233,6 +251,9 @@ class DataFactory:
 
         dataset = self._subsample_to_max(dataset)
         dataset = self._standardize(dataset, stats=self._preprocessing_stats)
+        logging.info(
+            "Loaded %s dataset on %s (%d frames)", "target", self.config.device, len(dataset)
+        )
         self._target_dataset = dataset
         return dataset
 
@@ -637,9 +658,9 @@ class DataFactory:
         """
         if self.config.ground_truth_path is not None:
             if self.config.data_format == "tracklets":
-                gt_ds, _ = load_data_from_tracklets(self.config.ground_truth_path, device="cpu")
+                gt_ds, _ = load_data_from_tracklets(self.config.ground_truth_path, device=self.config.device)
             else:
-                gt_ds = load_shah_from_csv(self.config.ground_truth_path, device="cpu")
+                gt_ds = load_shah_from_csv(self.config.ground_truth_path, device=self.config.device)
             return {i: pc["id"] for i, pc in gt_ds.items()}
         return {i: pc["id"] for i, pc in dataset.items()}
 

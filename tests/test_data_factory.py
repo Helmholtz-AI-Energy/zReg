@@ -212,24 +212,24 @@ class TestLoadReal:
         return {0: zRegPointCloud(pos=torch.zeros(3, 3), label=None, id=torch.arange(3))}
 
     def test_dispatches_tracklets(self):
-        """data_format='tracklets' calls load_data_from_tracklets with device='cpu'."""
+        """data_format='tracklets' calls load_data_from_tracklets with device=cfg.device."""
         cfg = EvalConfig(data_path="x.mat", data_format="tracklets")
         factory = DataFactory(cfg)
         mock_ds = self._make_mock_ds()
         with patch("eval.data_factory.load_data_from_tracklets", return_value=(mock_ds, {})) as m:
             result = factory.load_real()
-        m.assert_called_once_with("x.mat", device="cpu")
+        m.assert_called_once_with("x.mat", device=cfg.device)
         # _standardize produces a new dict (pos scaled); check keys are preserved
         assert set(result.keys()) == set(mock_ds.keys())
 
     def test_dispatches_csv(self):
-        """data_format='csv' calls load_shah_from_csv with explicit device='cpu' (Pitfall 5)."""
+        """data_format='csv' calls load_shah_from_csv with device=cfg.device (Pitfall 5)."""
         cfg = EvalConfig(data_path="x.csv", data_format="csv")
         factory = DataFactory(cfg)
         mock_ds = self._make_mock_ds()
         with patch("eval.data_factory.load_shah_from_csv", return_value=mock_ds) as m:
             factory.load_real()
-        m.assert_called_once_with("x.csv", device="cpu")
+        m.assert_called_once_with("x.csv", device=cfg.device)
 
     def test_caches(self):
         """D-09: second load_real() call returns same reference and does not re-invoke loader."""
@@ -256,24 +256,24 @@ class TestLoadTarget:
         return {0: zRegPointCloud(pos=torch.zeros(3, 3), label=None, id=torch.arange(3))}
 
     def test_dispatches_tracklets(self):
-        """data_format='tracklets' calls load_data_from_tracklets with target_data_path and device='cpu'."""
+        """data_format='tracklets' calls load_data_from_tracklets with target_data_path and device=cfg.device."""
         cfg = EvalConfig(data_path="x.mat", target_data_path="y.mat", data_format="tracklets")
         factory = DataFactory(cfg)
         mock_ds = self._make_mock_ds()
         with patch("eval.data_factory.load_data_from_tracklets", return_value=(mock_ds, {})) as m:
             result = factory.load_target()
-        m.assert_called_once_with("y.mat", device="cpu")
+        m.assert_called_once_with("y.mat", device=cfg.device)
         # _standardize produces a new dict (pos scaled); check keys are preserved
         assert set(result.keys()) == set(mock_ds.keys())
 
     def test_dispatches_csv(self):
-        """data_format='csv' calls load_shah_from_csv with target_data_path and device='cpu' (Pitfall 5)."""
+        """data_format='csv' calls load_shah_from_csv with target_data_path and device=cfg.device (Pitfall 5)."""
         cfg = EvalConfig(data_path="x.csv", target_data_path="y.csv", data_format="csv")
         factory = DataFactory(cfg)
         mock_ds = self._make_mock_ds()
         with patch("eval.data_factory.load_shah_from_csv", return_value=mock_ds) as m:
             factory.load_target()
-        m.assert_called_once_with("y.csv", device="cpu")
+        m.assert_called_once_with("y.csv", device=cfg.device)
 
     def test_caches(self):
         """D-09: second load_target() call returns same reference; loader invoked exactly once."""
@@ -1470,3 +1470,47 @@ class TestSubsampleToMax:
         result = factory._subsample_to_max(dataset)
         assert result[0]["pos"].shape[0] == 3
         assert result[1]["pos"].shape[0] == 2
+
+
+# ---------------------------------------------------------------------------
+# TestDataFactoryDeviceGuard — Phase 53 GPU-02 / D-03 availability guard
+# ---------------------------------------------------------------------------
+
+
+class TestDataFactoryDeviceGuard:
+    """DataFactory.__init__ raises RuntimeError when requested device is unavailable — D-03."""
+
+    def test_cuda_unavailable_raises_runtime_error(self):
+        """device='cuda' + torch.cuda.is_available()=False → RuntimeError."""
+        cfg = EvalConfig(data_path="x.mat", device="cuda")
+        with patch("torch.cuda.is_available", return_value=False):
+            with pytest.raises(RuntimeError, match="torch.cuda.is_available\\(\\) is False"):
+                DataFactory(cfg)
+
+    def test_cuda_0_unavailable_raises_runtime_error(self):
+        """device='cuda:0' + torch.cuda.is_available()=False → RuntimeError."""
+        cfg = EvalConfig(data_path="x.mat", device="cuda:0")
+        with patch("torch.cuda.is_available", return_value=False):
+            with pytest.raises(RuntimeError, match="torch.cuda.is_available\\(\\) is False"):
+                DataFactory(cfg)
+
+    def test_mps_unavailable_raises_runtime_error(self):
+        """device='mps' + torch.backends.mps.is_available()=False → RuntimeError."""
+        cfg = EvalConfig(data_path="x.mat", device="mps")
+        with patch("torch.backends.mps.is_available", return_value=False):
+            with pytest.raises(RuntimeError, match="torch.backends.mps.is_available\\(\\) is False"):
+                DataFactory(cfg)
+
+    def test_cpu_skips_guard(self):
+        """device='cpu' constructs without error regardless of CUDA availability."""
+        cfg = EvalConfig(data_path="x.mat", device="cpu")
+        with patch("torch.cuda.is_available", return_value=False):
+            factory = DataFactory(cfg)
+        assert factory.config.device == "cpu"
+
+    def test_cuda_available_constructs_successfully(self):
+        """device='cuda' + torch.cuda.is_available()=True → constructs, factory.config.device=='cuda'."""
+        cfg = EvalConfig(data_path="x.mat", device="cuda")
+        with patch("torch.cuda.is_available", return_value=True):
+            factory = DataFactory(cfg)
+        assert factory.config.device == "cuda"

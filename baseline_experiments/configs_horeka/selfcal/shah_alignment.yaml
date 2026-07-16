@@ -10,6 +10,7 @@
 data_path: data/external/sample/shah_data/sample-1/sample-1-cell-tracks.csv
 data_format: csv
 max_points_per_frame: 1000  # spatial subsampling - calibrated together with step to fit a ~3-5h total suite runtime, see README.md Runtime section
+device: "cuda"  # GPU-03: GPU tensor placement for HoreKa runs
 
 run_alignment: true
 run_label_transfer: false

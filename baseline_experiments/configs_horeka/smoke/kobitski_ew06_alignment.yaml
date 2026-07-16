@@ -8,6 +8,7 @@
 data_path: data/external/sample/kobitski_data/12_11_15_embryo_ew_06_Cleaned_BackTracked_Oriented.tracklets
 data_format: tracklets
 max_points_per_frame: 1000  # spatial subsampling - calibrated together with step to fit a ~3-5h total suite runtime, see README.md Runtime section
+device: "cuda"  # GPU-03: GPU tensor placement for HoreKa runs
 
 run_alignment: true
 run_label_transfer: false

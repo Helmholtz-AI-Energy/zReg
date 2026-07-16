@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 __all__ = ["EvalConfig", "EvalConfigError", "AlignmentPreprocessingConfig", "DataPreprocessingConfig"]
 
@@ -286,6 +286,10 @@ class EvalConfig(BaseModel):
         default="knn_voting",
         description="Label transfer method: 'knn_voting', 'cpd_weighted', 'pointnet2', or 'egnn'"
     )
+    device: str = Field(
+        default="cpu",
+        description="Compute device: 'cpu', 'cuda', 'cuda:0', 'cuda:1', or 'mps'"
+    )
     egnn_checkpoint_path: str | None = Field(
         default=None,
         description=(
@@ -426,3 +430,56 @@ class EvalConfig(BaseModel):
                 f"'pointnet2', or 'egnn'; got {v!r}"
             )
         return v
+
+    @field_validator("device")
+    @classmethod
+    def validate_device(cls, v: str) -> str:
+        """Validate that device is one of the supported compute device identifiers.
+
+        Parameters
+        ----------
+        v : str
+            The device value to validate.
+
+        Returns
+        -------
+        str
+            The validated device value.
+
+        Raises
+        ------
+        ValueError
+            If device is not one of 'cpu', 'cuda', 'cuda:0', 'cuda:1', or 'mps'.
+        """
+        _VALID_DEVICES = {"cpu", "cuda", "cuda:0", "cuda:1", "mps"}
+        if v not in _VALID_DEVICES:
+            raise ValueError(
+                f"device must be one of {{'cpu', 'cuda', 'cuda:0', 'cuda:1', 'mps'}}; got {v!r}"
+            )
+        return v
+
+    @model_validator(mode="after")
+    def validate_device_icp_compat(self) -> "EvalConfig":
+        """Raise ValueError when device is not 'cpu' and alignment_method is 'icp'.
+
+        Open3D ICP requires CPU-resident tensors and performs explicit
+        .cpu().numpy() round-trips in icp.py (lines 114-115 and 196-197).
+        Requesting a non-CPU device with ICP is therefore always an error.
+
+        Returns
+        -------
+        EvalConfig
+            The validated model instance (self).
+
+        Raises
+        ------
+        ValueError
+            If device is not 'cpu' and alignment_method is 'icp'.
+        """
+        if self.device != "cpu" and self.alignment_method == "icp":
+            raise ValueError(
+                f"device='{self.device}' is incompatible with alignment_method='icp': "
+                "Open3D ICP requires CPU-resident tensors "
+                "(explicit .cpu().numpy() round-trips in icp.py:114-115, 196-197)"
+            )
+        return self

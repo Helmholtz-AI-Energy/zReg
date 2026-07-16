@@ -74,7 +74,10 @@ Plans:
   2. `DataFactory` loads real/target/ground-truth data onto the configured device instead of the current hardcoded CPU
   3. Operator can verify end-to-end that `AlignmentStage`/CPD registration actually runs on GPU tensors, with no silent CPU fallback anywhere in the path
 
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 53-01-PLAN.md — EvalConfig device field + DataFactory device threading + tests (GPU-01, GPU-02)
+- [ ] 53-02-PLAN.md — 8 cluster YAML configs + sbatch GPU-03 annotation (GPU-03)
 
 ### Phase 54: Budget Calibration & Full-Suite Gate
 

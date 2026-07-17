@@ -11,10 +11,11 @@ and a run mode (`optimize`, `eval`, or `full`) and the framework handles everyth
 
 ## 2. Hardware requirements
 
-### Laptop / CPU (fully supported)
+### 2.1 Any laptop (CPU — fully supported)
 
-All three CLI modes (`optimize`, `eval`, `full`) run without a GPU. `device: cpu` is the
-default — no config change is needed for laptop runs.
+All three CLI modes (`optimize`, `eval`, `full`) run without a GPU. All shipped configs
+default to `device: cpu` — no config change is needed for laptop runs. To use Apple Silicon
+GPU acceleration, you must explicitly add `device: mps` to your YAML (see Section 2.2).
 
 **Practical runtime guidance by tier:**
 
@@ -24,8 +25,8 @@ default — no config change is needed for laptop runs.
 | `dev` (20 trials, bayesian, `max_points_per_frame: 100`) | 20 | ~20–40 min |
 | `full` (n_trials from config, full dataset) | configurable | hours |
 
-To keep runtimes manageable on a laptop, set `max_points_per_frame: 100`–`500` to subsample
-each frame, and start with `tier: sanity` or `tier: dev`.
+`max_points_per_frame` is the primary knob for keeping laptop runtimes manageable: set it to
+100–500 to subsample each frame, and start with `tier: sanity` or `tier: dev`.
 
 **ICP constraint:** `alignment_method: icp` requires `device: cpu`. Open3D ICP performs
 explicit `.cpu().numpy()` round-trips internally; `EvalConfig` raises a `ValueError` at
@@ -34,21 +35,69 @@ config-load time if you pair `icp` with any non-CPU device.
 **Learned label transfer:** `label_transfer_method: pointnet2` and `label_transfer_method: egnn`
 run on CPU when no CUDA device is present, but are significantly faster with a GPU.
 
-### GPU / HoreKa cluster (for large-scale runs)
+### 2.2 Apple Silicon / MPS
 
-Set `device: cuda` (or `cuda:0` / `cuda:1` for a specific card) in the config. `device: mps`
-is accepted for Apple Silicon.
+MacBooks with an M-series chip can use the Metal GPU backend. Add `device: mps` to your
+YAML config to activate it:
 
-**Search strategy on cluster:** `search_strategy: propulate` uses MPI and is designed for
-multi-rank SLURM jobs. It requires the propulate optional extra:
+```yaml
+device: mps
+```
+
+**What works on MPS:**
+
+- `DataFactory` checks `torch.backends.mps.is_available()` at startup and raises a
+  `RuntimeError` if MPS is not available (macOS < 12.3 or non-Apple hardware). See
+  Pitfall 9 below.
+- SWD aligner (`alignment_method: swd`) is fully MPS-compatible: all tensor operations
+  derive the device from the input tensors and create intermediates on the same device.
+- Learned label transfer (`pointnet2`, `egnn`): models are constructed on CPU and moved
+  to the device via `model.to(device)` — MPS is supported. See the import-order note below.
+- `train_label_transfer.py` auto-detects MPS when `--device` is not passed (priority:
+  CUDA → MPS → CPU).
+
+**Known MPS limitations:**
+
+- **ICP is CPU-only regardless of hardware.** `EvalConfig` raises a `ValueError` at
+  config-load time if `device: mps` is paired with `alignment_method: icp`. Use
+  `alignment_method: cpd` or `alignment_method: swd` to run on MPS.
+- **FPS/kNN downsampling:** `torch_cluster` is activated only when `pos.is_cuda` is `True`.
+  MPS tensors automatically fall back to the scipy/numpy path. This is functionally
+  correct but slightly slower than the CUDA path for very large point clouds.
+- **Import order on macOS ARM:** eGNN and PointNet++ models import `torch_geometric`, which
+  triggers a SIGABRT from duplicate `libomp` initialisation if no `zreg`/`scipy`-importing
+  module has been loaded first. `run_eval.py` and `train_label_transfer.py` already follow
+  the correct order. In custom scripts, import `zreg` (or any scipy-importing module) before
+  importing `torch_geometric`. See Pitfall 10 below.
+
+### 2.3 CUDA / HoreKa cluster (for large-scale runs)
+
+Set `device: cuda` (or `cuda:0` / `cuda:1` for a specific card) in the config.
+
+**GPU-03 status (Phase 53 — not yet verified):** The code path for running
+`AlignmentStage` and CPD fully on GPU tensors is implemented, but end-to-end
+verification that no silent CPU fallback occurs anywhere in the path is pending Phase 53.
+The CPU and MPS paths work correctly; the CUDA path is implemented but has not yet been
+smoke-tested on real GPU hardware.
+
+**Search strategy for dual-environment configs:** Use `search_strategy: auto` in configs
+meant to run on both laptop and cluster. `auto` picks `propulate` when `SLURM_JOB_ID` is
+set or MPI world_size > 1, and falls back to `bayesian` on a laptop. `search_strategy:
+propulate` uses MPI and is designed for multi-rank SLURM jobs; it requires:
 
 ```bash
 pip install -e ".[propulate]"
 ```
 
-Propulate is auto-selected when `search_strategy: auto` is used and either `SLURM_JOB_ID` is
-set or `mpi4py` world_size > 1. On a laptop, `auto` falls back to `bayesian`. Use `auto` in
-configs meant to run in both environments.
+**HoreKa cluster setup:** Run `scripts/setup_horeka.sh` once on the login node. This script
+loads the required CUDA 12.x and OpenMPI modules, creates a virtualenv, and source-rebuilds
+`mpi4py` against the cluster's MPI installation.
+
+**Data transfer to HoreKa:** Data must be transferred to the HoreKa workspace before jobs
+run. Use the `rsync` command inside `setup_horeka.sh` to copy `data/external/sample/` from
+your laptop, then create an absolute symlink from `data/external/sample` inside the repo
+checkout to the workspace data directory. Relative symlinks break under `srun` — use
+absolute paths as documented in `setup_horeka.sh`.
 
 **Learned label transfer on cluster:** `pointnet2` and `egnn` require a checkpoint `.pt` file
 produced by the Phase 47 training pipeline (`scripts/train_model.py`). Provide the path via
@@ -523,3 +572,23 @@ alignment_preprocessing:
 - **Fix:** Run `pip install -e ".[viz]"` to install `matplotlib` and `seaborn`. Also verify
   that `save_plots: true` is set in your config (it is the default, but double-check if you
   copied a minimal config that omits it).
+
+**9. `RuntimeError: device='mps' requested but torch.backends.mps.is_available() is False`**
+
+- **Symptom:** `DataFactory` raises a `RuntimeError` at startup when `device: mps` is set.
+- **Cause:** MPS requires macOS 12.3 or later and an Apple Silicon chip (M1/M2/M3/M4).
+  The error fires at `DataFactory.__init__` time, before any data is loaded.
+- **Fix:** Either upgrade to macOS 12.3+ on Apple Silicon hardware, or fall back to
+  `device: cpu` in your config.
+
+**10. SIGABRT on macOS ARM when using eGNN or PointNet++**
+
+- **Symptom:** The process aborts with `SIGABRT` immediately after importing the model,
+  with a message about duplicate library initialisation or `libomp`.
+- **Cause:** `torch_geometric` initialises `libomp` when it is imported. If `torch_geometric`
+  is imported before any `zreg`/`scipy`-importing module in the same process, a second
+  `libomp` instance is loaded and macOS kills the process.
+- **Fix:** Do not reorder imports relative to `run_eval.py` or `train_label_transfer.py`,
+  which already follow the correct order. In custom scripts, import `zreg` (or any
+  scipy-importing module such as `scipy` or `numpy`) before importing `torch_geometric`.
+  The guard is documented in `src/zreg/models/egnn.py` (lines 38–39).

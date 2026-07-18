@@ -28,7 +28,7 @@ Phase: 52
 Plan: All 3 plans complete — pending verification
 Status: Phase 52 executing — 3/3 plans complete, awaiting verification
 Tests: 1312 passed, 19 skipped, 1 xpassed (after Phase 52 all waves)
-Last activity: 2026-07-17 - Completed quick task 20260717-02: Revise tutorial cross-platform (MPS/CPU/cluster) status
+Last activity: 2026-07-18 - Completed quick task 20260718: Convert tutorial to interactive Jupyter notebook
 
 Progress (v1.6): [██░░░░░░░░] 17%
 
@@ -128,6 +128,7 @@ None.
 |---|-------------|------|--------|-----------|
 | 20260717 | Create evaluation framework tutorial | 2026-07-17 | 30c18e2 | [20260717-evaluation-framework-tutorial](./quick/20260717-evaluation-framework-tutorial/) |
 | 20260717-02 | Revise tutorial: cross-platform (MPS/CPU/cluster) status | 2026-07-17 | 24fce77 | [20260717-02-revise-tutorial-cross-platform](./quick/20260717-02-revise-tutorial-cross-platform/) |
+| 20260718 | Convert tutorial to interactive Jupyter notebook | 2026-07-18 | 30c89ab | [20260718-tutorial-to-notebook](./quick/20260718-tutorial-to-notebook/) |
 
 ## Deferred Items (from v1.4 close, still open)
 

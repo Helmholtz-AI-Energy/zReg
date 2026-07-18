@@ -16,24 +16,29 @@ module load mpi/openmpi                   # [VERIFY ON HOREKA] — check exact O
 
 # ---------------------------------------------------------------------------
 # 2. Create virtual environment (matches JUWELS convention regvenv311)
+#    All pip/python calls below use VENV explicitly — module loads on HPC
+#    can corrupt PATH so "source activate" alone is not reliable.
 # ---------------------------------------------------------------------------
-python3.12 -m venv ~/regvenv_horeka
-source ~/regvenv_horeka/bin/activate
-pip install --upgrade "pip==26.0.1"
+VENV=~/regvenv_horeka
+python3.12 -m venv "$VENV"
+source "$VENV/bin/activate"
+"$VENV/bin/pip" install --upgrade "pip==26.0.1"
 
 # ---------------------------------------------------------------------------
 # 3. Install zReg with propulate extra
 #    propulate>=1.0,<2 + mpi4py>=3.1 per setup.cfg [options.extras_require]
 # ---------------------------------------------------------------------------
-pip install -e ".[propulate]"
+"$VENV/bin/pip" install -e ".[propulate]"
 
 # ---------------------------------------------------------------------------
 # 4. Rebuild mpi4py against HoreKa's system MPI
 #    The pip wheel bundles its own MPICH, which is incompatible with srun/pspmix.
 #    Source build against the loaded mpi/openmpi module is mandatory for srun jobs.
+#    --no-cache-dir forces a fresh build every run so a stale cached wheel from a
+#    previous MPI module version is never reused.
 # ---------------------------------------------------------------------------
 export MPICC=$(which mpicc)  # ensure setuptools picks up the loaded MPI compiler, not system cc
-pip install mpi4py --no-binary mpi4py --force-reinstall
+"$VENV/bin/pip" install mpi4py --no-binary mpi4py --no-cache-dir --force-reinstall
 
 # ---------------------------------------------------------------------------
 # 5. Data transfer — run these commands BEFORE submitting any SLURM job.
@@ -64,10 +69,10 @@ echo "=== Data transfer instructions above — complete before submitting any jo
 #    the real CUDA check must be done on a compute node via srun)
 # ---------------------------------------------------------------------------
 echo "=== mpi4py sanity ==="
-"${VIRTUAL_ENV}/bin/python" -c "from mpi4py import MPI; print('mpi4py OK, rank', MPI.COMM_WORLD.Get_rank())"
+"$VENV/bin/python" -c "from mpi4py import MPI; print('mpi4py OK, rank', MPI.COMM_WORLD.Get_rank())"
 
 echo "=== torch CUDA sanity ==="
-"${VIRTUAL_ENV}/bin/python" -c "import torch; print('CUDA available:', torch.cuda.is_available(), '| device count:', torch.cuda.device_count())"
+"$VENV/bin/python" -c "import torch; print('CUDA available:', torch.cuda.is_available(), '| device count:', torch.cuda.device_count())"
 
 mkdir -p baseline_experiments/logs  # required before SLURM can write --output files
 

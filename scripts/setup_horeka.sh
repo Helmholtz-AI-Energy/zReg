@@ -9,16 +9,17 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 # 1. Load modules
 # ---------------------------------------------------------------------------
-module load devel/cuda/12.x              # [VERIFY ON HOREKA] — check exact CUDA version available
+module load devel/cuda/12.4
 module load compiler/gnu                  # [VERIFY ON HOREKA] — check gcc version required by mpi4py build
 module load mpi/openmpi                   # [VERIFY ON HOREKA] — check exact OpenMPI module name
-# Python 3.9.21 is available by default — no module load needed
+# python3.9 is the default; python3.12 is available directly without module load
 
 # ---------------------------------------------------------------------------
 # 2. Create virtual environment (matches JUWELS convention regvenv311)
 # ---------------------------------------------------------------------------
-python3 -m venv ~/regvenv_horeka
+python3.12 -m venv ~/regvenv_horeka
 source ~/regvenv_horeka/bin/activate
+pip install --upgrade "pip==26.0.1"
 
 # ---------------------------------------------------------------------------
 # 3. Install zReg with propulate extra

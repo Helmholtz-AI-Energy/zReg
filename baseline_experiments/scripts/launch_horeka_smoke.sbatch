@@ -12,10 +12,10 @@
 #SBATCH --time=00:30:00
 #SBATCH --output=/hkfs/work/workspace/<name>/zReg/baseline_experiments/logs/slurm-smoke-%j.out  # [VERIFY ON HOREKA]
 
-module load devel/cuda/12.x              # [VERIFY ON HOREKA]
-module load compiler/gnu                  # [VERIFY ON HOREKA]
-module load mpi/openmpi                   # [VERIFY ON HOREKA]
-module load devel/python/3.12             # [VERIFY ON HOREKA]
+module load devel/cuda/12.4
+module load compiler/gnu
+module load mpi/openmpi
+# python3.12 is available by default — no module load needed
 
 set -euo pipefail  # fail fast: broken module load, bad activate, or missing cd will abort job
 

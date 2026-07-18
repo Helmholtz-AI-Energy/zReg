@@ -37,10 +37,10 @@ project allocation before running.
 1. Load HoreKa's Python, CUDA, and MPI modules — **[VERIFY ON HOREKA]** exact
    module names, but expect something like:
    ```bash
-   module load devel/cuda/12.x
+   module load devel/cuda/12.4
    module load compiler/gnu
    module load mpi/openmpi
-   module load devel/python/3.12
+   # python3.12 is available by default — no module load needed
    ```
 2. Create a venv (matches the existing JUWELS convention —
    `scripts/launch_srun.sh` activates `regvenv311`):
@@ -150,13 +150,13 @@ Adapting the existing JUWELS template (`scripts/launch.sbatch` +
 #SBATCH --time=04:00:00                # generous vs. Phase 1's projected wall-clock
 #SBATCH --output=<workspace>/logs/slurm-%j.out
 
-module load devel/cuda/12.x devel/python/3.12 mpi/openmpi   # [VERIFY ON HOREKA]
+module load devel/cuda/12.4 mpi/openmpi
 source ~/regvenv_horeka/bin/activate
 
 cd <workspace>/zReg
 export KMP_DUPLICATE_LIB_OK=TRUE
 
-srun --mpi=pspmix --label \
+srun --mpi=pmix --label \
   python -u baseline_experiments/scripts/run_all.py --phase all --verbose \
   > <workspace>/zReg/baseline_experiments/logs/run_all_horeka_${SLURM_JOB_ID}.log 2>&1
 ```

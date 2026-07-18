@@ -23,10 +23,10 @@
 #SBATCH --time=00:30:00
 #SBATCH --output=/home/hk-project-starter-p0024807/uitog/BA/zReg/baseline_experiments/logs/slurm-%j.out
 
-module load devel/cuda/12.x              # [VERIFY ON HOREKA]
-module load compiler/gnu                  # [VERIFY ON HOREKA]
-module load mpi/openmpi                   # [VERIFY ON HOREKA]
-# Python 3.9.21 is available by default — no module load needed
+module load devel/cuda/12.4
+module load compiler/gnu
+module load mpi/openmpi
+# python3.12 is available by default — no module load needed
 
 set -euo pipefail  # fail fast: broken module load, bad activate, or missing cd will abort job
 
@@ -52,7 +52,7 @@ export KMP_DUPLICATE_LIB_OK=TRUE         # harmless on Linux; matches HOREKA_PLA
 #     - May exceed 30 min wall-clock; adjust --time accordingly
 #
 # tier: sanity in the smoke config limits to 5 fixed trials — job should finish in minutes
-srun --mpi=pspmix --label \
+srun --mpi=pmix --label \
   python -u baseline_experiments/scripts/run_all.py \
     --phase selfcal \
     --configs-dir baseline_experiments/configs_horeka/smoke \

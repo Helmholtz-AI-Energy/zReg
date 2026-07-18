@@ -28,7 +28,7 @@ Phase: 52
 Plan: All 3 plans complete — pending verification
 Status: Phase 52 executing — 3/3 plans complete, awaiting verification
 Tests: 1312 passed, 19 skipped, 1 xpassed (after Phase 52 all waves)
-Last activity: 2026-07-18 - Completed quick task 20260718-02: Create docs/tutorials/ with eval framework + revised notebook tutorials
+Last activity: 2026-07-18 - Completed quick task 20260718-03: Remove notebooks/ directory
 
 Progress (v1.6): [██░░░░░░░░] 17%
 
@@ -130,6 +130,7 @@ None.
 | 20260717-02 | Revise tutorial: cross-platform (MPS/CPU/cluster) status | 2026-07-17 | 24fce77 | [20260717-02-revise-tutorial-cross-platform](./quick/20260717-02-revise-tutorial-cross-platform/) |
 | 20260718 | Convert tutorial to interactive Jupyter notebook | 2026-07-18 | 30c89ab | [20260718-tutorial-to-notebook](./quick/20260718-tutorial-to-notebook/) |
 | 20260718-02 | Create docs/tutorials/ with eval framework + revised notebook tutorials | 2026-07-18 | beec1d8 | [20260718-02-tutorials-directory-restructure](./quick/20260718-02-tutorials-directory-restructure/) |
+| 20260718-03 | Remove notebooks/ directory (content in docs/tutorials/) | 2026-07-18 | f4e8f30 | [20260718-03-remove-notebooks-dir](./quick/20260718-03-remove-notebooks-dir/) |
 
 ## Deferred Items (from v1.4 close, still open)
 

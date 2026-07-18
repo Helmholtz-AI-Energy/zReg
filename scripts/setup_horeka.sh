@@ -64,10 +64,10 @@ echo "=== Data transfer instructions above — complete before submitting any jo
 #    the real CUDA check must be done on a compute node via srun)
 # ---------------------------------------------------------------------------
 echo "=== mpi4py sanity ==="
-python -c "from mpi4py import MPI; print('mpi4py OK, rank', MPI.COMM_WORLD.Get_rank())"
+"${VIRTUAL_ENV}/bin/python" -c "from mpi4py import MPI; print('mpi4py OK, rank', MPI.COMM_WORLD.Get_rank())"
 
 echo "=== torch CUDA sanity ==="
-python -c "import torch; print('CUDA available:', torch.cuda.is_available(), '| device count:', torch.cuda.device_count())"
+"${VIRTUAL_ENV}/bin/python" -c "import torch; print('CUDA available:', torch.cuda.is_available(), '| device count:', torch.cuda.device_count())"
 
 mkdir -p baseline_experiments/logs  # required before SLURM can write --output files
 

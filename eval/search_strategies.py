@@ -508,7 +508,7 @@ class PropulateSearch:
             # Pitfall 2: skip unevaluated stragglers (loss defaults to float("inf"))
             if ind.loss == float("inf"):
                 continue
-            params = {k: ind[k] for k in search_space}
+            params = {k: _decode_param(k, ind[k]) for k in search_space}
             score = -ind.loss  # D-08: invert sign back to maximisation scale
             results.append((params, score))
         return results

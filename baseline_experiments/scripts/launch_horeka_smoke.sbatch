@@ -1,16 +1,14 @@
 #!/bin/bash
 # Phase 51 smoke job — single-rank, proves env + data + GPU.
 # Submit AFTER running scripts/setup_horeka.sh and transferring data.
-# Fill in all [VERIFY ON HOREKA] values before submitting.
 
 #SBATCH --job-name=zreg-smoke
 #SBATCH --partition=accelerated           # [VERIFY ON HOREKA] — check HoreKa GPU partition name
-#SBATCH --account=<your-project>          # [VERIFY ON HOREKA] — fill in your project/account string
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --gres=gpu:1
 #SBATCH --time=00:30:00
-#SBATCH --output=/hkfs/work/workspace/<name>/zReg/baseline_experiments/logs/slurm-smoke-%j.out  # [VERIFY ON HOREKA]
+#SBATCH --output=/home/hk-project-starter-p0024807/uitog/BA/zReg/baseline_experiments/logs/slurm-smoke-%j.out
 
 module load devel/cuda/12.4
 module load compiler/gnu
@@ -21,7 +19,7 @@ set -euo pipefail  # fail fast: broken module load, bad activate, or missing cd 
 
 source ~/regvenv_horeka/bin/activate
 
-cd /hkfs/work/workspace/<name>/zReg      # [VERIFY ON HOREKA] — absolute workspace repo checkout path
+cd /home/hk-project-starter-p0024807/uitog/BA/zReg
 mkdir -p baseline_experiments/logs       # ensure --output parent dir exists before SLURM writes to it
 
 export KMP_DUPLICATE_LIB_OK=TRUE         # harmless on Linux; matches HOREKA_PLAN.md template
@@ -31,7 +29,7 @@ export KMP_DUPLICATE_LIB_OK=TRUE         # harmless on Linux; matches HOREKA_PLA
 # run_eval.py appends a datetime timestamp subdirectory to --output-dir; eval_report.json will be
 # inside that timestamped subdir — check the SLURM log for the resolved path.
 srun python run_eval.py \
-  --config baseline_experiments/configs/smoke/kobitski_ew06_alignment.yaml \
+  --config baseline_experiments/configs_horeka/smoke/kobitski_ew06_alignment.yaml \
   --mode full \
   --output-dir baseline_experiments/experiments/smoke/kobitski_ew06_alignment
 

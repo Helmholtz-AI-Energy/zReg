@@ -20,7 +20,8 @@ module load mpi/openmpi
 
 set -euo pipefail  # fail fast: broken module load, bad activate, or missing cd will abort job
 
-source ~/regvenv_horeka/bin/activate
+VENV=~/regvenv_horeka  # explicit path used in srun — source activate alone does not carry across srun fork
+source "$VENV/bin/activate"
 
 cd /home/hk-project-starter-p0024807/uitog/BA/zReg
 mkdir -p baseline_experiments/logs       # ensure --output parent dir exists before SLURM writes to it
@@ -31,7 +32,7 @@ export KMP_DUPLICATE_LIB_OK=TRUE         # harmless on Linux; matches HOREKA_PLA
 # search_strategy in configs_horeka/ must be 'auto' or 'propulate' for multi-rank HPO
 # — see Phase 52 PARA-03
 srun --mpi=pmix --label \
-  python -u baseline_experiments/scripts/run_all.py \
+  "$VENV/bin/python" -u baseline_experiments/scripts/run_all.py \
     --phase all \
     --configs-dir baseline_experiments/configs_horeka \
     --verbose

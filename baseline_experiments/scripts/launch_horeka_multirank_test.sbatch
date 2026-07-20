@@ -30,30 +30,19 @@ module load mpi/openmpi
 
 set -euo pipefail  # fail fast: broken module load, bad activate, or missing cd will abort job
 
-source ~/regvenv_horeka/bin/activate
+VENV=~/regvenv_horeka  # explicit path used in srun — source activate alone does not carry across srun fork
+source "$VENV/bin/activate"
 
 cd /home/hk-project-starter-p0024807/uitog/BA/zReg
 mkdir -p baseline_experiments/logs       # ensure --output parent dir exists before SLURM writes to it
 
 export KMP_DUPLICATE_LIB_OK=TRUE         # harmless on Linux; matches HOREKA_PLAN.md template
 
-# --mpi=pspmix matches HoreKa's PMI implementation [VERIFY ON HOREKA]
-# --phase selfcal runs only the selfcal HPO configs
-# --configs-dir points at configs_horeka/smoke (single config: kobitski_ew06_alignment.yaml)
-#
-# NOTE on --configs-dir smoke vs full configs_horeka:
-#   Option A (default, used here): --configs-dir baseline_experiments/configs_horeka/smoke
-#     - Only kobitski_ew06_alignment.yaml is present in smoke/
-#     - The other two selfcal configs (shah_alignment, shah_label_transfer) are absent
-#     - run_all.py will raise FileNotFoundError for missing configs when --phase selfcal is used
-#     - To avoid this, run_all.py must handle missing configs gracefully, OR use Option B
-#   Option B (alternative): --configs-dir baseline_experiments/configs_horeka
-#     - Uses the full configs_horeka tree (tier: dev, 20 trials each for all 3 selfcal configs)
-#     - May exceed 30 min wall-clock; adjust --time accordingly
-#
-# tier: sanity in the smoke config limits to 5 fixed trials — job should finish in minutes
+# --mpi=pmix matches HoreKa's PMI implementation [VERIFY ON HOREKA]
+# --phase selfcal runs all 3 selfcal HPO configs from configs_horeka/smoke/
+# All 3 smoke configs use tier=sanity (5 trials each) — job should finish in ~15 min
 srun --mpi=pmix --label \
-  python -u baseline_experiments/scripts/run_all.py \
+  "$VENV/bin/python" -u baseline_experiments/scripts/run_all.py \
     --phase selfcal \
     --configs-dir baseline_experiments/configs_horeka/smoke \
     --verbose

@@ -17,7 +17,8 @@ module load mpi/openmpi
 
 set -euo pipefail  # fail fast: broken module load, bad activate, or missing cd will abort job
 
-source ~/regvenv_horeka/bin/activate
+VENV=~/regvenv_horeka  # explicit path used in srun — source activate alone does not carry across srun fork
+source "$VENV/bin/activate"
 
 cd /home/hk-project-starter-p0024807/uitog/BA/zReg
 mkdir -p baseline_experiments/logs       # ensure --output parent dir exists before SLURM writes to it
@@ -28,7 +29,7 @@ export KMP_DUPLICATE_LIB_OK=TRUE         # harmless on Linux; matches HOREKA_PLA
 # the configs directory and would bypass the smoke config; see RESEARCH.md Pitfall 6).
 # run_eval.py appends a datetime timestamp subdirectory to --output-dir; eval_report.json will be
 # inside that timestamped subdir — check the SLURM log for the resolved path.
-srun python run_eval.py \
+srun "$VENV/bin/python" run_eval.py \
   --config baseline_experiments/configs_horeka/smoke/kobitski_ew06_alignment.yaml \
   --mode full \
   --output-dir baseline_experiments/experiments/smoke/kobitski_ew06_alignment

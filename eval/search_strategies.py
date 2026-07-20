@@ -441,13 +441,23 @@ class PropulateSearch:
         if warm_start:
             _log.info("PropulateSearch: warm_start ignored (D-09)")
 
-        # D-07: convert lists → tuples for Propulate's limits format
-        limits = {k: tuple(v) for k, v in search_space.items()}
+        # D-07: convert lists → tuples for Propulate's limits format.
+        # Propulate rejects None in categorical tuples — replace with sentinel string
+        # and restore before passing params to the objective function.
+        _NONE_SENTINEL = "__none__"
+
+        def _encode(v):
+            return _NONE_SENTINEL if v is None else v
+
+        def _decode(v):
+            return None if v == _NONE_SENTINEL else v
+
+        limits = {k: tuple(_encode(v) for v in vals) for k, vals in search_space.items()}
 
         # D-08: closure inverts sign because Propulate minimises; framework maximises
         def _loss(ind) -> float:
             # Use explicit comprehension — Individual is not a dict subclass (Pitfall 1)
-            params = {k: ind[k] for k in search_space}
+            params = {k: _decode(ind[k]) for k in search_space}
             return -objective_fn(params)
 
         # Per-rank reproducibility: deterministic seed offset keeps ranks independent

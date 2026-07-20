@@ -442,22 +442,27 @@ class PropulateSearch:
             _log.info("PropulateSearch: warm_start ignored (D-09)")
 
         # D-07: convert lists → tuples for Propulate's limits format.
-        # Propulate rejects None in categorical tuples — replace with sentinel string
-        # and restore before passing params to the objective function.
-        _NONE_SENTINEL = "__none__"
+        # Propulate infers parameter type from the first element: str→categorical,
+        # int→ordinal range (min, max), float→continuous interval (min, max).
+        # All our params are discrete choice lists, so force categorical by encoding
+        # every value as a string. Decode by index-lookup against the original list
+        # to restore the original Python type (int, float, None, str) before the
+        # objective function receives the params.
+        _originals: dict[str, list] = {k: list(vals) for k, vals in search_space.items()}
 
-        def _encode(v):
-            return _NONE_SENTINEL if v is None else v
+        def _encode(v) -> str:
+            return "__none__" if v is None else str(v)
 
-        def _decode(v):
-            return None if v == _NONE_SENTINEL else v
+        def _decode_param(key: str, encoded: str):
+            encoded_list = [_encode(x) for x in _originals[key]]
+            return _originals[key][encoded_list.index(encoded)]
 
         limits = {k: tuple(_encode(v) for v in vals) for k, vals in search_space.items()}
 
         # D-08: closure inverts sign because Propulate minimises; framework maximises
         def _loss(ind) -> float:
             # Use explicit comprehension — Individual is not a dict subclass (Pitfall 1)
-            params = {k: _decode(ind[k]) for k in search_space}
+            params = {k: _decode_param(k, ind[k]) for k in search_space}
             return -objective_fn(params)
 
         # Per-rank reproducibility: deterministic seed offset keeps ranks independent

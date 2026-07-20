@@ -69,7 +69,16 @@ echo "=== Data transfer instructions above — complete before submitting any jo
 #    the real CUDA check must be done on a compute node via srun)
 # ---------------------------------------------------------------------------
 echo "=== mpi4py sanity ==="
-"$VENV/bin/python" -c "from mpi4py import MPI; print('mpi4py OK, rank', MPI.COMM_WORLD.Get_rank())"
+# Verify installation location (avoids import, which requires libmpi.so in LD_LIBRARY_PATH).
+"$VENV/bin/pip" show mpi4py
+# Confirm the .so links against the system OpenMPI loaded above, not bundled MPICH.
+MPI_SO=$(find "$VENV" -name "MPI*.so" -path "*/mpi4py/*" 2>/dev/null | head -1)
+if [[ -z "$MPI_SO" ]]; then
+    echo "ERROR: mpi4py .so not found under $VENV — install failed"
+    exit 1
+fi
+echo "mpi4py .so: $MPI_SO"
+ldd "$MPI_SO" | grep -i libmpi || { echo "WARNING: no libmpi found in ldd — may be linked against wrong MPI"; }
 
 echo "=== torch CUDA sanity ==="
 "$VENV/bin/python" -c "import torch; print('CUDA available:', torch.cuda.is_available(), '| device count:', torch.cuda.device_count())"

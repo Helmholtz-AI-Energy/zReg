@@ -86,9 +86,16 @@ echo "mpi4py .so: $MPI_SO"
 ldd "$MPI_SO" | grep -i libmpi || { echo "WARNING: no libmpi found in ldd — may be linked against wrong MPI"; }
 
 echo "=== torch sanity ==="
-# Confirm torch is installed in the venv and report its CUDA build version.
+# Confirm torch is installed in the venv.
 "$VENV/bin/pip" show torch
-"$VENV/bin/python" -c "import torch; print('torch', torch.__version__, '| CUDA build:', torch.version.cuda, '| GPU visible:', torch.cuda.is_available())"
+# Read version.py directly — avoids importing torch._C which requires CUDA libs at runtime.
+TORCH_VERSION_PY=$(find "$VENV" -maxdepth 8 -name "version.py" -path "*/torch/version.py" 2>/dev/null | head -1)
+if [[ -z "$TORCH_VERSION_PY" ]]; then
+    echo "ERROR: torch/version.py not found under $VENV — install failed"
+    exit 1
+fi
+echo "torch version.py: $TORCH_VERSION_PY"
+grep -E "^__version__|^cuda" "$TORCH_VERSION_PY"
 
 mkdir -p baseline_experiments/logs  # required before SLURM can write --output files
 

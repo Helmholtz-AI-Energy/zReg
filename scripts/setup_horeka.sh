@@ -31,7 +31,13 @@ source "$VENV/bin/activate"
 "$VENV/bin/pip" install -e ".[propulate]"
 
 # ---------------------------------------------------------------------------
-# 4. Rebuild mpi4py against HoreKa's system MPI
+# 4. Install PyTorch for CUDA 12.4
+#    torch is not a zReg extra — install explicitly against the loaded CUDA version.
+# ---------------------------------------------------------------------------
+"$VENV/bin/pip" install torch --index-url https://download.pytorch.org/whl/cu124
+
+# ---------------------------------------------------------------------------
+# 5. Rebuild mpi4py against HoreKa's system MPI
 #    The pip wheel bundles its own MPICH, which is incompatible with srun/pspmix.
 #    Source build against the loaded mpi/openmpi module is mandatory for srun jobs.
 #    --no-cache-dir forces a fresh build every run so a stale cached wheel from a
@@ -41,7 +47,7 @@ export MPICC=$(which mpicc)  # ensure setuptools picks up the loaded MPI compile
 "$VENV/bin/pip" install mpi4py --no-binary mpi4py --no-cache-dir --force-reinstall
 
 # ---------------------------------------------------------------------------
-# 5. Data transfer — run these commands BEFORE submitting any SLURM job.
+# 6. Data transfer — run these commands BEFORE submitting any SLURM job.
 #
 #    On your LOCAL MACHINE (laptop), transfer real datasets to HoreKa workspace:
 #
@@ -64,9 +70,8 @@ export MPICC=$(which mpicc)  # ensure setuptools picks up the loaded MPI compile
 echo "=== Data transfer instructions above — complete before submitting any job ==="
 
 # ---------------------------------------------------------------------------
-# 6. Verification (run on login node to confirm setup; GPU check is informational
-#    only here — torch.cuda will return False on login node without a GPU;
-#    the real CUDA check must be done on a compute node via srun)
+# 7. Verification (run on login node; torch.cuda.is_available() will be False
+#    here — no GPU on login node. The real CUDA check runs on a compute node.)
 # ---------------------------------------------------------------------------
 echo "=== mpi4py sanity ==="
 # Verify installation location (avoids import, which requires libmpi.so in LD_LIBRARY_PATH).
@@ -80,8 +85,10 @@ fi
 echo "mpi4py .so: $MPI_SO"
 ldd "$MPI_SO" | grep -i libmpi || { echo "WARNING: no libmpi found in ldd — may be linked against wrong MPI"; }
 
-echo "=== torch CUDA sanity ==="
-"$VENV/bin/python" -c "import torch; print('CUDA available:', torch.cuda.is_available(), '| device count:', torch.cuda.device_count())"
+echo "=== torch sanity ==="
+# Confirm torch is installed in the venv and report its CUDA build version.
+"$VENV/bin/pip" show torch
+"$VENV/bin/python" -c "import torch; print('torch', torch.__version__, '| CUDA build:', torch.version.cuda, '| GPU visible:', torch.cuda.is_available())"
 
 mkdir -p baseline_experiments/logs  # required before SLURM can write --output files
 

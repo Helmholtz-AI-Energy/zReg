@@ -26,7 +26,7 @@ search_space:
   cpd_penalty: [null, "rigid", "affine"]
   window_size: [5, 10, 20]
   step: [8]
-  dtw_dist_fn: [euclidean, cosine]
+  dtw_dist_fn: [euclidean]
 
 default_params:
   window_size: 10

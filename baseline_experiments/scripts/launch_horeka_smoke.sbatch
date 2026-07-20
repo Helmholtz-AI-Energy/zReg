@@ -30,7 +30,7 @@ export KMP_DUPLICATE_LIB_OK=TRUE         # harmless on Linux; matches HOREKA_PLA
 # run_eval.py appends a datetime timestamp subdirectory to --output-dir; eval_report.json will be
 # inside that timestamped subdir — check the SLURM log for the resolved path.
 srun "$VENV/bin/python" run_eval.py \
-  --config baseline_experiments/configs_horeka/smoke/kobitski_ew06_alignment.yaml \
+  --config baseline_experiments/configs_horeka/smoke/selfcal/kobitski_ew06_alignment.yaml \
   --mode full \
   --output-dir baseline_experiments/experiments/smoke/kobitski_ew06_alignment
 

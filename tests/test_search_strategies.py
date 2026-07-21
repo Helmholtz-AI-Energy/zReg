@@ -199,7 +199,7 @@ def _build_propulate_mocks(rank=0, world_size=1, population=None):
             return self._k
 
     if population is None:
-        population = [FakeIndividual(float("inf")), FakeIndividual(0.3, k=2)]
+        population = [FakeIndividual(float("inf")), FakeIndividual(0.3, k="2")]
 
     # Propulator mock
     class FakePropulator:

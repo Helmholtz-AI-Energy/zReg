@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: HoreKa Cluster Execution
 status: executing
-last_updated: "2026-07-15T00:00:00.000Z"
-last_activity: 2026-07-15
+last_updated: "2026-07-21T00:00:00.000Z"
+last_activity: 2026-07-21
 progress:
   total_phases: 4
-  completed_phases: 1
-  total_plans: 7
-  completed_plans: 4
-  percent: 57
+  completed_phases: 3
+  total_plans: 12
+  completed_plans: 12
+  percent: 75
 ---
 
 # Project State
@@ -20,17 +20,17 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-15 after v1.5/v1.6 roadmap creation)
 
 **Core value:** Every existing capability works correctly, fails informatively, and is covered by tests.
-**Current focus:** Phase 52 — multi-rank-parallelism-validation
+**Current focus:** Phase 54 — Budget Calibration & Full-Suite Gate
 
 ## Current Position
 
-Phase: 52
-Plan: All 3 plans complete — pending verification
-Status: Phase 52 executing — 3/3 plans complete, awaiting verification
-Tests: 1312 passed, 19 skipped, 1 xpassed (after Phase 52 all waves)
-Last activity: 2026-07-18 - Completed quick task 20260718-03: Remove notebooks/ directory
+Phase: 54
+Plan: Not started — Phase 53 closed; ready to plan Phase 54
+Status: Phase 54 not started — awaiting plan creation
+Tests: 1330 passed, 19 skipped, 1 xpassed (after Phase 53 all waves); 1 mock test fixed 2026-07-21 (PropulateSearch FakeIndividual k=int→str after Phase 52 categorical encoding fix)
+Last activity: 2026-07-21 - Closed phases 52 and 53; fixed test_search_strategies mock
 
-Progress (v1.6): [██░░░░░░░░] 17%
+Progress (v1.6): [████████░░] 75%
 
 ## Shipped Milestones
 
@@ -60,8 +60,8 @@ Full history: .planning/MILESTONES.md · Retrospective: .planning/RETROSPECTIVE.
 | Phase | Name | Requirements | Status |
 |-------|------|---------------|--------|
 | 51 | Environment & Access | ENV-01, ENV-02, ENV-03, OUT-01 | ✅ Completed |
-| 52 | Multi-Rank Parallelism & Validation | PARA-01, PARA-02, PARA-03, BUDG-01, BUDG-04 | Executing (2/3 plans done) |
-| 53 | GPU Acceleration | GPU-01, GPU-02, GPU-03 | Not started |
+| 52 | Multi-Rank Parallelism & Validation | PARA-01, PARA-02, PARA-03, BUDG-01, BUDG-04 | ✅ Completed (HoreKa smoke + multirank tests passed) |
+| 53 | GPU Acceleration | GPU-01, GPU-02, GPU-03 | ✅ Completed (EvalConfig.device + cluster configs device: cuda) |
 | 54 | Budget Calibration & Full-Suite Gate | BUDG-02, BUDG-03 | Not started |
 
 ## Performance Metrics (v1.5 ML track)
@@ -116,11 +116,11 @@ See: `.planning/REQUIREMENTS.md`
 
 ### Pending Todos
 
-None — Phase 51 planned, ready to execute. Phase 50 (GPU-native geometry ops) pending HoreKa cluster access for verification.
+Phase 54 planning not yet started — requires real HoreKa timing data from Phase 52/53 runs. Phase 50 (GPU-native geometry ops) still pending.
 
 ### Blockers/Concerns
 
-None.
+None — test_search_strategies mock fixed (FakeIndividual k=int→str) to align with Phase 52 categorical string encoding.
 
 ### Quick Tasks Completed
 
@@ -136,11 +136,11 @@ None.
 
 | Category | Item | Status |
 |----------|------|--------|
-| verification | Phase 26 SC-4 — live `mpirun -n 2` Propulate integration | Unverified in dev env (missing GPy dep); relevant to v1.6 Phase 52 — must be resolved on HoreKa |
+| verification | Phase 26 SC-4 — live `mpirun -n 2` Propulate integration | Resolved on HoreKa — smoke + multirank tests passed in Phase 52 |
 | code-review | Open CR/WR items (matplotlib Agg backend leak; `subprocess.run` timeout in `trajectory.py`; `eval/` excluded from `--cov`) | Non-blocking; carried forward |
 
 ## Session Continuity
 
-Last session: 2026-07-15T13:01:35.474Z
-Stopped at: context exhaustion at 77% (2026-07-15)
-Next action: `/gsd:execute-phase 51` for Phase 51 (Environment & Access)
+Last session: 2026-07-21
+Stopped at: Phases 52 and 53 closed; test mock fixed
+Next action: `/gsd:plan-phase 54` — Budget Calibration & Full-Suite Gate (BUDG-02, BUDG-03); requires real HoreKa timing data from Phase 52/53 full run

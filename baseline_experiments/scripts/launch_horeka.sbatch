@@ -28,7 +28,7 @@
 #SBATCH --ntasks-per-node=4
 #SBATCH --gres=gpu:4
 #SBATCH --time=04:00:00
-#SBATCH --mem-per-cpu=8G
+#SBATCH --mem-per-gpu=120G
 #SBATCH --output=/home/hk-project-starter-p0024807/uitog/BA/zReg/baseline_experiments/logs/slurm-%j.out
 
 module load devel/cuda/12.4

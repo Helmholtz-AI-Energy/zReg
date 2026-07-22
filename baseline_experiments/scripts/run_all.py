@@ -151,12 +151,29 @@ def _already_done(output_dir: Path) -> bool:
     return (output_dir / "eval_report.json").exists()
 
 
+def _clear_propulate_checkpoints(output_dir: Path) -> None:
+    """Delete propulate checkpoint .pkl files from output_dir (rank-0 only).
+
+    Propulate writes checkpoint files to checkpoint_path (= output_dir in our
+    setup). Stale checkpoints from a pre-fix run carry the old float-index
+    categorical encoding and will corrupt param decoding when the job resumes.
+    This removes only *.pkl files; eval_report.json and other outputs are kept.
+    """
+    if not output_dir.exists():
+        return
+    removed = list(output_dir.glob("*.pkl"))
+    for f in removed:
+        f.unlink()
+    if removed:
+        log.info("[clear-checkpoints] removed %d .pkl file(s) from %s", len(removed), output_dir)
+
+
 def _read_json(path: Path) -> dict:
     with open(path) as f:
         return json.load(f)
 
 
-def run_optimize_then_eval(name: str, config_path: Path, force: bool, dry_run: bool) -> None:
+def run_optimize_then_eval(name: str, config_path: Path, force: bool, dry_run: bool, clear_checkpoints: bool = False) -> None:
     config = _load_config(config_path)
     output_dir = Path(config.output_dir)
 
@@ -170,6 +187,8 @@ def run_optimize_then_eval(name: str, config_path: Path, force: bool, dry_run: b
             if dry_run:
                 skip = True
             else:
+                if clear_checkpoints:
+                    _clear_propulate_checkpoints(output_dir)
                 _write_run_config(config_path, output_dir)
 
     # Broadcast skip decision so every rank agrees before the collective call.
@@ -261,12 +280,12 @@ def _selfcal_best_params(configs_dir: Path) -> tuple[dict, dict, dict, dict]:
     )
 
 
-def run_phase(phase: str, phases_map: dict[str, list], configs_dir: Path, force: bool, dry_run: bool) -> None:
+def run_phase(phase: str, phases_map: dict[str, list], configs_dir: Path, force: bool, dry_run: bool, clear_checkpoints: bool = False) -> None:
     runs = phases_map[phase]
 
     if phase in ("selfcal", "ground_truth"):
         for _, name, cfg_path in runs:
-            run_optimize_then_eval(name, cfg_path, force, dry_run)
+            run_optimize_then_eval(name, cfg_path, force, dry_run, clear_checkpoints=clear_checkpoints)
 
     elif phase == "baseline_no_hpo":
         for _, name, cfg_path in runs:
@@ -300,6 +319,15 @@ def main(argv=None) -> int:
         default=str(SUITE_ROOT / "configs"),
         help="Root configs directory (default: baseline_experiments/configs/). Pass baseline_experiments/configs_horeka for cluster runs.",
     )
+    parser.add_argument(
+        "--clear-checkpoints",
+        action="store_true",
+        help=(
+            "Delete stale propulate *.pkl checkpoint files from each optimize-mode output directory "
+            "before starting HPO. Preserves eval_report.json. Use after a crashed run so propulate "
+            "does not resume from a checkpoint that has the old float-index categorical encoding."
+        ),
+    )
     args = parser.parse_args(argv)
 
     # Resolve --configs-dir to absolute BEFORE os.chdir(REPO_ROOT) — a
@@ -319,7 +347,7 @@ def main(argv=None) -> int:
     try:
         for phase in phases:
             log.info("=== phase: %s ===", phase)
-            run_phase(phase, phases_map, configs_dir, force=args.force, dry_run=args.dry_run)
+            run_phase(phase, phases_map, configs_dir, force=args.force, dry_run=args.dry_run, clear_checkpoints=args.clear_checkpoints)
     except (EvalConfigError, FileNotFoundError) as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1

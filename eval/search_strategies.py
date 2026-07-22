@@ -453,7 +453,11 @@ class PropulateSearch:
         def _encode(v) -> str:
             return "__none__" if v is None else str(v)
 
-        def _decode_param(key: str, encoded: str):
+        def _decode_param(key: str, encoded):
+            # Some propulate versions return a float/int category index rather than
+            # the string label. Fall back to positional lookup in that case.
+            if isinstance(encoded, (int, float)):
+                return _originals[key][int(encoded)]
             encoded_list = [_encode(x) for x in _originals[key]]
             return _originals[key][encoded_list.index(encoded)]
 

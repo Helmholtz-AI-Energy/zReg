@@ -237,6 +237,7 @@ def create_pairwise_distance_matrix(
                         tgt_min=tgt_min,
                         tgt_max=tgt_max,
                     )
+                del cpd_obj, reg  # release GPU tensors held by CPD internals
             tcpd = time.perf_counter()
             times["cpd"].append(tcpd - tdn)
 
@@ -299,6 +300,10 @@ def create_pairwise_distance_matrix(
         times["cpd"] = []
         times["distance"] = []
         times["total"] = []
+
+        # Release CUDA allocator cache after each row so del'd CPD tensors are freed promptly
+        if cpd_type is not None and torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
         # sync up mpi things
         if mpi_distribute and hasmpi:

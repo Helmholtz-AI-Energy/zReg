@@ -40,7 +40,7 @@ search_space:
 default_params:
   window_size: 10
   step: 8  # fixed temporal downsampling - was searched over [1,2], now fixed & excluded from search_space so every trial gets the full stride benefit (see README.md Runtime section)
-  cpd_penalty: 1.0
+  cpd_penalty: null  # must be null/str — AlignmentStage.VALID_CPD rejects float 1.0
   dtw_dist_fn: euclidean
   n_breakpoints: 5
   k_neighbours: 5

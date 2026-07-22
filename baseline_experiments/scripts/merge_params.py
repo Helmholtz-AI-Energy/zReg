@@ -103,6 +103,33 @@ def merge_two(a: dict, b: dict, defaults: dict | None = None) -> dict:
     return merged
 
 
+def merge_groundtruth_params(
+    kobitski_alignment: dict,
+    shah_both: dict,
+    defaults: dict | None = None,
+) -> dict:
+    """Merge ground_truth best_params into one dict for a Kobitski-vs-Shah pair.
+
+    Ground_truth has two HPO runs:
+    - ``ground_truth/kobitski_ew06`` — alignment params only.
+    - ``ground_truth/shah_sample1`` — alignment + label-transfer params (both stages).
+
+    Since shah_sample1 is the sole source of label-transfer params, it is passed
+    as both the alignment and label-transfer contributor, which is equivalent to
+    calling :func:`merge_selfcal_params` with ``shah_both`` repeated twice.
+
+    Parameters
+    ----------
+    kobitski_alignment : dict
+        best_params.json from ground_truth/kobitski_ew06.
+    shah_both : dict
+        best_params.json from ground_truth/shah_sample1 (alignment + LT).
+    defaults : dict or None
+        Fallback values (typically the pair config's default_params).
+    """
+    return merge_selfcal_params(kobitski_alignment, shah_both, shah_both, defaults)
+
+
 def merge_selfcal_params(
     kobitski_alignment: dict,
     shah_alignment: dict,

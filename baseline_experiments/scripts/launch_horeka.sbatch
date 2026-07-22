@@ -1,41 +1,66 @@
 #!/bin/bash
-# Phase 52+ multi-rank target template.
-# DO NOT SUBMIT until run_all.py has been made rank-aware in Phase 52 (PARA-01/PARA-02).
-# Fill in all [VERIFY ON HOREKA] values before submitting.
-# All SLURM resource values assume HoreKa accelerated partition — verify node/rank
-# counts against your allocation before submitting.
+# Job 1 of 2: HPO phases (selfcal + ground_truth).
+# Runs the 5 optimize+eval experiments that require multi-rank propulate parallelism.
+# Run BEFORE launch_horeka_baseline.sbatch — baseline phases need best_params.json
+# from both selfcal and ground_truth to be present.
+#
+# Runtime estimate (16 ranks, GPU-accelerated, step=8, max_points=1000, w=[5,10]):
+#   selfcal/kobitski_ew06_alignment : 15–45 min  (20 dev trials, 451–756 pairs/trial)
+#   selfcal/shah_alignment          :  3– 8 min  (20 dev trials,  66– 21 pairs/trial)
+#   selfcal/shah_label_transfer     :  5–12 min  (20 dev trials, same + LT overhead)
+#   ground_truth/kobitski_ew06      : 15–45 min  (same search space as selfcal kobitski)
+#   ground_truth/shah_sample1       :  5–12 min  (same search space as selfcal shah)
+#   -----------------------------------------------------------------------
+#   Total                           : 43–122 min  (well within 4 h wall clock)
+#
+# Pairs formula: n*k - k*(k-1)/2, k=1+2*W, n=x_samples (46 for Kobitski, 11 for Shah
+# after step=8 subsampling). w=20 is isolated in launch_horeka_w20.sbatch.
+#
+# Submit:  sbatch baseline_experiments/scripts/launch_horeka.sbatch
+# Resume:  re-submit; _already_done() skips completed runs; use --clear-checkpoints
+#          on first re-submit after a pre-fix crash to drop stale propulate .pkl files.
 
-#SBATCH --job-name=zreg-baseline
-#SBATCH --partition=accelerated           # [VERIFY ON HOREKA] — check HoreKa GPU partition name
-#SBATCH --nodes=4                         # [VERIFY ON HOREKA] — 4 nodes x 4 ranks = 16 total; adjust to allocation
+#SBATCH --job-name=zreg-hpo
+#SBATCH --partition=accelerated
+#SBATCH --nodes=4
 #SBATCH --ntasks-per-node=4
 #SBATCH --gres=gpu:4
 #SBATCH --time=04:00:00
+#SBATCH --mem-per-cpu=8G
 #SBATCH --output=/home/hk-project-starter-p0024807/uitog/BA/zReg/baseline_experiments/logs/slurm-%j.out
 
 module load devel/cuda/12.4
 module load compiler/gnu
 module load mpi/openmpi
-# python3.12 is available by default — no module load needed
 
-set -euo pipefail  # fail fast: broken module load, bad activate, or missing cd will abort job
+set -euo pipefail
 
-VENV=~/regvenv_horeka  # explicit path used in srun — source activate alone does not carry across srun fork
+VENV=~/regvenv_horeka
 source "$VENV/bin/activate"
 
 cd /home/hk-project-starter-p0024807/uitog/BA/zReg
-mkdir -p baseline_experiments/logs       # ensure --output parent dir exists before SLURM writes to it
+mkdir -p baseline_experiments/logs
 
-export KMP_DUPLICATE_LIB_OK=TRUE         # harmless on Linux; matches HOREKA_PLAN.md template
+export KMP_DUPLICATE_LIB_OK=TRUE
+# Limit CUDA allocator fragmentation — caps individual split size without capping total VRAM.
+export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
 
-# --mpi=pspmix matches HoreKa's PMI implementation [VERIFY ON HOREKA]
-# search_strategy in configs_horeka/ must be 'auto' or 'propulate' for multi-rank HPO
-# — see Phase 52 PARA-03
+# selfcal phase: 3 HPO runs (kobitski alignment, shah alignment, shah label-transfer).
+# --clear-checkpoints removes stale *.pkl files from pre-fix runs so propulate does not
+# resume from checkpoints with the old float-index categorical encoding.
+# Remove the flag once the job has completed successfully at least once.
 srun --mpi=pmix --label \
   "$VENV/bin/python" -u baseline_experiments/scripts/run_all.py \
-    --phase all \
+    --phase selfcal \
     --configs-dir baseline_experiments/configs_horeka \
+    --clear-checkpoints \
     --verbose
 
-# [VERIFY ON HOREKA] GPU-03: grep 'Loaded source dataset on cuda' in SLURM output to confirm GPU tensors
-#   grep "Loaded source dataset on cuda" baseline_experiments/logs/slurm-${SLURM_JOB_ID}.out
+# ground_truth phase: 2 HPO runs (kobitski alignment, shah alignment+LT).
+# Must be a separate srun call — each srun re-initialises the MPI communicator.
+srun --mpi=pmix --label \
+  "$VENV/bin/python" -u baseline_experiments/scripts/run_all.py \
+    --phase ground_truth \
+    --configs-dir baseline_experiments/configs_horeka \
+    --clear-checkpoints \
+    --verbose

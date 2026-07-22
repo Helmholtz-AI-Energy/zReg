@@ -42,7 +42,7 @@ search_strategy: sobol
 n_synthetic: 0
 
 search_space:
-  cpd_penalty: [null, "rigid", "affine"]  # "nonrigid" excluded - NonRigidCPD.registration() never sets self.transformation in create_pairwise_distance_matrix, crashes every trial that samples it (confirmed via direct testing, see README.md Runtime section)
+  cpd_penalty: ["rigid"]  # fixed to rigid — null/affine excluded; see README.md Runtime section for nonrigid exclusion reason
   window_size: [5, 10, 20]
   step: [8]  # single-value list, not a real search - see README.md Runtime section: HyperparamOptimizer._objective merges its own hardcoded _default_params (step=1) with the trial's sampled params, so default_params.step alone is silently ignored unless step is also a search_space key
   dtw_dist_fn: [euclidean, cosine]
@@ -50,7 +50,7 @@ search_space:
 default_params:
   window_size: 10
   step: 8  # fixed temporal downsampling - was searched over [1,2], now fixed & excluded from search_space so every trial gets the full stride benefit (see README.md Runtime section)
-  cpd_penalty: null  # must be null/str — AlignmentStage.VALID_CPD rejects float 1.0
+  cpd_penalty: "rigid"
   dtw_dist_fn: euclidean
   n_breakpoints: 5
   k_neighbours: 5

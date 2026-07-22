@@ -21,12 +21,13 @@ run_label_transfer: true
 default_params:
   window_size: 10
   step: 8
-  cpd_penalty: null
+  cpd_penalty: "rigid"
   dtw_dist_fn: euclidean
   n_breakpoints: 5
   k_neighbours: 5
   dist_metric: euclidean
   smoothing: 0.0
   threshold: 0.5
+  method: knn_voting
 val_split: 0.2
 output_dir: baseline_experiments/experiments/baseline_with_groundtruth/ew06_vs_shah

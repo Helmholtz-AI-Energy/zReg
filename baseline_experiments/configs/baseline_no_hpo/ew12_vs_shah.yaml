@@ -12,12 +12,13 @@ run_label_transfer: true
 default_params:
   window_size: 60
   step: 1
-  cpd_penalty: null
+  cpd_penalty: "rigid"
   dtw_dist_fn: euclidean
   n_breakpoints: 5
   k_neighbours: 5
   dist_metric: euclidean
   smoothing: 0.0
   threshold: 0.5
+  method: knn_voting
 val_split: 0.2
 output_dir: baseline_experiments/experiments/baseline_no_hpo/ew12_vs_shah

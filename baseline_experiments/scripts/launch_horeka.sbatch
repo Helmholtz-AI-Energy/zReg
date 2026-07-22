@@ -5,13 +5,15 @@
 # from both selfcal and ground_truth to be present.
 #
 # Runtime estimate (16 ranks, GPU-accelerated, step=8, max_points=1000, w=[5,10]):
-#   selfcal/kobitski_ew06_alignment : 15–45 min  (20 dev trials, 451–756 pairs/trial)
-#   selfcal/shah_alignment          :  3– 8 min  (20 dev trials,  66– 21 pairs/trial)
-#   selfcal/shah_label_transfer     :  5–12 min  (20 dev trials, same + LT overhead)
-#   ground_truth/kobitski_ew06      : 15–45 min  (same search space as selfcal kobitski)
-#   ground_truth/shah_sample1       :  5–12 min  (same search space as selfcal shah)
+# cpd_penalty fixed to "rigid" — all trials run CPD; no cheap null trials remain,
+# so the lower bound rises vs. the previous [null,rigid,affine] search space.
+#   selfcal/kobitski_ew06_alignment : 30–50 min  (20 dev trials, all rigid CPD, w=[5,10])
+#   selfcal/shah_alignment          :  5– 8 min  (20 dev trials, all rigid CPD, Shah cheaper)
+#   selfcal/shah_label_transfer     :  7–12 min  (20 dev trials, same + KNN-LT overhead)
+#   ground_truth/kobitski_ew06      : 30–50 min  (same search space as selfcal kobitski)
+#   ground_truth/shah_sample1       :  7–12 min  (same search space as selfcal shah)
 #   -----------------------------------------------------------------------
-#   Total                           : 43–122 min  (well within 4 h wall clock)
+#   Total                           : 79–132 min  (well within 4 h wall clock)
 #
 # Pairs formula: n*k - k*(k-1)/2, k=1+2*W, n=x_samples (46 for Kobitski, 11 for Shah
 # after step=8 subsampling). w=20 is isolated in launch_horeka_w20.sbatch.

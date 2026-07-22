@@ -18,12 +18,13 @@ run_label_transfer: true
 default_params:
   window_size: 10  # was 60 - too large relative to the 47 strided frames (step=8 below); would degenerate to an unwindowed full sweep. Only used as merge fallback - see file header.
   step: 8  # temporal downsampling, matches the 5 optimize configs - see README.md Runtime section
-  cpd_penalty: null
+  cpd_penalty: "rigid"
   dtw_dist_fn: euclidean
   n_breakpoints: 5
   k_neighbours: 5
   dist_metric: euclidean
   smoothing: 0.0
   threshold: 0.5
+  method: knn_voting
 val_split: 0.2
 output_dir: baseline_experiments/experiments/baseline_with_selfcal/ew11_vs_shah

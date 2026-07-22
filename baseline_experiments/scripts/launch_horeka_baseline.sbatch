@@ -8,11 +8,13 @@
 # single GPU keeps resource usage minimal.
 #
 # Runtime estimate (1 rank, GPU-accelerated, step=8, max_points=1000, w=10):
-#   baseline_no_hpo/ew06_vs_shah          :  5–15 min  (1 eval pass, ~756 pairs)
-#   baseline_with_selfcal/ew06_vs_shah    :  5–15 min  (1 eval pass, ~756 pairs)
-#   baseline_with_groundtruth/ew06_vs_shah:  5–15 min  (1 eval pass, ~756 pairs)
+# cpd_penalty fixed to "rigid" for all passes — baseline_no_hpo was previously null
+# (DTW-only, ~4 s/pass CPU); all three passes now run rigid CPD (~177 s/pass CPU).
+#   baseline_no_hpo/ew06_vs_shah          : 10–25 min  (1 eval pass, rigid CPD, ~756 pairs)
+#   baseline_with_selfcal/ew06_vs_shah    : 10–25 min  (1 eval pass, rigid CPD, merged params)
+#   baseline_with_groundtruth/ew06_vs_shah: 10–25 min  (1 eval pass, rigid CPD, merged params)
 #   -----------------------------------------------------------------------
-#   Total                                 : 15–45 min  (well within 1 h wall clock)
+#   Total                                 : 30–75 min  (well within 2 h wall clock)
 #
 # Submit:  sbatch baseline_experiments/scripts/launch_horeka_baseline.sbatch
 # Resume:  re-submit; _already_done() skips completed runs.

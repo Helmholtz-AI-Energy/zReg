@@ -22,7 +22,7 @@ search_strategy: auto
 n_synthetic: 0
 
 search_space:
-  cpd_penalty: [null, "rigid", "affine"]
+  cpd_penalty: ["rigid"]  # fixed to rigid — null/affine excluded
   window_size: [20]
   step: [8]
   dtw_dist_fn: [euclidean, cosine]
@@ -30,11 +30,12 @@ search_space:
   dist_metric: [euclidean, cosine]
   smoothing: [0.0, 0.1, 0.3]
   threshold: [0.0, 0.3, 0.5]
+  method: ["knn_voting"]  # fixed to knn_voting
 
 default_params:
   window_size: 20
   step: 8
-  cpd_penalty: null
+  cpd_penalty: "rigid"
   dtw_dist_fn: euclidean
   n_breakpoints: 5
   k_neighbours: 5

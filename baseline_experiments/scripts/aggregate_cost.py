@@ -255,10 +255,15 @@ def _run_cost(phase: str, name: str) -> dict:
             history_path = run_dir / "search_history.json"
             if history_path.exists():
                 with open(history_path) as f:
-                    n_trials = len(json.load(f))
-                row["n_trials_run"] = n_trials
-                if n_trials:
-                    row["avg_time_per_trial"] = _fmt_duration(optimize_seconds / n_trials)
+                    try:
+                        raw = json.load(f)
+                    except json.JSONDecodeError:
+                        raw = []  # treat corrupt history as no trials
+                if isinstance(raw, list):
+                    n_trials = len(raw)
+                    row["n_trials_run"] = n_trials
+                    if n_trials:
+                        row["avg_time_per_trial"] = _fmt_duration(optimize_seconds / n_trials)
 
     return row
 

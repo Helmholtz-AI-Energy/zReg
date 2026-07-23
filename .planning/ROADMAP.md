@@ -90,7 +90,11 @@ Plans:
   2. Operator can run an `aggregate_cost.py`-style estimation using HoreKa GPU timing data (from Phase 52's short test job plus Phase 53's GPU path) to project the full 7-run suite's total runtime
   3. The projected total runtime for the full suite is confirmed to fit within the 3-hour GPU time cap before the full allocation is submitted (or the plan is revised if it doesn't fit)
 
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 54-01-PLAN.md — aggregate_cost.py argparse (--calibration, --configs-dir, --budget-hours) + calibration JSON files (BUDG-02, BUDG-03)
+- [ ] 54-02-PLAN.md — extract_calibration.py new script + tests for aggregate_cost.py and extract_calibration.py (BUDG-02, BUDG-03)
 
 ### 🚧 v1.5 Learned Label Transfer Methods (Phases 44–49 complete, Phase 50 pending)
 

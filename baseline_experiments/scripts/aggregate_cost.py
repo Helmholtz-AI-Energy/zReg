@@ -341,7 +341,6 @@ def write_markdown(rows: list[dict], path: Path, worst_total: float, budget_hour
         "| --- | --- | --- | --- | --- | --- |",
     ]
     total_best = 0.0
-    total_worst = 0.0
     for r in rows:
         if r["actual_seconds"] is not None:
             basis = "actual"
@@ -350,15 +349,16 @@ def write_markdown(rows: list[dict], path: Path, worst_total: float, budget_hour
             basis = "projected"
             best, worst = r["projected_range"]
         total_best += best
-        total_worst += worst
         lines.append(
             f"| {r['phase']} | {r['name']} | {r['status']} | {basis} "
             f"| {_fmt_duration(best)} | {_fmt_duration(worst)} |"
         )
+    # Use the passed-in worst_total (same value computed in main()) for the
+    # footer so the budget verdict and the table total are guaranteed to agree.
     lines += [
         "",
         f"**Estimated grand total: {_fmt_duration(total_best)} (best case) "
-        f"— {_fmt_duration(total_worst)} (worst case).**",
+        f"— {_fmt_duration(worst_total)} (worst case).**",
     ]
 
     path.parent.mkdir(parents=True, exist_ok=True)

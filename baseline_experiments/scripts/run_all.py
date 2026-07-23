@@ -159,20 +159,25 @@ def _already_done(output_dir: Path) -> bool:
 
 
 def _clear_propulate_checkpoints(output_dir: Path) -> None:
-    """Delete propulate checkpoint .pkl files from output_dir (rank-0 only).
+    """Delete propulate checkpoint files from output_dir (rank-0 only).
 
-    Propulate writes checkpoint files to checkpoint_path (= output_dir in our
-    setup). Stale checkpoints from a pre-fix run carry the old float-index
-    categorical encoding and will corrupt param decoding when the job resumes.
-    This removes only *.pkl files; eval_report.json and other outputs are kept.
+    Propulate 1.2.x writes island_<N>_ckpt.pickle (not *.pkl — earlier versions
+    used *.pkl). Both patterns are matched to stay robust across versions. Stale
+    checkpoints cause ValueError in _decode_param when the search space changes
+    between runs (e.g. a param that allowed None is later fixed to a single value).
+    This removes only checkpoint files; eval_report.json and other outputs are kept.
     """
     if not output_dir.exists():
         return
-    removed = list(output_dir.glob("*.pkl"))
+    removed = [
+        f
+        for pattern in ("*.pkl", "*.pickle")
+        for f in output_dir.glob(pattern)
+    ]
     for f in removed:
         f.unlink()
     if removed:
-        log.info("[clear-checkpoints] removed %d .pkl file(s) from %s", len(removed), output_dir)
+        log.info("[clear-checkpoints] removed %d checkpoint file(s) from %s", len(removed), output_dir)
 
 
 def _read_json(path: Path) -> dict:

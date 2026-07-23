@@ -512,7 +512,15 @@ class PropulateSearch:
             # Pitfall 2: skip unevaluated stragglers (loss defaults to float("inf"))
             if ind.loss == float("inf"):
                 continue
-            params = {k: _decode_param(k, ind[k]) for k in search_space}
+            try:
+                params = {k: _decode_param(k, ind[k]) for k in search_space}
+            except (ValueError, IndexError):
+                # Stale checkpoint individual from an older search space (e.g. a param
+                # that previously allowed None/'__none__' but no longer does). Safe to
+                # skip — these individuals were evaluated under a different config and
+                # their scores are not meaningful for the current search space.
+                _log.warning("Skipping stale checkpoint individual (undecodable params): %s", dict(ind))
+                continue
             score = -ind.loss  # D-08: invert sign back to maximisation scale
             results.append((params, score))
         return results

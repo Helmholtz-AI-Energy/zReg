@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: HoreKa Cluster Execution
-status: Phase 54 not started — awaiting plan creation
-stopped_at: context exhaustion at 100% (2026-07-22)
-last_updated: "2026-07-22T07:46:10.291Z"
-last_activity: 2026-07-22 - Quick task 20260722: checkpoint clearing + w20 job split for HorEKA re-run
+status: Phase 54 planned — ready to execute
+stopped_at: Phase 54 planned (2026-07-23)
+last_updated: "2026-07-23T00:00:00.000Z"
+last_activity: 2026-07-23 - Phase 54 planned; 2 plans in 2 waves (BUDG-02, BUDG-03)
 progress:
   total_phases: 4
   completed_phases: 2
-  total_plans: 5
+  total_plans: 7
   completed_plans: 6
   percent: 50
 ---
@@ -26,8 +26,8 @@ See: .planning/PROJECT.md (updated 2026-07-15 after v1.5/v1.6 roadmap creation)
 ## Current Position
 
 Phase: 54
-Plan: Not started — Phase 53 closed; ready to plan Phase 54
-Status: Phase 54 not started — awaiting plan creation
+Plan: 2 plans created (54-01 wave 1, 54-02 wave 2)
+Status: Phase 54 planned — ready to execute
 Tests: 1330 passed, 19 skipped, 1 xpassed (after Phase 53 all waves); 1 mock test fixed 2026-07-21 (PropulateSearch FakeIndividual k=int→str after Phase 52 categorical encoding fix)
 Last activity: 2026-07-21 - Closed phases 52 and 53; fixed test_search_strategies mock
 
@@ -132,7 +132,7 @@ None — test_search_strategies mock fixed (FakeIndividual k=int→str) to align
 | 20260718 | Convert tutorial to interactive Jupyter notebook | 2026-07-18 | 30c89ab | [20260718-tutorial-to-notebook](./quick/20260718-tutorial-to-notebook/) |
 | 20260718-02 | Create docs/tutorials/ with eval framework + revised notebook tutorials | 2026-07-18 | beec1d8 | [20260718-02-tutorials-directory-restructure](./quick/20260718-02-tutorials-directory-restructure/) |
 | 20260718-03 | Remove notebooks/ directory (content in docs/tutorials/) | 2026-07-18 | f4e8f30 | [20260718-03-remove-notebooks-dir](./quick/20260718-03-remove-notebooks-dir/) |
-| 20260722 | Add --clear-checkpoints to run_all.py; split window_size=20 into separate HorEKA job | 2026-07-22 | TBD | [20260722-baseline-checkpoint-and-job-split](./quick/20260722-baseline-checkpoint-and-job-split/) |
+| 20260722 | Add --clear-checkpoints to run_all.py; split window_size=20 into separate HorEKA job | 2026-07-22 | cff2a81 | [20260722-baseline-checkpoint-and-job-split](./quick/20260722-baseline-checkpoint-and-job-split/) |
 
 ## Deferred Items (from v1.4 close, still open)
 
@@ -143,6 +143,6 @@ None — test_search_strategies mock fixed (FakeIndividual k=int→str) to align
 
 ## Session Continuity
 
-Last session: 2026-07-22T07:46:10.285Z
-Stopped at: context exhaustion at 100% (2026-07-22)
+Last session: 2026-07-22T22:14:42.823Z
+Stopped at: context exhaustion at 76% (2026-07-22)
 Next action: `/gsd:plan-phase 54` — Budget Calibration & Full-Suite Gate (BUDG-02, BUDG-03); requires real HoreKa timing data from Phase 52/53 full run

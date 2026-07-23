@@ -93,7 +93,11 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
+
+**Wave 1**
 - [ ] 54-01-PLAN.md — aggregate_cost.py argparse (--calibration, --configs-dir, --budget-hours) + calibration JSON files (BUDG-02, BUDG-03)
+
+**Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 54-02-PLAN.md — extract_calibration.py new script + tests for aggregate_cost.py and extract_calibration.py (BUDG-02, BUDG-03)
 
 ### 🚧 v1.5 Learned Label Transfer Methods (Phases 44–49 complete, Phase 50 pending)

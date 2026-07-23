@@ -83,7 +83,7 @@ def _group_trials(trials: list[dict]) -> tuple[dict[int, list[float]], list[floa
     skipped = 0
 
     for i, trial in enumerate(trials):
-        params = trial.get("params", {})
+        params = trial.get("params") or {}
         duration = _duration_seconds(trial)
         if duration is None:
             # T-54-06: skip trials missing both duration fields with a warning.
@@ -214,14 +214,15 @@ def extract(files: list[str]) -> dict:
         pass
 
     # Build the cpd_trial_seconds object.
+    # Only emit entries that have real data — omit keys entirely when no CPD
+    # trials were observed (rather than writing {"seconds": null, "extrapolated": true}),
+    # so aggregate_cost.py never receives null seconds values that would cause TypeError.
     cpd_trial_seconds: dict[str, dict] = {}
     for ws in TARGET_WINDOW_SIZES:
         if ws in cpd_values:
             seconds, extrapolated = cpd_values[ws]
             cpd_trial_seconds[str(ws)] = {"seconds": round(seconds, 4), "extrapolated": extrapolated}
-        else:
-            # No CPD data at all for this key.
-            cpd_trial_seconds[str(ws)] = {"seconds": None, "extrapolated": True}
+        # else: omit the key entirely rather than writing {"seconds": null}
 
     # no_cpd_trial_seconds: mean of no-CPD trial durations, or null.
     no_cpd_mean: float | None = (

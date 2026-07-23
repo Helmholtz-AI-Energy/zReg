@@ -6,9 +6,16 @@
 
 zReg is a Python library for GPU-accelerated 3D point cloud registration, temporal alignment, and label (celltype) transfer using PyTorch — paired with a complete, config-driven **evaluation framework** at the repo root (`eval/`). v1.4 (5 phases, 11 plans, 2026-06-29 → 2026-07-08) expanded the alignment and optimization pipeline: ICP (Open3D point-to-point) and SWD variants (SWD/ASWD/OSWD/GSWD/PSWD) as registration alternatives; preprocessing via `compute_pca_rotation` + `detect_velocity_landmarks`; Sobol quasi-random search as default HPO (`SOBOL_MIN_TRIALS=8` fallback); and per-trajectory z-score standardization as default data preprocessing — all config-driven and backward compatible. **1,156 tests pass, 18 skipped.**
 
-## Next Milestone Goals
+## Current Milestone: v1.5 HoreKa Cluster Execution
 
-Run `/gsd:new-milestone` to define v1.5 scope, requirements, and phases.
+**Goal:** Run the `baseline_experiments` evaluation suite on the HoreKa HPC cluster with GPU support, replacing the current laptop-constrained (CPU-only, subsampled) execution.
+
+**Target features:**
+- Multi-trial parallelism via the already-built `propulate`/MPI search backend (`eval/runners/optimizer.py`, `eval/search_strategies.py`)
+- `baseline_experiments/scripts/run_all.py` made MPI-rank-aware
+- HoreKa job script + environment setup + data transfer
+- Real per-operation GPU acceleration (`device` field on `EvalConfig`, threaded through `DataFactory`)
+- Subsampling stays the default on the cluster (not full point density) — suite is budgeted to a **3-hour GPU time cap**, validated on a short test job before any full allocation
 
 ## What This Is
 
@@ -45,7 +52,7 @@ Every existing capability works correctly, fails informatively, and is covered b
 
 ### Active
 
-(None — v1.4 shipped all planned requirements. Define the next set via `/gsd:new-milestone`.)
+v1.5 HoreKa Cluster Execution — requirements being defined, see `.planning/REQUIREMENTS.md`.
 
 ### Validated in v1.4 (2026-07-08)
 
@@ -164,4 +171,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-30 after Phase 42 — Sobol quasi-random search added as default HPO strategy (`search_strategy="sobol"`); SobolSearch class with SOBOL_MIN_TRIALS=8 fallback to RandomSearch; sobol_seed/sobol_randomize config fields; OPT-04 complete; 1132 tests pass*
+*Last updated: 2026-07-15 — v1.5 HoreKa Cluster Execution milestone started*

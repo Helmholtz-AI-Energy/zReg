@@ -1,0 +1,70 @@
+# Ground-Truth full eval pipeline — Kobitski ew_06, alignment only, with HPO.
+#
+# Same self-registration structure as selfcal/kobitski_ew06_alignment.yaml
+# (source trajectory registered against a synthetically transformed copy of
+# itself, so the true correspondence/transform is known and metrics measure
+# recovery error directly), but the perturbation is a RANDOM rigid transform
+# rather than the fixed 20 degree rotation used for selfcal calibration, so
+# the HPO search here is validated against a held-out, non-cherry-picked
+# perturbation.
+#
+# Alignment only, same as selfcal/kobitski_ew06_alignment.yaml: Kobitski has
+# no usable ground-truth labels for label transfer. Its "label" field is
+# continuous RGB-like noise (N,3 floats, not discrete classes) and its "id"
+# field is a unique per-point tracking identity (every point its own
+# singleton — verified directly against the real tracklets file: 6930/6930
+# unique ids in frame 0), unlike Shah's "id" which carries real small-integer
+# class labels. Running label transfer against Kobitski would score against
+# a meaningless "ground truth". ground_truth/shah_sample1.yaml is the one
+# that exercises both stages (Shah's label field is genuine classes).
+#
+# Random transform generated once with `random.Random(123)` (documented here
+# for reproducibility — see baseline_experiments/README.md):
+#   rotation_deg = 11.31, rotation_axis = [-0.826, -0.186, -0.785], sigma = 0.1111
+
+data_path: data/external/sample/kobitski_data/12_11_15_embryo_ew_06_Cleaned_BackTracked_Oriented.tracklets
+data_format: tracklets
+max_points_per_frame: 1000  # spatial subsampling - calibrated together with step to fit a ~3-5h total suite runtime, see README.md Runtime section
+
+run_alignment: true
+run_label_transfer: false
+
+pipeline_mode: synthetic
+transform_spec:
+  type: rigid
+  rotation_deg: 11.31
+  rotation_axis: [-0.826, -0.186, -0.785]
+  sigma: 0.1111
+
+tier: dev
+n_trials: 50  # inert at tier=dev (dev tier fixes 20 trials via optimizer.py DEV_N_TRIALS); kept for when tier is raised to full
+search_strategy: sobol
+n_synthetic: 0
+
+search_space:
+  cpd_penalty: ["rigid"]  # fixed to rigid — null/affine excluded; see README.md Runtime section for nonrigid exclusion reason
+  window_size: [5, 10, 20]
+  step: [8]  # single-value list, not a real search - see README.md Runtime section: HyperparamOptimizer._objective merges its own hardcoded _default_params (step=1) with the trial's sampled params, so default_params.step alone is silently ignored unless step is also a search_space key
+  dtw_dist_fn: [euclidean, cosine]
+
+default_params:
+  window_size: 10
+  step: 8  # fixed temporal downsampling - was searched over [1,2], now fixed & excluded from search_space so every trial gets the full stride benefit (see README.md Runtime section)
+  cpd_penalty: "rigid"
+  dtw_dist_fn: euclidean
+  n_breakpoints: 5
+  k_neighbours: 5
+  dist_metric: euclidean
+  smoothing: 0.0
+  threshold: 0.0
+
+val_split: 0.2
+output_dir: baseline_experiments/experiments/ground_truth/kobitski_ew06
+
+metric_weights:
+  chamfer: 0.40
+  hausdorff: 0.20
+  path_smoothness: 0.15
+  temporal_stability: 0.15
+  f1: 0.10
+  knn_consistency: 0.00

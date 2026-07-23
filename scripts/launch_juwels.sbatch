@@ -11,4 +11,4 @@
 #SBATCH --output="/p/project/tissuetwin/coquelin1/zReg/logs/slurm/slurm-%j"
 #####SBATCH --output="/pfs/work7/workspace/scratch/qv2382-madonna-ddp/qv2382-madonna-ddp/madonna/logs/slurm/slurm-%j"
 
-srun --mpi=pspmix --label bash /p/project/tissuetwin/coquelin1/zReg/scripts/launch_srun.sh
+srun --mpi=pspmix --label bash /p/project/tissuetwin/coquelin1/zReg/scripts/launch_juwels_srun.sh

@@ -1,0 +1,50 @@
+# window_size=20-only variant of configs_horeka/ground_truth/kobitski_ew06.yaml.
+# Run via launch_horeka_w20.sbatch after the main job (configs_horeka) completes.
+
+data_path: data/external/sample/kobitski_data/12_11_15_embryo_ew_06_Cleaned_BackTracked_Oriented.tracklets
+data_format: tracklets
+max_points_per_frame: 1000
+device: "cuda"
+
+run_alignment: true
+run_label_transfer: false
+
+pipeline_mode: synthetic
+transform_spec:
+  type: rigid
+  rotation_deg: 11.31
+  rotation_axis: [-0.826, -0.186, -0.785]
+  sigma: 0.1111
+
+tier: dev
+n_trials: 50
+search_strategy: auto
+n_synthetic: 0
+
+search_space:
+  cpd_penalty: ["rigid"]  # fixed to rigid — null/affine excluded
+  window_size: [20]
+  step: [8]
+  dtw_dist_fn: [euclidean, cosine]
+
+default_params:
+  window_size: 20
+  step: 8
+  cpd_penalty: "rigid"
+  dtw_dist_fn: euclidean
+  n_breakpoints: 5
+  k_neighbours: 5
+  dist_metric: euclidean
+  smoothing: 0.0
+  threshold: 0.0
+
+val_split: 0.2
+output_dir: baseline_experiments/experiments/ground_truth/kobitski_ew06_w20
+
+metric_weights:
+  chamfer: 0.40
+  hausdorff: 0.20
+  path_smoothness: 0.15
+  temporal_stability: 0.15
+  f1: 0.10
+  knn_consistency: 0.00

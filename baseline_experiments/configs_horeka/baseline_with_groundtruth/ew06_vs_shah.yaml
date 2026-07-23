@@ -1,0 +1,35 @@
+# HoreKa cluster variant of configs/baseline_with_groundtruth/ew06_vs_shah.yaml. Only change: device: cuda.
+# Baseline full eval pipeline (with ground-truth-calibrated params) — Kobitski ew_06 (source) vs Shah
+# sample-1 (target). Alignment + label transfer. default_params below are the MERGE
+# FALLBACK only — baseline_experiments/scripts/run_all.py overrides them at runtime by
+# merging ground_truth/kobitski_ew06 + ground_truth/shah_sample1 best_params.json
+# (see merge_params.py merge_selfcal_params with shah_gt passed twice) and passing the
+# merged dict directly to EvaluationRunner — no optimizer runs in this phase.
+#
+# Scientific purpose: compare cross-embryo performance when HPO is calibrated against a
+# random unseen perturbation (ground_truth) vs. the fixed perturbation (selfcal).
+# Ground-truth params should generalise better to the real Kobitski→Shah task since
+# the HPO was not overfit to a specific known rotation angle.
+data_path: data/external/sample/kobitski_data/12_11_15_embryo_ew_06_Cleaned_BackTracked_Oriented.tracklets
+data_format: tracklets
+max_points_per_frame: 1000  # spatial subsampling - matches HPO configs for comparable eval
+device: "cuda"  # GPU-03: GPU tensor placement for HoreKa runs
+target_data_path: data/external/sample/shah_data/sample-1/sample-1-cell-tracks.csv
+target_data_format: csv
+pipeline_mode: paired
+tier: dev
+run_alignment: true
+run_label_transfer: true
+default_params:
+  window_size: 10
+  step: 8
+  cpd_penalty: "rigid"
+  dtw_dist_fn: euclidean
+  n_breakpoints: 5
+  k_neighbours: 5
+  dist_metric: euclidean
+  smoothing: 0.0
+  threshold: 0.5
+  method: knn_voting
+val_split: 0.2
+output_dir: baseline_experiments/experiments/baseline_with_groundtruth/ew06_vs_shah

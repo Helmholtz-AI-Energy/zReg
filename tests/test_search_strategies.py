@@ -199,7 +199,7 @@ def _build_propulate_mocks(rank=0, world_size=1, population=None):
             return self._k
 
     if population is None:
-        population = [FakeIndividual(float("inf")), FakeIndividual(0.3, k=2)]
+        population = [FakeIndividual(float("inf")), FakeIndividual(0.3, k="2")]
 
     # Propulator mock
     class FakePropulator:
@@ -317,6 +317,81 @@ class TestPropulateSearchMocked:
                 PropulateSearch().search(
                     {"k": [1, 2]}, lambda p: 0.5, n_trials=2, output_dir="/tmp"
                 )
+
+    def test_int_encoded_parameter_decoded_by_index(self, tmp_path):
+        """_decode_param handles int/float category indices (propulate ≥2.x quirk, line 460)."""
+        int_ind = MagicMock()
+        int_ind.loss = 0.3
+        int_ind.__getitem__ = MagicMock(return_value=1)  # int 1 → _originals["k"][1] = 2
+
+        mock_prop, mock_utils, mock_mpi, mock_mpi_cls = _build_propulate_mocks(
+            rank=0, world_size=1, population=[int_ind]
+        )
+        modules = {
+            "propulate": mock_prop,
+            "propulate.utils": mock_utils,
+            "mpi4py": mock_mpi,
+            "mpi4py.MPI": mock_mpi_cls,
+        }
+        with patch.dict(sys.modules, modules):
+            if "eval.search_strategies" in sys.modules:
+                del sys.modules["eval.search_strategies"]
+            from eval.search_strategies import PropulateSearch
+            results = PropulateSearch().search(
+                {"k": [1, 2]},
+                lambda p: 0.5,
+                n_trials=4,
+                output_dir=str(tmp_path),
+            )
+        assert len(results) == 1
+        assert results[0][0]["k"] == 2  # int(1) → _originals["k"][1] = 2
+
+    def test_stale_checkpoint_individual_is_skipped(self, tmp_path, caplog):
+        """Stale checkpoint individual (undecodable params) is skipped with a warning (lines 517-523)."""
+        stale_ind = MagicMock()
+        stale_ind.loss = 0.3
+        stale_ind.__getitem__ = MagicMock(return_value="__stale_not_in_space__")
+
+        class _NoEvalPropulator:
+            """Propulator that simulates a pre-evaluated checkpoint (no loss_fn call)."""
+            def __init__(self, *, loss_fn, propagator, rng, island_comm, generations, checkpoint_path):
+                self.population = [stale_ind]
+            def propulate(self, logging_interval=1):
+                pass  # individual already has loss from prior run
+
+        mock_propulate = types.ModuleType("propulate")
+        mock_propulate.Propulator = _NoEvalPropulator
+        mock_utils = types.ModuleType("propulate.utils")
+        mock_utils.get_default_propagator = MagicMock(return_value=MagicMock())
+        mock_utils.set_logger_config = MagicMock()
+        mock_comm = MagicMock()
+        mock_comm.Get_rank.return_value = 0
+        mock_comm.Get_size.return_value = 1
+        mock_comm.Barrier.return_value = None
+        mock_mpi_mod = types.ModuleType("mpi4py")
+        mock_mpi_cls = types.ModuleType("mpi4py.MPI")
+        mock_mpi_cls.COMM_WORLD = mock_comm
+        mock_mpi_mod.MPI = mock_mpi_cls
+
+        modules = {
+            "propulate": mock_propulate,
+            "propulate.utils": mock_utils,
+            "mpi4py": mock_mpi_mod,
+            "mpi4py.MPI": mock_mpi_cls,
+        }
+        with patch.dict(sys.modules, modules):
+            if "eval.search_strategies" in sys.modules:
+                del sys.modules["eval.search_strategies"]
+            from eval.search_strategies import PropulateSearch
+            with caplog.at_level(logging.WARNING, logger="eval.search_strategies"):
+                results = PropulateSearch().search(
+                    {"k": [1, 2]},
+                    lambda p: 0.5,
+                    n_trials=4,
+                    output_dir=str(tmp_path),
+                )
+        assert results == []
+        assert any("Skipping stale checkpoint" in r.message for r in caplog.records)
 
 
 # ---------------------------------------------------------------------------

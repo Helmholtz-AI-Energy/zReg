@@ -1,0 +1,30 @@
+# HoreKa cluster variant of configs/baseline_with_selfcal/ew12_vs_shah.yaml. No search_strategy field (eval-only, no HPO). Exact copy.
+# Baseline full eval pipeline (with selfcal-calibrated params) — Kobitski ew_12 (source) vs Shah
+# sample-1 (target). Alignment + label transfer. default_params below are the MERGE
+# FALLBACK only — baseline_experiments/scripts/run_all.py overrides them at runtime by
+# merging selfcal/kobitski_ew06_alignment + selfcal/shah_alignment +
+# selfcal/shah_label_transfer best_params.json (see merge_params.py) and passing the
+# merged dict directly to EvaluationRunner — no optimizer runs in this stage.
+data_path: data/external/sample/kobitski_data/12_12_04_embryo_ew_12_Cleaned_BackTracked_Oriented.tracklets
+data_format: tracklets
+max_points_per_frame: 1000  # spatial subsampling - calibrated together with step to fit a ~3-5h total suite runtime, see README.md Runtime section
+device: "cuda"  # GPU-03: GPU tensor placement for HoreKa runs
+target_data_path: data/external/sample/shah_data/sample-1/sample-1-cell-tracks.csv
+target_data_format: csv
+pipeline_mode: paired
+tier: dev
+run_alignment: true
+run_label_transfer: true
+default_params:
+  window_size: 10  # was 60 - too large relative to the 47 strided frames (step=8 below); would degenerate to an unwindowed full sweep. Only used as merge fallback - see file header.
+  step: 8  # temporal downsampling, matches the 5 optimize configs - see README.md Runtime section
+  cpd_penalty: "rigid"
+  dtw_dist_fn: euclidean
+  n_breakpoints: 5
+  k_neighbours: 5
+  dist_metric: euclidean
+  smoothing: 0.0
+  threshold: 0.5
+  method: knn_voting
+val_split: 0.2
+output_dir: baseline_experiments/experiments/baseline_with_selfcal/ew12_vs_shah

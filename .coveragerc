@@ -5,6 +5,15 @@ source = zreg
 omit =
     # Typing protocol with no runtime code (only contains ellipsis)
     */distances/_protocol.py
+    # Test files — measured as test infrastructure, not coverage targets
+    tests/*
+    # Utility/entry-point scripts with no unit-testable logic
+    setup.py
+    create_comparison_pdf.py
+    benchmark_label_transfer.py
+    # Torch-geometric JIT-compiled temp files
+    /private/var/folders/*
+    /tmp/*
 
 [paths]
 source =

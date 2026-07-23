@@ -83,6 +83,106 @@ class TestEvalConfigAlignmentMethodValidation:
             )
 
 
+class TestEvalConfigLabelTransferMethodValidation:
+    """Tests for label_transfer_method field validation."""
+
+    LABEL_TRANSFER_METHOD_MESSAGE = (
+        "label_transfer_method must be 'knn_voting', 'cpd_weighted', 'pointnet2', or 'egnn'"
+    )
+
+    def test_label_transfer_method_invalid_value_raises(self, tmp_path):
+        """Test that invalid label_transfer_method raises ValueError."""
+        with pytest.raises(ValueError, match=self.LABEL_TRANSFER_METHOD_MESSAGE):
+            EvalConfig(
+                data_path=str(tmp_path / "data.mat"),
+                label_transfer_method="invalid_method",
+            )
+
+    def test_label_transfer_method_case_sensitive(self, tmp_path):
+        """Test that label_transfer_method validation is case-sensitive."""
+        with pytest.raises(ValueError, match=self.LABEL_TRANSFER_METHOD_MESSAGE):
+            EvalConfig(
+                data_path=str(tmp_path / "data.mat"),
+                label_transfer_method="KNN_VOTING",  # uppercase should fail
+            )
+
+    def test_label_transfer_method_empty_string_raises(self, tmp_path):
+        """Test that empty string for label_transfer_method raises ValueError."""
+        with pytest.raises(ValueError, match=self.LABEL_TRANSFER_METHOD_MESSAGE):
+            EvalConfig(
+                data_path=str(tmp_path / "data.mat"),
+                label_transfer_method="",
+            )
+
+    def test_label_transfer_method_default_is_knn_voting(self, tmp_path):
+        """Test that label_transfer_method defaults to 'knn_voting'."""
+        config = EvalConfig(data_path=str(tmp_path / "data.mat"))
+        assert config.label_transfer_method == "knn_voting"
+
+    def test_label_transfer_method_cpd_weighted_valid(self, tmp_path):
+        """Test that label_transfer_method='cpd_weighted' can be set explicitly."""
+        config = EvalConfig(
+            data_path=str(tmp_path / "data.mat"),
+            label_transfer_method="cpd_weighted",
+        )
+        assert config.label_transfer_method == "cpd_weighted"
+
+    def test_label_transfer_method_pointnet2_valid(self, tmp_path):
+        """Test that label_transfer_method='pointnet2' can be set explicitly."""
+        config = EvalConfig(
+            data_path=str(tmp_path / "data.mat"),
+            label_transfer_method="pointnet2",
+        )
+        assert config.label_transfer_method == "pointnet2"
+
+    def test_label_transfer_method_egnn_valid(self, tmp_path):
+        """Test that label_transfer_method='egnn' can be set explicitly."""
+        config = EvalConfig(
+            data_path=str(tmp_path / "data.mat"),
+            label_transfer_method="egnn",
+        )
+        assert config.label_transfer_method == "egnn"
+
+
+class TestEvalConfigCheckpointPathFields:
+    """Phase 48: egnn_checkpoint_path / pointnet2_checkpoint_path fields (D-02)."""
+
+    def test_checkpoint_paths_default_to_none(self, tmp_path):
+        """Both checkpoint-path fields default to None when unset."""
+        config = EvalConfig(data_path=str(tmp_path / "data.mat"))
+        assert config.egnn_checkpoint_path is None
+        assert config.pointnet2_checkpoint_path is None
+
+    def test_checkpoint_paths_independently_settable(self, tmp_path):
+        """Both checkpoint-path fields can be set to distinct values independently."""
+        config = EvalConfig(
+            data_path=str(tmp_path / "data.mat"),
+            egnn_checkpoint_path=str(tmp_path / "egnn.pt"),
+            pointnet2_checkpoint_path=str(tmp_path / "pointnet2.pt"),
+        )
+        assert config.egnn_checkpoint_path == str(tmp_path / "egnn.pt")
+        assert config.pointnet2_checkpoint_path == str(tmp_path / "pointnet2.pt")
+
+    def test_checkpoint_paths_construction_does_not_require_existing_files(self, tmp_path):
+        """Construction succeeds even when checkpoint paths point at nonexistent files.
+
+        Existence is validated at LabelTransferStage.run() call time (Pitfall 4),
+        mirroring target_data_path's use-time validation (D-05) — not here.
+        """
+        nonexistent_egnn = str(tmp_path / "does_not_exist_egnn.pt")
+        nonexistent_pointnet2 = str(tmp_path / "does_not_exist_pointnet2.pt")
+        assert not Path(nonexistent_egnn).exists()
+        assert not Path(nonexistent_pointnet2).exists()
+
+        config = EvalConfig(
+            data_path=str(tmp_path / "data.mat"),
+            egnn_checkpoint_path=nonexistent_egnn,
+            pointnet2_checkpoint_path=nonexistent_pointnet2,
+        )
+        assert config.egnn_checkpoint_path == nonexistent_egnn
+        assert config.pointnet2_checkpoint_path == nonexistent_pointnet2
+
+
 class TestEvalConfigYAMLLoading:
     """Tests for loading alignment_method from YAML files."""
 
@@ -226,3 +326,101 @@ class TestAlignmentPreprocessingConfig:
         """EvalConfig.alignment_preprocessing defaults to None (backward compatible)."""
         config = EvalConfig(data_path=str(tmp_path / "x.mat"))
         assert config.alignment_preprocessing is None
+
+
+class TestEvalConfigDevice:
+    """Phase 53: device field validation — GPU-01 / D-01 / D-02."""
+
+    def test_device_default_is_cpu(self, tmp_path):
+        """EvalConfig constructed without device field defaults to 'cpu'."""
+        config = EvalConfig(data_path=str(tmp_path / "data.mat"))
+        assert config.device == "cpu"
+
+    def test_device_cpu_explicit(self, tmp_path):
+        """device='cpu' can be set explicitly and round-trips correctly."""
+        config = EvalConfig(data_path=str(tmp_path / "data.mat"), device="cpu")
+        assert config.device == "cpu"
+
+    def test_device_cuda_accepted(self, tmp_path):
+        """device='cuda' is accepted at construction time."""
+        config = EvalConfig(data_path=str(tmp_path / "data.mat"), device="cuda")
+        assert config.device == "cuda"
+
+    def test_device_cuda_0_accepted(self, tmp_path):
+        """device='cuda:0' is accepted at construction time."""
+        config = EvalConfig(data_path=str(tmp_path / "data.mat"), device="cuda:0")
+        assert config.device == "cuda:0"
+
+    def test_device_cuda_1_accepted(self, tmp_path):
+        """device='cuda:1' is accepted at construction time."""
+        config = EvalConfig(data_path=str(tmp_path / "data.mat"), device="cuda:1")
+        assert config.device == "cuda:1"
+
+    def test_device_mps_accepted(self, tmp_path):
+        """device='mps' is accepted at construction time."""
+        config = EvalConfig(data_path=str(tmp_path / "data.mat"), device="mps")
+        assert config.device == "mps"
+
+    def test_device_invalid_raises(self, tmp_path):
+        """device='gpu' (not in whitelist) raises ValueError at construction time."""
+        with pytest.raises(ValueError, match="device must be one of"):
+            EvalConfig(data_path=str(tmp_path / "data.mat"), device="gpu")
+
+    def test_device_cuda_7_raises(self, tmp_path):
+        """device='cuda:7' (not in whitelist) raises ValueError at construction time."""
+        with pytest.raises(ValueError, match="device must be one of"):
+            EvalConfig(data_path=str(tmp_path / "data.mat"), device="cuda:7")
+
+    def test_device_yaml_round_trip(self, tmp_path):
+        """YAML with device: 'cuda' round-trips through EvalConfig.from_yaml."""
+        yaml_path = tmp_path / "config.yaml"
+        yaml_content = {
+            "data_path": str(tmp_path / "data.mat"),
+            "device": "cuda",
+        }
+        with open(yaml_path, "w") as f:
+            import yaml as _yaml
+            _yaml.dump(yaml_content, f)
+        config = EvalConfig.from_yaml(str(yaml_path))
+        assert config.device == "cuda"
+
+
+class TestEvalConfigDeviceICPGuard:
+    """Phase 53: device / alignment_method cross-field incompatibility guard — D-05."""
+
+    def test_device_cuda_plus_icp_raises(self, tmp_path):
+        """device='cuda' + alignment_method='icp' raises ValueError (D-05)."""
+        with pytest.raises(ValueError, match="incompatible with alignment_method='icp'"):
+            EvalConfig(
+                data_path=str(tmp_path / "data.mat"),
+                device="cuda",
+                alignment_method="icp",
+            )
+
+    def test_device_mps_plus_icp_raises(self, tmp_path):
+        """device='mps' + alignment_method='icp' raises ValueError (D-05)."""
+        with pytest.raises(ValueError, match="incompatible with alignment_method='icp'"):
+            EvalConfig(
+                data_path=str(tmp_path / "data.mat"),
+                device="mps",
+                alignment_method="icp",
+            )
+
+    def test_device_cuda_plus_cpd_succeeds(self, tmp_path):
+        """device='cuda' + alignment_method='cpd' constructs successfully."""
+        config = EvalConfig(
+            data_path=str(tmp_path / "data.mat"),
+            device="cuda",
+            alignment_method="cpd",
+        )
+        assert config.device == "cuda"
+
+    def test_device_cpu_plus_icp_succeeds(self, tmp_path):
+        """device='cpu' + alignment_method='icp' constructs successfully (no guard)."""
+        config = EvalConfig(
+            data_path=str(tmp_path / "data.mat"),
+            device="cpu",
+            alignment_method="icp",
+        )
+        assert config.device == "cpu"
+        assert config.alignment_method == "icp"

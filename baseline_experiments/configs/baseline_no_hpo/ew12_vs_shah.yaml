@@ -1,0 +1,24 @@
+# Baseline full eval pipeline (no HPO) — Kobitski ew_12 (source) vs Shah
+# sample-1 (target). Alignment + label transfer, config default_params only —
+# no optimizer run, no best_params.json anywhere in this run's output_dir.
+data_path: data/external/sample/kobitski_data/12_12_04_embryo_ew_12_Cleaned_BackTracked_Oriented.tracklets
+data_format: tracklets
+target_data_path: data/external/sample/shah_data/sample-1/sample-1-cell-tracks.csv
+target_data_format: csv
+pipeline_mode: paired
+tier: dev
+run_alignment: true
+run_label_transfer: true
+default_params:
+  window_size: 60
+  step: 1
+  cpd_penalty: "rigid"
+  dtw_dist_fn: euclidean
+  n_breakpoints: 5
+  k_neighbours: 5
+  dist_metric: euclidean
+  smoothing: 0.0
+  threshold: 0.5
+  method: knn_voting
+val_split: 0.2
+output_dir: baseline_experiments/experiments/baseline_no_hpo/ew12_vs_shah

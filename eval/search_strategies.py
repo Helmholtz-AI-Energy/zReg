@@ -441,13 +441,32 @@ class PropulateSearch:
         if warm_start:
             _log.info("PropulateSearch: warm_start ignored (D-09)")
 
-        # D-07: convert lists → tuples for Propulate's limits format
-        limits = {k: tuple(v) for k, v in search_space.items()}
+        # D-07: convert lists → tuples for Propulate's limits format.
+        # Propulate infers parameter type from the first element: str→categorical,
+        # int→ordinal range (min, max), float→continuous interval (min, max).
+        # All our params are discrete choice lists, so force categorical by encoding
+        # every value as a string. Decode by index-lookup against the original list
+        # to restore the original Python type (int, float, None, str) before the
+        # objective function receives the params.
+        _originals: dict[str, list] = {k: list(vals) for k, vals in search_space.items()}
+
+        def _encode(v) -> str:
+            return "__none__" if v is None else str(v)
+
+        def _decode_param(key: str, encoded):
+            # Some propulate versions return a float/int category index rather than
+            # the string label. Fall back to positional lookup in that case.
+            if isinstance(encoded, (int, float)):
+                return _originals[key][int(encoded)]
+            encoded_list = [_encode(x) for x in _originals[key]]
+            return _originals[key][encoded_list.index(encoded)]
+
+        limits = {k: tuple(_encode(v) for v in vals) for k, vals in search_space.items()}
 
         # D-08: closure inverts sign because Propulate minimises; framework maximises
         def _loss(ind) -> float:
             # Use explicit comprehension — Individual is not a dict subclass (Pitfall 1)
-            params = {k: ind[k] for k in search_space}
+            params = {k: _decode_param(k, ind[k]) for k in search_space}
             return -objective_fn(params)
 
         # Per-rank reproducibility: deterministic seed offset keeps ranks independent
@@ -493,7 +512,15 @@ class PropulateSearch:
             # Pitfall 2: skip unevaluated stragglers (loss defaults to float("inf"))
             if ind.loss == float("inf"):
                 continue
-            params = {k: ind[k] for k in search_space}
+            try:
+                params = {k: _decode_param(k, ind[k]) for k in search_space}
+            except (ValueError, IndexError):
+                # Stale checkpoint individual from an older search space (e.g. a param
+                # that previously allowed None/'__none__' but no longer does). Safe to
+                # skip — these individuals were evaluated under a different config and
+                # their scores are not meaningful for the current search space.
+                _log.warning("Skipping stale checkpoint individual (undecodable params): %s", dict(ind))
+                continue
             score = -ind.loss  # D-08: invert sign back to maximisation scale
             results.append((params, score))
         return results

@@ -1,0 +1,5 @@
+{
+  "cpd_trial_seconds": {},
+  "_instructions": "[VERIFY ON HOREKA] Fill after running: python baseline_experiments/scripts/extract_calibration.py path/to/search_history.json. Replace this file with: {\"cpd_trial_seconds\": {\"5\": <seconds>, \"10\": <seconds>, \"20\": <seconds>}, \"no_cpd_trial_seconds\": <seconds>, \"label_transfer_overhead_seconds\": <seconds>, \"_source\": \"Measured on HoreKa GPU ...\"}",
+  "_source": "[VERIFY ON HOREKA] Placeholder — timing constants not yet measured on HoreKa GPU. Run extract_calibration.py on HoreKa search history output and populate cpd_trial_seconds, no_cpd_trial_seconds, label_transfer_overhead_seconds before using this file for projection."
+}

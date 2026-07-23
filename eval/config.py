@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 __all__ = ["EvalConfig", "EvalConfigError", "AlignmentPreprocessingConfig", "DataPreprocessingConfig"]
 
@@ -217,6 +217,12 @@ class EvalConfig(BaseModel):
         SWD variant for spatial alignment when ``alignment_method='swd'``. Accepted values:
         ``'swd'``, ``'aswd'``, ``'oswd'``, ``'gswd'``, ``'pswd'``, ``'maxswd'``.
         Default ``'aswd'``. Only validated when ``alignment_method='swd'``.
+    label_transfer_method : str
+        Label transfer method used by ``LabelTransferStage`` when the stage's
+        ``params`` dict omits ``"method"``: ``'knn_voting'`` (k-nearest-neighbour
+        majority vote, existing default behaviour) or ``'cpd_weighted'``
+        (CPD E-step posterior-weighted average, requires ``AlignResult.estep_results``
+        for the frame pair being processed). Default ``'knn_voting'``.
     data_preprocessing : DataPreprocessingConfig or None
         Per-trajectory data scaling applied after subsampling in
         ``DataFactory.load_real()`` and ``DataFactory.load_target()``.  Only
@@ -275,6 +281,30 @@ class EvalConfig(BaseModel):
     swd_variant: str = Field(
         default="aswd",
         description="SWD variant for alignment_method='swd': 'swd', 'aswd', 'oswd', 'gswd', 'pswd', or 'maxswd'"
+    )
+    label_transfer_method: str = Field(
+        default="knn_voting",
+        description="Label transfer method: 'knn_voting', 'cpd_weighted', 'pointnet2', or 'egnn'"
+    )
+    device: str = Field(
+        default="cpu",
+        description="Compute device: 'cpu', 'cuda', 'cuda:0', 'cuda:1', or 'mps'"
+    )
+    egnn_checkpoint_path: str | None = Field(
+        default=None,
+        description=(
+            "Path to a Phase 47 eGNN checkpoint (.pt), required when "
+            "label_transfer_method='egnn'. Validated at LabelTransferStage.run() call "
+            "time, not at EvalConfig construction (mirrors target_data_path, D-05)."
+        ),
+    )
+    pointnet2_checkpoint_path: str | None = Field(
+        default=None,
+        description=(
+            "Path to a Phase 47 PointNet++ checkpoint (.pt), required when "
+            "label_transfer_method='pointnet2'. Validated at LabelTransferStage.run() call "
+            "time, not at EvalConfig construction (mirrors target_data_path, D-05)."
+        ),
     )
     alignment_preprocessing: AlignmentPreprocessingConfig | None = None
     data_preprocessing: DataPreprocessingConfig | None = Field(
@@ -372,3 +402,84 @@ class EvalConfig(BaseModel):
                     f"swd_variant must be one of {{'swd', 'aswd', 'oswd', 'gswd', 'pswd', 'maxswd'}}; got {v!r}"
                 )
         return v
+
+    @field_validator("label_transfer_method")
+    @classmethod
+    def validate_label_transfer_method(cls, v: str) -> str:
+        """Validate that label_transfer_method is one of the four supported methods.
+
+        Parameters
+        ----------
+        v : str
+            The label_transfer_method value to validate.
+
+        Returns
+        -------
+        str
+            The validated label_transfer_method value.
+
+        Raises
+        ------
+        ValueError
+            If label_transfer_method is not 'knn_voting', 'cpd_weighted',
+            'pointnet2', or 'egnn'.
+        """
+        if v not in ("knn_voting", "cpd_weighted", "pointnet2", "egnn"):
+            raise ValueError(
+                "label_transfer_method must be 'knn_voting', 'cpd_weighted', "
+                f"'pointnet2', or 'egnn'; got {v!r}"
+            )
+        return v
+
+    @field_validator("device")
+    @classmethod
+    def validate_device(cls, v: str) -> str:
+        """Validate that device is one of the supported compute device identifiers.
+
+        Parameters
+        ----------
+        v : str
+            The device value to validate.
+
+        Returns
+        -------
+        str
+            The validated device value.
+
+        Raises
+        ------
+        ValueError
+            If device is not one of 'cpu', 'cuda', 'cuda:0', 'cuda:1', or 'mps'.
+        """
+        _VALID_DEVICES = {"cpu", "cuda", "cuda:0", "cuda:1", "mps"}
+        if v not in _VALID_DEVICES:
+            raise ValueError(
+                f"device must be one of {{'cpu', 'cuda', 'cuda:0', 'cuda:1', 'mps'}}; got {v!r}"
+            )
+        return v
+
+    @model_validator(mode="after")
+    def validate_device_icp_compat(self) -> "EvalConfig":
+        """Raise ValueError when device is not 'cpu' and alignment_method is 'icp'.
+
+        Open3D ICP requires CPU-resident tensors and performs explicit
+        .cpu().numpy() round-trips in icp.py (lines 114-115 and 196-197).
+        Requesting a non-CPU device with ICP is therefore always an error.
+
+        Returns
+        -------
+        EvalConfig
+            The validated model instance (self).
+
+        Raises
+        ------
+        ValueError
+            If device is not 'cpu' and alignment_method is 'icp'.
+        """
+        if self.device != "cpu" and self.alignment_method == "icp":
+            raise ValueError(
+                f"device='{self.device}' is incompatible with alignment_method='icp': "
+                "Open3D ICP requires CPU-resident tensors "
+                "(explicit .cpu().numpy() round-trips in icp.py:114-115, 196-197)"
+            )
+        return self

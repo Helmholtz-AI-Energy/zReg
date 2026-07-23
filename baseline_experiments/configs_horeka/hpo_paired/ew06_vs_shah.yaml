@@ -1,0 +1,63 @@
+# HPO directly on the cross-embryo paired task — Kobitski ew_06 (source) vs Shah sample-1 (target).
+# Alignment + label transfer (kNN voting). No synthetic perturbation — optimizer scores trials
+# on proxy metrics (chamfer, hausdorff, path smoothness, temporal stability) plus label transfer
+# accuracy (f1, knn_consistency) using Shah's per-cell "id" labels on the held-out val split.
+#
+# Unlike selfcal/ground_truth configs this is pipeline_mode: paired, so there is no known ground
+# truth transform — the optimizer minimises the weighted metric composite directly on real data.
+#
+# search_strategy: auto resolves to propulate when SLURM_JOB_ID is set (see eval/runners/optimizer.py).
+#
+# Output lands in a timestamped subdirectory of output_dir (run_eval.py appends %Y-%m-%d_%H-%M-%S).
+# best_params.json is written there by rank 0 after the propulate collective completes.
+#
+# Submit: sbatch baseline_experiments/scripts/launch_horeka_hpo_paired.sbatch
+
+data_path: data/external/sample/kobitski_data/12_11_15_embryo_ew_06_Cleaned_BackTracked_Oriented.tracklets
+data_format: tracklets
+target_data_path: data/external/sample/shah_data/sample-1/sample-1-cell-tracks.csv
+target_data_format: csv
+pipeline_mode: paired
+device: "cuda"
+max_points_per_frame: 1000
+run_alignment: true
+run_label_transfer: true
+
+tier: dev
+n_trials: 50  # inert at tier=dev (dev tier fixes 20 trials); kept for when tier is raised to full
+search_strategy: auto
+n_synthetic: 0
+
+search_space:
+  cpd_penalty: ["rigid"]
+  window_size: [5, 10]
+  step: [8]  # fixed temporal downsampling — single-value list so every trial uses step=8
+  dtw_dist_fn: [euclidean]
+  k_neighbours: [3, 5, 10]
+  dist_metric: [euclidean]
+  smoothing: [0.0, 0.1, 0.3]
+  threshold: [0.0, 0.3, 0.5]
+  method: ["knn_voting"]
+
+default_params:
+  window_size: 10
+  step: 8
+  cpd_penalty: "rigid"
+  dtw_dist_fn: euclidean
+  n_breakpoints: 5
+  k_neighbours: 5
+  dist_metric: euclidean
+  smoothing: 0.0
+  threshold: 0.5
+  method: knn_voting
+
+val_split: 0.2
+output_dir: baseline_experiments/experiments/hpo_paired/ew06_vs_shah
+
+metric_weights:
+  chamfer: 0.30
+  hausdorff: 0.15
+  path_smoothness: 0.10
+  temporal_stability: 0.10
+  f1: 0.25
+  knn_consistency: 0.10

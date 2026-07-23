@@ -399,11 +399,15 @@ def main(argv=None) -> int:
         # Update CPD_TRIAL_SECONDS in-place so _nearest_cpd_cost() picks up new values.
         # Accept both bare-float form (laptop.json) and dict form {"seconds": float, "extrapolated": bool}
         # emitted by extract_calibration.py (D-03 / Plan 54-02 output contract).
+        # Guard: skip entries where the resolved seconds value is None (e.g. a legacy
+        # calibration file that was written before extract_calibration.py was fixed to
+        # omit null entries) so null values never reach _nearest_cpd_cost() arithmetic.
         CPD_TRIAL_SECONDS.update({
             int(k): (v["seconds"] if isinstance(v, dict) else v)
             for k, v in data.get("cpd_trial_seconds", {}).items()
+            if (v["seconds"] if isinstance(v, dict) else v) is not None
         })
-        if "no_cpd_trial_seconds" in data:
+        if "no_cpd_trial_seconds" in data and data["no_cpd_trial_seconds"] is not None:
             NO_CPD_TRIAL_SECONDS = data["no_cpd_trial_seconds"]
         if "label_transfer_overhead_seconds" in data:
             LABEL_TRANSFER_OVERHEAD_SECONDS = data["label_transfer_overhead_seconds"]

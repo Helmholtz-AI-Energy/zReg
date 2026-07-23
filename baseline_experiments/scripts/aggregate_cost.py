@@ -397,7 +397,12 @@ def main(argv=None) -> int:
         with open(args.calibration) as f:
             data = json.load(f)
         # Update CPD_TRIAL_SECONDS in-place so _nearest_cpd_cost() picks up new values.
-        CPD_TRIAL_SECONDS.update({int(k): v for k, v in data.get("cpd_trial_seconds", {}).items()})
+        # Accept both bare-float form (laptop.json) and dict form {"seconds": float, "extrapolated": bool}
+        # emitted by extract_calibration.py (D-03 / Plan 54-02 output contract).
+        CPD_TRIAL_SECONDS.update({
+            int(k): (v["seconds"] if isinstance(v, dict) else v)
+            for k, v in data.get("cpd_trial_seconds", {}).items()
+        })
         if "no_cpd_trial_seconds" in data:
             NO_CPD_TRIAL_SECONDS = data["no_cpd_trial_seconds"]
         if "label_transfer_overhead_seconds" in data:

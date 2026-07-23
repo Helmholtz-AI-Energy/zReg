@@ -181,3 +181,50 @@ def test_verdict_line_at_top(tmp_path, monkeypatch):
         f"First line of compute_cost.md should start with WITHIN or EXCEEDS, got: {first_line!r}"
     )
     _fresh_module()
+
+
+# ── CR-01 regression: null calibration values must not crash arithmetic ───────
+
+
+def test_calibration_null_cpd_seconds_does_not_crash(tmp_path, monkeypatch):
+    """Calibration with null seconds values (no CPD trials seen) must not crash.
+
+    Regression guard for CR-01: a legacy calibration file (written before
+    extract_calibration.py was fixed to omit null entries) may still contain
+    {"seconds": null, "extrapolated": true} dict values. aggregate_cost.py
+    must silently skip those entries rather than propagating None into
+    _avg_trial_seconds() arithmetic.
+    """
+    cal_path = _calfile(tmp_path, {
+        "cpd_trial_seconds": {
+            "5": {"seconds": None, "extrapolated": True},
+        },
+        "no_cpd_trial_seconds": 4.0,
+    })
+    mod = _fresh_module()
+    monkeypatch.setattr(mod, "EXPERIMENTS_ROOT", tmp_path)
+    try:
+        mod.main(["--calibration", str(cal_path)])
+    except SystemExit:
+        pass
+    # Should not raise TypeError — the null entry must be skipped.
+    _fresh_module()
+
+
+def test_calibration_null_no_cpd_seconds_does_not_crash(tmp_path, monkeypatch):
+    """Calibration with null no_cpd_trial_seconds must not crash.
+
+    Regression guard for CR-01: when no no-CPD trials were observed,
+    extract_calibration.py emits "no_cpd_trial_seconds": null. aggregate_cost.py
+    must skip the assignment rather than storing None into NO_CPD_TRIAL_SECONDS
+    and crashing at (1 - frac_cpd) * None.
+    """
+    cal_path = _calfile(tmp_path, {"no_cpd_trial_seconds": None})
+    mod = _fresh_module()
+    monkeypatch.setattr(mod, "EXPERIMENTS_ROOT", tmp_path)
+    try:
+        mod.main(["--calibration", str(cal_path)])
+    except SystemExit:
+        pass
+    # Should not raise TypeError — the null value must be ignored.
+    _fresh_module()

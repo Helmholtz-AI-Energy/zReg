@@ -302,7 +302,7 @@ def create_pairwise_distance_matrix(
         times["total"] = []
 
         # Release CUDA allocator cache after each row so del'd CPD tensors are freed promptly
-        if cpd_type is not None and torch.cuda.is_available():
+        if cpd_type is not None and torch.cuda.is_available():  # pragma: no cover
             torch.cuda.empty_cache()
 
         # sync up mpi things

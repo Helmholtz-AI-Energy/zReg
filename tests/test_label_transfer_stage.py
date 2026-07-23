@@ -986,3 +986,18 @@ class TestPreTransferAlignmentChamferEmptyFrames:
         # Call _check_alignment directly to avoid k_neighbours validation on empty data
         result = stage._check_alignment(source, target)
         assert result == 0.0
+
+
+class TestLabelTransferStageCorruptedCheckpoint:
+    """lines 260-261: torch.load failure raises ValueError with 'failed to load'."""
+
+    def test_corrupted_checkpoint_raises_value_error(self, tmp_path, good_params, synthetic_dataset):
+        corrupted = tmp_path / "bad.pt"
+        corrupted.write_text("not a valid pytorch file")
+        config = EvalConfig(
+            data_path=str(tmp_path / "unused.mat"),
+            pointnet2_checkpoint_path=str(corrupted),
+        )
+        stage = LabelTransferStage(config)
+        with pytest.raises(ValueError, match="failed to load"):
+            stage.run(synthetic_dataset, synthetic_dataset, {**good_params, "method": "pointnet2"})

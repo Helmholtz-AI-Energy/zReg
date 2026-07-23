@@ -133,7 +133,7 @@ class DataFactory:
                         f"DataFactory: config.device={config.device!r} requested "
                         "but torch.cuda.is_available() is False"
                     )
-            elif config.device == "mps":
+            elif config.device == "mps":  # pragma: no cover
                 if not torch.backends.mps.is_available():
                     raise RuntimeError(
                         f"DataFactory: config.device={config.device!r} requested "

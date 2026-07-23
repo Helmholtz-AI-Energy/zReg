@@ -256,6 +256,44 @@ class TestCLIParamSource:
             "No best_params.json found" in rec.message for rec in caplog.records
         )
 
+    @patch("run_eval.EvaluationRunner")
+    def test_load_best_params_empty_json_falls_back_to_defaults(
+        self, MockRunner, minimal_cfg_path, tmp_path, caplog
+    ) -> None:
+        """When best_params.json exists but is empty {}, CLI uses config defaults (branch 119->122)."""
+        out_dir = tmp_path / "out"
+        stamped_dir = out_dir / _FIXED_STAMP
+        stamped_dir.mkdir(parents=True, exist_ok=True)
+        (stamped_dir / "best_params.json").write_text("{}")
+
+        MockRunner.return_value = MagicMock()
+
+        with patch("run_eval.datetime") as mock_dt:
+            mock_dt.now.return_value.strftime.return_value = _FIXED_STAMP
+            with caplog.at_level(logging.INFO, logger="run_eval"):
+                rc = run_eval.main([
+                    "--config", str(minimal_cfg_path),
+                    "--mode", "eval",
+                    "--output-dir", str(out_dir),
+                    "--verbose",
+                ])
+
+        assert rc == 0
+        assert any("No best_params.json found" in rec.message for rec in caplog.records)
+
+    @patch("run_eval.EvaluationRunner")
+    def test_eval_mode_without_output_dir_uses_config_default(
+        self, MockRunner, minimal_cfg_path
+    ) -> None:
+        """main() without --output-dir uses config.output_dir default (branch 155->157)."""
+        MockRunner.return_value = MagicMock()
+        rc = run_eval.main([
+            "--config", str(minimal_cfg_path),
+            "--mode", "eval",
+        ])
+        assert rc == 0
+        MockRunner.assert_called_once()
+
 
 _REPO_ROOT = Path(__file__).parent.parent
 

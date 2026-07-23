@@ -40,7 +40,7 @@ import torch
 
 from eval.config import EvalConfig
 from eval.data_factory import DataFactory
-from train_label_transfer import resolve_device, save_checkpoint, train_step
+from train_label_transfer import _build_parser, main, resolve_device, save_checkpoint, train_step
 from zreg.models import EGNNLabelTransfer, PointNet2LabelTransfer
 
 N_CLASSES = 4
@@ -97,6 +97,15 @@ def test_resolve_device_explicit_arg_takes_precedence():
 def test_resolve_device_auto_detect_returns_known_backend():
     device = resolve_device(None)
     assert device.type in ("cuda", "mps", "cpu")
+
+
+def test_resolve_device_falls_back_to_cpu_when_no_accelerator():
+    """resolve_device(None) returns cpu when neither CUDA nor MPS is available (line 112)."""
+    from unittest.mock import patch
+    with patch("torch.cuda.is_available", return_value=False), \
+         patch("torch.backends.mps.is_available", return_value=False):
+        device = resolve_device(None)
+    assert device == torch.device("cpu")
 
 
 # ---------------------------------------------------------------------------
@@ -201,3 +210,54 @@ def test_mps_train_step_runs_on_mps(model_name):
     landed_device = next(model.parameters()).device
     assert landed_device.type == "mps", f"expected mps, got {landed_device.type}"
     print(f"\n[smoke] {model_name} MPS iteration OK, device={landed_device}, loss={loss:.4f}")
+
+
+# ---------------------------------------------------------------------------
+# _build_parser and main (CLI entry point)
+# ---------------------------------------------------------------------------
+
+
+def test_build_parser_accepts_required_args():
+    parser = _build_parser()
+    args = parser.parse_args(["--model", "pointnet2"])
+    assert args.model == "pointnet2"
+    assert args.epochs == 1
+    assert args.n_seeds == 8
+    assert args.n_classes == 6
+    assert args.hidden_dim == 32
+    assert args.checkpoint_dir == "checkpoints"
+
+
+def test_build_parser_rejects_unknown_model(capsys):
+    parser = _build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--model", "unknown"])
+
+
+@pytest.mark.parametrize("model_name", MODEL_NAMES)
+def test_main_runs_and_saves_checkpoint(model_name, tmp_path):
+    rc = main([
+        "--model", model_name,
+        "--epochs", "1",
+        "--n-seeds", "2",
+        "--n-classes", "4",
+        "--hidden-dim", "8",
+        "--checkpoint-dir", str(tmp_path / "ckpts"),
+    ])
+    assert rc == 0
+    assert len(list((tmp_path / "ckpts").glob("*.pt"))) == 1
+
+
+def test_main_validates_epochs_zero():
+    with pytest.raises(ValueError, match="--epochs"):
+        main(["--model", "pointnet2", "--epochs", "0", "--checkpoint-dir", "/tmp"])
+
+
+def test_main_validates_n_seeds_zero():
+    with pytest.raises(ValueError, match="--n-seeds"):
+        main(["--model", "pointnet2", "--n-seeds", "0", "--checkpoint-dir", "/tmp"])
+
+
+def test_main_validates_n_classes_one():
+    with pytest.raises(ValueError, match="--n-classes"):
+        main(["--model", "pointnet2", "--n-classes", "1", "--checkpoint-dir", "/tmp"])

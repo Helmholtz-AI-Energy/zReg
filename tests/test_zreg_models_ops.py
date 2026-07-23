@@ -105,3 +105,12 @@ def test_ops_device_agnostic_cpu():
 
     edge_index = build_radius_graph(pos, radius=0.3, max_neighbors=16)
     assert edge_index.device == pos.device
+
+
+def test_ball_query_zero_max_neighbors_triggers_isolated_guard():
+    """max_neighbors=0 truncates all radius results → isolated-point guard fires → [i] (line 85)."""
+    pos = torch.randn(10, 3)
+    center_idx = torch.tensor([0])
+    groups = ball_query(pos, center_idx, radius=5.0, max_neighbors=0)
+    assert len(groups) == 1
+    assert groups[0].tolist() == [0]

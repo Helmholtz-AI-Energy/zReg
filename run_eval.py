@@ -58,13 +58,13 @@ from pathlib import Path
 # eval/ is a namespace directory (no __init__.py); this insertion makes
 # `from eval.X import ...` work without a package install (D-07 / Pitfall 2).
 _repo_root = Path(__file__).parent
-if str(_repo_root) not in sys.path:
+if str(_repo_root) not in sys.path:  # pragma: no cover
     sys.path.insert(0, str(_repo_root))
 
 # src/ insertion — makes `from zreg.X import ...` work when zreg is not
 # installed as a package (src layout convention, mirrors conftest.py).
 _src_root = _repo_root / "src"
-if str(_src_root) not in sys.path:
+if str(_src_root) not in sys.path:  # pragma: no cover
     sys.path.insert(0, str(_src_root))
 
 from eval.config import EvalConfig, EvalConfigError
@@ -177,7 +177,7 @@ def main(argv=None) -> int:
     elif args.mode == "eval":
         params = _load_best_params(config.output_dir, fallback=config.default_params)
         EvaluationRunner(config, params).run()
-    elif args.mode == "full":
+    else:  # args.mode == "full"
         # Pitfall 5: optimizer writes best_params.json; read it AFTER
         HyperparamOptimizer(config).run()
         params = _load_best_params(config.output_dir, fallback=config.default_params)

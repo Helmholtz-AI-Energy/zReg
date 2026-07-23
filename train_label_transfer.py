@@ -53,10 +53,10 @@ import sys
 from pathlib import Path
 
 _repo_root = Path(__file__).parent
-if str(_repo_root) not in sys.path:
+if str(_repo_root) not in sys.path:  # pragma: no cover
     sys.path.insert(0, str(_repo_root))
 _src_root = _repo_root / "src"
-if str(_src_root) not in sys.path:
+if str(_src_root) not in sys.path:  # pragma: no cover
     sys.path.insert(0, str(_src_root))
 
 # zreg (a scipy-importing module) must be imported before torch/torch_geometric
@@ -105,9 +105,9 @@ def resolve_device(arg: str | None) -> torch.device:
     """
     if arg is not None:
         return torch.device(arg)
-    if torch.cuda.is_available():
+    if torch.cuda.is_available():  # pragma: no cover
         return torch.device("cuda")
-    if torch.backends.mps.is_available():
+    if torch.backends.mps.is_available():  # pragma: no cover
         return torch.device("mps")
     return torch.device("cpu")
 

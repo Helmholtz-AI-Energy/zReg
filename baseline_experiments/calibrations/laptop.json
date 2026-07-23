@@ -1,0 +1,10 @@
+{
+  "cpd_trial_seconds": {
+    "5": 130.5,
+    "10": 176.5,
+    "20": 278.6
+  },
+  "no_cpd_trial_seconds": 4.0,
+  "label_transfer_overhead_seconds": 30.0,
+  "_source": "Measured 2026-07-15 on MacBook laptop CPU (single-threaded) against real Kobitski ew_06 data with max_points_per_frame=1000, step=8 (47 strided frames). A single rigid-CPD alignment trial (create_pairwise_distance_matrix called directly, bypassing the optimizer) took 130.5s / 176.5s / 278.6s at window_size=5/10/20 respectively; a no-CPD (cpd_penalty: null) trial took ~4s regardless of window. label_transfer_overhead_seconds is an unverified rough placeholder for KNN-based LabelTransferStage cost per trial."
+}

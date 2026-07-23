@@ -3,10 +3,10 @@
 # Runs alignment + kNN label transfer HPO directly on real paired data (no synthetic
 # perturbation). Optimizer scores trials on proxy metrics + Shah label accuracy.
 #
-# Uses run_eval.py --mode optimize (not run_all.py) — a single srun call, no phase
-# orchestration needed. best_params.json is written to a timestamped subdirectory of
-# baseline_experiments/experiments/hpo_paired/ew06_vs_shah/ by rank 0 after the
-# propulate collective completes.
+# Uses run_eval.py --mode full (not run_all.py) — a single srun call, no phase
+# orchestration needed. Runs HPO then a final eval pass with best_params on rank 0.
+# best_params.json and eval_report.json are written to a timestamped subdirectory of
+# baseline_experiments/experiments/hpo_paired/ew06_vs_shah/ by rank 0.
 #
 # Runtime estimate (8 ranks / 2 nodes, GPU-accelerated, step=8, max_points=1000):
 #   Paired Kobitski→Shah, 20 dev trials, rigid CPD, window=[5,10]: ~30–90 min
@@ -43,5 +43,5 @@ export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
 srun --mpi=pmix --label \
   "$VENV/bin/python" -u run_eval.py \
     --config baseline_experiments/configs_horeka/hpo_paired/ew06_vs_shah.yaml \
-    --mode optimize \
+    --mode full \
     --verbose

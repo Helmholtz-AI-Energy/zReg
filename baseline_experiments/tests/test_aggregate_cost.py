@@ -147,14 +147,11 @@ def test_budget_gate_exit_1(tmp_path):
     _fresh_module()
 
 
-def test_budget_gate_writes_markdown_before_exit(tmp_path):
+def test_budget_gate_writes_markdown_before_exit(tmp_path, monkeypatch):
     """compute_cost.md is written even when budget gate triggers exit 1."""
     mod = _fresh_module()
-    out_path = mod.EXPERIMENTS_ROOT / "summary" / "compute_cost.md"
-
-    # Remove the file if it already exists so we can detect it being re-created.
-    if out_path.exists():
-        out_path.unlink()
+    monkeypatch.setattr(mod, "EXPERIMENTS_ROOT", tmp_path)
+    out_path = tmp_path / "summary" / "compute_cost.md"
 
     try:
         mod.main(["--budget-hours", "0.0001"])
@@ -167,10 +164,11 @@ def test_budget_gate_writes_markdown_before_exit(tmp_path):
     _fresh_module()
 
 
-def test_verdict_line_at_top(tmp_path):
+def test_verdict_line_at_top(tmp_path, monkeypatch):
     """compute_cost.md first line starts with the verdict (WITHIN or EXCEEDS)."""
     mod = _fresh_module()
-    out_path = mod.EXPERIMENTS_ROOT / "summary" / "compute_cost.md"
+    monkeypatch.setattr(mod, "EXPERIMENTS_ROOT", tmp_path)
+    out_path = tmp_path / "summary" / "compute_cost.md"
 
     try:
         mod.main(["--budget-hours", "999"])

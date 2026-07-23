@@ -394,8 +394,15 @@ def main(argv=None) -> int:
 
     # Calibration loading (D-01/D-03): merge JSON constants into module-level dicts.
     if args.calibration is not None:
-        with open(args.calibration) as f:
-            data = json.load(f)
+        try:
+            with open(args.calibration) as f:
+                data = json.load(f)
+        except FileNotFoundError:
+            print(f"ERROR: calibration file not found: {args.calibration}", file=sys.stderr)
+            sys.exit(1)
+        except json.JSONDecodeError as exc:
+            print(f"ERROR: could not parse calibration JSON in {args.calibration}: {exc}", file=sys.stderr)
+            sys.exit(1)
         # Update CPD_TRIAL_SECONDS in-place so _nearest_cpd_cost() picks up new values.
         # Accept both bare-float form (laptop.json) and dict form {"seconds": float, "extrapolated": bool}
         # emitted by extract_calibration.py (D-03 / Plan 54-02 output contract).

@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: HoreKa Cluster Execution
-status: Phase 54 planned — ready to execute
-stopped_at: Phase 54 planned (2026-07-23)
+status: Phase 54 complete — UAT 9/9 passed
+stopped_at: Phase 54 complete (2026-07-23)
 last_updated: "2026-07-23T00:00:00.000Z"
-last_activity: 2026-07-23 - Phase 54 planned; 2 plans in 2 waves (BUDG-02, BUDG-03)
+last_activity: 2026-07-23 - Phase 54 complete; BUDG-02 + BUDG-03 delivered; 1353 tests pass
 progress:
   total_phases: 4
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 7
-  completed_plans: 6
-  percent: 50
+  completed_plans: 8
+  percent: 75
 ---
 
 # Project State
@@ -21,15 +21,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-15 after v1.5/v1.6 roadmap creation)
 
 **Core value:** Every existing capability works correctly, fails informatively, and is covered by tests.
-**Current focus:** Phase 54 — Budget Calibration & Full-Suite Gate
+**Current focus:** v1.6 milestone complete — pending HoreKa full-allocation submission (BUDG-02 operator gate)
 
 ## Current Position
 
-Phase: 54
-Plan: 2 plans created (54-01 wave 1, 54-02 wave 2)
-Status: Phase 54 planned — ready to execute
-Tests: 1330 passed, 19 skipped, 1 xpassed (after Phase 53 all waves); 1 mock test fixed 2026-07-21 (PropulateSearch FakeIndividual k=int→str after Phase 52 categorical encoding fix)
-Last activity: 2026-07-21 - Closed phases 52 and 53; fixed test_search_strategies mock
+Phase: 54 (complete)
+Plan: 2/2 plans complete
+Status: Phase 54 complete — UAT 9/9 passed, BUDG-02 + BUDG-03 delivered
+Tests: 1353 passed, 19 skipped, 1 xpassed (+23 new in Phase 54)
+Last activity: 2026-07-23 - Phase 54 complete; aggregate_cost.py budget gate + extract_calibration.py + test suite
 
 Progress (v1.6): [████████░░] 75%
 

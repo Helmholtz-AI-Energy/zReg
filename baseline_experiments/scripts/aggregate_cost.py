@@ -45,11 +45,16 @@ the actual measurement is used instead of the projection.
 Usage
 -----
     python baseline_experiments/scripts/aggregate_cost.py
+    python baseline_experiments/scripts/aggregate_cost.py --calibration calibrations/laptop.json
+    python baseline_experiments/scripts/aggregate_cost.py --configs-dir configs_horeka/
+    python baseline_experiments/scripts/aggregate_cost.py --budget-hours 3.0
 """
 
 from __future__ import annotations
 
+import argparse
 import json
+import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -98,6 +103,8 @@ DATASET_STATS = {
 
 
 # (phase, name) -> config path, used to read search_space/default_params for estimation.
+# Rebuilt dynamically by main() when --configs-dir is given; static default here for
+# module-level usage (e.g. direct calls to estimate_run_seconds without main()).
 CONFIG_PATHS = {
     ("selfcal", "kobitski_ew06_alignment"): CONFIGS_ROOT / "selfcal" / "kobitski_ew06_alignment.yaml",
     ("selfcal", "shah_alignment"): CONFIGS_ROOT / "selfcal" / "shah_alignment.yaml",
@@ -256,16 +263,32 @@ def _run_cost(phase: str, name: str) -> dict:
     return row
 
 
-def build_rows() -> list[dict]:
-    return [_run_cost(phase, name) for phase, name in RUNS]
+def build_rows(runs: list[tuple[str, str]] | None = None) -> list[dict]:
+    if runs is None:
+        runs = RUNS
+    return [_run_cost(phase, name) for phase, name in runs]
 
 
-def write_markdown(rows: list[dict], path: Path) -> None:
+def write_markdown(rows: list[dict], path: Path, worst_total: float, budget_hours: float) -> None:
     done = [r for r in rows if r["status"] == "done"]
     in_progress = [r for r in rows if r["status"] == "in progress"]
     pending = [r for r in rows if r["status"] == "pending"]
 
+    # Build verdict line — inserted first so it appears before the header.
+    if worst_total > budget_hours * 3600:
+        verdict = (
+            f"EXCEEDS {budget_hours}h CAP — projected worst case "
+            f"{_fmt_duration(worst_total)} — revise before submitting"
+        )
+    else:
+        verdict = (
+            f"WITHIN {budget_hours}h CAP — projected worst case "
+            f"{_fmt_duration(worst_total)}"
+        )
+
     lines = [
+        verdict,
+        "",
         "# baseline_experiments — time & compute cost",
         "",
         f"Generated {datetime.now().isoformat(timespec='seconds')}.",
@@ -342,14 +365,89 @@ def write_markdown(rows: list[dict], path: Path) -> None:
     path.write_text("\n".join(lines) + "\n")
 
 
-def main() -> int:
-    rows = build_rows()
+def main(argv=None) -> int:
+    global NO_CPD_TRIAL_SECONDS, LABEL_TRANSFER_OVERHEAD_SECONDS
+
+    parser = argparse.ArgumentParser(description="Aggregate wall-clock time and compute-scale cost per experiment")
+    parser.add_argument(
+        "--calibration",
+        default=None,
+        help="Path to a JSON calibration file (e.g. calibrations/laptop.json). "
+             "Overrides CPD_TRIAL_SECONDS, NO_CPD_TRIAL_SECONDS, LABEL_TRANSFER_OVERHEAD_SECONDS.",
+    )
+    parser.add_argument(
+        "--configs-dir",
+        default=str(SUITE_ROOT / "configs"),
+        help="Root configs directory (default: baseline_experiments/configs/). "
+             "Pass baseline_experiments/configs_horeka for cluster runs.",
+    )
+    parser.add_argument(
+        "--budget-hours",
+        type=float,
+        default=3.0,
+        help="Budget cap in hours (default: 3.0). Exits 1 when projected worst case exceeds cap.",
+    )
+    args = parser.parse_args(argv)
+
+    # Resolve --configs-dir to absolute path immediately after parse_args().
+    configs_dir = Path(args.configs_dir).resolve()
+
+    # Calibration loading (D-01/D-03): merge JSON constants into module-level dicts.
+    if args.calibration is not None:
+        with open(args.calibration) as f:
+            data = json.load(f)
+        # Update CPD_TRIAL_SECONDS in-place so _nearest_cpd_cost() picks up new values.
+        CPD_TRIAL_SECONDS.update({int(k): v for k, v in data.get("cpd_trial_seconds", {}).items()})
+        if "no_cpd_trial_seconds" in data:
+            NO_CPD_TRIAL_SECONDS = data["no_cpd_trial_seconds"]
+        if "label_transfer_overhead_seconds" in data:
+            LABEL_TRANSFER_OVERHEAD_SECONDS = data["label_transfer_overhead_seconds"]
+
+    # Dynamic CONFIG_PATHS: rebuild from --configs-dir, then filter RUNS for missing configs.
+    global CONFIG_PATHS
+    CONFIG_PATHS = {
+        (phase, name): configs_dir / phase / f"{name}.yaml"
+        for (phase, name) in RUNS
+    }
+    active_runs = []
+    for phase, name in RUNS:
+        config_path = CONFIG_PATHS[(phase, name)]
+        if not config_path.exists():
+            print(f"{phase}/{name}.yaml not found in {configs_dir} — excluded from projection")
+        else:
+            active_runs.append((phase, name))
+
+    rows = build_rows(active_runs)
+
+    # Compute worst_total for the budget gate.
+    worst_total = sum(
+        r["actual_seconds"] if r["actual_seconds"] is not None else r["projected_range"][1]
+        for r in rows
+    )
+
     out_path = EXPERIMENTS_ROOT / "summary" / "compute_cost.md"
-    write_markdown(rows, out_path)
+    write_markdown(rows, out_path, worst_total=worst_total, budget_hours=args.budget_hours)
     print(f"Wrote {out_path}")
+
+    # Print verdict to stdout as well.
+    if worst_total > args.budget_hours * 3600:
+        verdict_stdout = (
+            f"EXCEEDS {args.budget_hours}h CAP — projected worst case "
+            f"{_fmt_duration(worst_total)} — revise before submitting"
+        )
+    else:
+        verdict_stdout = (
+            f"WITHIN {args.budget_hours}h CAP — projected worst case "
+            f"{_fmt_duration(worst_total)}"
+        )
+    print(verdict_stdout)
+
+    # Budget gate: exit 1 when over budget. write_markdown() always completes first.
+    if worst_total > args.budget_hours * 3600:
+        sys.exit(1)
+
     return 0
 
 
 if __name__ == "__main__":
-    import sys
     sys.exit(main())

@@ -56,6 +56,7 @@ MANIFEST
 .venv*/
 .conda*/
 .python-version
+.tutorial-venv/
 
 figures/*.txt
 .planning/

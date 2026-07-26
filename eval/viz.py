@@ -499,13 +499,14 @@ def plot_trajectory(
         ]
 
         # Task 4: union of all label IDs across both figures for consistent palette
+        # Always collect transferred labels (keyed by target frames); source labels
+        # are optional and only available when the target key exists in the source dataset.
         union_labels: set[int] = set()
         for fk in label_frame_indices:
-            if fk not in dataset:
-                continue
-            src = _get_source_labels(dataset[fk])
-            if src is not None:
-                union_labels.update(int(v) for v in torch.unique(src).tolist())
+            if fk in dataset:
+                src = _get_source_labels(dataset[fk])
+                if src is not None:
+                    union_labels.update(int(v) for v in torch.unique(src).tolist())
             union_labels.update(
                 int(v) for v in torch.unique(label_result.transferred_labels[fk]).tolist()
             )

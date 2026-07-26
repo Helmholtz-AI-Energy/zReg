@@ -7,24 +7,22 @@
 # No propulate/MPI needed: eval-only passes run on rank 0 only. Single node,
 # single GPU keeps resource usage minimal.
 #
-# Runtime estimate (1 rank, GPU-accelerated, step=8, max_points=1000, w=10):
-# cpd_penalty fixed to "rigid" for all passes — baseline_no_hpo was previously null
-# (DTW-only, ~4 s/pass CPU); all three passes now run rigid CPD (~177 s/pass CPU).
-#   baseline_no_hpo/ew06_vs_shah          : 10–25 min  (1 eval pass, rigid CPD, ~756 pairs)
-#   baseline_with_combined/ew06_vs_shah   : 10–25 min  (1 eval pass, rigid CPD, merged params)
+# Runtime estimate (GPU-accelerated, step=8, max_points=1000):
+#   baseline_no_hpo/ew06_vs_shah        :  10–25 min  (1 rank, eval-only, rigid CPD, ~756 pairs)
+#   baseline_with_combined/ew06_vs_shah : 30–70 min  (16 ranks, 20 dev HPO trials, w=[5,10])
 #   -----------------------------------------------------------------------
-#   Total                                 : 20–50 min  (well within 2 h wall clock)
+#   Total                               : 40–95 min  (well within 4 h wall clock)
 #
 # Submit:  sbatch baseline_experiments/scripts/launch_horeka_baseline.sbatch
 # Resume:  re-submit; _already_done() skips completed runs.
 
 #SBATCH --job-name=zreg-baseline-eval
 #SBATCH --partition=accelerated
-#SBATCH --nodes=1
-#SBATCH --ntasks-per-node=1
-#SBATCH --gres=gpu:1
-#SBATCH --time=01:00:00
-#SBATCH --mem-per-cpu=16G
+#SBATCH --nodes=4
+#SBATCH --ntasks-per-node=4
+#SBATCH --gres=gpu:4
+#SBATCH --time=04:00:00
+#SBATCH --mem-per-gpu=120G
 #SBATCH --output=/home/hk-project-starter-p0024807/uitog/BA/zReg/baseline_experiments/logs/slurm-%j.out
 
 module load devel/cuda/12.4
@@ -48,10 +46,12 @@ python -u baseline_experiments/scripts/run_all.py \
   --configs-dir baseline_experiments/configs_horeka \
   --verbose
 
-# baseline_with_combined: eval with params merged from all five HPO best_params.json
-# (selfcal x3 + ground_truth x2). Requires both selfcal and ground_truth phases to
-# have produced best_params.json in their respective output directories.
-python -u baseline_experiments/scripts/run_all.py \
-  --phase baseline_with_combined \
-  --configs-dir baseline_experiments/configs_horeka \
-  --verbose
+# baseline_with_combined: HPO on the real cross-embryo task, warm-started from the
+# merged selfcal+ground_truth params. Requires both selfcal and ground_truth phases
+# to have produced best_params.json. Uses all 16 ranks via propulate.
+srun --mpi=pmix --label \
+  "$VENV/bin/python" -u baseline_experiments/scripts/run_all.py \
+    --phase baseline_with_combined \
+    --configs-dir baseline_experiments/configs_horeka \
+    --clear-checkpoints \
+    --verbose

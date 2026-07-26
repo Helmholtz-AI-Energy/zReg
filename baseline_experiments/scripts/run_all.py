@@ -18,12 +18,11 @@ Phases (see baseline_experiments/README.md for the full design rationale):
                          (not fixed) transform_spec; Kobitski ew_06 alone,
                          Shah sample-1 alone; both stages. Produces
                          best_params.json consumed by phase 4.
-4. baseline_with_combined — eval-only, ew06_vs_shah, params merged from all
-                         five best_params.json (phases 1 + 3) via
-                         merge_combined_params (see merge_params.py). Numeric
-                         params are the arithmetic mean of the selfcal and
-                         ground_truth calibration estimates; categorical
-                         conflicts fall back to config default_params.
+4. baseline_with_combined — optimize+eval, ew06_vs_shah (real cross-embryo task).
+                         Merged params from phases 1 + 3 (merge_combined_params,
+                         see merge_params.py) are injected as default_params
+                         warm-start before HPO. Uses same search space as the
+                         selfcal/ground_truth full-pipeline runs.
 
 Each run is idempotent: if ``eval_report.json`` already exists in a run's
 output_dir, it is skipped unless ``--force`` is passed. This lets the full
@@ -178,8 +177,10 @@ def _read_json(path: Path) -> dict:
         return json.load(f)
 
 
-def run_optimize_then_eval(name: str, config_path: Path, force: bool, dry_run: bool, clear_checkpoints: bool = False) -> None:
+def run_optimize_then_eval(name: str, config_path: Path, force: bool, dry_run: bool, clear_checkpoints: bool = False, warmstart_params: dict | None = None) -> None:
     config = _load_config(config_path)
+    if warmstart_params is not None:
+        config = config.model_copy(update={"default_params": {**config.default_params, **warmstart_params}})
     output_dir = Path(config.output_dir)
 
     skip = False
@@ -304,14 +305,14 @@ def run_phase(phase: str, phases_map: dict[str, list], configs_dir: Path, force:
         ):
             log.info("[baseline_with_combined] DRY-RUN: best_params.json not yet available — would merge at real run time")
             for _, name, cfg_path in runs:
-                run_eval_only(name, cfg_path, params=None, force=force, dry_run=True)
+                run_optimize_then_eval(name, cfg_path, force=force, dry_run=True, clear_checkpoints=clear_checkpoints)
             return
 
         kobitski_sc, shah_sc_align, shah_sc_lt, kobitski_gt, shah_gt, defaults = _combined_best_params(configs_dir)
         merged = merge_combined_params(kobitski_sc, shah_sc_align, shah_sc_lt, kobitski_gt, shah_gt, defaults)
-        log.info("[baseline_with_combined] merged params: %s", merged)
+        log.info("[baseline_with_combined] warmstart params (default_params override): %s", merged)
         for _, name, cfg_path in runs:
-            run_eval_only(name, cfg_path, params=merged, force=force, dry_run=dry_run)
+            run_optimize_then_eval(name, cfg_path, force=force, dry_run=dry_run, clear_checkpoints=clear_checkpoints, warmstart_params=merged)
 
 
 def main(argv=None) -> int:

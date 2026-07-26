@@ -78,14 +78,14 @@ RUNS = [
 ]
 
 # Optimize-mode runs (mode="full": HyperparamOptimizer then EvaluationRunner).
-# All others are eval-only (single EvaluationRunner pass, config default_params
-# or selfcal-merged params, no search).
+# baseline_no_hpo is the only eval-only run (single EvaluationRunner pass, no search).
 OPTIMIZE_RUNS = {
     ("selfcal", "kobitski_ew06_alignment"),
     ("selfcal", "shah_alignment"),
     ("selfcal", "shah_label_transfer"),
     ("ground_truth", "kobitski_ew06"),
     ("ground_truth", "shah_sample1"),
+    ("baseline_with_combined", "ew06_vs_shah"),
 }
 
 # Static dataset scale — the dominant cost driver (see README.md smoke-test
@@ -164,11 +164,8 @@ def _estimate_optimize_run(config: dict) -> float:
     return sanity + dev + final_eval
 
 
-# Only this run's params are runtime-dependent (merged from selfcal + ground_truth
-# best_params.json at execution time — see run_all.py / merge_params.py); its config
-# default_params are a fallback only, not what actually runs. Every other eval-only
-# run's params are fixed by its own config, so best case == worst case for those.
-RUNTIME_DEPENDENT_PARAMS = {("baseline_with_combined", "ew06_vs_shah")}
+# All eval-only runs have params fixed by their config — best case == worst case.
+RUNTIME_DEPENDENT_PARAMS: set = set()
 
 
 def _estimate_eval_only_run(config: dict, runtime_dependent: bool) -> tuple[float, float]:
@@ -339,8 +336,7 @@ def write_markdown(rows: list[dict], path: Path, worst_total: float, budget_hour
         "Calibrated against real Kobitski ew_06 data at max_points_per_frame=1000, "
         "step=8 (see module docstring). Done runs use their real measured duration; "
         "pending/in-progress runs use the calibrated projection (best case = worst "
-        "case except baseline_with_combined, whose actual params depend on what "
-        "selfcal converges to at runtime — see estimate_run_seconds).",
+        "case for all runs (optimize runs have a fixed search space).",
         "",
         "| phase | name | status | basis | best case | worst case |",
         "| --- | --- | --- | --- | --- | --- |",

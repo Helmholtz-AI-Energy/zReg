@@ -14,6 +14,21 @@ target_data_path: data/external/sample/shah_data/sample-1/sample-1-cell-tracks.c
 target_data_format: csv
 pipeline_mode: paired
 tier: dev
+n_trials: 50  # inert at tier=dev (dev tier fixes 20 trials via optimizer.py DEV_N_TRIALS); kept for when tier is raised to full
+search_strategy: auto
+n_synthetic: 0
+
+search_space:
+  cpd_penalty: ["rigid"]
+  window_size: [5, 10]  # 20 moved to configs_horeka_w20/ to avoid 4h wall-clock timeout
+  step: [8]
+  dtw_dist_fn: [euclidean, cpd]
+  k_neighbours: [3, 5, 10]
+  dist_metric: [euclidean]
+  smoothing: [0.0, 0.1, 0.3]
+  threshold: [0.0, 0.3, 0.5]
+  method: ["knn_voting"]
+
 run_alignment: true
 run_label_transfer: true
 default_params:
@@ -29,3 +44,11 @@ default_params:
   method: knn_voting
 val_split: 0.2
 output_dir: baseline_experiments/experiments/baseline_with_combined/ew06_vs_shah
+
+metric_weights:
+  chamfer: 0.30
+  hausdorff: 0.15
+  path_smoothness: 0.10
+  temporal_stability: 0.10
+  f1: 0.25
+  knn_consistency: 0.10

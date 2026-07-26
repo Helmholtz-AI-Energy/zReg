@@ -3,7 +3,7 @@
 Walks baseline_experiments/experiments/<phase>/<name>/ for every run defined
 in run_all.py, pulls out the headline metrics (StageMetrics fields) plus the
 final params, and writes a single comparison table so the four pipeline
-tracks (selfcal, baseline_no_hpo, ground_truth, baseline_with_selfcal) can be
+tracks (selfcal, baseline_no_hpo, ground_truth, baseline_with_combined) can be
 read side by side.
 
 Usage
@@ -31,8 +31,8 @@ METRIC_FIELDS = [
     "knn_consistency",
 ]
 
-# Scoped to a single pair (ew06_vs_shah) for baseline_no_hpo/baseline_with_selfcal
-# — see run_all.py's BASELINE_NO_HPO/BASELINE_WITH_SELFCAL comment for why.
+# Scoped to a single pair (ew06_vs_shah) for baseline_no_hpo/baseline_with_combined
+# — see run_all.py's BASELINE_NO_HPO comment for why.
 RUNS = [
     ("selfcal", "kobitski_ew06_alignment"),
     ("selfcal", "shah_alignment"),
@@ -40,7 +40,7 @@ RUNS = [
     ("baseline_no_hpo", "ew06_vs_shah"),
     ("ground_truth", "kobitski_ew06"),
     ("ground_truth", "shah_sample1"),
-    ("baseline_with_selfcal", "ew06_vs_shah"),
+    ("baseline_with_combined", "ew06_vs_shah"),
 ]
 
 

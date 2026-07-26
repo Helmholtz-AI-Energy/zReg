@@ -11,10 +11,9 @@
 # cpd_penalty fixed to "rigid" for all passes — baseline_no_hpo was previously null
 # (DTW-only, ~4 s/pass CPU); all three passes now run rigid CPD (~177 s/pass CPU).
 #   baseline_no_hpo/ew06_vs_shah          : 10–25 min  (1 eval pass, rigid CPD, ~756 pairs)
-#   baseline_with_selfcal/ew06_vs_shah    : 10–25 min  (1 eval pass, rigid CPD, merged params)
-#   baseline_with_groundtruth/ew06_vs_shah: 10–25 min  (1 eval pass, rigid CPD, merged params)
+#   baseline_with_combined/ew06_vs_shah   : 10–25 min  (1 eval pass, rigid CPD, merged params)
 #   -----------------------------------------------------------------------
-#   Total                                 : 30–75 min  (well within 2 h wall clock)
+#   Total                                 : 20–50 min  (well within 2 h wall clock)
 #
 # Submit:  sbatch baseline_experiments/scripts/launch_horeka_baseline.sbatch
 # Resume:  re-submit; _already_done() skips completed runs.
@@ -49,16 +48,10 @@ python -u baseline_experiments/scripts/run_all.py \
   --configs-dir baseline_experiments/configs_horeka \
   --verbose
 
-# baseline_with_selfcal: eval with params merged from selfcal best_params.json.
-# Requires selfcal phase to have produced best_params.json in all three selfcal dirs.
+# baseline_with_combined: eval with params merged from all five HPO best_params.json
+# (selfcal x3 + ground_truth x2). Requires both selfcal and ground_truth phases to
+# have produced best_params.json in their respective output directories.
 python -u baseline_experiments/scripts/run_all.py \
-  --phase baseline_with_selfcal \
-  --configs-dir baseline_experiments/configs_horeka \
-  --verbose
-
-# baseline_with_groundtruth: eval with params merged from ground_truth best_params.json.
-# Requires ground_truth phase to have produced best_params.json in both ground_truth dirs.
-python -u baseline_experiments/scripts/run_all.py \
-  --phase baseline_with_groundtruth \
+  --phase baseline_with_combined \
   --configs-dir baseline_experiments/configs_horeka \
   --verbose

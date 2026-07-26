@@ -65,8 +65,8 @@ EXPERIMENTS_ROOT = SUITE_ROOT / "experiments"
 CONFIGS_ROOT = SUITE_ROOT / "configs"
 
 # (phase, name) in the same fixed order as run_all.py's PHASES/PHASE_ORDER.
-# Scoped to a single pair (ew06_vs_shah) for baseline_no_hpo/baseline_with_selfcal
-# — see run_all.py's BASELINE_NO_HPO/BASELINE_WITH_SELFCAL comment for why.
+# Scoped to a single pair (ew06_vs_shah) for baseline_no_hpo/baseline_with_combined
+# — see run_all.py's BASELINE_NO_HPO comment for why.
 RUNS = [
     ("selfcal", "kobitski_ew06_alignment"),
     ("selfcal", "shah_alignment"),
@@ -74,7 +74,7 @@ RUNS = [
     ("baseline_no_hpo", "ew06_vs_shah"),
     ("ground_truth", "kobitski_ew06"),
     ("ground_truth", "shah_sample1"),
-    ("baseline_with_selfcal", "ew06_vs_shah"),
+    ("baseline_with_combined", "ew06_vs_shah"),
 ]
 
 # Optimize-mode runs (mode="full": HyperparamOptimizer then EvaluationRunner).
@@ -98,7 +98,7 @@ DATASET_STATS = {
     ("baseline_no_hpo", "ew06_vs_shah"): ("kobitski_ew06 + shah_sample1", 370, 16572),
     ("ground_truth", "kobitski_ew06"): ("kobitski_ew06", 370, 16572),
     ("ground_truth", "shah_sample1"): ("shah_sample1", 420, 4113),
-    ("baseline_with_selfcal", "ew06_vs_shah"): ("kobitski_ew06 + shah_sample1", 370, 16572),
+    ("baseline_with_combined", "ew06_vs_shah"): ("kobitski_ew06 + shah_sample1", 370, 16572),
 }
 
 
@@ -112,7 +112,7 @@ CONFIG_PATHS = {
     ("baseline_no_hpo", "ew06_vs_shah"): CONFIGS_ROOT / "baseline_no_hpo" / "ew06_vs_shah.yaml",
     ("ground_truth", "kobitski_ew06"): CONFIGS_ROOT / "ground_truth" / "kobitski_ew06.yaml",
     ("ground_truth", "shah_sample1"): CONFIGS_ROOT / "ground_truth" / "shah_sample1.yaml",
-    ("baseline_with_selfcal", "ew06_vs_shah"): CONFIGS_ROOT / "baseline_with_selfcal" / "ew06_vs_shah.yaml",
+    ("baseline_with_combined", "ew06_vs_shah"): CONFIGS_ROOT / "baseline_with_combined" / "ew06_vs_shah.yaml",
 }
 
 # Calibration measured 2026-07-15 against real Kobitski ew_06 data at
@@ -164,11 +164,11 @@ def _estimate_optimize_run(config: dict) -> float:
     return sanity + dev + final_eval
 
 
-# Only this run's params are runtime-dependent (merged from selfcal best_params.json
-# at execution time — see run_all.py / merge_params.py); its config default_params
-# are a fallback only, not what actually runs. Every other eval-only run's params
-# are fixed by its own config, so best case == worst case for those.
-RUNTIME_DEPENDENT_PARAMS = {("baseline_with_selfcal", "ew06_vs_shah")}
+# Only this run's params are runtime-dependent (merged from selfcal + ground_truth
+# best_params.json at execution time — see run_all.py / merge_params.py); its config
+# default_params are a fallback only, not what actually runs. Every other eval-only
+# run's params are fixed by its own config, so best case == worst case for those.
+RUNTIME_DEPENDENT_PARAMS = {("baseline_with_combined", "ew06_vs_shah")}
 
 
 def _estimate_eval_only_run(config: dict, runtime_dependent: bool) -> tuple[float, float]:
@@ -339,7 +339,7 @@ def write_markdown(rows: list[dict], path: Path, worst_total: float, budget_hour
         "Calibrated against real Kobitski ew_06 data at max_points_per_frame=1000, "
         "step=8 (see module docstring). Done runs use their real measured duration; "
         "pending/in-progress runs use the calibrated projection (best case = worst "
-        "case except baseline_with_selfcal, whose actual params depend on what "
+        "case except baseline_with_combined, whose actual params depend on what "
         "selfcal converges to at runtime — see estimate_run_seconds).",
         "",
         "| phase | name | status | basis | best case | worst case |",

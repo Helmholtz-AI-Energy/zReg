@@ -1,7 +1,7 @@
 """Merge selfcal-calibrated hyperparameters from two independent HPO runs.
 
-The "baseline_with_selfcal" pair runs need a single params dict, but selfcal
-produced three separate best_params.json files:
+The "baseline_with_combined" pair run needs a single params dict built from all
+five HPO sources. Selfcal produced three separate best_params.json files:
 
 - selfcal/kobitski_ew06_alignment  -> alignment params only (window_size,
   step, cpd_penalty, dtw_dist_fn, n_breakpoints)
@@ -9,7 +9,7 @@ produced three separate best_params.json files:
 - selfcal/shah_label_transfer      -> alignment + label-transfer params
   (k_neighbours, dist_metric, smoothing, threshold)
 
-Every baseline_with_selfcal pair uses a Kobitski embryo as source and Shah
+Every baseline_with_combined pair uses a Kobitski embryo as source and Shah
 sample-1 as target, so its alignment params draw from BOTH Kobitski and Shah
 selfcal calibration, and its label-transfer params draw from the Shah
 label-transfer run alone.
@@ -128,6 +128,43 @@ def merge_groundtruth_params(
         Fallback values (typically the pair config's default_params).
     """
     return merge_selfcal_params(kobitski_alignment, shah_both, shah_both, defaults)
+
+
+def merge_combined_params(
+    kobitski_sc_alignment: dict,
+    shah_sc_alignment: dict,
+    shah_sc_label_transfer: dict,
+    kobitski_gt_alignment: dict,
+    shah_gt_both: dict,
+    defaults: dict | None = None,
+) -> dict:
+    """Merge all five HPO sources — selfcal (3 runs) + ground_truth (2 runs) — into one dict.
+
+    Calls :func:`merge_selfcal_params` and :func:`merge_groundtruth_params` independently,
+    then averages their results via :func:`merge_two`. Both intermediate merges fill every
+    key (including defaults) before the final pass, so the final :func:`merge_two` sees a
+    fully-populated key union. For calibrated numeric keys the result is the arithmetic mean
+    of the two merged calibration estimates; for keys that came from defaults in both regimes
+    the average equals the default.
+
+    Parameters
+    ----------
+    kobitski_sc_alignment : dict
+        best_params.json from selfcal/kobitski_ew06_alignment.
+    shah_sc_alignment : dict
+        best_params.json from selfcal/shah_alignment.
+    shah_sc_label_transfer : dict
+        best_params.json from selfcal/shah_label_transfer.
+    kobitski_gt_alignment : dict
+        best_params.json from ground_truth/kobitski_ew06.
+    shah_gt_both : dict
+        best_params.json from ground_truth/shah_sample1 (alignment + LT).
+    defaults : dict or None
+        Fallback values (typically the pair config's default_params).
+    """
+    selfcal = merge_selfcal_params(kobitski_sc_alignment, shah_sc_alignment, shah_sc_label_transfer, defaults)
+    gt = merge_groundtruth_params(kobitski_gt_alignment, shah_gt_both, defaults)
+    return merge_two(selfcal, gt, defaults)
 
 
 def merge_selfcal_params(

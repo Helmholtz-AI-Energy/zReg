@@ -5,7 +5,7 @@ Runs four phases, in order, against the zReg evaluation framework
 ``eval.runners.EvaluationRunner``) imported directly rather than shelled out
 through run_eval.py — this avoids run_eval.py's per-invocation timestamped
 output_dir (it would make it impossible to predict the path where selfcal
-writes best_params.json before baseline_with_selfcal needs to read it).
+writes best_params.json before baseline_with_combined needs to read it).
 
 Phases (see baseline_experiments/README.md for the full design rationale):
 
@@ -17,14 +17,13 @@ Phases (see baseline_experiments/README.md for the full design rationale):
 3. ground_truth        — optimize+eval self-registration HPO with a random
                          (not fixed) transform_spec; Kobitski ew_06 alone,
                          Shah sample-1 alone; both stages. Produces
-                         best_params.json consumed by phase 5.
-4. baseline_with_selfcal — eval-only, ew06_vs_shah, params merged from phase
-                         1's three best_params.json (see merge_params.py).
-5. baseline_with_groundtruth — eval-only, ew06_vs_shah, params merged from
-                         phase 3's two best_params.json. Validates whether
-                         HPO calibrated against a random unseen perturbation
-                         generalises better than selfcal to the real cross-
-                         embryo task.
+                         best_params.json consumed by phase 4.
+4. baseline_with_combined — eval-only, ew06_vs_shah, params merged from all
+                         five best_params.json (phases 1 + 3) via
+                         merge_combined_params (see merge_params.py). Numeric
+                         params are the arithmetic mean of the selfcal and
+                         ground_truth calibration estimates; categorical
+                         conflicts fall back to config default_params.
 
 Each run is idempotent: if ``eval_report.json`` already exists in a run's
 output_dir, it is skipped unless ``--force`` is passed. This lets the full
@@ -76,12 +75,12 @@ except ImportError:
 from eval.config import EvalConfig, EvalConfigError  # noqa: E402
 from eval.runners import EvaluationRunner, HyperparamOptimizer  # noqa: E402
 
-from merge_params import merge_groundtruth_params, merge_selfcal_params  # noqa: E402
+from merge_params import merge_combined_params  # noqa: E402
 
 log = logging.getLogger("run_all")
 
 # PHASE_ORDER does not reference CONFIGS and stays as a module-level constant.
-PHASE_ORDER = ["selfcal", "baseline_no_hpo", "ground_truth", "baseline_with_selfcal", "baseline_with_groundtruth"]
+PHASE_ORDER = ["selfcal", "baseline_no_hpo", "ground_truth", "baseline_with_combined"]
 
 
 def _build_phase_lists(configs_dir: Path) -> dict[str, list]:
@@ -97,7 +96,7 @@ def _build_phase_lists(configs_dir: Path) -> dict[str, list]:
     -------
     dict
         Keys: ``"selfcal"``, ``"baseline_no_hpo"``, ``"ground_truth"``,
-        ``"baseline_with_selfcal"``.  Values: lists of
+        ``"baseline_with_combined"``.  Values: lists of
         ``(phase, name, config_path)`` tuples.
     """
     # (phase, name, config_path) — order within a phase is execution order.
@@ -111,9 +110,8 @@ def _build_phase_lists(configs_dir: Path) -> dict[str, list]:
     # testing showed even a single eval-only pass on full-resolution Kobitski
     # data can take 30-90+ min; running all 4 pairs here on top of the 5
     # optimize-mode runs was not worth the added wall-clock. configs/baseline_
-    # no_hpo/{ew08,ew11,ew12}_vs_shah.yaml and configs/baseline_with_selfcal/
-    # {ew08,ew11,ew12}_vs_shah.yaml still exist on disk if you want to run any
-    # of them manually later (see README.md "Running").
+    # no_hpo/{ew08,ew11,ew12}_vs_shah.yaml still exist on disk if you want to run
+    # any of them manually later (see README.md "Running").
     baseline_no_hpo = [
         ("baseline_no_hpo", name, configs_dir / "baseline_no_hpo" / f"{name}.yaml")
         for name in ("ew06_vs_shah",)
@@ -122,20 +120,15 @@ def _build_phase_lists(configs_dir: Path) -> dict[str, list]:
         ("ground_truth", "kobitski_ew06", configs_dir / "ground_truth" / "kobitski_ew06.yaml"),
         ("ground_truth", "shah_sample1", configs_dir / "ground_truth" / "shah_sample1.yaml"),
     ]
-    baseline_with_selfcal = [
-        ("baseline_with_selfcal", name, configs_dir / "baseline_with_selfcal" / f"{name}.yaml")
-        for name in ("ew06_vs_shah",)
-    ]
-    baseline_with_groundtruth = [
-        ("baseline_with_groundtruth", name, configs_dir / "baseline_with_groundtruth" / f"{name}.yaml")
+    baseline_with_combined = [
+        ("baseline_with_combined", name, configs_dir / "baseline_with_combined" / f"{name}.yaml")
         for name in ("ew06_vs_shah",)
     ]
     return {
         "selfcal": selfcal,
         "baseline_no_hpo": baseline_no_hpo,
         "ground_truth": ground_truth,
-        "baseline_with_selfcal": baseline_with_selfcal,
-        "baseline_with_groundtruth": baseline_with_groundtruth,
+        "baseline_with_combined": baseline_with_combined,
     }
 
 
@@ -249,83 +242,46 @@ def run_eval_only(name: str, config_path: Path, params: dict | None, force: bool
     log.info("[%s] done", name)
 
 
-def _selfcal_best_params(configs_dir: Path) -> tuple[dict, dict, dict, dict]:
-    """Load the three selfcal best_params.json files plus a defaults dict.
-
-    Parameters
-    ----------
-    configs_dir:
-        Root configs directory used for this run (resolved absolute path).
+def _combined_best_params(configs_dir: Path) -> tuple[dict, dict, dict, dict, dict, dict]:
+    """Load all five HPO best_params.json files plus a defaults dict.
 
     Returns
     -------
     tuple
-        ``(kobitski_alignment, shah_alignment, shah_label_transfer, defaults)``.
+        ``(kobitski_sc_alignment, shah_sc_alignment, shah_sc_label_transfer,
+        kobitski_gt_alignment, shah_gt_both, defaults)``.
 
     Raises
     ------
     FileNotFoundError
-        If a selfcal run hasn't produced best_params.json yet — run the
-        ``selfcal`` phase first.
+        If any selfcal or ground_truth run hasn't produced best_params.json yet.
     """
-    paths = {
-        "kobitski_alignment": configs_dir / "selfcal" / "kobitski_ew06_alignment.yaml",
-        "shah_alignment": configs_dir / "selfcal" / "shah_alignment.yaml",
-        "shah_label_transfer": configs_dir / "selfcal" / "shah_label_transfer.yaml",
+    selfcal_paths = {
+        "kobitski_sc_alignment": configs_dir / "selfcal" / "kobitski_ew06_alignment.yaml",
+        "shah_sc_alignment": configs_dir / "selfcal" / "shah_alignment.yaml",
+        "shah_sc_label_transfer": configs_dir / "selfcal" / "shah_label_transfer.yaml",
+    }
+    gt_paths = {
+        "kobitski_gt_alignment": configs_dir / "ground_truth" / "kobitski_ew06.yaml",
+        "shah_gt_both": configs_dir / "ground_truth" / "shah_sample1.yaml",
     }
     results = {}
-    for key, cfg_path in paths.items():
+    for key, cfg_path in {**selfcal_paths, **gt_paths}.items():
         config = _load_config(cfg_path)
         bp_path = Path(config.output_dir) / "best_params.json"
         if not bp_path.exists():
             raise FileNotFoundError(
-                f"{bp_path} not found — run the 'selfcal' phase before 'baseline_with_selfcal'."
+                f"{bp_path} not found — run the 'selfcal' and 'ground_truth' phases before 'baseline_with_combined'."
             )
         results[key] = _read_json(bp_path)
 
-    defaults_config = _load_config(configs_dir / "baseline_with_selfcal" / "ew06_vs_shah.yaml")
+    defaults_config = _load_config(configs_dir / "baseline_with_combined" / "ew06_vs_shah.yaml")
     return (
-        results["kobitski_alignment"],
-        results["shah_alignment"],
-        results["shah_label_transfer"],
-        defaults_config.default_params,
-    )
-
-
-def _groundtruth_best_params(configs_dir: Path) -> tuple[dict, dict, dict]:
-    """Load ground_truth best_params.json files plus a defaults dict.
-
-    Returns
-    -------
-    tuple
-        ``(kobitski_alignment, shah_both, defaults)``.
-        ``shah_both`` is from ground_truth/shah_sample1 which runs both alignment
-        and label transfer, so it covers all param keys needed for the merge.
-
-    Raises
-    ------
-    FileNotFoundError
-        If a ground_truth run hasn't produced best_params.json yet — run the
-        ``ground_truth`` phase first.
-    """
-    paths = {
-        "kobitski": configs_dir / "ground_truth" / "kobitski_ew06.yaml",
-        "shah": configs_dir / "ground_truth" / "shah_sample1.yaml",
-    }
-    results = {}
-    for key, cfg_path in paths.items():
-        config = _load_config(cfg_path)
-        bp_path = Path(config.output_dir) / "best_params.json"
-        if not bp_path.exists():
-            raise FileNotFoundError(
-                f"{bp_path} not found — run the 'ground_truth' phase before 'baseline_with_groundtruth'."
-            )
-        results[key] = _read_json(bp_path)
-
-    defaults_config = _load_config(configs_dir / "baseline_with_groundtruth" / "ew06_vs_shah.yaml")
-    return (
-        results["kobitski"],
-        results["shah"],
+        results["kobitski_sc_alignment"],
+        results["shah_sc_alignment"],
+        results["shah_sc_label_transfer"],
+        results["kobitski_gt_alignment"],
+        results["shah_gt_both"],
         defaults_config.default_params,
     )
 
@@ -341,37 +297,19 @@ def run_phase(phase: str, phases_map: dict[str, list], configs_dir: Path, force:
         for _, name, cfg_path in runs:
             run_eval_only(name, cfg_path, params=None, force=force, dry_run=dry_run)
 
-    elif phase == "baseline_with_selfcal":
-        selfcal_runs = phases_map["selfcal"]
+    elif phase == "baseline_with_combined":
+        upstream_runs = phases_map["selfcal"] + phases_map["ground_truth"]
         if dry_run and not all(
-            (Path(_load_config(sc[2]).output_dir) / "best_params.json").exists() for sc in selfcal_runs
+            (Path(_load_config(r[2]).output_dir) / "best_params.json").exists() for r in upstream_runs
         ):
-            log.info("[baseline_with_selfcal] DRY-RUN: selfcal best_params.json not yet available — would merge at real run time")
+            log.info("[baseline_with_combined] DRY-RUN: best_params.json not yet available — would merge at real run time")
             for _, name, cfg_path in runs:
                 run_eval_only(name, cfg_path, params=None, force=force, dry_run=True)
             return
 
-        kobitski_align, shah_align, shah_lt, defaults = _selfcal_best_params(configs_dir)
-        merged = merge_selfcal_params(kobitski_align, shah_align, shah_lt, defaults)
-        log.info("[baseline_with_selfcal] merged params: %s", merged)
-        for _, name, cfg_path in runs:
-            run_eval_only(name, cfg_path, params=merged, force=force, dry_run=dry_run)
-
-    elif phase == "baseline_with_groundtruth":
-        gt_runs = phases_map["ground_truth"]
-        if dry_run and not all(
-            (Path(_load_config(gt[2]).output_dir) / "best_params.json").exists() for gt in gt_runs
-        ):
-            log.info("[baseline_with_groundtruth] DRY-RUN: ground_truth best_params.json not yet available — would merge at real run time")
-            for _, name, cfg_path in runs:
-                run_eval_only(name, cfg_path, params=None, force=force, dry_run=True)
-            return
-
-        kobitski_gt, shah_gt, defaults = _groundtruth_best_params(configs_dir)
-        # shah_gt produced both alignment and label-transfer params (run_label_transfer=true);
-        # merge_groundtruth_params passes it as both shah_alignment and shah_label_transfer.
-        merged = merge_groundtruth_params(kobitski_gt, shah_gt, defaults)
-        log.info("[baseline_with_groundtruth] merged params: %s", merged)
+        kobitski_sc, shah_sc_align, shah_sc_lt, kobitski_gt, shah_gt, defaults = _combined_best_params(configs_dir)
+        merged = merge_combined_params(kobitski_sc, shah_sc_align, shah_sc_lt, kobitski_gt, shah_gt, defaults)
+        log.info("[baseline_with_combined] merged params: %s", merged)
         for _, name, cfg_path in runs:
             run_eval_only(name, cfg_path, params=merged, force=force, dry_run=dry_run)
 

@@ -141,6 +141,23 @@ def load_data_from_tracklets(
             pc[j]["label"].append(col)
             pc[j]["id"].append(cellid)
 
+    # MATLAB tracklet "color" is often an RGB triple [r, g, b].  When that is
+    # the case, pc[j]["label"] ends up as a list-of-lists and the resulting
+    # tensor is 2-D (n_points, 3), which breaks KNN-voting label transfer that
+    # expects 1-D integer class indices.  Build a globally consistent
+    # color→index mapping so every unique RGB triple maps to the same integer
+    # across all frames.
+    sample_labels = next(iter(pc.values()))["label"]
+    if sample_labels and isinstance(sample_labels[0], (list, tuple)):
+        color_to_idx: dict[tuple, int] = {}
+        for frame_data in pc.values():
+            for c in frame_data["label"]:
+                key = tuple(c)
+                if key not in color_to_idx:
+                    color_to_idx[key] = len(color_to_idx)
+        for frame_data in pc.values():
+            frame_data["label"] = [color_to_idx[tuple(c)] for c in frame_data["label"]]
+
     for i in pc:
         pc[i] = zRegPointCloud(
             pos=torch.tensor(pc[i]["pos"], device=device),

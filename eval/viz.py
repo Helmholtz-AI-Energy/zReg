@@ -401,8 +401,28 @@ def plot_trajectory(
             align_sorted[-1],
         ])
 
-        # Build source-frame mapping from warp path
-        src_map = _warp_source_map(align_result.warp_path)
+        # Build a mapping from full-resolution target key → full-resolution source key.
+        # warp_path holds (src_sub_idx, tgt_sub_idx) — zero-based indices into the
+        # strided sub-dicts, NOT original frame keys.  Mirror _build_aligned_cloud's
+        # proportional index math to avoid KeyError when source/target lengths differ.
+        _warp = align_result.warp_path
+        _tgt_to_src_sub: dict[int, int] = {}
+        for _s, _t in _warp:
+            if _t not in _tgt_to_src_sub:
+                _tgt_to_src_sub[_t] = _s
+        _n_sub_src = max(s for s, _ in _warp) + 1 if _warp else 1
+        _n_sub_tgt = max(t for _, t in _warp) + 1 if _warp else 1
+        _n_tgt_full = len(align_sorted)
+        _source_keys = sorted(dataset.keys())
+        _n_src_full = len(_source_keys)
+        _fallback_sub = _warp[0][0] if _warp else 0
+
+        def _source_key_for(fk: int) -> int:
+            pos = align_sorted.index(fk)
+            tgt_sub = min(round(pos * _n_sub_tgt / _n_tgt_full), _n_sub_tgt - 1)
+            src_sub = _tgt_to_src_sub.get(tgt_sub, _fallback_sub)
+            src_idx = min(round(src_sub * _n_src_full / _n_sub_src), _n_src_full - 1)
+            return _source_keys[src_idx]
 
         # Pre-compute subsampled arrays once per cloud per frame (Task 4)
         per_frame_source: dict[int, np.ndarray] = {}
@@ -410,9 +430,8 @@ def plot_trajectory(
         per_frame_target: dict[int, np.ndarray] = {}
 
         for fk in align_frame_indices:
-            source_fk = src_map.get(fk, fk)  # fallback: use fk if no warp mapping
             per_frame_source[fk] = _subsample(
-                dataset[source_fk]["pos"].detach().cpu().numpy()
+                dataset[_source_key_for(fk)]["pos"].detach().cpu().numpy()
             )
             per_frame_aligned[fk] = _subsample(
                 align_result.aligned_cloud[fk]["pos"].detach().cpu().numpy()

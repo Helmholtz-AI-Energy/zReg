@@ -1,0 +1,38 @@
+# Stage 2 — Label Transfer: Hybrid kNN + CPD-weighted ensemble.
+# Tier 1 — Fully synthetic: known-GT bowl/ball data for HPO.
+# NOTE: A dedicated hybrid method is not yet implemented in LabelTransferStage.
+# The recommended approach is to run knn and cpd_weighted separately, then
+# ensemble their softmax predictions in post-processing. This config serves
+# as a placeholder for when hybrid support is added (label_transfer_method: hybrid).
+# Alignment uses best non-rigid CPD params from Stage 1.
+# Run: python run_eval.py --config <this> --mode full
+data_path: data/synthetic/fully_synthetic/ball_realistic_kobitski.csv
+data_format: csv
+pipeline_mode: synthetic
+transform_spec:
+  type: rigid
+  rotation_deg: 30.0
+  rotation_axis: [0, 0, 1]
+run_alignment: true
+run_label_transfer: true
+label_transfer_method: knn_voting
+tier: full
+n_trials: 50
+search_strategy: auto
+sobol_seed: 42
+search_space:
+  k_neighbours: [3, 5, 10]
+  window_size: [10, 20, 30]
+default_params:
+  window_size: 20
+  step: 2
+  cpd_penalty: nonrigid
+  dtw_dist_fn: cpd
+  n_breakpoints: 5
+  k_neighbours: 5
+  dist_metric: euclidean
+  smoothing: 0.1
+  threshold: 0.5
+output_dir: experiments/runs/stage2_label_transfer/hybrid_knn_cpd/synthetic
+save_plots: true
+verbose: false

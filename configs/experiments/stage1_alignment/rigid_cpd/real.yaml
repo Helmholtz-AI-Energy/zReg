@@ -1,0 +1,25 @@
+# Stage 1 — Alignment: Rigid CPD (cpd_penalty: rigid).
+# Tier 3 — Real data: Kobitski ew06 vs ew08. Run with --mode eval.
+# Update default_params with best window_size from synthetic HPO before submitting.
+data_path: data/external/sample/kobitski_data/12_11_15_embryo_ew_06_Cleaned_BackTracked_Oriented.tracklets
+data_format: tracklets
+target_data_path: data/external/sample/kobitski_data/12_11_27_embryo_ew_08_Cleaned_BackTracked_Oriented.tracklets
+target_data_format: tracklets
+pipeline_mode: paired
+run_alignment: true
+run_label_transfer: false
+tier: dev
+n_trials: 10
+search_strategy: auto
+sobol_seed: 42
+search_space: {}
+default_params:
+  window_size: 20
+  step: 2
+  cpd_penalty: rigid
+  dtw_dist_fn: cpd
+  n_breakpoints: 5
+max_points_per_frame: 200
+output_dir: experiments/runs/stage1_alignment/rigid_cpd/real
+save_plots: true
+verbose: false

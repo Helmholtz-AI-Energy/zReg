@@ -115,17 +115,22 @@ def _ax_style(ax, title: str) -> None:
     ax.zaxis.pane.fill = False
 
 
-def _save_fig(fig, base: Path, paths: list[str]) -> None:
+def _save_fig(fig, base: Path, paths: list[str], bbox_inches: "str | None" = "tight") -> None:
     """Save *fig* as PDF + PNG at *base* (no suffix), close fig, extend *paths*.
 
     ``paths.extend`` is placed after both ``savefig`` calls so that paths are
     only recorded when the full pair succeeds (atomic pair semantics).  If the
     PNG save raises, neither path is appended.  ``plt.close`` always runs via
     the ``finally`` block to prevent figure handle leaks.
+
+    ``bbox_inches`` controls cropping behaviour.  Pass ``None`` for figures
+    with 3-D axes: ``bbox_inches="tight"`` triggers a matplotlib bug where
+    the 3-D perspective transform produces a degenerate bounding box that
+    exceeds the Agg renderer's 2^16 pixel-per-side limit.
     """
     try:
-        fig.savefig(base.with_suffix(".pdf"), bbox_inches="tight")
-        fig.savefig(base.with_suffix(".png"), dpi=150, bbox_inches="tight")
+        fig.savefig(base.with_suffix(".pdf"), bbox_inches=bbox_inches)
+        fig.savefig(base.with_suffix(".png"), dpi=150, bbox_inches=bbox_inches)
         paths.extend([str(base.with_suffix(".pdf")), str(base.with_suffix(".png"))])
     finally:
         plt.close(fig)
@@ -163,7 +168,7 @@ def _write_single_cloud_figure(
         ax.scatter(pos[:, 0], pos[:, 1], pos[:, 2],
                    c=color, s=1.5, alpha=1.0, linewidths=0)
         _ax_style(ax, f"Frame {fk}")
-    _save_fig(fig, Path(output_dir) / stem, paths)
+    _save_fig(fig, Path(output_dir) / stem, paths, bbox_inches=None)
 
 
 def _write_superposed_figure(
@@ -213,7 +218,7 @@ def _write_superposed_figure(
     has_target = tgt_pos_map is not None and any(fk in tgt_pos_map for fk in frame_indices)
     legend_labels = ["Source", "Aligned"] + (["Target"] if has_target else [])
     fig.legend(legend_labels, loc="center right", bbox_to_anchor=(1.12, 0.5))
-    _save_fig(fig, Path(output_dir) / "alignment_superposed_trajectory", paths)
+    _save_fig(fig, Path(output_dir) / "alignment_superposed_trajectory", paths, bbox_inches=None)
 
 
 def _write_label_figure(
@@ -269,7 +274,7 @@ def _write_label_figure(
     ]
     if patches:
         fig.legend(handles=patches, loc="center right", bbox_to_anchor=(1.15, 0.5))
-    _save_fig(fig, Path(output_dir) / stem, paths)
+    _save_fig(fig, Path(output_dir) / stem, paths, bbox_inches=None)
 
 
 # ---------------------------------------------------------------------------
@@ -732,7 +737,7 @@ def render_dataset_triptych(
 
     out_path = output_dir / f"{name}.png"
     try:
-        fig.savefig(out_path, dpi=dpi, bbox_inches="tight")
+        fig.savefig(out_path, dpi=dpi)  # bbox_inches="tight" breaks 3-D axes on Agg
     finally:
         plt.close(fig)  # D-12: mandatory
 

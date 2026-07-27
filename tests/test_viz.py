@@ -593,3 +593,57 @@ class TestVizCoverageGaps:
         )
         with pytest.raises(KeyError):
             plot_trajectory(None, label_result, ds, None, tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# Regression tests for source/target length mismatch (ee468eb + 5f98e11)
+# ---------------------------------------------------------------------------
+
+
+class TestVizMismatchedSourceTarget:
+    """All prior tests use equal-length source/target with identity warp paths.
+    These tests cover the distinct-length case that triggered two production bugs.
+    """
+
+    def _make_pc(self, n=20, n_labels=None):
+        label = torch.randint(0, n_labels, (n,)) if n_labels is not None else None
+        return zRegPointCloud(pos=torch.randn(n, 3), label=label)
+
+    def test_source_shorter_than_aligned_cloud_no_key_error(self, tmp_path):
+        """Regression for ee468eb: source has 5 frames (keys 0-4) but aligned_cloud
+        has 8 frames (keys 0-7).  warp_path carries subsampled indices (not original
+        frame keys), so align_frame_index 7 must map to a valid source key (0-4).
+        Without the fix this raises KeyError: 7."""
+        source = {k: self._make_pc() for k in range(5)}
+        aligned = {k: self._make_pc() for k in range(8)}
+        # Subsampled warp_path (step=2):
+        #   source_sub {0,1,2} → original frames 0,2,4
+        #   target_sub {0,1,2,3} → original frames 0,2,4,6
+        warp_path = [(0, 0), (0, 1), (1, 2), (2, 3)]
+        align_result = AlignResult(
+            aligned_cloud=aligned,
+            warp_path=warp_path,
+            dtw_distance=0.0,
+            n_changepoints=0,
+            params_used={},
+        )
+        result = plot_trajectory(align_result, None, source, None, tmp_path)
+        assert len(result) == 6
+        assert (tmp_path / "alignment_source_trajectory.pdf").exists()
+
+    def test_transferred_label_unique_to_frame_outside_source_included_in_palette(self, tmp_path):
+        """Regression for 5f98e11: transferred labels for a frame absent from the
+        source dataset must still be added to the colour palette.  Frame 5 is not
+        in source (keys 0-2) and carries class 9 which appears nowhere else.
+        Without the fix this raises KeyError: 9."""
+        source = {k: self._make_pc(n_labels=3) for k in range(3)}  # keys 0, 1, 2
+        transferred = {
+            0: torch.zeros(20, dtype=torch.long),          # class 0
+            2: torch.zeros(20, dtype=torch.long),          # class 0
+            5: torch.full((20,), 9, dtype=torch.long),     # class 9 — unique to frame 5
+        }
+        target = {5: self._make_pc()}  # needed so target_pos_map can resolve fk=5
+        label_result = LabelResult(transferred_labels=transferred, params_used={})
+        result = plot_trajectory(None, label_result, source, None, tmp_path, target=target)
+        assert len(result) == 4
+        assert (tmp_path / "label_target_trajectory.pdf").exists()

@@ -229,8 +229,7 @@ class EvaluationRunner:
                 )
             )
             summary_path = output_dir_path / "metrics_summary.pdf"
-            plot_metrics(preliminary_report, summary_path)
-            plot_paths.append(str(summary_path))
+            plot_paths.extend(plot_metrics(preliminary_report, summary_path))
 
         # Step 2b: Export trajectories unconditionally (D-13 / EXT-01).
         trajectory_paths = export_trajectory(result, source, self.config, output_dir_path, target=target)

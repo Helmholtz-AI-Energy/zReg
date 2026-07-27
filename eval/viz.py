@@ -69,29 +69,6 @@ def _deduplicate_frames(candidates: list[int]) -> list[int]:
     return [k for k in candidates if not (k in seen or seen.add(k))]
 
 
-def _warp_source_map(warp_path: list[tuple[int, int]]) -> dict[int, int]:
-    """Build a ``target_idx -> source_idx`` mapping from *warp_path*.
-
-    Takes the **first** occurrence per target index (DTW paths may repeat
-    a target index).
-
-    Parameters
-    ----------
-    warp_path : list of (src_idx, tgt_idx) tuples
-        DTW warp path as stored in ``AlignResult.warp_path``.
-
-    Returns
-    -------
-    dict[int, int]
-        Mapping from target frame index to source frame index.
-    """
-    mapping: dict[int, int] = {}
-    for src, tgt in warp_path:
-        if tgt not in mapping:
-            mapping[tgt] = src
-    return mapping
-
-
 def _subsample(arr: np.ndarray, max_pts: int = 4000) -> np.ndarray:
     """Subsample *arr* to at most *max_pts* rows using a fixed RNG seed.
 
@@ -568,16 +545,19 @@ def plot_trajectory(
             target_colors_map[fk] = c_vals
 
         # Figure 1: source cloud coloured by source labels
-        # Only pass frames that ended up in source_pos_map (guard for mismatched keys)
+        # Only pass frames that ended up in source_pos_map (guard for mismatched keys).
+        # Skip entirely when source and target frame key sets are disjoint — avoids
+        # writing a blank figure with no subplots.
         source_frame_indices = [fk for fk in label_frame_indices if fk in source_pos_map]
-        # If all source frames lack labels, pass empty color_for_label to suppress legend
-        all_none_source = all(source_colors_map.get(fk) is None for fk in source_frame_indices)
-        _write_label_figure(
-            source_frame_indices, source_pos_map, source_colors_map,
-            {} if all_none_source else color_for_label, label_names,
-            stem="label_source_trajectory",
-            output_dir=Path(output_dir), paths=paths,
-        )
+        if source_frame_indices:
+            # If all source frames lack labels, pass empty color_for_label to suppress legend
+            all_none_source = all(source_colors_map.get(fk) is None for fk in source_frame_indices)
+            _write_label_figure(
+                source_frame_indices, source_pos_map, source_colors_map,
+                {} if all_none_source else color_for_label, label_names,
+                stem="label_source_trajectory",
+                output_dir=Path(output_dir), paths=paths,
+            )
 
         # Figure 2: target/aligned cloud coloured by transferred labels
         _write_label_figure(
@@ -590,8 +570,8 @@ def plot_trajectory(
     return paths
 
 
-def plot_metrics(report: EvalReport, path: Union[str, Path]) -> None:
-    """Render a horizontal bar chart of 6 normalised metric scores to PDF.
+def plot_metrics(report: EvalReport, path: Union[str, Path]) -> list[str]:
+    """Render a horizontal bar chart of 6 normalised metric scores to PDF + PNG.
 
     Produces a single horizontal bar chart with 6 bars, one per canonical
     short-name metric key from ``StageMetrics.normalized``.  The x-axis spans
@@ -609,12 +589,15 @@ def plot_metrics(report: EvalReport, path: Union[str, Path]) -> None:
         will always render 6 bars regardless of dict completeness.
 
     path : str or Path
-        Destination PDF file path.  The parent directory must already exist;
-        this function does NOT call ``mkdir``.
+        Destination path.  The suffix is replaced: a PDF and a PNG are written
+        at ``path.with_suffix('.pdf')`` and ``path.with_suffix('.png')``.
+        The parent directory must already exist; this function does NOT call
+        ``mkdir``.
 
     Returns
     -------
-    None
+    list[str]
+        Absolute path strings of the two files written: ``[pdf_path, png_path]``.
 
     Notes
     -----
@@ -646,10 +629,9 @@ def plot_metrics(report: EvalReport, path: Union[str, Path]) -> None:
     ax.barh(labels, values)
     ax.set_xlim(0, 1)
     ax.set_xlabel("Normalised Score")
-    try:
-        fig.savefig(path, bbox_inches="tight")
-    finally:
-        plt.close(fig)
+    written: list[str] = []
+    _save_fig(fig, Path(path).with_suffix(""), written)
+    return written
 
 
 def render_dataset_triptych(

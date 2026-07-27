@@ -142,15 +142,26 @@ def fake_report() -> EvalReport:
 
 
 class TestPlotMetrics:
-    """FRAME-08 G2: plot_metrics produces non-empty PDF without figure leaks."""
+    """FRAME-08 G2: plot_metrics produces non-empty PDF+PNG without figure leaks."""
 
-    def test_creates_pdf_file_at_path(self, fake_report, tmp_path) -> None:
-        """PDF is created at the given path with size > 0."""
+    def test_creates_pdf_and_png_files(self, fake_report, tmp_path) -> None:
+        """PDF and PNG are both created at path with size > 0."""
         out = tmp_path / "summary.pdf"
-        plot_metrics(fake_report, out)
-        assert out.exists()
-        assert out.suffix == ".pdf"
-        assert out.stat().st_size > 0
+        result = plot_metrics(fake_report, out)
+        assert len(result) == 2
+        assert (tmp_path / "summary.pdf").exists()
+        assert (tmp_path / "summary.pdf").stat().st_size > 0
+        assert (tmp_path / "summary.png").exists()
+        assert (tmp_path / "summary.png").stat().st_size > 0
+
+    def test_returns_path_list(self, fake_report, tmp_path) -> None:
+        """Return value is a list of two absolute path strings."""
+        out = tmp_path / "summary.pdf"
+        result = plot_metrics(fake_report, out)
+        assert isinstance(result, list)
+        assert len(result) == 2
+        assert any(r.endswith(".pdf") for r in result)
+        assert any(r.endswith(".png") for r in result)
 
     def test_no_figure_leak(self, fake_report, tmp_path) -> None:
         """plt.close(fig) is called — no leaked figure handles after return."""
@@ -179,9 +190,10 @@ class TestPlotMetrics:
             sanity_flags=[],
         )
         out = tmp_path / "partial.pdf"
-        plot_metrics(partial_report, out)
-        assert out.exists()
-        assert out.stat().st_size > 0
+        result = plot_metrics(partial_report, out)
+        assert len(result) == 2
+        assert (tmp_path / "partial.pdf").exists()
+        assert (tmp_path / "partial.png").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -593,6 +605,30 @@ class TestVizCoverageGaps:
         )
         with pytest.raises(KeyError):
             plot_trajectory(None, label_result, ds, None, tmp_path)
+
+    def test_disjoint_source_target_keys_skips_source_label_figure(self, tmp_path):
+        """Empty source_frame_indices guard — no blank source figure written.
+
+        When transferred_labels keys are entirely absent from dataset (disjoint
+        key sets, e.g. paired alignment where source frames are {0,1,2} and
+        target frames are {10,11,12}), source_frame_indices is empty and the
+        source label figure must be skipped rather than saved as a blank image.
+        Only the target label figure (2 files) is written.
+        """
+        source = {k: self._make_pc() for k in range(3)}
+        target = {k: self._make_pc() for k in range(10, 13)}
+        label_result = LabelResult(
+            transferred_labels={k: torch.zeros(5, dtype=torch.long) for k in range(10, 13)},
+            params_used={},
+        )
+        result = plot_trajectory(None, label_result, source, None, tmp_path, target=target)
+        # source label figure must NOT be written (disjoint keys → skipped)
+        assert not (tmp_path / "label_source_trajectory.pdf").exists()
+        assert not (tmp_path / "label_source_trajectory.png").exists()
+        # target label figure IS written
+        assert (tmp_path / "label_target_trajectory.pdf").exists()
+        assert (tmp_path / "label_target_trajectory.png").exists()
+        assert len(result) == 2
 
 
 # ---------------------------------------------------------------------------

@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: HoreKa Cluster Execution
-status: Phase 54 complete — UAT 9/9 passed
-stopped_at: Phase 54 complete (2026-07-23)
-last_updated: "2026-07-23T00:00:00.000Z"
-last_activity: 2026-07-23 - Phase 54 complete; BUDG-02 + BUDG-03 delivered; 1353 tests pass
+status: completed
+stopped_at: context exhaustion at 76% (2026-07-27)
+last_updated: "2026-07-27T07:40:45.617Z"
+last_activity: 2026-07-28 - Quick task 260728-q01: EGNN + POINTNET2 added to LabelTransferMethod, model dispatch wired in transfer_labels()
 progress:
   total_phases: 4
   completed_phases: 3
@@ -133,6 +133,7 @@ None — test_search_strategies mock fixed (FakeIndividual k=int→str) to align
 | 20260718-02 | Create docs/tutorials/ with eval framework + revised notebook tutorials | 2026-07-18 | beec1d8 | [20260718-02-tutorials-directory-restructure](./quick/20260718-02-tutorials-directory-restructure/) |
 | 20260718-03 | Remove notebooks/ directory (content in docs/tutorials/) | 2026-07-18 | f4e8f30 | [20260718-03-remove-notebooks-dir](./quick/20260718-03-remove-notebooks-dir/) |
 | 20260722 | Add --clear-checkpoints to run_all.py; split window_size=20 into separate HorEKA job | 2026-07-22 | cff2a81 | [20260722-baseline-checkpoint-and-job-split](./quick/20260722-baseline-checkpoint-and-job-split/) |
+| 260728-q01 | Add EGNN and POINTNET2 to LabelTransferMethod with model dispatch | 2026-07-28 | 0fea346 | [260728-q01-model-dispatch-label-transfer](./quick/260728-q01-model-dispatch-label-transfer/) |
 
 ## Deferred Items (from v1.4 close, still open)
 
@@ -143,6 +144,6 @@ None — test_search_strategies mock fixed (FakeIndividual k=int→str) to align
 
 ## Session Continuity
 
-Last session: 2026-07-22T22:14:42.823Z
-Stopped at: context exhaustion at 76% (2026-07-22)
+Last session: 2026-07-27T07:40:45.602Z
+Stopped at: context exhaustion at 76% (2026-07-27)
 Next action: `/gsd:plan-phase 54` — Budget Calibration & Full-Suite Gate (BUDG-02, BUDG-03); requires real HoreKa timing data from Phase 52/53 full run

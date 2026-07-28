@@ -1,9 +1,11 @@
 """Tests for color transfer functionality."""
 
+import unittest.mock
 import pytest
 import torch
 
 from zreg.label_transfer import transfer_labels as transfer_colors, LabelTransferMethod as ColorTransferMethod
+from zreg.label_transfer import transfer_labels, LabelTransferMethod
 from zreg.core.dataset import zRegPointCloud
 
 
@@ -369,4 +371,80 @@ def test_cpd_weighted_wrong_shape_pmat_raises():
 
     with pytest.raises(ValueError, match="expected"):
         _transfer_labels_cpd_weighted(source_pos, target_pos, source_colors, _Mock())
+
+
+# ── Model-based dispatch ──────────────────────────────────────────────────────
+
+def test_egnn_enum_value():
+    assert LabelTransferMethod.EGNN.value == "egnn"
+
+
+def test_pointnet2_enum_value():
+    assert LabelTransferMethod.POINTNET2.value == "pointnet2"
+
+
+def test_egnn_requires_model(sample_point_clouds):
+    source, target = sample_point_clouds
+    with pytest.raises(ValueError, match="model is required"):
+        transfer_labels(source, target, method="egnn")
+
+
+def test_pointnet2_requires_model(sample_point_clouds):
+    source, target = sample_point_clouds
+    with pytest.raises(ValueError, match="model is required"):
+        transfer_labels(source, target, method="pointnet2")
+
+
+def test_transfer_labels_egnn_mock(sample_point_clouds):
+    """Dispatch calls model.forward() and returns (n_target, n_classes) softmax probs."""
+    source, target = sample_point_clouds
+    n_target = target["pos"].shape[0]
+    n_classes = source["label"].shape[1]
+
+    mock_model = unittest.mock.MagicMock()
+    fake_logits = torch.zeros(source["pos"].shape[0] + n_target, n_classes)
+    mock_model.return_value = fake_logits
+
+    result = transfer_labels(source, target, method="egnn", model=mock_model)
+
+    assert result.shape == (n_target, n_classes)
+    mock_model.assert_called_once()
+    mock_model.eval.assert_called_once()
+
+
+def test_transfer_labels_pointnet2_mock(sample_point_clouds):
+    """PointNet2 path mirrors EGNN path (same _transfer_labels_model helper)."""
+    source, target = sample_point_clouds
+    n_target = target["pos"].shape[0]
+    n_classes = source["label"].shape[1]
+
+    mock_model = unittest.mock.MagicMock()
+    fake_logits = torch.zeros(source["pos"].shape[0] + n_target, n_classes)
+    mock_model.return_value = fake_logits
+
+    result = transfer_labels(source, target, method="pointnet2", model=mock_model)
+
+    assert result.shape == (n_target, n_classes)
+
+
+def test_transfer_labels_model_joint_feat_encoding(sample_point_clouds):
+    """Joint feature matrix: source rows have unknown_flag=0, target rows have unknown_flag=1."""
+    source, target = sample_point_clouds
+    n_source = source["pos"].shape[0]
+    n_classes = source["label"].shape[1]
+    captured = {}
+
+    def capture_forward(joint_pos, joint_feat):
+        captured["joint_feat"] = joint_feat
+        return torch.zeros(joint_pos.shape[0], n_classes)
+
+    mock_model = unittest.mock.MagicMock()
+    mock_model.side_effect = capture_forward
+
+    transfer_labels(source, target, method="egnn", model=mock_model)
+
+    jf = captured["joint_feat"]
+    assert (jf[:n_source, n_classes] == 0.0).all()
+    assert (jf[n_source:, n_classes] == 1.0).all()
+    torch.testing.assert_close(jf[:n_source, :n_classes], source["label"].float())
 

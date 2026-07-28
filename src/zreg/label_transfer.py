@@ -5,12 +5,18 @@ point cloud to a target point cloud after spatial alignment.
 """
 
 from enum import Enum
+from typing import TYPE_CHECKING
 import torch
+import torch.nn as nn
 import logging
 
 from .algorithms.cpd import EstepResult
 
 from .core.dataset import zRegPointCloud
+
+if TYPE_CHECKING:
+    from .models.egnn import EGNNLabelTransfer
+    from .models.pointnet2 import PointNet2LabelTransfer
 
 log = logging.getLogger(__name__)
 
@@ -23,6 +29,8 @@ class LabelTransferMethod(Enum):
     CPD_WEIGHTED = "cpd_weighted"
     KNN_VOTING = "knn_voting"
     GAUSSIAN_KERNEL = "gaussian_kernel"
+    EGNN = "egnn"
+    POINTNET2 = "pointnet2"
 
 
 def transfer_labels(
@@ -32,6 +40,7 @@ def transfer_labels(
     source_colors: torch.Tensor | None = None,
     target_colors: torch.Tensor | None = None,
     estep_result: EstepResult | None = None,
+    model: "nn.Module | None" = None,
     **kwargs
 ) -> torch.Tensor:
     """Transfer labels from source to target point cloud.
@@ -55,6 +64,9 @@ def transfer_labels(
     estep_result : EstepResult, optional
         Result from CPD E-step containing posterior probabilities. Required for
         'cpd_weighted' method.
+    model : nn.Module, optional
+        Pre-loaded EGNNLabelTransfer or PointNet2LabelTransfer instance.
+        Required for method="egnn" or method="pointnet2".
     **kwargs
         Additional method-specific parameters. For 'knn_voting': 'k' (int, default 5).
         For 'gaussian_kernel': 'sigma' (float, default 1.0).
@@ -112,6 +124,14 @@ def transfer_labels(
     elif method == LabelTransferMethod.GAUSSIAN_KERNEL:
         sigma = kwargs.get('sigma', 1.0)
         return _transfer_labels_gaussian_kernel(source_pos, target_pos, source_colors, sigma)
+    elif method == LabelTransferMethod.EGNN:
+        if model is None:
+            raise ValueError("model is required for EGNN method")
+        return _transfer_labels_model(source_pos, target_pos, source_colors, model)
+    elif method == LabelTransferMethod.POINTNET2:
+        if model is None:
+            raise ValueError("model is required for POINTNET2 method")
+        return _transfer_labels_model(source_pos, target_pos, source_colors, model)
     else:  # pragma: no cover
         # Should not reach here if normalization above is correct, but guard anyway
         raise ValueError(
@@ -311,3 +331,38 @@ def _transfer_labels_gaussian_kernel(
     transferred_colors = torch.matmul(weights, source_colors.float())  # (m_points, n_label_channels)
 
     return transferred_colors
+
+
+def _transfer_labels_model(
+    source_pos: torch.Tensor,
+    target_pos: torch.Tensor,
+    source_colors: torch.Tensor,
+    model: "nn.Module",
+) -> torch.Tensor:
+    """Transfer labels using a pre-trained neural network (EGNN or PointNet2).
+
+    Builds a joint source+target cloud, encodes source labels as one-hot features
+    with unknown_flag=0, encodes target points as unknown_flag=1, and runs
+    model.forward(). Returns softmax probabilities for target points only.
+    """
+    n_source = source_pos.shape[0]
+    n_classes = source_colors.shape[1]
+
+    joint_pos = torch.cat([source_pos, target_pos], dim=0)
+
+    # joint_feat: [n_joint, n_classes + 1]
+    # source rows: source_colors (one-hot / soft) + unknown_flag=0
+    # target rows: zeros + unknown_flag=1
+    joint_feat = torch.zeros(
+        joint_pos.shape[0], n_classes + 1,
+        dtype=torch.float32, device=source_pos.device,
+    )
+    joint_feat[:n_source, :n_classes] = source_colors.float()
+    joint_feat[n_source:, n_classes] = 1.0
+
+    model.eval()
+    with torch.no_grad():
+        logits = model(joint_pos, joint_feat)  # [n_joint, n_classes]
+
+    target_logits = logits[n_source:]
+    return torch.softmax(target_logits, dim=-1)

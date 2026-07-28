@@ -54,7 +54,7 @@ import statistics
 # enforced in tests/conftest.py:20-24 and eval/data_factory.py:18-35).
 # zreg.metrics transitively pulls in zreg.dataset and sklearn so it must
 # precede torch on macOS-ARM.
-from zreg.metrics import (
+from zreg.evaluation import (
     chamfer,
     compute_f1,
     hausdorff,

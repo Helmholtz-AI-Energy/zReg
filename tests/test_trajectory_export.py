@@ -23,8 +23,8 @@ import pytest
 import torch
 
 # zreg.* before torch on macOS-ARM (libomp SIGABRT rule from Phase 12)
-from zreg.dataset import zRegPointCloud
-from zreg.generators import generate_labels, generate_trajectory
+from zreg.core.dataset import zRegPointCloud
+from zreg.data_generation import generate_labels, generate_trajectory
 
 from eval.config import EvalConfig
 from eval.tracking import export_trajectory

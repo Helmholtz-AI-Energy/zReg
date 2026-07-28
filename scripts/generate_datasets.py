@@ -31,7 +31,7 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT))
 
 # zreg imports must precede torch (libomp SIGABRT workaround — see data_factory.py)
-from zreg.dataset import load_data_from_tracklets, load_shah_from_csv, zRegPointCloud
+from zreg.core.dataset import load_data_from_tracklets, load_shah_from_csv, zRegPointCloud
 from eval.data_factory import DataFactory
 from eval.config import EvalConfig
 

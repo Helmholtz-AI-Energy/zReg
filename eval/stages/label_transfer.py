@@ -72,9 +72,9 @@ from typing import Any
 # zreg.* MUST precede torch on macOS-ARM (libomp SIGABRT).
 # Enforced in tests/conftest.py:20-24, eval/data_factory.py:18-35,
 # eval/metrics.py:53-67, eval/types.py:48-53.
-from zreg.color_transfer import transfer_colors, ColorTransferMethod
-from zreg.dataset import zRegPointCloud
-from zreg.metrics import chamfer
+from zreg.label_transfer import transfer_labels as transfer_colors, LabelTransferMethod as ColorTransferMethod
+from zreg.core.dataset import zRegPointCloud
+from zreg.evaluation import chamfer
 from zreg.models import PointNet2LabelTransfer, EGNNLabelTransfer
 
 import torch  # consistent import order for downstream callers (macOS-ARM zreg-before-torch rule)

@@ -14,7 +14,6 @@ Pattern 1): FPS 0.4-0.9ms, ball-query (n/4 centers) 1.5-6.2ms, well under the
 D-03 50ms threshold — no vectorization needed at this scale.
 """
 
-import open3d as o3d
 import torch
 import numpy as np
 
@@ -40,6 +39,7 @@ def farthest_point_sample(pos: torch.Tensor, n_samples: int) -> torch.Tensor:
     torch.Tensor
         [n_samples] torch.long indices into pos, on pos.device.
     """
+    import open3d as o3d  # lazy import to avoid libomp conflict on macOS ARM
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(pos.detach().cpu().numpy().astype(np.float64))
     sampled = pcd.farthest_point_down_sample(n_samples)
@@ -74,6 +74,7 @@ def ball_query(
     list[torch.Tensor]
         One torch.long tensor per center, on pos.device. Never empty.
     """
+    import open3d as o3d  # lazy import to avoid libomp conflict on macOS ARM
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(pos.detach().cpu().numpy().astype(np.float64))
     tree = o3d.geometry.KDTreeFlann(pcd)
@@ -117,6 +118,7 @@ def build_radius_graph(pos: torch.Tensor, radius: float, max_neighbors: int) -> 
         [2, E] torch.long edge_index, on pos.device. edge_index[0] are source
         (neighbour) indices, edge_index[1] are target (center) indices.
     """
+    import open3d as o3d  # lazy import to avoid libomp conflict on macOS ARM
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(pos.detach().cpu().numpy().astype(np.float64))
     tree = o3d.geometry.KDTreeFlann(pcd)

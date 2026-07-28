@@ -3,9 +3,9 @@
 import pytest
 import torch
 
-from zreg import distances
-from zreg.distances import general
-from zreg.distances import sw_varients
+from zreg import distance_metrics as distances
+from zreg.distance_metrics import general
+from zreg.distance_metrics import sw_varients
 
 
 @pytest.fixture
@@ -264,7 +264,7 @@ class TestGeneralisedSlicedWassersteinDistance:
         the degree parameter even when not explicitly provided by the user.
         """
         from unittest.mock import MagicMock, patch
-        import zreg.pairwise_distance_matrix as pdm
+        import zreg.algorithms.pairwise_distance_matrix as pdm
 
         # Create minimal mock point clouds with device attribute
         mock_device = torch.device("cpu")
@@ -488,7 +488,7 @@ class TestASWDRemoveHistory:
         open(path, "w").close()  # create the file so file.exists() is True
         aswd = sw_varients.AdaptiveSlicedWassersteinDistance(projs_history=path)
         # Simulate race condition: file disappears between exists() and os.remove()
-        with patch("zreg.distances.sw_varients.os.remove", side_effect=FileNotFoundError):
+        with patch("zreg.distance_metrics.sw_varients.os.remove", side_effect=FileNotFoundError):
             aswd.remove_history()  # must not raise
 
 

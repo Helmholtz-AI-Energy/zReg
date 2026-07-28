@@ -28,8 +28,8 @@ finalizes the file by adding the remaining mandated classes not yet covered.
 # zreg.dataset/zreg.generators MUST precede import torch on macOS ARM to avoid
 # a libomp SIGABRT (enforced in tests/conftest.py:20-24; matches the convention
 # in tests/test_data_factory.py).
-from zreg.dataset import zRegPointCloud
-from zreg.generators import add_gaussian_noise, generate_trajectory
+from zreg.core.dataset import zRegPointCloud
+from zreg.data_generation import add_gaussian_noise, generate_trajectory
 
 import torch
 

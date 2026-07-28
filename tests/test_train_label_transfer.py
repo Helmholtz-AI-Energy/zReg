@@ -23,7 +23,7 @@ converges. Four properties are checked, for BOTH models
 # zreg (and scipy) must be imported before torch/torch_geometric on macOS ARM
 # to avoid duplicate libomp initialisation (SIGABRT) -- 47-RESEARCH.md
 # Pitfall 1, mirrors tests/conftest.py and train_label_transfer.py.
-from zreg.dataset import zRegPointCloud  # noqa: F401
+from zreg.core.dataset import zRegPointCloud  # noqa: F401
 
 import math
 import sys

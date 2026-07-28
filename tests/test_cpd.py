@@ -4,8 +4,8 @@ import logging
 import pytest
 import torch
 
-from zreg import cpd
-from zreg import transforms
+from zreg.algorithms import cpd
+from zreg.core import transforms
 
 
 @pytest.fixture
@@ -633,7 +633,7 @@ class TestRBFKernelMatrix:
 
     def test_kernel_shape(self):
         """Test that kernel matrix has correct shape."""
-        from zreg.cpd.kernels import rbf_kernel_matrix
+        from zreg.algorithms.cpd.kernels import rbf_kernel_matrix
 
         points = torch.randn(50, 3)
         G = rbf_kernel_matrix(points, beta=2.0)
@@ -642,7 +642,7 @@ class TestRBFKernelMatrix:
 
     def test_kernel_symmetric(self):
         """Test that kernel matrix is symmetric."""
-        from zreg.cpd.kernels import rbf_kernel_matrix
+        from zreg.algorithms.cpd.kernels import rbf_kernel_matrix
 
         points = torch.randn(30, 3)
         G = rbf_kernel_matrix(points, beta=2.0)
@@ -651,7 +651,7 @@ class TestRBFKernelMatrix:
 
     def test_kernel_diagonal_ones(self):
         """Test that diagonal elements are 1 (distance to self is 0)."""
-        from zreg.cpd.kernels import rbf_kernel_matrix
+        from zreg.algorithms.cpd.kernels import rbf_kernel_matrix
 
         points = torch.randn(20, 3)
         G = rbf_kernel_matrix(points, beta=2.0)
@@ -660,7 +660,7 @@ class TestRBFKernelMatrix:
 
     def test_kernel_values_in_range(self):
         """Test that kernel values are in [0, 1]."""
-        from zreg.cpd.kernels import rbf_kernel_matrix
+        from zreg.algorithms.cpd.kernels import rbf_kernel_matrix
 
         points = torch.randn(25, 3)
         G = rbf_kernel_matrix(points, beta=2.0)
@@ -670,7 +670,7 @@ class TestRBFKernelMatrix:
 
     def test_kernel_beta_effect(self):
         """Test that larger beta produces smoother (larger) off-diagonal values."""
-        from zreg.cpd.kernels import rbf_kernel_matrix
+        from zreg.algorithms.cpd.kernels import rbf_kernel_matrix
 
         points = torch.randn(15, 3)
         G_small = rbf_kernel_matrix(points, beta=0.5)
@@ -839,7 +839,7 @@ class TestCPDRegistrationFunctionAdditional:
         The registration itself fails because target_colors is never forwarded through
         cpd_registration; the TypeError is expected and the lines are still covered.
         """
-        from zreg.dataset import zRegPointCloud
+        from zreg.core.dataset import zRegPointCloud
         n = 20
         source = zRegPointCloud(pos=torch.randn(n, 3), label=torch.rand(n, 3), id=torch.arange(n))
         target = zRegPointCloud(pos=torch.randn(n, 3), label=torch.rand(n, 3), id=torch.arange(n))
@@ -857,13 +857,13 @@ class TestAbstractMethodBodies:
 
     def test_maximization_step_abstract_body_returns_none(self):
         """Calling CoherentPointDrift._maximization_step directly executes its body (line 296)."""
-        from zreg.cpd.base import CoherentPointDrift
+        from zreg.algorithms.cpd.base import CoherentPointDrift
         result = CoherentPointDrift._maximization_step(None, None, None, None)
         assert result is None
 
     def test_initialize_abstract_body_returns_none(self):
         """Calling CoherentPointDrift._initialize via unbound call executes its body (line 119)."""
-        from zreg.cpd.base import CoherentPointDrift
+        from zreg.algorithms.cpd.base import CoherentPointDrift
         source = torch.randn(20, 3)
         target = torch.randn(20, 3)
         cpd_obj = cpd.RigidCPD(source=source, log_freq=-1)
@@ -902,7 +902,7 @@ class TestInitCPDFromExistingUseColor:
         The CPD constructor then raises ValueError because source_colors is not forwarded;
         the ValueError is expected and line 189 is still covered.
         """
-        from zreg.dataset import zRegPointCloud
+        from zreg.core.dataset import zRegPointCloud
         n = 20
         source = zRegPointCloud(pos=torch.randn(n, 3), label=torch.rand(n, 3), id=torch.arange(n))
         target = zRegPointCloud(pos=torch.randn(n, 3), label=torch.rand(n, 3), id=torch.arange(n))
@@ -912,7 +912,7 @@ class TestInitCPDFromExistingUseColor:
             cpd.init_cpd_from_existing(tf, source, target, use_color=True, log_freq=-1)
 
 
-from zreg.cpd._registration import HAS_OPEN3D as _CPD_HAS_OPEN3D
+from zreg.algorithms.cpd._registration import HAS_OPEN3D as _CPD_HAS_OPEN3D
 
 
 @pytest.mark.skipif(not _CPD_HAS_OPEN3D, reason="Open3D not available")
@@ -920,7 +920,7 @@ class TestCPDRegistrationOpen3DInputs:
     """Test Open3D input conversion paths in cpd_registration and init_cpd_from_existing."""
 
     def _make_o3d_pc(self, n=20):
-        from zreg.dataset import zreg_to_open3d, zRegPointCloud
+        from zreg.core.dataset import zreg_to_open3d, zRegPointCloud
         pc = zRegPointCloud(
             pos=torch.randn(n, 3),
             label=torch.randn(n, 3),
@@ -956,7 +956,7 @@ class TestCPDRegistrationCallbacksProvided:
 
     def test_cpd_registration_with_callbacks_list(self):
         """cpd_registration with callbacks=[] takes the False branch of 'if callbacks is None' (line 92->96)."""
-        from zreg.dataset import zRegPointCloud
+        from zreg.core.dataset import zRegPointCloud
         n = 20
         source = zRegPointCloud(pos=torch.randn(n, 3), id=torch.arange(n))
         target = zRegPointCloud(pos=torch.randn(n, 3), id=torch.arange(n))
@@ -971,7 +971,7 @@ class TestCPDRegistrationCallbacksProvided:
 
     def test_init_cpd_from_existing_with_callbacks_list(self):
         """init_cpd_from_existing with callbacks=[] takes the False branch (line 178->182)."""
-        from zreg.dataset import zRegPointCloud
+        from zreg.core.dataset import zRegPointCloud
         n = 20
         source = zRegPointCloud(pos=torch.randn(n, 3), id=torch.arange(n))
         target = zRegPointCloud(pos=torch.randn(n, 3), id=torch.arange(n))
@@ -988,8 +988,8 @@ class TestGetOpen3DRegistration:
     def test_no_open3d(self):
         """Returns (None, False) when HAS_OPEN3D is False."""
         from unittest.mock import patch
-        from zreg.cpd._registration import _get_open3d
-        with patch("zreg.cpd._registration.HAS_OPEN3D", False):
+        from zreg.algorithms.cpd._registration import _get_open3d
+        with patch("zreg.algorithms.cpd._registration.HAS_OPEN3D", False):
             o3d, flag = _get_open3d()
         assert o3d is None and flag is False
 
@@ -997,8 +997,8 @@ class TestGetOpen3DRegistration:
         """Returns (None, False) when open3d import raises ImportError."""
         import sys
         from unittest.mock import patch
-        from zreg.cpd._registration import _get_open3d
-        with patch("zreg.cpd._registration.HAS_OPEN3D", True):
+        from zreg.algorithms.cpd._registration import _get_open3d
+        with patch("zreg.algorithms.cpd._registration.HAS_OPEN3D", True):
             with patch.dict(sys.modules, {"open3d": None}):
                 o3d, flag = _get_open3d()
         assert o3d is None and flag is False

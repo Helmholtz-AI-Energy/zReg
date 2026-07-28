@@ -19,7 +19,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 # zreg.* before torch — macOS-ARM libomp SIGABRT rule
-from zreg.dataset import zRegPointCloud  # noqa: F401
+from zreg.core.dataset import zRegPointCloud  # noqa: F401
 
 import torch  # noqa: F401
 

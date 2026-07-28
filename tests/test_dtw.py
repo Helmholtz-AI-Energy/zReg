@@ -8,11 +8,11 @@ import torch
 from pathlib import Path
 import tempfile
 
-from zreg import dtw
-from zreg.dtw import DynamicTimeWarping, DTWResult
-from zreg.dataset import zRegPointCloud
-from zreg.distances import euclidean_distance
-from zreg.pairwise_distance_matrix import create_pairwise_distance_matrix
+from zreg.algorithms import dtw
+from zreg.algorithms.dtw import DynamicTimeWarping, DTWResult
+from zreg.core.dataset import zRegPointCloud
+from zreg.distance_metrics import euclidean_distance
+from zreg.algorithms.pairwise_distance_matrix import create_pairwise_distance_matrix
 
 
 @pytest.fixture
@@ -624,15 +624,15 @@ class TestExports:
 
     def test_import_dtwresult_from_package(self):
         """Test that DTWResult is importable from dtw package."""
-        from zreg.dtw import DTWResult
-        from zreg.dtw.result import DTWResult as DTWResultDirect
+        from zreg.algorithms.dtw import DTWResult
+        from zreg.algorithms.dtw.result import DTWResult as DTWResultDirect
 
         assert DTWResult is DTWResultDirect
 
     def test_import_compose_constraints(self):
         """Test that compose_constraints is importable from dtw package."""
-        from zreg.dtw import compose_constraints
-        from zreg.dtw.constraints import compose_constraints as direct
+        from zreg.algorithms.dtw import compose_constraints
+        from zreg.algorithms.dtw.constraints import compose_constraints as direct
 
         assert compose_constraints is direct
 
@@ -799,7 +799,7 @@ class TestComposeConstraints:
 
     def test_no_constraints_allows_all(self):
         """Test that no constraints means all cells allowed."""
-        from zreg.dtw.constraints import compose_constraints
+        from zreg.algorithms.dtw.constraints import compose_constraints
 
         composed = compose_constraints()
         # All cells should be allowed
@@ -809,7 +809,7 @@ class TestComposeConstraints:
 
     def test_single_constraint_passthrough(self):
         """Test that single constraint is passed through correctly."""
-        from zreg.dtw.constraints import compose_constraints
+        from zreg.algorithms.dtw.constraints import compose_constraints
 
         def sakoe_chiba(i, j, n, m, window=2):
             return abs(i - j) <= window
@@ -827,7 +827,7 @@ class TestComposeConstraints:
 
     def test_multiple_constraints_intersection(self):
         """Test that multiple constraints are ANDed together."""
-        from zreg.dtw.constraints import compose_constraints
+        from zreg.algorithms.dtw.constraints import compose_constraints
 
         # Constraint 1: i >= 2
         constraint1 = lambda i, j, n, m: i >= 2
@@ -851,7 +851,7 @@ class TestComposeConstraints:
 
     def test_constraint_receives_matrix_dimensions(self):
         """Test that constraints receive correct n and m values."""
-        from zreg.dtw.constraints import compose_constraints
+        from zreg.algorithms.dtw.constraints import compose_constraints
 
         received_args = []
 
@@ -1010,7 +1010,7 @@ class TestAnnotationWideningRED:
 
     def test_dtw_accepts_callable_without_type_error(self):
         """DynamicTimeWarping must accept a callable distance_metric without raising."""
-        from zreg.distances import euclidean_distance
+        from zreg.distance_metrics import euclidean_distance
         x = {i: zRegPointCloud(pos=torch.randn(5, 3), id=torch.arange(5)) for i in range(2)}
         y = {i: zRegPointCloud(pos=torch.randn(5, 3), id=torch.arange(5)) for i in range(2)}
         d = DynamicTimeWarping(x, y, distance_metric=euclidean_distance, downsample_method=None)
@@ -1094,7 +1094,7 @@ class TestDTWResultStoredTransforms:
 
     def test_dtw_result_accepts_stored_transforms_kwarg(self):
         """DTWResult can be constructed with an explicit stored_transforms dict."""
-        from zreg.types import StoredTransform
+        from zreg.core.types import StoredTransform
         cost = torch.zeros(2, 2)
         acc = torch.zeros(2, 2)
         st = StoredTransform(

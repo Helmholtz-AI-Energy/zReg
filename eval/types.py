@@ -53,8 +53,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 # zreg.dataset MUST precede import torch (libomp SIGABRT lesson from Phase 12;
 # enforced in tests/conftest.py:20-24 and eval/data_factory.py:19-35).
-from zreg.dataset import zRegPointCloud
-from zreg.cpd import EstepResult
+from zreg.core.dataset import zRegPointCloud
+from zreg.algorithms.cpd import EstepResult
 
 # torch AFTER zreg.* imports
 import torch

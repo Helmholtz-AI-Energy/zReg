@@ -10,7 +10,7 @@ odd-seed ``DataFactory.generate_training_triple`` bowl geometry.
 # zreg (and scipy) must be imported before torch/open3d on macOS ARM to avoid
 # duplicate libomp initialisation (SIGABRT) -- mirrors tests/conftest.py and
 # 47-RESEARCH.md Pitfall 1.
-from zreg.dataset import zRegPointCloud  # noqa: F401
+from zreg.core.dataset import zRegPointCloud  # noqa: F401
 
 import pytest
 import torch

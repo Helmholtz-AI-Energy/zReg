@@ -48,7 +48,7 @@ from typing import Any
 # zreg.* MUST precede torch on macOS-ARM (libomp SIGABRT).
 # Enforced in tests/conftest.py:20-24, eval/data_factory.py:18-35,
 # eval/metrics.py:53-67, eval/types.py:48-53.
-from zreg.dataset import zRegPointCloud
+from zreg.core.dataset import zRegPointCloud
 
 import torch
 

@@ -5,7 +5,7 @@ import inspect
 import pytest
 import torch
 
-from zreg.metrics.label_transfer import compute_f1
+from zreg.evaluation.label_transfer import compute_f1
 
 
 class TestComputeF1Signature:
@@ -146,7 +146,7 @@ class TestComputeF1PackageImport:
 
     def test_importable_from_package(self):
         """compute_f1 is importable from zreg.metrics package."""
-        from zreg.metrics import compute_f1 as cf  # noqa: F401
+        from zreg.evaluation import compute_f1 as cf  # noqa: F401
         assert cf is compute_f1
 
 
@@ -155,6 +155,6 @@ class TestToMatrixUnsupportedType:
 
     def test_unsupported_type_raises_type_error(self):
         """_to_matrix(obj) where obj is not Rigid/Affine raises TypeError."""
-        from zreg.metrics.label_transfer import _to_matrix
+        from zreg.evaluation.label_transfer import _to_matrix
         with pytest.raises(TypeError, match="Unsupported"):
             _to_matrix("not_a_transform")

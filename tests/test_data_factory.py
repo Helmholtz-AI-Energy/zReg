@@ -25,7 +25,7 @@ import yaml
 from eval.config import EvalConfig, EvalConfigError
 
 # zreg.dataset MUST be imported before torch on macOS ARM to avoid libomp SIGABRT
-from zreg.dataset import zRegPointCloud
+from zreg.core.dataset import zRegPointCloud
 
 import torch
 
@@ -1187,7 +1187,7 @@ class TestSampleNewPointsWithNoneLabelAndId:
 
     def test_sample_new_points_with_none_color_and_id(self):
         """sample_new_points with label=None and id=None still works; _extend returns None."""
-        from zreg.generators import generate_trajectory
+        from zreg.data_generation import generate_trajectory
         cfg = EvalConfig(data_path="x", augmentation_params={})
         factory = DataFactory(cfg)
         # generate_trajectory returns label=None, id=None

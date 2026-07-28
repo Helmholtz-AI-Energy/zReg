@@ -16,7 +16,7 @@ direct ``model_cls(**hyperparams)`` + ``save_checkpoint``, no subprocess).
 # to avoid duplicate libomp initialisation (SIGABRT) — mirrors
 # tests/conftest.py, tests/test_train_label_transfer.py,
 # tests/test_benchmark_runner.py.
-from zreg.dataset import zRegPointCloud  # noqa: F401
+from zreg.core.dataset import zRegPointCloud  # noqa: F401
 
 import json
 import sys

@@ -9,11 +9,11 @@ import pytest
 import torch
 from unittest.mock import MagicMock
 
-from zreg.validation import _validate_tensors
+from zreg.utils.validation import _validate_tensors
 
 # Path to src directory for subprocess tests
 _SRC_PATH = str(Path(__file__).parent.parent / "src")
-from zreg.distances.general import minkowski_distance
+from zreg.distance_metrics.general import minkowski_distance
 
 
 class TestValidateTensors:
@@ -95,7 +95,7 @@ class TestEntryPointValidation:
 
     def test_cpd_set_source_nan_raises(self):
         """Test that CPD.set_source rejects a NaN tensor with 'source' in message."""
-        from zreg.cpd import RigidCPD
+        from zreg.algorithms.cpd import RigidCPD
 
         valid_source = torch.randn(10, 3)
         cpd = RigidCPD(source=valid_source)
@@ -106,7 +106,7 @@ class TestEntryPointValidation:
 
     def test_cpd_registration_nan_target_raises(self):
         """Test that CPD.registration rejects a NaN target tensor with 'target' in message."""
-        from zreg.cpd import RigidCPD
+        from zreg.algorithms.cpd import RigidCPD
 
         source = torch.randn(10, 3)
         cpd = RigidCPD(source=source)
@@ -117,7 +117,7 @@ class TestEntryPointValidation:
 
     def test_base_wd_forward_nan_raises(self):
         """Test that BaseWD.forward rejects a NaN x tensor with 'x' in message."""
-        from zreg.distances.sw_varients import SlicedWassersteinDistance
+        from zreg.distance_metrics.sw_varients import SlicedWassersteinDistance
 
         swd = SlicedWassersteinDistance(num_projs=50, nobatchdim=True, device="cpu")
         nan_tensor = torch.full((10, 3), float("nan"))
@@ -195,7 +195,7 @@ class TestSetupLogger:
 
     def test_setup_logger_no_colors(self):
         """Test setup_logger with colors=False."""
-        from zreg.setup_log import setup_logger
+        from zreg.utils.setup_log import setup_logger
 
         # Create a fresh logger for testing
         test_logger = logging.getLogger("zreg.test_no_colors")
@@ -208,7 +208,7 @@ class TestSetupLogger:
 
     def test_setup_logger_with_log_file(self, tmp_path):
         """Test setup_logger with log file."""
-        from zreg.setup_log import setup_logger
+        from zreg.utils.setup_log import setup_logger
 
         log_file = tmp_path / "subdir" / "test.log"
 
@@ -231,7 +231,7 @@ class TestSetupLogger:
 
     def test_setup_logger_no_stdout(self):
         """Test setup_logger with log_to_stdout=False."""
-        from zreg.setup_log import setup_logger
+        from zreg.utils.setup_log import setup_logger
 
         base_logger = logging.getLogger("zreg")
         initial_handlers = len(base_logger.handlers)

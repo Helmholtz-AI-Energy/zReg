@@ -12,8 +12,8 @@ import torch
 from copy import deepcopy
 from unittest.mock import patch, MagicMock
 
-from zreg.dataset import zRegPointCloud
-from zreg.generators import generate_trajectory
+from zreg.core.dataset import zRegPointCloud
+from zreg.data_generation import generate_trajectory
 
 from eval.config import EvalConfig
 from eval.stages.alignment import AlignmentStage

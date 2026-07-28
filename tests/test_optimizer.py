@@ -19,8 +19,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 # zreg.* before torch — macOS-ARM libomp SIGABRT rule
-from zreg.dataset import zRegPointCloud
-from zreg.generators import generate_labels, generate_trajectory
+from zreg.core.dataset import zRegPointCloud
+from zreg.data_generation import generate_labels, generate_trajectory
 
 import torch
 import optuna
@@ -659,7 +659,7 @@ class TestHyperparamOptimizerCoverageGaps:
         self, mock_factory_cls, mock_align_cls, mock_label_cls, mock_transform, tmp_path
     ):
         """optimizer.py:417-418 — y_true = torch.arange when color is None in synthetic sanity."""
-        from zreg.generators import generate_trajectory
+        from zreg.data_generation import generate_trajectory
         from eval.types import StageMetrics
 
         # Dataset with label=None — generate_trajectory returns no labels
@@ -724,7 +724,7 @@ class TestHyperparamOptimizerCoverageGaps:
         self, mock_factory_cls, mock_align_cls, mock_label_cls, tmp_path
     ):
         """optimizer.py:430 — ValueError raised when y_true is None (both id and color absent)."""
-        from zreg.generators import generate_trajectory
+        from zreg.data_generation import generate_trajectory
         from eval.types import AlignResult, LabelResult, StageMetrics
 
         # Dataset where both label and id are None — generate_trajectory has label=None, id=None
@@ -810,7 +810,7 @@ class TestHyperparamOptimizerCoverageGaps:
         self, mock_factory_cls, mock_align_cls, mock_label_cls, tmp_path
     ):
         """optimizer.py:445-447 — y_true[:min_len]/y_pred[:min_len] when shapes differ."""
-        from zreg.generators import generate_labels, generate_trajectory
+        from zreg.data_generation import generate_labels, generate_trajectory
         from eval.types import AlignResult, LabelResult, StageMetrics
 
         ds = generate_labels(generate_trajectory(n_points=10, n_frames=3, seed=0), n_classes=4, seed=0)
@@ -864,7 +864,7 @@ class TestHyperparamOptimizerCoverageGaps:
         self, mock_factory_cls, mock_align_cls, mock_label_cls, tmp_path
     ):
         """optimizer.py:415 — y_true = color field in synthetic sanity when color is not None."""
-        from zreg.generators import generate_labels, generate_trajectory
+        from zreg.data_generation import generate_labels, generate_trajectory
         from eval.types import AlignResult, LabelResult, StageMetrics
 
         ds = generate_labels(generate_trajectory(n_points=10, n_frames=3, seed=0), n_classes=4, seed=0)

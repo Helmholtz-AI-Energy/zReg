@@ -19,13 +19,7 @@ model has no notion of ``n_source`` and returns logits for every joint point;
 callers recover the supervised subset via ``logits[n_source:]``.
 """
 
-# zreg (and scipy) must be imported before torch/open3d/torch_geometric on macOS
-# ARM to avoid duplicate libomp initialisation (SIGABRT) -- 47-RESEARCH.md
-# Pitfall 1, mirrors src/zreg/models/_ops.py and tests/conftest.py.
-from zreg.dataset import zRegPointCloud  # noqa: F401
-
 import numpy as np
-import open3d as o3d
 import torch
 import torch.nn as nn
 
@@ -168,6 +162,7 @@ class FeaturePropagation(nn.Module):
         torch.Tensor
             [N, hidden_dim] fused, propagated features.
         """
+        import open3d as o3d  # lazy import to avoid libomp conflict on macOS ARM
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(
             pos_sparse.detach().cpu().numpy().astype(np.float64)

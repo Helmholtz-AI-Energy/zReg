@@ -14,7 +14,7 @@ from typing import Any
 # zreg.dataset MUST precede any torch import (macOS-ARM libomp SIGABRT;
 # enforced in tests/conftest.py:20-24, eval/data_factory.py:18-35,
 # eval/metrics.py:53-67, eval/types.py:48-53).
-from zreg.dataset import zRegPointCloud
+from zreg.core.dataset import zRegPointCloud
 
 from eval.config import EvalConfig
 from eval.types import StageResult

@@ -5,9 +5,9 @@ import inspect
 import pytest
 import torch
 
-from zreg.metrics.alignment import chamfer, hausdorff, path_smoothness
-from zreg.metrics.label_transfer import compute_f1, knn_consistency, temporal_stability
-from zreg.transforms import RigidTransformation, AffineTransformation
+from zreg.evaluation.alignment import chamfer, hausdorff, path_smoothness
+from zreg.evaluation.label_transfer import compute_f1, knn_consistency, temporal_stability
+from zreg.core.transforms import RigidTransformation, AffineTransformation
 
 
 # ---------------------------------------------------------------------------

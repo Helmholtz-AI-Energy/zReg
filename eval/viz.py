@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Union
 
 # zreg.* MUST precede torch on macOS-ARM (libomp SIGABRT).
-from zreg.dataset import zRegPointCloud  # noqa: F401 — ensures import order
+from zreg.core.dataset import zRegPointCloud  # noqa: F401 — ensures import order
 
 import torch  # noqa: F401 — must follow zreg.* (libomp SIGABRT rule)
 

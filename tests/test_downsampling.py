@@ -3,8 +3,8 @@
 import pytest
 import torch
 
-from zreg.dataset import zRegPointCloud
-from zreg import downsampling
+from zreg.core.dataset import zRegPointCloud
+from zreg.preprocessing import downsampling
 
 @pytest.fixture
 def sample_pointcloud():
@@ -461,7 +461,7 @@ class TestDownsamplingWithOpen3D:
     def open3d_pointclouds(self):
         """Create Open3D point clouds for testing."""
         try:
-            from zreg.dataset import zreg_to_open3d
+            from zreg.core.dataset import zreg_to_open3d
             
             pc1 = zRegPointCloud(
                 pos=torch.randn(100, 3),
@@ -498,7 +498,7 @@ class TestDownsamplingWithOpen3D:
     @pytest.fixture
     def open3d_equal_pointclouds(self):
         """Create two equal-sized Open3D point clouds for testing early-return paths."""
-        from zreg.dataset import zreg_to_open3d
+        from zreg.core.dataset import zreg_to_open3d
 
         pc1 = zRegPointCloud(
             pos=torch.randn(50, 3),
@@ -564,8 +564,8 @@ class TestGetOpen3DDownsampling:
     def test_no_open3d(self):
         """Returns (None, False) when HAS_OPEN3D is False."""
         from unittest.mock import patch
-        from zreg.downsampling import _get_open3d
-        with patch("zreg.downsampling.HAS_OPEN3D", False):
+        from zreg.preprocessing.downsampling import _get_open3d
+        with patch("zreg.preprocessing.downsampling.HAS_OPEN3D", False):
             o3d, flag = _get_open3d()
         assert o3d is None and flag is False
 
@@ -573,16 +573,16 @@ class TestGetOpen3DDownsampling:
         """Returns (None, False) when open3d import raises ImportError."""
         import sys
         from unittest.mock import patch
-        from zreg.downsampling import _get_open3d
-        with patch("zreg.downsampling.HAS_OPEN3D", True):
+        from zreg.preprocessing.downsampling import _get_open3d
+        with patch("zreg.preprocessing.downsampling.HAS_OPEN3D", True):
             with patch.dict(sys.modules, {"open3d": None}):
                 o3d, flag = _get_open3d()
         assert o3d is None and flag is False
 
     def test_getattr_o3d_no_open3d(self):
         """downsampling.o3d raises AttributeError when HAS_OPEN3D is False."""
-        import zreg.downsampling
+        import zreg.preprocessing.downsampling
         from unittest.mock import patch
-        with patch("zreg.downsampling.HAS_OPEN3D", False):
+        with patch("zreg.preprocessing.downsampling.HAS_OPEN3D", False):
             with pytest.raises(AttributeError, match="open3d not installed"):
-                _ = zreg.downsampling.o3d
+                _ = zreg.preprocessing.downsampling.o3d

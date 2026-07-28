@@ -16,7 +16,7 @@ import copy
 import pytest
 import torch
 
-from zreg.generators import (
+from zreg.data_generation import (
     generate_trajectory,
     apply_rigid,
     apply_affine,
@@ -25,10 +25,10 @@ from zreg.generators import (
     generate_labels,
     remove_labels,
 )
-from zreg.generators.generators import sample_ball, sample_bowl
-from zreg.dataset import zRegPointCloud
-from zreg.transforms import RigidTransformation, AffineTransformation
-from zreg.metrics.label_transfer import compute_f1
+from zreg.data_generation.generators import sample_ball, sample_bowl
+from zreg.core.dataset import zRegPointCloud
+from zreg.core.transforms import RigidTransformation, AffineTransformation
+from zreg.evaluation.label_transfer import compute_f1
 
 
 # ---------------------------------------------------------------------------
@@ -435,9 +435,9 @@ class TestSampleBowl:
             sample_bowl(n_points=0)
 
     def test_sample_ball_bowl_package_export(self):
-        """from zreg.generators import sample_ball, sample_bowl succeeds."""
-        from zreg.generators import sample_ball as pkg_sample_ball
-        from zreg.generators import sample_bowl as pkg_sample_bowl
+        """from zreg.data_generation import sample_ball, sample_bowl succeeds."""
+        from zreg.data_generation import sample_ball as pkg_sample_ball
+        from zreg.data_generation import sample_bowl as pkg_sample_bowl
 
         assert pkg_sample_ball is sample_ball
         assert pkg_sample_bowl is sample_bowl
@@ -469,7 +469,7 @@ class TestGeneratorsCoverageGaps:
 
     def test_add_outliers_with_fps_idx(self):
         """corruption.py:142-148 — fps-idx extended when pc['fps-idx'] is not None."""
-        from zreg.dataset import zRegPointCloud
+        from zreg.core.dataset import zRegPointCloud
         traj = generate_trajectory(n_points=20, n_frames=1, seed=0)
         traj[0]["fps-idx"] = torch.arange(20)
         result = add_outliers(traj, n_outliers=5, seed=42)

@@ -4,8 +4,8 @@ import pytest
 import torch
 from unittest.mock import MagicMock
 
-from zreg import pairwise_distance_matrix
-from zreg.dataset import zRegPointCloud
+from zreg.algorithms import pairwise_distance_matrix
+from zreg.core.dataset import zRegPointCloud
 
 
 @pytest.fixture
@@ -540,7 +540,7 @@ class TestPairwiseASWDRemoveHistory:
 
     def test_aswd_distance_calls_remove_history(self, small_trajectory_pair):
         """Using aswd metric calls fn.remove_history() each iteration (line 202)."""
-        from zreg.distances.sw_varients import AdaptiveSlicedWassersteinDistance
+        from zreg.distance_metrics.sw_varients import AdaptiveSlicedWassersteinDistance
         x, y = small_trajectory_pair
         result = pairwise_distance_matrix.create_pairwise_distance_matrix(
             x, y,
@@ -590,7 +590,7 @@ class TestASDWPropsHistoryFileNotFound:
         hist_file = tmp_path / "projs_history.txt"
         hist_file.write_text("dummy")
         monkeypatch.chdir(tmp_path)
-        with _patch("zreg.pairwise_distance_matrix.os.remove", side_effect=FileNotFoundError):
+        with _patch("zreg.algorithms.pairwise_distance_matrix.os.remove", side_effect=FileNotFoundError):
             # Must not raise; FileNotFoundError is swallowed (lines 555-556)
             pairwise_distance_matrix._sanitize_pairwise_distance_matrix(
                 distance_kwargs=None,
@@ -649,7 +649,7 @@ class TestMPIPaths:
     def test_mpi_skip_and_empty_row_continue(self):
         """rank=1, size=2 with 1-sample pair: iteration fc=0 is skipped (148-150) → empty row → continue (233)."""
         from unittest.mock import patch as _patch, MagicMock as _MagicMock
-        import zreg.pairwise_distance_matrix as pmat
+        import zreg.algorithms.pairwise_distance_matrix as pmat
 
         comm = self._make_comm(rank=1, size=2)
         mock_mpi = _MagicMock()
@@ -669,7 +669,7 @@ class TestMPIPaths:
     def test_mpi_allgather_path(self):
         """rank=0, size=2 with 2-sample pair: fc=1 skipped, fc=0,2 processed → allgather called (89-90, 256-262)."""
         from unittest.mock import patch as _patch, MagicMock as _MagicMock
-        import zreg.pairwise_distance_matrix as pmat
+        import zreg.algorithms.pairwise_distance_matrix as pmat
 
         comm = self._make_comm(rank=0, size=2)
         mock_mpi = _MagicMock()
@@ -689,7 +689,7 @@ class TestMPIPaths:
     def test_mpi_given_rigid_rot_skip_and_empty_row(self):
         """rank=1, size=2 with given_rigid_rot: fc=0 skipped (348-350) → empty row → continue (418)."""
         from unittest.mock import patch as _patch, MagicMock as _MagicMock
-        import zreg.pairwise_distance_matrix as pmat
+        import zreg.algorithms.pairwise_distance_matrix as pmat
 
         comm = self._make_comm(rank=1, size=2)
         mock_mpi = _MagicMock()
@@ -712,7 +712,7 @@ class TestMPIPaths:
     def test_mpi_given_rigid_rot_allgather(self):
         """rank=0, size=2 with given_rigid_rot: allgather called (286-287, 439-445)."""
         from unittest.mock import patch as _patch, MagicMock as _MagicMock
-        import zreg.pairwise_distance_matrix as pmat
+        import zreg.algorithms.pairwise_distance_matrix as pmat
 
         comm = self._make_comm(rank=0, size=2)
         mock_mpi = _MagicMock()
@@ -742,7 +742,7 @@ class TestMPIPaths:
     def test_mpi_loop_back_edge_create(self):
         """rank=1, size=2, x=2 samples, y=1 sample: i=0 is fully skipped → continue back to i=1 (261->133)."""
         from unittest.mock import patch as _patch, MagicMock as _MagicMock
-        import zreg.pairwise_distance_matrix as pmat
+        import zreg.algorithms.pairwise_distance_matrix as pmat
 
         comm = self._make_comm(rank=1, size=2)
         mock_mpi = _MagicMock()
@@ -761,7 +761,7 @@ class TestMPIPaths:
     def test_mpi_loop_back_edge_given_rigid_rot(self):
         """rank=1, size=2, x=2 samples, y=1 sample: i=0 fully skipped → continue back to i=1 (444->333)."""
         from unittest.mock import patch as _patch, MagicMock as _MagicMock
-        import zreg.pairwise_distance_matrix as pmat
+        import zreg.algorithms.pairwise_distance_matrix as pmat
 
         comm = self._make_comm(rank=1, size=2)
         mock_mpi = _MagicMock()
@@ -796,14 +796,14 @@ class TestCallableMetricPassThrough:
         return x, y
 
     def test_distance_metric_protocol_is_importable(self):
-        """DistanceMetric Protocol must be importable from zreg.distances."""
-        from zreg.distances import DistanceMetric  # noqa: F401 (import-only test)
+        """DistanceMetric Protocol must be importable from zreg.distance_metrics."""
+        from zreg.distance_metrics import DistanceMetric  # noqa: F401 (import-only test)
         assert DistanceMetric is not None
 
     def test_callable_metric_returned_unchanged_by_sanitize(self, small_pair):
         """A callable passed to _sanitize must be returned as-is (no string lookup)."""
-        from zreg.distances.general import euclidean_distance
-        from zreg.pairwise_distance_matrix import _sanitize_pairwise_distance_matrix
+        from zreg.distance_metrics.general import euclidean_distance
+        from zreg.algorithms.pairwise_distance_matrix import _sanitize_pairwise_distance_matrix
         x, y = small_pair
         fns, _, _ = _sanitize_pairwise_distance_matrix(
             distance_kwargs=None,
@@ -816,7 +816,7 @@ class TestCallableMetricPassThrough:
 
     def test_invalid_string_still_raises_value_error(self, small_pair):
         """An unrecognised string must still raise ValueError (regression guard)."""
-        from zreg.pairwise_distance_matrix import _sanitize_pairwise_distance_matrix
+        from zreg.algorithms.pairwise_distance_matrix import _sanitize_pairwise_distance_matrix
         x, y = small_pair
         with pytest.raises(ValueError):
             _sanitize_pairwise_distance_matrix(
@@ -829,8 +829,8 @@ class TestCallableMetricPassThrough:
 
     def test_callable_skips_swd_downsampling_guard(self, small_pair):
         """A callable metric must not trigger the SWD downsampling RuntimeError."""
-        from zreg.distances.general import euclidean_distance
-        from zreg.pairwise_distance_matrix import _sanitize_pairwise_distance_matrix
+        from zreg.distance_metrics.general import euclidean_distance
+        from zreg.algorithms.pairwise_distance_matrix import _sanitize_pairwise_distance_matrix
         x, y = small_pair
         # With a string metric (non-euclidean) and no downsampling → RuntimeError
         # With a callable + no downsampling → should succeed
@@ -893,7 +893,7 @@ class TestPairwiseResult:
 
     def test_returns_pairwise_result_instance(self, small_trajectory_pair):
         """create_pairwise_distance_matrix must return a PairwiseResult, not a 2-tuple."""
-        from zreg.types import PairwiseResult
+        from zreg.core.types import PairwiseResult
         x, y = small_trajectory_pair
         result = pairwise_distance_matrix.create_pairwise_distance_matrix(
             x, y,
@@ -928,7 +928,7 @@ class TestPairwiseResult:
 
     def test_stored_transforms_populated_with_cpd(self, small_trajectory_pair):
         """stored_transforms has entries when cpd_type is not None."""
-        from zreg.types import StoredTransform
+        from zreg.core.types import StoredTransform
         x, y = small_trajectory_pair
         result = pairwise_distance_matrix.create_pairwise_distance_matrix(
             x, y,

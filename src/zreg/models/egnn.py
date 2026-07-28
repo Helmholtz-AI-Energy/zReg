@@ -38,7 +38,7 @@ the last rows by construction).
 # zreg (and scipy) must be imported before torch/torch_geometric on macOS ARM
 # to avoid duplicate libomp initialisation (SIGABRT) -- 47-RESEARCH.md
 # Pitfall 1, mirrors src/zreg/models/pointnet2.py and tests/conftest.py.
-from zreg.dataset import zRegPointCloud  # noqa: F401
+from zreg.core.dataset import zRegPointCloud  # noqa: F401
 
 import torch
 import torch.nn as nn

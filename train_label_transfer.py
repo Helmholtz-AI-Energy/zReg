@@ -63,7 +63,7 @@ if str(_src_root) not in sys.path:  # pragma: no cover
 # on macOS ARM to avoid a duplicate libomp initialisation SIGABRT
 # (47-RESEARCH.md Pitfall 1) — mirrors eval/data_factory.py and
 # src/zreg/models/{pointnet2,egnn}.py's own import-order guard.
-from zreg.dataset import zRegPointCloud  # noqa: F401
+from zreg.core.dataset import zRegPointCloud  # noqa: F401
 
 import argparse
 from datetime import datetime

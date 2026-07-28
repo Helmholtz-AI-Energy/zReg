@@ -9,9 +9,9 @@ import torch
 import numpy as np
 from copy import deepcopy
 
-from zreg.dataset import zRegPointCloud
-from zreg.registration import ICPRegistration
-from zreg.types import StoredTransform
+from zreg.core.dataset import zRegPointCloud
+from zreg.algorithms import ICPRegistration
+from zreg.core.types import StoredTransform
 
 
 class TestICPRegistration:

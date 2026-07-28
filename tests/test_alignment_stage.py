@@ -6,8 +6,8 @@ Six test classes cover Phase 19 deliverables per FRAME-05 gate criteria.
 import pytest
 
 # zreg.* before torch — macOS-ARM libomp SIGABRT rule
-from zreg.dataset import zRegPointCloud
-from zreg.generators import generate_trajectory
+from zreg.core.dataset import zRegPointCloud
+from zreg.data_generation import generate_trajectory
 
 import torch
 
@@ -441,7 +441,7 @@ class TestAlignmentStageCoverageGaps:
         NonRigidCPD may still raise on tiny datasets (upstream bug) — accepted.
         """
         from unittest.mock import MagicMock, patch
-        from zreg.dtw.result import DTWResult
+        from zreg.algorithms.dtw.result import DTWResult
 
         params = {
             "window_size": 10,
@@ -538,8 +538,8 @@ class TestBuildAlignedCloudStoredTransformsSignature:
         Verifies via patching that stored_transforms is forwarded from DTWResult.
         """
         from unittest.mock import MagicMock, patch
-        from zreg.dtw.result import DTWResult
-        from zreg.types import StoredTransform
+        from zreg.algorithms.dtw.result import DTWResult
+        from zreg.core.types import StoredTransform
 
         fake_stored = {(0, 0): MagicMock(spec=StoredTransform)}
         fake_dtw_result = MagicMock(spec=DTWResult)
@@ -865,7 +865,7 @@ class TestStoredTransformReuse:
         """
         from copy import deepcopy
         from unittest.mock import MagicMock
-        from zreg.types import StoredTransform
+        from zreg.core.types import StoredTransform
 
         src_pos = torch.rand(10, 3)
         tgt_pos = torch.rand(10, 3)
@@ -998,7 +998,7 @@ class TestStoredTransformReuse:
         """
         from copy import deepcopy
         from unittest.mock import MagicMock
-        from zreg.types import StoredTransform
+        from zreg.core.types import StoredTransform
 
         src_pos = torch.rand(10, 3)
         tgt_pos = torch.rand(10, 3)

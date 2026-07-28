@@ -19,12 +19,12 @@ from pathlib import Path  # noqa: F401  (available for future use)
 
 # zreg.dataset MUST precede import torch (libomp SIGABRT lesson from Phase 12;
 # enforced in tests/conftest.py:20-24)
-from zreg.dataset import (
+from zreg.core.dataset import (
     load_data_from_tracklets,
     load_shah_from_csv,
     zRegPointCloud,
 )
-from zreg.generators import (
+from zreg.data_generation import (
     add_gaussian_noise,
     add_outliers,
     apply_affine,  # noqa: F401  (available; not used in Phase 17 minimal generate_synthetic)
@@ -34,7 +34,7 @@ from zreg.generators import (
     sample_ball,
     sample_bowl,
 )
-from zreg.transforms import RigidTransformation
+from zreg.core.transforms import RigidTransformation
 
 # torch AFTER zreg.* imports
 import torch

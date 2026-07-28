@@ -19,7 +19,7 @@ import pytest
 
 # zreg (and scipy) must be imported before torch on macOS ARM to avoid
 # duplicate libomp initialisation (SIGABRT). No open3d dependency.
-from zreg.dataset import zRegPointCloud
+from zreg.core.dataset import zRegPointCloud
 
 import torch
 

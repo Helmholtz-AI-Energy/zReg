@@ -31,7 +31,7 @@ import pytest
 
 # zreg.* / eval.* MUST precede torch — macOS-ARM libomp SIGABRT rule
 # (tests/conftest.py:20-24, eval/data_factory.py:19-35, eval/types.py:48-53).
-from zreg.generators import generate_trajectory, generate_labels
+from zreg.data_generation import generate_trajectory, generate_labels
 from zreg.models import PointNet2LabelTransfer, EGNNLabelTransfer
 
 import torch

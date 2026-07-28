@@ -11,11 +11,11 @@ Covers Phase 20 FRAME-06 gate criteria:
 import pytest
 
 # zreg.* before torch — macOS-ARM libomp SIGABRT rule
-from zreg.cpd import RigidCPD
-from zreg.dataset import zRegPointCloud
-from zreg.generators import generate_trajectory, generate_labels
-from zreg.generators import add_gaussian_noise
-from zreg.metrics.label_transfer import compute_f1
+from zreg.algorithms.cpd import RigidCPD
+from zreg.core.dataset import zRegPointCloud
+from zreg.data_generation import generate_trajectory, generate_labels
+from zreg.data_generation import add_gaussian_noise
+from zreg.evaluation.label_transfer import compute_f1
 from zreg.models import PointNet2LabelTransfer, EGNNLabelTransfer
 import zreg.utils as utils
 

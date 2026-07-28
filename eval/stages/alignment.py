@@ -43,11 +43,11 @@ from typing import Any
 # zreg.* MUST precede torch on macOS-ARM (libomp SIGABRT).
 # Enforced in tests/conftest.py:20-24, eval/data_factory.py:18-35,
 # eval/metrics.py:53-67, eval/types.py:48-53.
-from zreg.cpd import RigidCPD, AffineCPD, NonRigidCPD, EstepResult
-from zreg.dataset import zRegPointCloud
-from zreg.dtw import DynamicTimeWarping
-from zreg.registration import ICPRegistration, SlicedWassersteinAligner
-from zreg.types import StoredTransform
+from zreg.algorithms.cpd import RigidCPD, AffineCPD, NonRigidCPD, EstepResult
+from zreg.core.dataset import zRegPointCloud
+from zreg.algorithms.dtw import DynamicTimeWarping
+from zreg.algorithms import ICPRegistration, SlicedWassersteinAligner
+from zreg.core.types import StoredTransform
 import zreg.utils as utils
 
 import torch  # noqa: F401 — ensures consistent import order for downstream callers

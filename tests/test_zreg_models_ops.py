@@ -11,7 +11,7 @@ import time
 # zreg (and scipy) must be imported before torch/open3d/torch_geometric on macOS
 # ARM to avoid duplicate libomp initialisation (SIGABRT) — mirrors
 # tests/conftest.py:20-24 and 47-RESEARCH.md's Pitfall 1 import-order convention.
-from zreg.dataset import zRegPointCloud  # noqa: F401
+from zreg.core.dataset import zRegPointCloud  # noqa: F401
 
 import pytest
 import torch

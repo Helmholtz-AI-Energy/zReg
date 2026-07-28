@@ -3,7 +3,7 @@
 import pytest
 import torch
 
-from zreg import transforms
+from zreg.core import transforms
 
 
 class TestRigidTransformation:
@@ -230,7 +230,7 @@ class TestTransformPointsHomogeneous:
 
     def test_identity_transform(self):
         """Test identity transform doesn't change points."""
-        from zreg.dataset import zRegPointCloud
+        from zreg.core.dataset import zRegPointCloud
         
         pc = zRegPointCloud(pos=torch.randn(10, 3))
         identity = torch.eye(4)
@@ -240,7 +240,7 @@ class TestTransformPointsHomogeneous:
 
     def test_translation_transform(self):
         """Test translation via homogeneous transform."""
-        from zreg.dataset import zRegPointCloud
+        from zreg.core.dataset import zRegPointCloud
         
         pc = zRegPointCloud(pos=torch.zeros(5, 3))
         transform = torch.eye(4)
@@ -260,7 +260,7 @@ class TestTransformPointsHomogeneous:
 
     def test_near_zero_w_does_not_produce_inf_or_nan(self):
         """Test 2: w-clamping: near-zero w coordinate does not produce inf or NaN."""
-        from zreg.dataset import zRegPointCloud
+        from zreg.core.dataset import zRegPointCloud
 
         # A 4x4 matrix that zeroes out the w coordinate for the last row.
         # Row 3 (bottom row) is [0,0,0,0] so transformed_points[:, 3] == 0
@@ -286,8 +286,8 @@ class TestTransformPointsHomogeneous:
         """_get_open3d returns (None, False) when HAS_OPEN3D is False."""
         import sys
         from unittest.mock import patch
-        from zreg.transforms.homogeneous import _get_open3d
-        with patch("zreg.transforms.homogeneous.HAS_OPEN3D", False):
+        from zreg.core.transforms.homogeneous import _get_open3d
+        with patch("zreg.core.transforms.homogeneous.HAS_OPEN3D", False):
             o3d, flag = _get_open3d()
         assert o3d is None
         assert flag is False
@@ -296,8 +296,8 @@ class TestTransformPointsHomogeneous:
         """_get_open3d returns (None, False) when open3d import raises ImportError."""
         import sys
         from unittest.mock import patch
-        from zreg.transforms.homogeneous import _get_open3d
-        with patch("zreg.transforms.homogeneous.HAS_OPEN3D", True):
+        from zreg.core.transforms.homogeneous import _get_open3d
+        with patch("zreg.core.transforms.homogeneous.HAS_OPEN3D", True):
             with patch.dict(sys.modules, {"open3d": None}):
                 o3d, flag = _get_open3d()
         assert o3d is None
@@ -305,11 +305,11 @@ class TestTransformPointsHomogeneous:
 
     def test_return_o3d_from_zreg_input(self):
         """return_o3d=True on zRegPointCloud converts result to open3d PointCloud."""
-        from zreg.dataset import HAS_OPEN3D as _HAS, zRegPointCloud
+        from zreg.core.dataset import HAS_OPEN3D as _HAS, zRegPointCloud
         if not _HAS:
             pytest.skip("open3d not available")
         try:
-            from zreg.transforms.homogeneous import transform_points_homogeneous
+            from zreg.core.transforms.homogeneous import transform_points_homogeneous
             pc = zRegPointCloud(
                 pos=torch.randn(5, 3).float(),
                 label=torch.rand(5, 3).float(),
@@ -322,13 +322,13 @@ class TestTransformPointsHomogeneous:
 
     def test_open3d_pc_transform(self):
         """o3d.t.geometry.PointCloud input transforms and returns zRegPointCloud."""
-        from zreg.dataset import HAS_OPEN3D as _HAS
+        from zreg.core.dataset import HAS_OPEN3D as _HAS
         if not _HAS:
             pytest.skip("open3d not available")
         try:
             import open3d as o3d
             import numpy as np
-            from zreg.transforms.homogeneous import transform_points_homogeneous
+            from zreg.core.transforms.homogeneous import transform_points_homogeneous
             pts = o3d.t.geometry.PointCloud()
             pts.point["positions"] = o3d.core.Tensor(
                 np.random.randn(5, 3).astype(np.float32)
@@ -340,13 +340,13 @@ class TestTransformPointsHomogeneous:
 
     def test_open3d_pc_return_o3d(self):
         """o3d PointCloud input + return_o3d=True returns the transformed o3d object directly."""
-        from zreg.dataset import HAS_OPEN3D as _HAS
+        from zreg.core.dataset import HAS_OPEN3D as _HAS
         if not _HAS:
             pytest.skip("open3d not available")
         try:
             import open3d as o3d
             import numpy as np
-            from zreg.transforms.homogeneous import transform_points_homogeneous
+            from zreg.core.transforms.homogeneous import transform_points_homogeneous
             pts = o3d.t.geometry.PointCloud()
             pts.point["positions"] = o3d.core.Tensor(
                 np.random.randn(5, 3).astype(np.float32)
@@ -358,13 +358,13 @@ class TestTransformPointsHomogeneous:
 
     def test_open3d_pc_numpy_matrix(self):
         """numpy transform_matrix triggers the AttributeError→pass path (lines 108-109)."""
-        from zreg.dataset import HAS_OPEN3D as _HAS
+        from zreg.core.dataset import HAS_OPEN3D as _HAS
         if not _HAS:
             pytest.skip("open3d not available")
         try:
             import open3d as o3d
             import numpy as np
-            from zreg.transforms.homogeneous import transform_points_homogeneous
+            from zreg.core.transforms.homogeneous import transform_points_homogeneous
             pts = o3d.t.geometry.PointCloud()
             pts.point["positions"] = o3d.core.Tensor(
                 np.random.randn(5, 3).astype(np.float32)

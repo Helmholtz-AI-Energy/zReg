@@ -59,6 +59,7 @@ Plans:
 
 **Plans**: 3 plans
 Plans:
+
 - [x] 52-01-PLAN.md — run_all.py rank-awareness + --configs-dir arg (PARA-01, PARA-02)
 - [x] 52-02-PLAN.md — Cluster configs (configs_horeka/ — 7 mirrored YAMLs) (PARA-03, BUDG-01)
 - [x] 52-03-PLAN.md — Multi-rank test job (smoke config + launch_horeka_multirank_test.sbatch) (BUDG-04)
@@ -76,6 +77,7 @@ Plans:
 
 **Plans**: 2 plans
 Plans:
+
 - [ ] 53-01-PLAN.md — EvalConfig device field + DataFactory device threading + tests (GPU-01, GPU-02)
 - [ ] 53-02-PLAN.md — 8 cluster YAML configs + sbatch GPU-03 annotation (GPU-03)
 
@@ -95,9 +97,11 @@ Plans:
 Plans:
 
 **Wave 1**
+
 - [x] 54-01-PLAN.md — aggregate_cost.py argparse (--calibration, --configs-dir, --budget-hours) + calibration JSON files (BUDG-02, BUDG-03)
 
 **Wave 2** *(blocked on Wave 1 completion)*
+
 - [x] 54-02-PLAN.md — extract_calibration.py new script + tests for aggregate_cost.py and extract_calibration.py (BUDG-02, BUDG-03)
 
 ### 🚧 v1.5 Learned Label Transfer Methods (Phases 44–49 complete, Phase 50 pending)
@@ -111,6 +115,17 @@ Plans:
 - [x] **Phase 48: LabelTransferStage Integration for Learned Methods** — completed 2026-07-15
 - [x] **Phase 49: Evaluation & Benchmarking of Learned Label-Transfer Methods** — completed 2026-07-15
 - [ ] **Phase 50: GPU-Native Geometry Ops** — pending (blocked on cluster verification)
+
+### Phase 55: Spherical-cap and Gaussian label generators for zreg.data_generation.labels
+
+**Goal:** zreg.data_generation.labels exposes assign_cap_labels (hard spherical-cap boundary) and assign_gaussian_labels (angle-dependent Bernoulli labels), both following the immutable deep-copy contract and exported from the package.
+**Requirements**: none mapped
+**Depends on:** Phase 54
+**Plans:** 1 plan
+
+Plans:
+
+- [ ] 55-01-PLAN.md — Implement assign_cap_labels + assign_gaussian_labels, export them, and add tests
 
 ---
 

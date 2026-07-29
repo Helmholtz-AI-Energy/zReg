@@ -127,7 +127,10 @@ def _angular_distance_deg(
         Shape ``(N,)``, float, values in ``[0, 180]``.
     """
     pole_vec = torch.tensor(pole, dtype=pos.dtype, device=pos.device)
-    pole_unit = pole_vec / pole_vec.norm()
+    pole_norm = pole_vec.norm()
+    if pole_norm == 0:
+        raise ValueError("pole must be a non-zero vector")
+    pole_unit = pole_vec / pole_norm
     eps = torch.finfo(pos.dtype).eps
     norms = pos.norm(dim=1).clamp(min=eps)
     pos_unit = pos / norms.unsqueeze(1)
@@ -237,6 +240,8 @@ def assign_gaussian_labels(
     ``pole``. The deep-copy contract (D-03) is honoured. Empty frames produce
     a ``(0,)`` ``torch.long`` tensor without special-casing.
     """
+    if sigma_deg <= 0:
+        raise ValueError(f"sigma_deg must be > 0, got {sigma_deg}")
     result = copy.deepcopy(trajectory)
     if seed is not None:
         torch.manual_seed(seed)

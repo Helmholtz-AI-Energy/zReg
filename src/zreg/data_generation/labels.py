@@ -1,8 +1,10 @@
 """Label generation and removal utilities for synthetic trajectories.
 
-Provides Voronoi-based synthetic label generation (``generate_labels``) and
-label removal (``remove_labels``). Both utilities are immutable — they accept
-a ``dict[int, zRegPointCloud]`` and return a new dict. The input dict is never
+Provides Voronoi-based synthetic label generation (``generate_labels``),
+label removal (``remove_labels``), spherical-cap binary labelling
+(``assign_cap_labels``), and soft Gaussian-probability Bernoulli labelling
+(``assign_gaussian_labels``). All utilities are immutable — they accept a
+``dict[int, zRegPointCloud]`` and return a new dict. The input dict is never
 modified (deep-copy contract, D-03).
 
 Labels are stored in ``zRegPointCloud["label"]`` as ``torch.long`` tensors of
@@ -11,12 +13,13 @@ directly compatible with ``zreg.metrics.compute_f1`` without conversion.
 """
 
 import copy
+from typing import Sequence
 
 import torch
 
 from zreg.core.dataset import zRegPointCloud
 
-__all__ = ["generate_labels", "remove_labels"]
+__all__ = ["generate_labels", "remove_labels", "assign_cap_labels", "assign_gaussian_labels"]
 
 
 def generate_labels(
@@ -102,4 +105,146 @@ def remove_labels(
     result = copy.deepcopy(trajectory)
     for pc in result.values():
         pc["label"] = None
+    return result
+
+
+def _angular_distance_deg(
+    pos: torch.Tensor,
+    pole: Sequence[float],
+) -> torch.Tensor:
+    """Return per-point angular distance in degrees from a pole direction.
+
+    Parameters
+    ----------
+    pos : torch.Tensor
+        Shape ``(N, 3)``, float dtype.
+    pole : sequence of float
+        3-element direction vector (need not be unit length).
+
+    Returns
+    -------
+    torch.Tensor
+        Shape ``(N,)``, float, values in ``[0, 180]``.
+    """
+    pole_vec = torch.tensor(pole, dtype=pos.dtype, device=pos.device)
+    pole_unit = pole_vec / pole_vec.norm()
+    eps = torch.finfo(pos.dtype).eps
+    norms = pos.norm(dim=1).clamp(min=eps)
+    pos_unit = pos / norms.unsqueeze(1)
+    cos = (pos_unit @ pole_unit).clamp(-1.0, 1.0)
+    return torch.rad2deg(torch.acos(cos))
+
+
+def assign_cap_labels(
+    trajectory: dict[int, zRegPointCloud],
+    pole: Sequence[float],
+    theta_deg: float,
+    label_inside: int = 2,
+    label_outside: int = 1,
+    seed: int | None = None,
+) -> dict[int, zRegPointCloud]:
+    """Assign hard spherical-cap binary labels to every frame in a trajectory.
+
+    Each point is classified by its angular distance from ``pole``. Points
+    whose angular distance is strictly less than ``theta_deg`` receive
+    ``label_inside``; all others receive ``label_outside``.
+
+    Parameters
+    ----------
+    trajectory : dict[int, zRegPointCloud]
+        Input trajectory. Never mutated.
+    pole : sequence of float
+        3-element direction vector defining the cap centre. Need not be
+        unit length — normalised internally.
+    theta_deg : float
+        Half-opening angle of the cap in degrees (strict ``<`` boundary).
+    label_inside : int, optional
+        Label assigned to points inside the cap. Default: ``2``.
+    label_outside : int, optional
+        Label assigned to points outside the cap. Default: ``1``.
+    seed : int | None, optional
+        Seed for ``torch.manual_seed``. Cap assignment is deterministic and
+        consumes no RNG; this parameter exists for API symmetry. Default: ``None``.
+
+    Returns
+    -------
+    dict[int, zRegPointCloud]
+        New trajectory dict where every frame's ``pc["label"]`` is a
+        ``torch.long`` tensor of shape ``(N,)``.
+
+    Notes
+    -----
+    The deep-copy contract (D-03) is honoured: the input ``trajectory`` is
+    never modified. Empty frames (``N == 0``) produce a ``(0,)`` ``torch.long``
+    tensor without special-casing.
+    """
+    result = copy.deepcopy(trajectory)
+    if seed is not None:
+        torch.manual_seed(seed)
+    for pc in result.values():
+        pos = pc["pos"]
+        theta = _angular_distance_deg(pos, pole)
+        labels = torch.where(theta < theta_deg, label_inside, label_outside)
+        pc["label"] = labels.to(torch.long)
+    return result
+
+
+def assign_gaussian_labels(
+    trajectory: dict[int, zRegPointCloud],
+    pole: Sequence[float],
+    sigma_deg: float,
+    label_inside: int = 2,
+    label_outside: int = 1,
+    seed: int | None = 42,
+) -> dict[int, zRegPointCloud]:
+    """Assign Gaussian-probability Bernoulli labels to every frame in a trajectory.
+
+    For each point, the probability of receiving ``label_inside`` is::
+
+        p = exp(-theta_deg² / (2 · sigma_deg²))
+
+    where ``theta_deg`` is the angular distance from ``pole``. A
+    ``torch.bernoulli`` draw then assigns the label: success (1) →
+    ``label_inside``, failure (0) → ``label_outside``.
+
+    Parameters
+    ----------
+    trajectory : dict[int, zRegPointCloud]
+        Input trajectory. Never mutated.
+    pole : sequence of float
+        3-element direction vector defining the distribution centre. Need not
+        be unit length — normalised internally.
+    sigma_deg : float
+        Width of the Gaussian in degrees. Smaller values produce a sharper
+        boundary.
+    label_inside : int, optional
+        Label assigned on Bernoulli success. Default: ``2``.
+    label_outside : int, optional
+        Label assigned on Bernoulli failure. Default: ``1``.
+    seed : int | None, optional
+        Seed for ``torch.manual_seed`` set once at function entry. Same seed
+        reproduces identical labels. Default: ``42``.
+
+    Returns
+    -------
+    dict[int, zRegPointCloud]
+        New trajectory dict where every frame's ``pc["label"]`` is a
+        ``torch.long`` tensor of shape ``(N,)``.
+
+    Notes
+    -----
+    Success probability decreases monotonically with angular distance from
+    ``pole``. The deep-copy contract (D-03) is honoured. Empty frames produce
+    a ``(0,)`` ``torch.long`` tensor without special-casing.
+    """
+    result = copy.deepcopy(trajectory)
+    if seed is not None:
+        torch.manual_seed(seed)
+    for pc in result.values():
+        pos = pc["pos"]
+        theta = _angular_distance_deg(pos, pole)
+        prob = torch.exp(-(theta ** 2) / (2.0 * sigma_deg ** 2))
+        draw = torch.bernoulli(prob)
+        labels = torch.where(draw.bool(), label_inside, label_outside)
+        pc["label"] = labels.to(torch.long)
     return result

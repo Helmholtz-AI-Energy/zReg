@@ -116,16 +116,16 @@ Plans:
 - [x] **Phase 49: Evaluation & Benchmarking of Learned Label-Transfer Methods** — completed 2026-07-15
 - [ ] **Phase 50: GPU-Native Geometry Ops** — pending (blocked on cluster verification)
 
-### Phase 55: Spherical-cap and Gaussian label generators for zreg.data_generation.labels
+### Phase 55: Spherical-cap and Gaussian label generators for zreg.data_generation.labels ✅ 2026-07-30
 
 **Goal:** zreg.data_generation.labels exposes assign_cap_labels (hard spherical-cap boundary) and assign_gaussian_labels (angle-dependent Bernoulli labels), both following the immutable deep-copy contract and exported from the package.
 **Requirements**: none mapped
 **Depends on:** Phase 54
-**Plans:** 1 plan
+**Plans:** 1/1 complete
 
 Plans:
 
-- [ ] 55-01-PLAN.md — Implement assign_cap_labels + assign_gaussian_labels, export them, and add tests
+- [x] 55-01-PLAN.md — Implement assign_cap_labels + assign_gaussian_labels, export them, and add tests
 
 ---
 

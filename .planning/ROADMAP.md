@@ -127,6 +127,17 @@ Plans:
 
 - [x] 55-01-PLAN.md — Implement assign_cap_labels + assign_gaussian_labels, export them, and add tests
 
+### Phase 56: Configurable multi-label region-based labeling: rework generate_labels() to support arbitrary n_labels, voronoi/gaussian-blob/gaussian-cone region shapes, deterministic and probabilistic assignment modes, and config-driven specification via EvalConfig
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 55
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd:plan-phase 56 to break down)
+
 ---
 
 ### Phase 50: GPU-Native Geometry Ops for Cluster Deployment

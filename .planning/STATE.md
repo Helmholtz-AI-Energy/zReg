@@ -90,6 +90,10 @@ Full history: .planning/MILESTONES.md · Retrospective: .planning/RETROSPECTIVE.
 
 ## Accumulated Context
 
+### Roadmap Evolution
+
+- Phase 56 added: Configurable multi-label region-based labeling — rework generate_labels() to support arbitrary n_labels, voronoi/gaussian-blob/gaussian-cone region shapes, deterministic and probabilistic assignment modes, and config-driven specification via EvalConfig
+
 ### v1.6 Design Decisions
 
 - **Phase sequencing**: ENV first (nothing runs on cluster without it) → PARA next, validated via a short test job (BUDG-04) before GPU work lands → GPU device threading → final budget gate combining environment-aware calibration with real GPU+multi-rank timing data

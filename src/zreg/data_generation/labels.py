@@ -13,13 +13,99 @@ directly compatible with ``zreg.metrics.compute_f1`` without conversion.
 """
 
 import copy
-from typing import Sequence
+from typing import Literal, Sequence
 
 import torch
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 from zreg.core.dataset import zRegPointCloud
 
 __all__ = ["generate_labels", "remove_labels", "assign_cap_labels", "assign_gaussian_labels"]
+
+
+class LabelComponentSpec(BaseModel):
+    """One region component (voronoi/blob/cone) contributing to a label.
+
+    A ``LabelSpec`` combines one or more ``LabelComponentSpec`` instances
+    into a single label via a weighted ``logsumexp`` mixture (D-11). This
+    model only defines the vocabulary — scoring math lives in
+    ``_component_score``/``_label_scores``.
+
+    Parameters
+    ----------
+    shape : {"voronoi", "blob", "cone"}
+        Region shape. ``"voronoi"`` = nearest-center partition;
+        ``"blob"`` = isotropic Euclidean Gaussian (D-08); ``"cone"`` =
+        origin-anchored angular Gaussian (D-09).
+    center : list[float]
+        Exactly 3 elements. Euclidean center for ``voronoi``/``blob``; pole
+        direction vector for ``cone`` (need not be unit length — normalised
+        internally by ``_angular_distance_deg``).
+    sigma : float | None, optional
+        Euclidean isotropic sigma for ``blob``; angular sigma-in-degrees
+        for ``cone``. Required and must be ``> 0`` for both shapes. Ignored
+        (not an error) for ``voronoi``. Default: ``None``.
+    temperature : float | None, optional
+        Softmax temperature, meaningful only for ``voronoi`` in
+        probabilistic mode. Ignored (not an error) for ``blob``/``cone`` and
+        for ``voronoi`` in deterministic mode. Default: ``None``.
+    weight : float, optional
+        Mixing coefficient/prior (D-11). Not required to sum to 1 across a
+        label's components — a relative multiplier. Must be ``> 0``.
+        Default: ``1.0``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    shape: Literal["voronoi", "blob", "cone"]
+    center: list[float]
+    sigma: float | None = None
+    temperature: float | None = None
+    weight: float = 1.0
+
+    @field_validator("center")
+    @classmethod
+    def _validate_center(cls, v: list[float]) -> list[float]:
+        if len(v) != 3:
+            raise ValueError(f"center must have exactly 3 elements, got {len(v)}")
+        return v
+
+    @field_validator("weight")
+    @classmethod
+    def _validate_weight(cls, v: float) -> float:
+        if v <= 0:
+            raise ValueError(f"weight must be > 0, got {v}")
+        return v
+
+    @model_validator(mode="after")
+    def _validate_sigma(self) -> "LabelComponentSpec":
+        if self.shape in ("blob", "cone") and (self.sigma is None or self.sigma <= 0):
+            raise ValueError(f"sigma must be > 0 for shape={self.shape!r}, got {self.sigma}")
+        return self
+
+
+class LabelSpec(BaseModel):
+    """A single label defined by one or more mixed-shape region components.
+
+    Parameters
+    ----------
+    label_id : int
+        The integer label value this spec's components jointly define.
+    components : list[LabelComponentSpec]
+        One or more components (D-11 mixture). Must be non-empty.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    label_id: int
+    components: list[LabelComponentSpec]
+
+    @field_validator("components")
+    @classmethod
+    def _validate_components(cls, v: list[LabelComponentSpec]) -> list[LabelComponentSpec]:
+        if len(v) == 0:
+            raise ValueError("components must be non-empty")
+        return v
 
 
 def generate_labels(

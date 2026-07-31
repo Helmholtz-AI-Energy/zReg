@@ -160,7 +160,11 @@ class HyperparamOptimizer:
         ``False`` (fail-fast guard — at least one stage required).
     """
 
-    def __init__(self, config: EvalConfig) -> None:
+    def __init__(
+        self,
+        config: EvalConfig,
+        warm_start: list[dict] | None = None,
+    ) -> None:
         # T-22-01: validate search_space — each value must be a non-empty list
         for k, v in config.search_space.items():
             if not isinstance(v, list) or len(v) == 0:
@@ -175,6 +179,9 @@ class HyperparamOptimizer:
         self.config = config
         self._engine = MetricsEngine(config)
         self._factory = DataFactory(config)
+        # Seed from a prior run's best_params (cross-job forwarding, EXT-04).
+        # Stored here; injected as initial warm_start in run() before the tier loop.
+        self._initial_warm_start = warm_start
 
         # _default_params: fallback for all 9 required stage keys (Pitfall 4)
         # These fill any gaps when search_space covers only a subset of required keys.
@@ -234,7 +241,7 @@ class HyperparamOptimizer:
         tiers_to_run = TIER_SEQUENCE[: TIER_SEQUENCE.index(self.config.tier) + 1]
 
         all_history: list[Trial] = []
-        warm_start: list[dict] | None = None
+        warm_start: list[dict] | None = self._initial_warm_start
 
         for tier_name in tiers_to_run:
             tier_dataset = self._tier_dataset(tier_name)
@@ -345,7 +352,11 @@ class HyperparamOptimizer:
                 tier=self.config.tier,
             )
 
-        self.save_best_params(result, output_dir)
+        # Only rank 0 writes results — PropulateSearch returns [] on non-rank-0,
+        # so all other ranks have empty all_history and must not write to disk
+        # (concurrent writes from 16 ranks corrupt best_params.json via race).
+        if self._is_rank_zero():
+            self.save_best_params(result, output_dir)
         return result
 
     def _objective(
@@ -576,6 +587,14 @@ class HyperparamOptimizer:
         history_dicts = [t.model_dump() for t in result.history]
         with open(out / "search_history.json", "w") as f:
             json.dump(history_dicts, f, indent=2)
+
+    def _is_rank_zero(self) -> bool:
+        """Return True if running single-process or if this is MPI rank 0."""
+        try:
+            from mpi4py import MPI
+            return MPI.COMM_WORLD.Get_rank() == 0
+        except ImportError:
+            return True
 
     def _detect_backend(self) -> str:
         """Resolve search_strategy='auto' to 'propulate' or 'bayesian' (D-04).

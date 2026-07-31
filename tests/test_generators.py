@@ -24,8 +24,8 @@ from zreg.data_generation import (
     add_outliers,
     generate_labels,
     remove_labels,
-    assign_cap_labels,
-    assign_gaussian_labels,
+    LabelComponentSpec,
+    LabelSpec,
 )
 from zreg.data_generation.generators import sample_ball, sample_bowl
 from zreg.core.dataset import zRegPointCloud
@@ -269,25 +269,25 @@ class TestLabelUtilities:
         """Every frame's pc['label'] is torch.long, shape (N,)."""
         n_points = 30
         traj = generate_trajectory(n_points=n_points, n_frames=4, seed=30)
-        labelled = generate_labels(traj, n_classes=4, seed=42)
+        labelled = generate_labels(traj, n_labels=4, seed=42)
         for pc in labelled.values():
             assert pc["label"].dtype == torch.long
             assert pc["label"].shape == (n_points,)
 
     def test_generate_labels_value_range(self):
-        """Every frame's pc['label'].min() >= 0 and .max() < n_classes."""
-        n_classes = 4
+        """Every frame's pc['label'].min() >= 0 and .max() < n_labels."""
+        n_labels = 4
         traj = generate_trajectory(n_points=50, n_frames=3, seed=31)
-        labelled = generate_labels(traj, n_classes=n_classes, seed=42)
+        labelled = generate_labels(traj, n_labels=n_labels, seed=42)
         for pc in labelled.values():
             assert pc["label"].min().item() >= 0
-            assert pc["label"].max().item() < n_classes
+            assert pc["label"].max().item() < n_labels
 
     def test_generate_labels_reproducible(self):
         """Same seed produces torch.equal label output across two calls."""
         traj = generate_trajectory(n_points=20, n_frames=3, seed=32)
-        labelled_a = generate_labels(traj, n_classes=3, seed=55)
-        labelled_b = generate_labels(traj, n_classes=3, seed=55)
+        labelled_a = generate_labels(traj, n_labels=3, seed=55)
+        labelled_b = generate_labels(traj, n_labels=3, seed=55)
         for i in traj:
             assert torch.equal(labelled_a[i]["label"], labelled_b[i]["label"])
 
@@ -297,21 +297,21 @@ class TestLabelUtilities:
         # Verify input has label=None before the call
         for pc in traj.values():
             assert pc["label"] is None
-        generate_labels(traj, n_classes=3, seed=42)
+        generate_labels(traj, n_labels=3, seed=42)
         # Input must still have label=None after the call
         for pc in traj.values():
             assert pc["label"] is None
 
-    def test_generate_labels_invalid_n_classes(self):
-        """n_classes=0 raises ValueError matching 'n_classes'."""
+    def test_generate_labels_invalid_n_labels(self):
+        """n_labels=0 raises ValueError matching 'n_labels'."""
         traj = generate_trajectory(n_points=10, n_frames=2, seed=34)
-        with pytest.raises(ValueError, match="n_classes"):
-            generate_labels(traj, n_classes=0)
+        with pytest.raises(ValueError, match="n_labels"):
+            generate_labels(traj, n_labels=0)
 
     def test_generate_labels_compatible_with_compute_f1(self):
         """compute_f1(labelled[0]['label'], labelled[0]['label']) returns 1.0 (D-07 dtype contract)."""
         traj = generate_trajectory(n_points=50, n_frames=3, seed=35)
-        labelled = generate_labels(traj, n_classes=4, seed=42)
+        labelled = generate_labels(traj, n_labels=4, seed=42)
         # Perfect prediction: y_true == y_pred should yield F1 == 1.0
         score = compute_f1(
             y_true=labelled[0]["label"],
@@ -322,7 +322,7 @@ class TestLabelUtilities:
     def test_remove_labels_sets_color_none(self):
         """Every frame's pc['label'] is None in the output."""
         traj = generate_trajectory(n_points=20, n_frames=3, seed=36)
-        labelled = generate_labels(traj, n_classes=3, seed=42)
+        labelled = generate_labels(traj, n_labels=3, seed=42)
         # Confirm labels are set
         for pc in labelled.values():
             assert pc["label"] is not None
@@ -333,7 +333,7 @@ class TestLabelUtilities:
     def test_remove_labels_does_not_mutate_input(self):
         """Input frames still have their label tensor after remove_labels call."""
         traj = generate_trajectory(n_points=20, n_frames=3, seed=37)
-        labelled = generate_labels(traj, n_classes=3, seed=42)
+        labelled = generate_labels(traj, n_labels=3, seed=42)
         # Capture the label tensors before the call
         original_colors = {i: labelled[i]["label"].clone() for i in labelled}
         remove_labels(labelled)
@@ -341,6 +341,236 @@ class TestLabelUtilities:
         for i in labelled:
             assert labelled[i]["label"] is not None
             assert torch.equal(labelled[i]["label"], original_colors[i])
+
+
+# ---------------------------------------------------------------------------
+# TestLabelRegionShapes
+# ---------------------------------------------------------------------------
+
+
+class TestLabelRegionShapes:
+    """Per-shape (voronoi/blob/cone) correctness and mixture-within-label (D-11) tests."""
+
+    def _single_point_traj(self, xyz):
+        """Single-frame trajectory with one point at `xyz`."""
+        pc = zRegPointCloud(pos=torch.tensor([xyz], dtype=torch.float32))
+        return {0: pc}
+
+    def _empty_traj(self):
+        """Single-frame trajectory with zero points."""
+        pc = zRegPointCloud(pos=torch.zeros((0, 3), dtype=torch.float32))
+        return {0: pc}
+
+    def test_voronoi_point_at_center_gets_matching_label(self):
+        """A point exactly at label 0's voronoi center gets label 0 when label 1's center is far away."""
+        traj = self._single_point_traj([0.0, 0.0, 0.0])
+        label_specs = [
+            LabelSpec(label_id=0, components=[LabelComponentSpec(shape="voronoi", center=[0.0, 0.0, 0.0])]),
+            LabelSpec(label_id=1, components=[LabelComponentSpec(shape="voronoi", center=[100.0, 100.0, 100.0])]),
+        ]
+        result = generate_labels(traj, label_specs=label_specs, mode="deterministic", seed=0)
+        assert result[0]["label"].item() == 0
+
+    def test_blob_point_at_center_gets_matching_label(self):
+        """A point exactly at label 0's blob center (sigma=1.0) gets label 0 when label 1's blob center is far away."""
+        traj = self._single_point_traj([0.0, 0.0, 0.0])
+        label_specs = [
+            LabelSpec(label_id=0, components=[LabelComponentSpec(shape="blob", center=[0.0, 0.0, 0.0], sigma=1.0)]),
+            LabelSpec(
+                label_id=1,
+                components=[LabelComponentSpec(shape="blob", center=[100.0, 100.0, 100.0], sigma=1.0)],
+            ),
+        ]
+        result = generate_labels(traj, label_specs=label_specs, mode="deterministic", seed=0)
+        assert result[0]["label"].item() == 0
+
+    def test_cone_point_at_pole_gets_matching_label(self):
+        """A point exactly at label 0's cone pole (sigma=20.0) gets label 0 when label 1's pole points opposite."""
+        traj = self._single_point_traj([0.0, 0.0, 1.0])
+        label_specs = [
+            LabelSpec(label_id=0, components=[LabelComponentSpec(shape="cone", center=[0.0, 0.0, 1.0], sigma=20.0)]),
+            LabelSpec(
+                label_id=1, components=[LabelComponentSpec(shape="cone", center=[0.0, 0.0, -1.0], sigma=20.0)]
+            ),
+        ]
+        result = generate_labels(traj, label_specs=label_specs, mode="deterministic", seed=0)
+        assert result[0]["label"].item() == 0
+
+    def test_mixture_within_label_beats_competing_single_component(self):
+        """A label with two components (one blob near the point, one far) still wins over a competing
+        single-component label whose one component is far — proving multi-component mixture
+        aggregation works (D-11)."""
+        traj = self._single_point_traj([0.0, 0.0, 0.0])
+        label_specs = [
+            LabelSpec(
+                label_id=0,
+                components=[
+                    LabelComponentSpec(shape="blob", center=[0.0, 0.0, 0.0], sigma=1.0),
+                    LabelComponentSpec(shape="blob", center=[50.0, 50.0, 50.0], sigma=1.0),
+                ],
+            ),
+            LabelSpec(
+                label_id=1,
+                components=[LabelComponentSpec(shape="blob", center=[50.0, 50.0, 50.0], sigma=1.0)],
+            ),
+        ]
+        result = generate_labels(traj, label_specs=label_specs, mode="deterministic", seed=0)
+        assert result[0]["label"].item() == 0
+
+    def test_empty_frame_voronoi_no_raise(self):
+        """generate_labels with label_specs (voronoi) on a zero-point frame produces a (0,)
+        torch.long label tensor without raising."""
+        traj = self._empty_traj()
+        label_specs = [
+            LabelSpec(label_id=0, components=[LabelComponentSpec(shape="voronoi", center=[0.0, 0.0, 0.0])]),
+            LabelSpec(label_id=1, components=[LabelComponentSpec(shape="voronoi", center=[10.0, 0.0, 0.0])]),
+        ]
+        result = generate_labels(traj, label_specs=label_specs, mode="deterministic", seed=0)
+        assert result[0]["label"].dtype == torch.long
+        assert result[0]["label"].shape == (0,)
+
+    def test_empty_frame_blob_cone_no_raise(self):
+        """generate_labels with label_specs (blob/cone) on a zero-point frame produces a (0,)
+        torch.long label tensor without raising."""
+        traj = self._empty_traj()
+        label_specs = [
+            LabelSpec(label_id=0, components=[LabelComponentSpec(shape="blob", center=[0.0, 0.0, 0.0], sigma=1.0)]),
+            LabelSpec(label_id=1, components=[LabelComponentSpec(shape="cone", center=[0.0, 0.0, 1.0], sigma=20.0)]),
+        ]
+        result = generate_labels(traj, label_specs=label_specs, mode="deterministic", seed=0)
+        assert result[0]["label"].dtype == torch.long
+        assert result[0]["label"].shape == (0,)
+
+
+# ---------------------------------------------------------------------------
+# TestLabelAssignmentModes
+# ---------------------------------------------------------------------------
+
+
+class TestLabelAssignmentModes:
+    """Deterministic (argmax) vs probabilistic (sampled) assignment-mode behavior tests (D-12)."""
+
+    def test_deterministic_mode_is_argmax_and_reproducible(self):
+        """Deterministic mode assigns the unambiguously closer label to every point, bitwise
+        reproducibly across repeated calls with the same seed."""
+        pos = torch.tensor([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [-1.0, 0.0, 0.0]])
+        traj = {0: zRegPointCloud(pos=pos)}
+        label_specs = [
+            LabelSpec(label_id=0, components=[LabelComponentSpec(shape="voronoi", center=[0.0, 0.0, 0.0])]),
+            LabelSpec(
+                label_id=1,
+                components=[LabelComponentSpec(shape="voronoi", center=[1000.0, 1000.0, 1000.0])],
+            ),
+        ]
+        for _ in range(3):
+            result = generate_labels(traj, label_specs=label_specs, mode="deterministic", seed=7)
+            assert torch.equal(result[0]["label"], torch.zeros(3, dtype=torch.long))
+
+    def test_probabilistic_mode_samples_valid_label(self):
+        """Probabilistic mode with two blob labels of very different distances yields a label_id
+        that is one of the two valid ids."""
+        pos = torch.tensor([[0.0, 0.0, 0.0]])
+        traj = {0: zRegPointCloud(pos=pos)}
+        label_specs = [
+            LabelSpec(label_id=0, components=[LabelComponentSpec(shape="blob", center=[0.0, 0.0, 0.0], sigma=1.0)]),
+            LabelSpec(
+                label_id=1,
+                components=[LabelComponentSpec(shape="blob", center=[10.0, 10.0, 10.0], sigma=1.0)],
+            ),
+        ]
+        result = generate_labels(traj, label_specs=label_specs, mode="probabilistic", seed=3)
+        assert result[0]["label"].item() in (0, 1)
+
+    def test_probabilistic_mode_majority_favors_nearer_label(self):
+        """Across many points concentrated near label 0's blob center, label 0 is assigned to a
+        majority of them (statistical, not exact-count, assertion)."""
+        torch.manual_seed(123)
+        pos = torch.randn(200, 3) * 0.1  # concentrated near the origin
+        traj = {0: zRegPointCloud(pos=pos)}
+        label_specs = [
+            LabelSpec(label_id=0, components=[LabelComponentSpec(shape="blob", center=[0.0, 0.0, 0.0], sigma=1.0)]),
+            LabelSpec(
+                label_id=1,
+                components=[LabelComponentSpec(shape="blob", center=[20.0, 20.0, 20.0], sigma=1.0)],
+            ),
+        ]
+        result = generate_labels(traj, label_specs=label_specs, mode="probabilistic", seed=9)
+        labels = result[0]["label"]
+        assert (labels == 0).float().mean().item() > 0.5
+
+    def test_probabilistic_mode_with_n_labels_raises(self):
+        """Probabilistic mode with n_labels (no label_specs) raises ValueError mentioning 'mode'
+        (D-10 — the simple path does not support probabilistic)."""
+        traj = generate_trajectory(n_points=10, n_frames=2, seed=40)
+        with pytest.raises(ValueError, match="mode"):
+            generate_labels(traj, n_labels=3, mode="probabilistic")
+
+    def test_probabilistic_voronoi_missing_temperature_raises(self):
+        """Probabilistic mode with a label_specs voronoi component missing temperature raises
+        ValueError mentioning 'temperature'."""
+        traj = {0: zRegPointCloud(pos=torch.tensor([[0.0, 0.0, 0.0]]))}
+        label_specs = [
+            LabelSpec(label_id=0, components=[LabelComponentSpec(shape="voronoi", center=[0.0, 0.0, 0.0])]),
+            LabelSpec(label_id=1, components=[LabelComponentSpec(shape="voronoi", center=[5.0, 0.0, 0.0])]),
+        ]
+        with pytest.raises(ValueError, match="temperature"):
+            generate_labels(traj, label_specs=label_specs, mode="probabilistic", seed=0)
+
+    def test_label_specs_arbitrary_label_ids_round_trip(self):
+        """label_specs with non-contiguous/arbitrary label_id values ({2, 7}) round-trips
+        correctly — output label values are exactly the configured label_ids, not positional
+        indices."""
+        pos = torch.tensor([[0.0, 0.0, 0.0], [50.0, 50.0, 50.0]])
+        traj = {0: zRegPointCloud(pos=pos)}
+        label_specs = [
+            LabelSpec(label_id=2, components=[LabelComponentSpec(shape="voronoi", center=[0.0, 0.0, 0.0])]),
+            LabelSpec(label_id=7, components=[LabelComponentSpec(shape="voronoi", center=[50.0, 50.0, 50.0])]),
+        ]
+        result = generate_labels(traj, label_specs=label_specs, mode="deterministic", seed=0)
+        labels = result[0]["label"]
+        assert set(labels.tolist()) <= {2, 7}
+        assert labels[0].item() == 2
+        assert labels[1].item() == 7
+
+
+# ---------------------------------------------------------------------------
+# TestLabelGenerationD07Regression
+# ---------------------------------------------------------------------------
+
+
+class TestLabelGenerationD07Regression:
+    """Regression tests proving region/component centers are resolved once per trajectory,
+    not redrawn per frame (D-07's exact bug fix)."""
+
+    def test_n_labels_path_identical_pos_across_frames_yields_identical_labels(self):
+        """Two frames with an identical single point at the same pos produce an identical label
+        under the n_labels path — only guaranteed if centers are resolved once per trajectory."""
+        pos = torch.tensor([[1.0, 2.0, 3.0]])
+        traj = {0: zRegPointCloud(pos=pos.clone()), 1: zRegPointCloud(pos=pos.clone())}
+        result = generate_labels(traj, n_labels=5, mode="deterministic", seed=0)
+        assert torch.equal(result[0]["label"], result[1]["label"])
+
+    def test_label_specs_path_identical_pos_across_frames_yields_identical_labels(self):
+        """Three frames with an identical single point at the same pos produce identical labels
+        under the label_specs multi-component mixture path."""
+        pos = torch.tensor([[1.0, 2.0, 3.0]])
+        traj = {i: zRegPointCloud(pos=pos.clone()) for i in range(3)}
+        label_specs = [
+            LabelSpec(
+                label_id=0,
+                components=[
+                    LabelComponentSpec(shape="blob", center=[1.0, 2.0, 3.0], sigma=1.0),
+                    LabelComponentSpec(shape="cone", center=[0.0, 0.0, 1.0], sigma=20.0),
+                ],
+            ),
+            LabelSpec(
+                label_id=1,
+                components=[LabelComponentSpec(shape="voronoi", center=[-5.0, -5.0, -5.0])],
+            ),
+        ]
+        result = generate_labels(traj, label_specs=label_specs, mode="deterministic", seed=0)
+        assert torch.equal(result[0]["label"], result[1]["label"])
+        assert torch.equal(result[1]["label"], result[2]["label"])
 
 
 # ---------------------------------------------------------------------------
@@ -481,159 +711,7 @@ class TestGeneratorsCoverageGaps:
     def test_generate_labels_seed_none(self):
         """labels.py:72 — seed=None skips torch.manual_seed call."""
         traj = generate_trajectory(n_points=10, n_frames=2, seed=0)
-        result = generate_labels(traj, n_classes=3, seed=None)
+        result = generate_labels(traj, n_labels=3, seed=None)
         for i in traj:
             assert result[i]["label"] is not None
             assert result[i]["label"].shape[0] == 10
-
-
-# ---------------------------------------------------------------------------
-# TestSphericalLabelGenerators
-# ---------------------------------------------------------------------------
-
-
-class TestSphericalLabelGenerators:
-    """Tests for assign_cap_labels and assign_gaussian_labels."""
-
-    # --- shared helpers ---
-
-    def _empty_traj(self):
-        """Single-frame trajectory with zero points."""
-        pc = zRegPointCloud()
-        pc["pos"] = torch.zeros((0, 3), dtype=torch.float32)
-        return {0: pc}
-
-    def _single_point_traj(self, xyz):
-        """Single-frame trajectory with one point at `xyz`."""
-        pc = zRegPointCloud()
-        pc["pos"] = torch.tensor([xyz], dtype=torch.float32)
-        return {0: pc}
-
-    # --- dtype / shape (both functions) ---
-
-    def test_cap_dtype_and_shape(self):
-        """assign_cap_labels produces torch.long (N,) per frame."""
-        traj = generate_trajectory(n_points=20, n_frames=3, seed=0)
-        result = assign_cap_labels(traj, pole=[0, 0, 1], theta_deg=45.0)
-        for i in traj:
-            assert result[i]["label"].dtype == torch.long
-            assert result[i]["label"].shape == (20,)
-
-    def test_gaussian_dtype_and_shape(self):
-        """assign_gaussian_labels produces torch.long (N,) per frame."""
-        traj = generate_trajectory(n_points=20, n_frames=3, seed=0)
-        result = assign_gaussian_labels(traj, pole=[0, 0, 1], sigma_deg=30.0, seed=7)
-        for i in traj:
-            assert result[i]["label"].dtype == torch.long
-            assert result[i]["label"].shape == (20,)
-
-    # --- empty frame handling (both functions) ---
-
-    def test_cap_empty_frame(self):
-        """assign_cap_labels on empty frame yields (0,) torch.long."""
-        traj = self._empty_traj()
-        result = assign_cap_labels(traj, pole=[0, 0, 1], theta_deg=45.0)
-        assert result[0]["label"].shape == (0,)
-        assert result[0]["label"].dtype == torch.long
-
-    def test_gaussian_empty_frame(self):
-        """assign_gaussian_labels on empty frame yields (0,) torch.long."""
-        traj = self._empty_traj()
-        result = assign_gaussian_labels(traj, pole=[0, 0, 1], sigma_deg=30.0)
-        assert result[0]["label"].shape == (0,)
-        assert result[0]["label"].dtype == torch.long
-
-    # --- immutability (both functions) ---
-
-    def test_cap_does_not_mutate_input(self):
-        """Input frames still have label is None after assign_cap_labels call."""
-        traj = generate_trajectory(n_points=10, n_frames=2, seed=1)
-        for pc in traj.values():
-            assert pc["label"] is None
-        assign_cap_labels(traj, pole=[0, 0, 1], theta_deg=30.0)
-        for pc in traj.values():
-            assert pc["label"] is None
-
-    def test_gaussian_does_not_mutate_input(self):
-        """Input frames still have label is None after assign_gaussian_labels call."""
-        traj = generate_trajectory(n_points=10, n_frames=2, seed=2)
-        for pc in traj.values():
-            assert pc["label"] is None
-        assign_gaussian_labels(traj, pole=[0, 0, 1], sigma_deg=30.0)
-        for pc in traj.values():
-            assert pc["label"] is None
-
-    # --- pole normalisation (both functions) ---
-
-    def test_cap_pole_normalisation(self):
-        """assign_cap_labels with pole=[0,0,1] equals pole=[0,0,5]."""
-        traj = generate_trajectory(n_points=30, n_frames=2, seed=3)
-        r1 = assign_cap_labels(traj, pole=[0, 0, 1], theta_deg=40.0)
-        r2 = assign_cap_labels(traj, pole=[0, 0, 5], theta_deg=40.0)
-        for i in traj:
-            assert torch.equal(r1[i]["label"], r2[i]["label"])
-
-    def test_gaussian_pole_normalisation(self):
-        """assign_gaussian_labels with pole=[0,0,1] equals pole=[0,0,5] given same seed."""
-        traj = generate_trajectory(n_points=30, n_frames=2, seed=4)
-        r1 = assign_gaussian_labels(traj, pole=[0, 0, 1], sigma_deg=30.0, seed=99)
-        r2 = assign_gaussian_labels(traj, pole=[0, 0, 5], sigma_deg=30.0, seed=99)
-        for i in traj:
-            assert torch.equal(r1[i]["label"], r2[i]["label"])
-
-    # --- assign_cap_labels boundary semantics ---
-
-    def test_cap_pole_point_gets_label_inside(self):
-        """Point exactly at the pole (theta=0) gets label_inside."""
-        traj = self._single_point_traj([0.0, 0.0, 1.0])
-        result = assign_cap_labels(traj, pole=[0, 0, 1], theta_deg=30.0)
-        assert result[0]["label"].item() == 2  # default label_inside
-
-    def test_cap_equator_point_gets_label_outside(self):
-        """Point at equator (theta=90) gets label_outside when theta_deg < 90."""
-        traj = self._single_point_traj([1.0, 0.0, 0.0])
-        result = assign_cap_labels(traj, pole=[0, 0, 1], theta_deg=45.0)
-        assert result[0]["label"].item() == 1  # default label_outside
-
-    def test_cap_custom_labels_honored(self):
-        """Custom label_inside=10, label_outside=20 are assigned correctly."""
-        traj = self._single_point_traj([0.0, 0.0, 1.0])
-        result = assign_cap_labels(
-            traj, pole=[0, 0, 1], theta_deg=30.0, label_inside=10, label_outside=20
-        )
-        assert result[0]["label"].item() == 10
-
-        traj2 = self._single_point_traj([1.0, 0.0, 0.0])
-        result2 = assign_cap_labels(
-            traj2, pole=[0, 0, 1], theta_deg=30.0, label_inside=10, label_outside=20
-        )
-        assert result2[0]["label"].item() == 20
-
-    # --- assign_gaussian_labels semantics ---
-
-    def test_gaussian_seed_reproducibility(self):
-        """Same seed produces torch.equal labels per frame."""
-        traj = generate_trajectory(n_points=50, n_frames=3, seed=5)
-        r1 = assign_gaussian_labels(traj, pole=[0, 0, 1], sigma_deg=30.0, seed=42)
-        r2 = assign_gaussian_labels(traj, pole=[0, 0, 1], sigma_deg=30.0, seed=42)
-        for i in traj:
-            assert torch.equal(r1[i]["label"], r2[i]["label"])
-
-    def test_gaussian_probability_decreases_with_angle(self):
-        """Near-pole points receive label_inside more often than equatorial ones."""
-        # 200 points near pole (theta ~ 5 deg) vs 200 near equator (theta ~ 85 deg).
-        near_pole = torch.zeros((200, 3), dtype=torch.float32)
-        near_pole[:, 2] = 1.0  # pointing straight up → theta = 0
-        near_equator = torch.zeros((200, 3), dtype=torch.float32)
-        near_equator[:, 0] = 1.0  # pointing sideways → theta = 90
-
-        pc_pole = zRegPointCloud()
-        pc_pole["pos"] = near_pole
-        pc_eq = zRegPointCloud()
-        pc_eq["pos"] = near_equator
-        traj = {0: pc_pole, 1: pc_eq}
-
-        result = assign_gaussian_labels(traj, pole=[0, 0, 1], sigma_deg=20.0, seed=0)
-        frac_inside_pole = (result[0]["label"] == 2).float().mean().item()
-        frac_inside_eq = (result[1]["label"] == 2).float().mean().item()
-        assert frac_inside_pole > frac_inside_eq

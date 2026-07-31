@@ -4,7 +4,7 @@ milestone: v1.6
 milestone_name: HoreKa Cluster Execution
 status: executing
 stopped_at: context exhaustion at 76% (2026-07-27)
-last_updated: "2026-07-31T08:38:25.353Z"
+last_updated: "2026-07-31T15:11:43.187Z"
 last_activity: 2026-07-31
 progress:
   total_phases: 4
@@ -28,10 +28,10 @@ See: .planning/PROJECT.md (updated 2026-07-15 after v1.5/v1.6 roadmap creation)
 Phase: 51
 Plan: Not started
 Status: Executing Phase 50
-Tests: 1353 passed, 19 skipped, 1 xpassed (+23 new in Phase 54)
+Tests: 1374 passed, 22 skipped, 1 xpassed, 2 failed (full suite post-merge with Phase 56; the 2 failures are the pre-existing test_icp_registration.py full-suite-order flakes logged in Phase 56's deferred-items.md, unrelated to Phase 50/51)
 Last activity: 2026-07-31
 
-Progress (v1.6): [████████░░] 75%
+Progress (v1.6): [████████░░] 80%
 
 ## Shipped Milestones
 
@@ -87,8 +87,18 @@ Full history: .planning/MILESTONES.md · Retrospective: .planning/RETROSPECTIVE.
 | 49 | 01 | ~20min | 2 | 2 |
 | 49 | 02 | ~15min | 2 | 3 |
 | 49 | 03 | ~20min | 2 | 2 |
+| 56 | 01 | ~15min | 2 | 1 |
+| 56 | 02 | ~17min | 2 | 11 |
+| 56 | 03 | ~20min | 3 | 5 |
+| 56 | 04 | ~25min | 2 | 2 |
+| 56 | 05 | ~15min | 2 | 4 |
 
 ## Accumulated Context
+
+### Roadmap Evolution
+
+- Phase 56 added: Configurable multi-label region-based labeling — rework generate_labels() to support arbitrary n_labels, voronoi/gaussian-blob/gaussian-cone region shapes, deterministic and probabilistic assignment modes, and config-driven specification via EvalConfig
+- Phase 56 completed (5/5 plans, verified) and merged into feature/evaluation_framework on 2026-07-31, alongside this branch's own concurrent Phase 50/51 progress
 
 ### v1.6 Design Decisions
 
@@ -104,6 +114,11 @@ Full history: .planning/MILESTONES.md · Retrospective: .planning/RETROSPECTIVE.
 - Phase 47: joint-cloud logits[n_source:] slicing contract single-sourced in test_zreg_models_joint_cloud.py; D-03 (Open3D ops benchmark) resolved sub-50ms
 - Phase 48: VALID_METHODS now ("knn_voting", "cpd_weighted", "pointnet2", "egnn"); checkpoint loaded once per run() call
 - Phase 49: cpd_weighted proven to work on raw non-CPD-aligned input (Assumption A1); leakage guard requires explicit held_out_seeds arg (Assumption A2)
+- Phase 56 Plan 01: `weight` resolved as a relative log-space multiplier (`+log(weight)` before `logsumexp`), not a normalized/softmax prior; voronoi deterministic score is unscaled `-dist_sq` (argmax-preserving, no division)
+- Phase 56 Plan 02: `generate_labels()` rewritten as config-driven orchestrator (`n_labels`/`label_specs` paths, `mode` switch); D-07 fixed by resolving all region/component centers once before the per-frame loop; `assign_cap_labels`/`assign_gaussian_labels` deleted (D-06, dead-clean, no shims); the `n_classes`→`n_labels` rename broke 8 additional call sites beyond `56-CONTEXT.md`'s documented 2 (eval/data_factory.py, eval/runners/optimizer.py, and 6 test files) — fixed as a Rule-1 deviation, which makes Plan 56-05's Task 1 (5 of those same files) a no-op when it runs later
+- Phase 56 Plan 03: `EvalConfig.label_generation` (`LabelGenerationConfig` model) added, defaulting to `None`; `DataFactory.generate_training_triple`/`generate_training_set` renamed `n_classes`→`n_labels` with a sentinel `int | None = None` three-way precedence (explicit caller arg > `self.config.label_generation` > hardcoded `n_labels=6` fallback); `optimizer.py`'s sanity tier consults `self.config.label_generation` with a hardcoded `n_labels=4` fallback; `benchmark_runner.py`/`train_label_transfer.py`'s own public `n_classes`-named surfaces left unchanged (out of D-04 scope), only their internal forwarding calls updated; `configs/label_generation_example.yaml` added. Full suite: 1335 passed/22 skipped/1 xpassed/17 failed — all 17 failures are pre-existing and out of this plan's scope (14 are `n_classes=` kwarg TypeErrors in test files deferred to Plan 56-05's Task 2; 2 are the already-logged `test_icp_registration.py` full-suite-order flake)
+- Phase 56 Plan 04: added `TestLabelRegionShapes`/`TestLabelAssignmentModes`/`TestLabelGenerationD07Regression` (15 tests) to `tests/test_generators.py` and a new `tests/test_label_generation_config.py` (10 tests) mirroring `test_alignment_preprocessing_config.py`'s style; the D-07 regression tests prove `torch.equal` labels across frames with an identical point position, for both the `n_labels` and `label_specs` paths; the end-to-end `EvalConfig.label_generation`-vs-explicit-`n_labels` precedence test uses `seed=2` (not the plan's illustrative `seed=0`) because `seed=0` leaves a Voronoi label with zero points for this ball-shape/point-count combination, which would make the "exactly N unique values" assertion fail on a correct implementation. Full suite: 1359 passed/22 skipped/1 xpassed/17 failed — same 17 pre-existing failures as Plan 56-03's baseline, unchanged (24 new tests added, zero new failures)
+- Phase 56 Plan 05 (final plan, Phase 56 complete): closed the `n_classes`->`n_labels` rename cascade's last real call sites — `tests/test_benchmark_runner.py`'s `generate_training_set`, plus `tests/test_data_factory_training_triples.py`/`tests/test_zreg_models_pointnet2.py`/`tests/test_train_label_transfer.py`'s `generate_training_triple`/`generate_training_set` calls (5 sites, 4 files); Task 1's 5 target files (`test_optimizer.py`, `test_viz.py`, `test_trajectory_export.py`, `test_label_transfer_stage.py`, `test_eval_runner.py`) needed no edits, confirmed already fixed by Plan 56-02's Rule-1 deviation. Full suite: 1374 passed/22 skipped/1 xpassed/2 failed — the 2 failures are the pre-existing `test_icp_registration.py` full-suite-order flake (unrelated, already logged); all 14 `n_classes=` `TypeError`s are resolved.
 
 ### Requirements
 
@@ -141,9 +156,10 @@ None — test_search_strategies mock fixed (FakeIndividual k=int→str) to align
 |----------|------|--------|
 | verification | Phase 26 SC-4 — live `mpirun -n 2` Propulate integration | Resolved on HoreKa — smoke + multirank tests passed in Phase 52 |
 | code-review | Open CR/WR items (matplotlib Agg backend leak; `subprocess.run` timeout in `trajectory.py`; `eval/` excluded from `--cov`) | Non-blocking; carried forward |
+| test-flakiness | `tests/test_icp_registration.py::TestICPRegistration::test_icp_translation_recovery`/`test_icp_rotation_recovery` fail only in full-suite runs, pass in isolation (found during Phase 56 Plan 02) | Non-blocking; unrelated to Phase 56; logged to `.planning/phases/56-.../deferred-items.md` |
 
 ## Session Continuity
 
-Last session: 2026-07-27T07:40:45.602Z
-Stopped at: context exhaustion at 76% (2026-07-27)
-Next action: `/gsd:plan-phase 54` — Budget Calibration & Full-Suite Gate (BUDG-02, BUDG-03); requires real HoreKa timing data from Phase 52/53 full run
+Last session: 2026-07-31T15:03:09.000Z
+Stopped at: Phase 56 Plan 05 complete (56-05) — Phase 56 fully complete (5/5 plans)
+Next action: `/gsd:plan-phase 54` — Budget Calibration & Full-Suite Gate (BUDG-02, BUDG-03) remains pending, requires real HoreKa timing data from Phase 52/53 full run

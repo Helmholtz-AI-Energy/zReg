@@ -127,6 +127,32 @@ Plans:
 
 - [x] 55-01-PLAN.md — Implement assign_cap_labels + assign_gaussian_labels, export them, and add tests
 
+### Phase 56: Configurable multi-label region-based labeling: rework generate_labels() to support arbitrary n_labels, voronoi/gaussian-blob/gaussian-cone region shapes, deterministic and probabilistic assignment modes, and config-driven specification via EvalConfig ✅ 2026-07-31
+
+**Goal:** zreg.data_generation.labels.generate_labels() becomes the single, config-driven entry point for labeling a point cloud trajectory — any number of labels, each defined by one or more region components (voronoi/gaussian blob/gaussian cone), assigned deterministically or probabilistically, with region centers fixed once per trajectory (not redrawn per frame) so label change is spatially traceable. assign_cap_labels/assign_gaussian_labels (Phase 55) are deleted entirely, absorbed as the cone shape's special case. EvalConfig.label_generation lets scenario YAML declare a label spec instead of hardcoded Python literals.
+**Requirements**: none mapped (see 56-CONTEXT.md D-01 through D-13 — phase added ad hoc, no formal REQUIREMENTS.md IDs)
+**Depends on:** Phase 55
+**Plans:** 5/5 plans complete
+
+Plans:
+
+**Wave 1**
+
+- [x] 56-01-PLAN.md — LabelComponentSpec/LabelSpec pydantic models + per-shape scoring (_component_score) + mixture aggregation (_label_scores) (D-08, D-09, D-10, D-11)
+
+**Wave 2** *(depends on Wave 1)*
+
+- [x] 56-02-PLAN.md — Assignment modes (_assign_deterministic/_assign_probabilistic) + reworked generate_labels() orchestrator with D-07 center-once fix + deletion of assign_cap_labels/assign_gaussian_labels and their 13 tests (D-01, D-04, D-05, D-06, D-07, D-12)
+
+**Wave 3** *(depends on Wave 2)*
+
+- [x] 56-03-PLAN.md — EvalConfig.label_generation field + n_classes->n_labels rename cascade through DataFactory/optimizer.py/benchmark_runner.py/train_label_transfer.py + example scenario YAML (D-04, D-13)
+
+**Wave 4** *(depends on Waves 2+3, parallel)*
+
+- [x] 56-04-PLAN.md — Comprehensive new tests: per-shape correctness, assignment-mode behavior, D-07 regression, LabelGenerationConfig coverage (D-07, D-08, D-09, D-10, D-11, D-12, D-13)
+- [x] 56-05-PLAN.md — Fix rename-cascade breakage across the remaining existing test suite (9 files) (D-04)
+
 ---
 
 ### Phase 50: GPU-Native Geometry Ops for Cluster Deployment

@@ -65,7 +65,7 @@ def synthetic_dataset() -> dict[int, zRegPointCloud]:
     so transfer_colors KNN_VOTING has valid source_colors to unsqueeze.
     """
     traj = generate_trajectory(n_points=20, n_frames=3, seed=0)
-    return generate_labels(traj, n_classes=4, seed=0)
+    return generate_labels(traj, n_labels=4, seed=0)
 
 
 # ---------------------------------------------------------------------------
@@ -370,7 +370,7 @@ class TestRunOutput:
 def synthetic_dataset_d09() -> dict[int, zRegPointCloud]:
     """2-frame dataset: labeled frame 0 + noisy frame 1 per D-09."""
     seed_traj = generate_trajectory(n_points=50, n_frames=1, seed=0)
-    labeled_traj = generate_labels(seed_traj, n_classes=3, seed=0)
+    labeled_traj = generate_labels(seed_traj, n_labels=3, seed=0)
     noisy_frame = add_gaussian_noise(labeled_traj, sigma=0.01, seed=1)[0]
     return {0: labeled_traj[0], 1: noisy_frame}
 
@@ -413,7 +413,7 @@ class TestLabelTransferStageLabelAccuracy:
         """compute_f1(transferred) > compute_f1(shuffled) on D-09 fixture."""
         # D-09: 1-frame generate then manual frame 1
         seed_traj = generate_trajectory(n_points=50, n_frames=1, seed=0)
-        labeled_traj = generate_labels(seed_traj, n_classes=3, seed=0)
+        labeled_traj = generate_labels(seed_traj, n_labels=3, seed=0)
         ground_truth_labels = labeled_traj[0]["label"]  # shape (50,), torch.long
         noisy_frame = add_gaussian_noise(labeled_traj, sigma=0.01, seed=1)[0]
         dataset = {0: labeled_traj[0], 1: noisy_frame}
@@ -553,7 +553,7 @@ def cpd_weighted_source_target():
     deliberately have different point counts.
     """
     source_traj = generate_labels(
-        generate_trajectory(n_points=12, n_frames=1, seed=500), n_classes=3, seed=500
+        generate_trajectory(n_points=12, n_frames=1, seed=500), n_labels=3, seed=500
     )
     target_traj = generate_trajectory(n_points=9, n_frames=1, seed=501)
     source_pos = source_traj[0]["pos"]
@@ -672,7 +672,7 @@ def learned_smoke_checkpoint(tmp_path):
     phase's tests prove the load->infer->LabelResult *wiring* is correct, not
     model quality.
 
-    n_classes=4 MATCHES synthetic_dataset's generate_labels(..., n_classes=4)
+    n_classes=4 MATCHES synthetic_dataset's generate_labels(..., n_labels=4)
     label vocabulary (Pitfall 1 — a mismatch makes one_hot raise a RuntimeError
     unrelated to wiring).
     """
@@ -864,7 +864,7 @@ class TestLabelTransferStageCoverageGaps:
 
     def test_k_neighbours_exceeds_n_src_raises(self, eval_config):
         """label_transfer.py — ValueError when k_neighbours > n_src."""
-        labeled = generate_labels(generate_trajectory(n_points=5, n_frames=1, seed=0), n_classes=2, seed=0)
+        labeled = generate_labels(generate_trajectory(n_points=5, n_frames=1, seed=0), n_labels=2, seed=0)
         stage = LabelTransferStage(eval_config)
         params = {"k_neighbours": 100, "dist_metric": "euclidean", "smoothing": 0.0, "threshold": 0.0}
         with pytest.raises(ValueError, match="k_neighbours=100 exceeds"):

@@ -210,7 +210,7 @@ class TestLabelVsIdDiscipline:
     def test_source_id_is_none_and_label_is_long(self):
         cfg = EvalConfig(data_path="x")
         factory = DataFactory(cfg)
-        triple = factory.generate_training_triple(seed=0, n_classes=6)
+        triple = factory.generate_training_triple(seed=0, n_labels=6)
         assert triple.source_cloud["id"] is None
         assert triple.source_labels.dtype == torch.long
         assert triple.source_labels.min() >= 0
@@ -222,7 +222,7 @@ class TestLabelVsIdDiscipline:
         points ever appear in the target)."""
         cfg = EvalConfig(data_path="x")
         factory = DataFactory(cfg)
-        triple = factory.generate_training_triple(seed=0, n_classes=6)
+        triple = factory.generate_training_triple(seed=0, n_labels=6)
         assert triple.target_labels is not None
         assert triple.target_labels.dtype == torch.long
         assert triple.target_labels.min() >= 0

@@ -309,7 +309,7 @@ def main(argv=None) -> int:
     epoch = 0
     for epoch in range(args.epochs):
         seeds = range(epoch * args.n_seeds, (epoch + 1) * args.n_seeds)
-        triples = factory.generate_training_set(seeds, n_classes=args.n_classes)
+        triples = factory.generate_training_set(seeds, n_labels=args.n_classes)
         for triple in triples:
             train_step(model, triple, optimizer, device, args.n_classes)
 

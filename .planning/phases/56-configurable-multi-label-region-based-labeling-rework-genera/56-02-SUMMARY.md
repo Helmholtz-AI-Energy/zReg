@@ -90,6 +90,7 @@ Each task was committed atomically:
 - **Files modified:** `eval/data_factory.py`, `eval/runners/optimizer.py`, `tests/test_benchmark_runner.py`, `tests/test_optimizer.py`, `tests/test_trajectory_export.py`, `tests/test_viz.py`, `tests/test_label_transfer_stage.py`, `tests/test_eval_runner.py`
 - **Verification:** Full suite went from 35 failed/104 errors to 1350 passed/22 skipped/1 xpassed. Remaining 2 failures (`test_icp_registration.py`) confirmed unrelated (see Issues Encountered).
 - **Committed in:** `e8bdc24`
+- **Overlap note for Plan 56-05:** After making this fix, discovered `ROADMAP.md` already lists a dedicated `56-05-PLAN.md` ("Fix rename-cascade breakage across the remaining existing test suite (9 files)") whose Task 1 targets exactly the same 5 test files (`test_optimizer.py`, `test_viz.py`, `test_trajectory_export.py`, `test_label_transfer_stage.py`, `test_eval_runner.py`) for the identical `generate_labels(..., n_classes=...)`→`n_labels=` rename. This plan's fix makes Plan 56-05's Task 1 a no-op (its verify grep will simply find nothing left to change — non-conflicting). Plan 56-05's Task 2 remains fully applicable and untouched: `test_benchmark_runner.py`'s `generate_training_set(seeds, n_classes=N_CLASSES)` call (line ~307, a different function whose signature this plan did not touch) plus `test_data_factory_training_triples.py`, `test_zreg_models_pointnet2.py`, and `test_train_label_transfer.py`'s `generate_training_triple`/`generate_training_set` call sites are all still pending and unaffected by this plan.
 
 ---
 

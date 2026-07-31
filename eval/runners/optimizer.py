@@ -59,7 +59,10 @@ never fails when the search space covers only a subset of required keys.
 
 **Sanity tier labels (Pitfall 5):** ``_tier_dataset("sanity")`` calls
 ``generate_labels(generate_trajectory(...))`` so ``pc["id"]`` is populated and
-``DataFactory.get_ground_truth()`` returns valid tensors.
+``DataFactory.get_ground_truth()`` returns valid tensors. Per D-13, this call
+consults ``self.config.label_generation`` when set (forwarding its
+``n_labels``/``label_specs``/``mode``/``seed`` fields), falling back to the
+hardcoded ``n_labels=4, seed=42`` literal otherwise.
 
 **JSON serialisation:** Always ``model_dump()`` + ``json.dump()``.  The JSON
 shortcut raises for ``torch.Tensor`` fields (Pitfall 2 from eval/types.py).
@@ -514,10 +517,21 @@ class HyperparamOptimizer:
         -----
         **Pitfall 5:** Sanity tier calls ``generate_labels(generate_trajectory(...))``
         so ``pc["id"]`` is populated and ``get_ground_truth()`` returns valid tensors.
+
+        **D-13:** Sanity tier consults ``self.config.label_generation`` when
+        set (forwarding ``n_labels``/``label_specs``/``mode``/``seed``),
+        falling back to the hardcoded ``n_labels=4, seed=42`` behaviour
+        otherwise — every existing config without ``label_generation`` set
+        is unaffected.
         """
         if tier == "sanity":
             # Small labelled synthetic dataset — MUST include labels (Pitfall 5)
             traj = generate_trajectory(n_points=50, n_frames=3, seed=42)
+            if self.config.label_generation is not None:
+                lg = self.config.label_generation
+                return generate_labels(
+                    traj, n_labels=lg.n_labels, label_specs=lg.label_specs, mode=lg.mode, seed=lg.seed
+                )
             return generate_labels(traj, n_labels=4, seed=42)
         elif tier == "dev":
             # Use real data if available, otherwise fall back to synthetic

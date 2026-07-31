@@ -341,7 +341,7 @@ class DataFactory:
     def generate_training_triple(
         self,
         seed: int,
-        n_classes: int = 6,
+        n_labels: int | None = None,
         shape: str | None = None,
         n_points: int | None = None,
     ) -> TrainingTriple:
@@ -380,13 +380,28 @@ class DataFactory:
         (46-RESEARCH.md Anti-Patterns): points added by ``sample_new_points``
         get a ``-1`` label sentinel, which is not a valid supervised target.
 
+        Label-generation precedence (D-13, three-way, in order):
+
+        1. If the caller passes an explicit ``n_labels`` (not ``None``), use
+           ``generate_labels(base, n_labels=n_labels, seed=seed)`` exactly —
+           preserves every existing explicit-``n_labels=N`` call site.
+        2. Else, if ``self.config.label_generation`` is not ``None``, use it:
+           ``generate_labels(base, n_labels=self.config.label_generation.n_labels,
+           label_specs=self.config.label_generation.label_specs,
+           mode=self.config.label_generation.mode, seed=seed)``.
+        3. Else, fall back to ``generate_labels(base, n_labels=6, seed=seed)``
+           (today's hardcoded default, preserved as the final fallback).
+
         Parameters
         ----------
         seed : int
             Seed driving base-cloud geometry, label assignment, transform
             parameters, and augmentation RNG (threaded as ``"augment_seed"``).
-        n_classes : int, optional
-            Voronoi label vocabulary size (default 6).
+        n_labels : int or None, optional
+            Explicit Voronoi label vocabulary size override. ``None``
+            (default) means "no explicit override" — falls through to
+            ``self.config.label_generation`` then the hardcoded ``n_labels=6``
+            fallback (see precedence above).
         shape : {"ball", "bowl"} or None, optional
             Force a specific geometry; ``None`` (default) alternates by seed
             parity (see above).
@@ -417,7 +432,16 @@ class DataFactory:
             )
 
         base = {0: zRegPointCloud(pos=pos)}
-        source = generate_labels(base, n_labels=n_classes, seed=seed)
+        # D-13 three-way precedence: explicit caller override > config.label_generation > hardcoded fallback.
+        if n_labels is not None:
+            source = generate_labels(base, n_labels=n_labels, seed=seed)
+        elif self.config.label_generation is not None:
+            lg = self.config.label_generation
+            source = generate_labels(
+                base, n_labels=lg.n_labels, label_specs=lg.label_specs, mode=lg.mode, seed=seed
+            )
+        else:
+            source = generate_labels(base, n_labels=6, seed=seed)
 
         transform_spec = {
             "type": "rigid",
@@ -434,7 +458,7 @@ class DataFactory:
     def generate_training_set(
         self,
         seeds,
-        n_classes: int = 6,
+        n_labels: int | None = None,
     ) -> list[TrainingTriple]:
         """Batch :meth:`generate_training_triple` over an iterable of seeds.
 
@@ -446,16 +470,19 @@ class DataFactory:
         seeds : Iterable[int]
             Seeds to generate triples for, e.g. a ``range`` from
             :func:`split_seeds`.
-        n_classes : int, optional
-            Forwarded to every :meth:`generate_training_triple` call
-            (default 6).
+        n_labels : int or None, optional
+            Forwarded unchanged to every :meth:`generate_training_triple`
+            call (D-13 three-way precedence). ``None`` (default) lets each
+            triple resolve its own label vocabulary via
+            ``self.config.label_generation`` or the hardcoded ``n_labels=6``
+            fallback — see :meth:`generate_training_triple`.
 
         Returns
         -------
         list[TrainingTriple]
             One triple per seed, in the order ``seeds`` was iterated.
         """
-        return [self.generate_training_triple(s, n_classes=n_classes) for s in seeds]
+        return [self.generate_training_triple(s, n_labels=n_labels) for s in seeds]
 
     def generate_synthetic(self) -> dict[int, zRegPointCloud]:
         """Generate a synthetic trajectory (lazy, cached).

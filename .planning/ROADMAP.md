@@ -114,7 +114,7 @@ Plans:
 - [x] **Phase 47: eGNN/PointNet++ Model Implementation & Training Infrastructure** — completed 2026-07-15
 - [x] **Phase 48: LabelTransferStage Integration for Learned Methods** — completed 2026-07-15
 - [x] **Phase 49: Evaluation & Benchmarking of Learned Label-Transfer Methods** — completed 2026-07-15
-- [ ] **Phase 50: GPU-Native Geometry Ops** — pending (blocked on cluster verification)
+- [x] **Phase 50: GPU-Native Geometry Ops** — pending (blocked on cluster verification) (completed 2026-07-31)
 
 ### Phase 55: Spherical-cap and Gaussian label generators for zreg.data_generation.labels ✅ 2026-07-30
 
@@ -141,12 +141,12 @@ packaged implementation exists at any point-cloud scale), not platform-driven, a
 unchanged regardless of this phase's outcome.
 **Requirements**: TBD (see 50-CONTEXT.md — phase added ad hoc, no formal REQUIREMENTS.md IDs)
 **Depends on:** Phase 49
-**Plans:** 1/1 plans complete
+**Plans:** 2/2 plans complete
 
 Plans:
 
-- [ ] 50-01-PLAN.md — HoreKa torch_cluster install verification gate (autonomous: false, human-executed) (D-01, D-02)
-- [ ] 50-02-PLAN.md — torch_cluster dual-path in _ops.py for all three ops + setup.cfg cluster extra + smoke tests (D-03–D-08)
+- [x] 50-01-PLAN.md — HoreKa torch_cluster install verification gate (autonomous: false, human-executed) (D-01, D-02)
+- [x] 50-02-PLAN.md — torch_cluster dual-path in _ops.py for all three ops + setup.cfg cluster extra + smoke tests (D-03–D-08)
 
 ### Phase 44: CPD-Weighted Label Transfer Method
 
@@ -347,7 +347,7 @@ Phases execute in numeric order: 51 → 52 → 53 → 54
 | 47. eGNN/PointNet++ Models & Training | v1.5 | 5/5 | ✅ Complete | 2026-07-15 |
 | 48. LabelTransferStage Integration | v1.5 | 2/2 | ✅ Complete | 2026-07-15 |
 | 49. Benchmarking of Learned Methods | v1.5 | 3/3 | ✅ Complete | 2026-07-15 |
-| 50. GPU-Native Geometry Ops | v1.5 | 0/TBD | Pending | - |
+| 50. GPU-Native Geometry Ops | v1.5 | 2/2 | Complete    | 2026-07-31 |
 | 51. Environment & Access | v1.6 | 1/1 | Complete    | 2026-07-15 |
 | 52. Multi-Rank Parallelism & Validation | v1.6 | 0/TBD | Not started | - |
 | 53. GPU Acceleration | v1.6 | 0/TBD | Not started | - |

@@ -55,14 +55,14 @@ def synthetic_dataset() -> dict[int, zRegPointCloud]:
     so DataFactory.get_ground_truth() returns valid id tensors.
     """
     traj = generate_trajectory(n_points=20, n_frames=3, seed=0)
-    return generate_labels(traj, n_classes=4, seed=0)
+    return generate_labels(traj, n_labels=4, seed=0)
 
 
 @pytest.fixture
 def single_frame_dataset() -> dict[int, zRegPointCloud]:
     """1-frame dataset that triggers MetricsEngine.sanity_check 'single-frame' flag."""
     traj = generate_trajectory(n_points=20, n_frames=1, seed=0)
-    return generate_labels(traj, n_classes=4, seed=0)
+    return generate_labels(traj, n_labels=4, seed=0)
 
 
 @pytest.fixture

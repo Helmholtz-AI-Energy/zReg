@@ -75,7 +75,7 @@ def synthetic_dataset() -> dict[int, zRegPointCloud]:
     Mirror of test_eval_runner.py:51-58 fixture.
     """
     traj = generate_trajectory(n_points=20, n_frames=3, seed=0)
-    return generate_labels(traj, n_classes=4, seed=0)
+    return generate_labels(traj, n_labels=4, seed=0)
 
 
 @pytest.fixture
@@ -813,7 +813,7 @@ class TestHyperparamOptimizerCoverageGaps:
         from zreg.data_generation import generate_labels, generate_trajectory
         from eval.types import AlignResult, LabelResult, StageMetrics
 
-        ds = generate_labels(generate_trajectory(n_points=10, n_frames=3, seed=0), n_classes=4, seed=0)
+        ds = generate_labels(generate_trajectory(n_points=10, n_frames=3, seed=0), n_labels=4, seed=0)
 
         mock_factory = mock_factory_cls.return_value
         mock_factory.load_real.return_value = ds
@@ -867,7 +867,7 @@ class TestHyperparamOptimizerCoverageGaps:
         from zreg.data_generation import generate_labels, generate_trajectory
         from eval.types import AlignResult, LabelResult, StageMetrics
 
-        ds = generate_labels(generate_trajectory(n_points=10, n_frames=3, seed=0), n_classes=4, seed=0)
+        ds = generate_labels(generate_trajectory(n_points=10, n_frames=3, seed=0), n_labels=4, seed=0)
 
         mock_factory = mock_factory_cls.return_value
         mock_factory.load_real.return_value = ds

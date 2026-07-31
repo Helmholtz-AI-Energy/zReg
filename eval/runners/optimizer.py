@@ -518,7 +518,7 @@ class HyperparamOptimizer:
         if tier == "sanity":
             # Small labelled synthetic dataset — MUST include labels (Pitfall 5)
             traj = generate_trajectory(n_points=50, n_frames=3, seed=42)
-            return generate_labels(traj, n_classes=4, seed=42)
+            return generate_labels(traj, n_labels=4, seed=42)
         elif tier == "dev":
             # Use real data if available, otherwise fall back to synthetic
             data_path = Path(self.config.data_path) if self.config.data_path else None

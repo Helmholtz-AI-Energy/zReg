@@ -77,7 +77,7 @@ def patch_auto_capture():
 def synthetic_dataset() -> dict[int, zRegPointCloud]:
     """3-frame synthetic trajectory with color labels (20 points per frame)."""
     traj = generate_trajectory(n_points=20, n_frames=3, seed=0)
-    return generate_labels(traj, n_classes=4, seed=0)
+    return generate_labels(traj, n_labels=4, seed=0)
 
 
 @pytest.fixture

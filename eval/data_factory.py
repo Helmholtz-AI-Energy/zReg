@@ -417,7 +417,7 @@ class DataFactory:
             )
 
         base = {0: zRegPointCloud(pos=pos)}
-        source = generate_labels(base, n_classes=n_classes, seed=seed)
+        source = generate_labels(base, n_labels=n_classes, seed=seed)
 
         transform_spec = {
             "type": "rigid",

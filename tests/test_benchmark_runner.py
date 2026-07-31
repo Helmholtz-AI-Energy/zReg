@@ -75,7 +75,7 @@ def benchmark_smoke_checkpoint(tmp_path):
     not model quality; the real, meaningful benchmark run happens later
     against a real trained checkpoint).
 
-    n_classes=N_CLASSES MUST match the data's ``generate_labels(n_classes=...)``
+    n_classes=N_CLASSES MUST match the data's ``generate_labels(n_labels=...)``
     vocabulary or ``one_hot`` raises ``RuntimeError`` (Pitfall 1).
     """
 
@@ -144,7 +144,7 @@ class TestCpdWeightedRawInput:
         """cpd_weighted succeeds against raw source/target + a real align_result."""
         source = generate_labels(
             generate_trajectory(n_points=15, n_frames=3, seed=100),
-            n_classes=N_CLASSES,
+            n_labels=N_CLASSES,
             seed=100,
         )
         target = generate_trajectory(n_points=15, n_frames=3, seed=101)

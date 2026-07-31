@@ -30,7 +30,7 @@ def synthetic_dataset_3() -> dict[int, zRegPointCloud]:
     """3-frame synthetic trajectory with color labels (normal case)."""
     return generate_labels(
         generate_trajectory(n_points=20, n_frames=3, seed=0),
-        n_classes=4,
+        n_labels=4,
         seed=0,
     )
 
@@ -40,7 +40,7 @@ def synthetic_dataset_1() -> dict[int, zRegPointCloud]:
     """1-frame synthetic dataset — D-08 lower-bound test."""
     return generate_labels(
         generate_trajectory(n_points=20, n_frames=1, seed=0),
-        n_classes=4,
+        n_labels=4,
         seed=0,
     )
 
@@ -50,7 +50,7 @@ def synthetic_dataset_5() -> dict[int, zRegPointCloud]:
     """5-frame synthetic dataset — D-08 cap test (should produce 4 subplots)."""
     return generate_labels(
         generate_trajectory(n_points=20, n_frames=5, seed=0),
-        n_classes=4,
+        n_labels=4,
         seed=0,
     )
 

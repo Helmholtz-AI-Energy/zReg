@@ -13,6 +13,7 @@ directly compatible with ``zreg.metrics.compute_f1`` without conversion.
 """
 
 import copy
+import math
 from typing import Literal, Sequence
 
 import torch
@@ -222,6 +223,95 @@ def _angular_distance_deg(
     pos_unit = pos / norms.unsqueeze(1)
     cos = (pos_unit @ pole_unit).clamp(-1.0, 1.0)
     return torch.rad2deg(torch.acos(cos))
+
+
+def _component_score(
+    pos: torch.Tensor,
+    component: "LabelComponentSpec",
+    mode: str,
+) -> torch.Tensor:
+    """Return a per-point score for a single region component.
+
+    Higher scores indicate a point is more likely to belong to this
+    component. Scores are unnormalised log-space quantities suitable for
+    combination via ``torch.logsumexp`` in ``_label_scores``.
+
+    Parameters
+    ----------
+    pos : torch.Tensor
+        Shape ``(N, 3)``, float dtype.
+    component : LabelComponentSpec
+        The region component to score against.
+    mode : str
+        ``"deterministic"`` or ``"probabilistic"``. Only affects the
+        ``voronoi`` shape (D-10): deterministic mode ignores
+        ``temperature``; probabilistic mode requires it.
+
+    Returns
+    -------
+    torch.Tensor
+        Shape ``(N,)``.
+
+    Raises
+    ------
+    ValueError
+        If ``mode == "probabilistic"`` and ``component.shape == "voronoi"``
+        but ``component.temperature`` is missing or non-positive, or if
+        ``component.shape`` is not one of ``"voronoi"``/``"blob"``/``"cone"``.
+    """
+    if component.shape == "voronoi":
+        center_tensor = torch.tensor(component.center, dtype=pos.dtype, device=pos.device)
+        dist_sq = (pos - center_tensor).pow(2).sum(dim=1)
+        if mode == "probabilistic":
+            if component.temperature is None or component.temperature <= 0:
+                raise ValueError(
+                    "temperature is required for voronoi components in "
+                    f"probabilistic mode, got {component.temperature}"
+                )
+            return -dist_sq / component.temperature
+        return -dist_sq
+    if component.shape == "blob":
+        center_tensor = torch.tensor(component.center, dtype=pos.dtype, device=pos.device)
+        dist_sq = (pos - center_tensor).pow(2).sum(dim=1)
+        return -dist_sq / (2.0 * component.sigma ** 2)
+    if component.shape == "cone":
+        theta = _angular_distance_deg(pos, component.center)
+        return -(theta ** 2) / (2.0 * component.sigma ** 2)
+    raise ValueError(f"unknown shape {component.shape!r}")
+
+
+def _label_scores(
+    pos: torch.Tensor,
+    label_spec: "LabelSpec",
+    mode: str,
+) -> torch.Tensor:
+    """Return a per-point mixture score for a label's components.
+
+    Combines each component's ``_component_score`` with its ``weight`` via
+    a weighted ``logsumexp`` mixture (D-11):
+    ``log(sum(weight_i * exp(score_i))) = logsumexp(score_i + log(weight_i))``.
+
+    Parameters
+    ----------
+    pos : torch.Tensor
+        Shape ``(N, 3)``, float dtype.
+    label_spec : LabelSpec
+        The label whose components are combined.
+    mode : str
+        Forwarded to ``_component_score`` (see its docstring).
+
+    Returns
+    -------
+    torch.Tensor
+        Shape ``(N,)``. Empty frames (``N == 0``) are handled transparently:
+        each component score is shape ``(0,)``, ``torch.stack`` produces
+        ``(0, n_components)``, and ``torch.logsumexp`` produces ``(0,)``.
+    """
+    per_component = torch.stack(
+        [_component_score(pos, c, mode) + math.log(c.weight) for c in label_spec.components],
+        dim=1,
+    )
+    return torch.logsumexp(per_component, dim=1)
 
 
 def assign_cap_labels(

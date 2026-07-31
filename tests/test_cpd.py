@@ -234,10 +234,24 @@ class TestNonRigidCPD:
         """Test basic nonrigid registration."""
         source, target = source_target_pair
         cpd_obj = cpd.NonRigidCPD(source=source, log_freq=-1)
-        
+
         result = cpd_obj.registration(target, maxiter=10, tol=1e-3)
-        
+
         assert result.transformation is not None
+
+    def test_registration_sets_instance_transformation(self, source_target_pair):
+        """cpd_obj.transformation must be set after registration() (regression for
+        maximization_step() override that bypassed the base-class assignment)."""
+        source, target = source_target_pair
+        cpd_obj = cpd.NonRigidCPD(source=source, log_freq=-1)
+        assert cpd_obj.transformation is None  # pre-condition: None before registration
+
+        cpd_obj.registration(target, maxiter=10, tol=1e-3)
+
+        assert cpd_obj.transformation is not None
+        # Sanity-check the transform is callable on the source
+        transformed = cpd_obj.transformation.transform(source)
+        assert transformed.shape == source.shape
 
 
 class TestConstrainedNonRigidCPD:

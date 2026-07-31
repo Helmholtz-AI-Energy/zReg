@@ -116,7 +116,7 @@ class NonRigidCPD(CoherentPointDrift):
         MstepResult
             Updated transformation parameters.
         """
-        return self._maximization_step(
+        result = self._maximization_step(
             self._source[:, : self._N_DIM],
             target[:, : self._N_DIM],
             estep_res,
@@ -124,6 +124,8 @@ class NonRigidCPD(CoherentPointDrift):
             self._tf_obj,
             self._lmd,
         )
+        self.transformation = result.transformation
+        return result
 
     @staticmethod
     def _maximization_step(

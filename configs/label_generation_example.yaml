@@ -1,0 +1,44 @@
+# Phase 56 D-13 illustrative scenario config: declarative label_generation.
+#
+# Demonstrates EvalConfig.label_generation — a config-driven alternative to
+# hardcoded n_classes/n_labels literals (D-04/D-13). This example defines two
+# labels via label_specs (the full path): label 0 is a single isotropic
+# Gaussian blob component, label 1 is a single origin-anchored Gaussian cone
+# component. mode: deterministic assigns each point the argmax label.
+#
+# This config is illustrative only — it is not part of any automated test
+# suite. Run it with:
+#   python run_eval.py --config configs/label_generation_example.yaml --mode eval
+data_path: data/external/sample/kobitski_data/12_11_15_embryo_ew_06_Cleaned_BackTracked_Oriented.tracklets
+data_format: tracklets
+pipeline_mode: synthetic
+transform_spec:
+  type: rigid
+  rotation_deg: 30.0
+  rotation_axis: [0, 0, 1]
+label_generation:
+  label_specs:
+    - label_id: 0
+      components:
+        - shape: blob
+          center: [1.0, 0.0, 0.0]
+          sigma: 1.0
+    - label_id: 1
+      components:
+        - shape: cone
+          center: [0.0, 0.0, 1.0]
+          sigma: 30.0
+  mode: deterministic
+  seed: 42
+tier: sanity
+n_trials: 3
+n_synthetic: 0
+run_alignment: true
+run_label_transfer: true
+default_params:
+  window_size: 10
+  step: 1
+  cpd_penalty: null
+  dtw_dist_fn: euclidean
+  n_breakpoints: 5
+output_dir: experiments/runs/label_generation_example

@@ -265,7 +265,7 @@ class LabelTransferBenchmark:
             seed value) for contiguous ``LabelTransferStage`` pairing
             (49-RESEARCH.md Pattern 3).
         """
-        triples = DataFactory(self.config).generate_training_set(held_out_seeds, n_classes=n_classes)
+        triples = DataFactory(self.config).generate_training_set(held_out_seeds, n_labels=n_classes)
         source = {i: t.source_cloud for i, t in enumerate(triples)}
         target = {i: t.target_cloud for i, t in enumerate(triples)}
         return self.compare_methods(source, target, params, dataset_source, has_ground_truth=True)

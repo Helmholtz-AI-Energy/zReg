@@ -269,25 +269,25 @@ class TestLabelUtilities:
         """Every frame's pc['label'] is torch.long, shape (N,)."""
         n_points = 30
         traj = generate_trajectory(n_points=n_points, n_frames=4, seed=30)
-        labelled = generate_labels(traj, n_classes=4, seed=42)
+        labelled = generate_labels(traj, n_labels=4, seed=42)
         for pc in labelled.values():
             assert pc["label"].dtype == torch.long
             assert pc["label"].shape == (n_points,)
 
     def test_generate_labels_value_range(self):
-        """Every frame's pc['label'].min() >= 0 and .max() < n_classes."""
-        n_classes = 4
+        """Every frame's pc['label'].min() >= 0 and .max() < n_labels."""
+        n_labels = 4
         traj = generate_trajectory(n_points=50, n_frames=3, seed=31)
-        labelled = generate_labels(traj, n_classes=n_classes, seed=42)
+        labelled = generate_labels(traj, n_labels=n_labels, seed=42)
         for pc in labelled.values():
             assert pc["label"].min().item() >= 0
-            assert pc["label"].max().item() < n_classes
+            assert pc["label"].max().item() < n_labels
 
     def test_generate_labels_reproducible(self):
         """Same seed produces torch.equal label output across two calls."""
         traj = generate_trajectory(n_points=20, n_frames=3, seed=32)
-        labelled_a = generate_labels(traj, n_classes=3, seed=55)
-        labelled_b = generate_labels(traj, n_classes=3, seed=55)
+        labelled_a = generate_labels(traj, n_labels=3, seed=55)
+        labelled_b = generate_labels(traj, n_labels=3, seed=55)
         for i in traj:
             assert torch.equal(labelled_a[i]["label"], labelled_b[i]["label"])
 
@@ -297,21 +297,21 @@ class TestLabelUtilities:
         # Verify input has label=None before the call
         for pc in traj.values():
             assert pc["label"] is None
-        generate_labels(traj, n_classes=3, seed=42)
+        generate_labels(traj, n_labels=3, seed=42)
         # Input must still have label=None after the call
         for pc in traj.values():
             assert pc["label"] is None
 
-    def test_generate_labels_invalid_n_classes(self):
-        """n_classes=0 raises ValueError matching 'n_classes'."""
+    def test_generate_labels_invalid_n_labels(self):
+        """n_labels=0 raises ValueError matching 'n_labels'."""
         traj = generate_trajectory(n_points=10, n_frames=2, seed=34)
-        with pytest.raises(ValueError, match="n_classes"):
-            generate_labels(traj, n_classes=0)
+        with pytest.raises(ValueError, match="n_labels"):
+            generate_labels(traj, n_labels=0)
 
     def test_generate_labels_compatible_with_compute_f1(self):
         """compute_f1(labelled[0]['label'], labelled[0]['label']) returns 1.0 (D-07 dtype contract)."""
         traj = generate_trajectory(n_points=50, n_frames=3, seed=35)
-        labelled = generate_labels(traj, n_classes=4, seed=42)
+        labelled = generate_labels(traj, n_labels=4, seed=42)
         # Perfect prediction: y_true == y_pred should yield F1 == 1.0
         score = compute_f1(
             y_true=labelled[0]["label"],
@@ -322,7 +322,7 @@ class TestLabelUtilities:
     def test_remove_labels_sets_color_none(self):
         """Every frame's pc['label'] is None in the output."""
         traj = generate_trajectory(n_points=20, n_frames=3, seed=36)
-        labelled = generate_labels(traj, n_classes=3, seed=42)
+        labelled = generate_labels(traj, n_labels=3, seed=42)
         # Confirm labels are set
         for pc in labelled.values():
             assert pc["label"] is not None
@@ -333,7 +333,7 @@ class TestLabelUtilities:
     def test_remove_labels_does_not_mutate_input(self):
         """Input frames still have their label tensor after remove_labels call."""
         traj = generate_trajectory(n_points=20, n_frames=3, seed=37)
-        labelled = generate_labels(traj, n_classes=3, seed=42)
+        labelled = generate_labels(traj, n_labels=3, seed=42)
         # Capture the label tensors before the call
         original_colors = {i: labelled[i]["label"].clone() for i in labelled}
         remove_labels(labelled)
@@ -481,7 +481,7 @@ class TestGeneratorsCoverageGaps:
     def test_generate_labels_seed_none(self):
         """labels.py:72 — seed=None skips torch.manual_seed call."""
         traj = generate_trajectory(n_points=10, n_frames=2, seed=0)
-        result = generate_labels(traj, n_classes=3, seed=None)
+        result = generate_labels(traj, n_labels=3, seed=None)
         for i in traj:
             assert result[i]["label"] is not None
             assert result[i]["label"].shape[0] == 10

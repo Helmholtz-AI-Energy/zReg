@@ -19,7 +19,7 @@ default_params:
   window_size: 10  # was 60 - too large relative to the 47 strided frames (step=8 below); would degenerate to an unwindowed full sweep. Only used as merge fallback - see file header.
   step: 8  # temporal downsampling, matches the 5 optimize configs - see README.md Runtime section
   cpd_penalty: "rigid"
-  dtw_dist_fn: euclidean
+  dtw_dist_fn: cpd
   n_breakpoints: 5
   k_neighbours: 5
   dist_metric: euclidean

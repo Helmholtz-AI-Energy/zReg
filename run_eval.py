@@ -8,11 +8,16 @@ Usage::
 
 Flags
 -----
---config      (required) Path to a YAML configuration file loadable by
-              ``EvalConfig.from_yaml``.
---mode        (required) Run mode: ``optimize``, ``eval``, or ``full``.
---output-dir  (optional) Override ``config.output_dir`` at runtime.
---verbose     (optional) Set ``config.verbose = True`` at runtime.
+--config          (required) Path to a YAML configuration file loadable by
+                  ``EvalConfig.from_yaml``.
+--mode            (required) Run mode: ``optimize``, ``eval``, or ``full``.
+--output-dir      (optional) Override ``config.output_dir`` at runtime.
+--warm-start-from (optional) Path to a ``best_params.json`` file or a directory
+                  containing one (searches the most-recent timestamped subdir).
+                  In ``optimize``/``full`` mode the loaded params seed the first
+                  tier's warm-start.  In ``eval`` mode they replace missing local
+                  ``best_params.json`` (cross-job param forwarding, EXT-04).
+--verbose         (optional) Set ``config.verbose = True`` at runtime.
 
 Mode behaviour
 --------------
@@ -89,6 +94,16 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Run mode",
     )
     p.add_argument("--output-dir", default=None, help="Override config.output_dir")
+    p.add_argument(
+        "--warm-start-from",
+        default=None,
+        metavar="PATH",
+        help=(
+            "Path to a best_params.json or a directory containing one "
+            "(picks the most-recent timestamped subdir). Seeds HPO warm-start "
+            "in optimize/full mode; used as fallback params in eval mode."
+        ),
+    )
     p.add_argument("--verbose", action="store_true", help="Enable verbose logging")
     return p
 
@@ -121,6 +136,44 @@ def _load_best_params(output_dir: str, fallback: dict | None = None) -> dict:
             return {**base, **optimized}
     log.info("No best_params.json found — using config defaults")
     return base
+
+
+def _load_warm_start(path: str) -> list[dict] | None:
+    """Return a single-element warm-start list from a prior run's best_params.json.
+
+    Accepts either a direct path to ``best_params.json`` or a base output
+    directory.  When given a directory, checks for ``best_params.json`` at the
+    top level first, then searches timestamped subdirectories and picks the most
+    recent one (lexicographic sort on dirname).  Returns ``None`` when no
+    readable params are found.
+    """
+    p = Path(path)
+    if p.is_file():
+        target = p
+    elif p.is_dir():
+        direct = p / "best_params.json"
+        if direct.exists():
+            target = direct
+        else:
+            candidates = sorted(
+                d / "best_params.json"
+                for d in p.iterdir()
+                if d.is_dir() and (d / "best_params.json").exists()
+            )
+            if not candidates:
+                log.warning("--warm-start-from: no best_params.json found under %s", p)
+                return None
+            target = candidates[-1]
+    else:
+        log.warning("--warm-start-from path not found: %s", p)
+        return None
+
+    with open(target) as f:
+        params = json.load(f)
+    if not params:
+        return None
+    log.info("Loaded warm-start params from %s", target)
+    return [params]
 
 
 # ---------------------------------------------------------------------------
@@ -171,15 +224,24 @@ def main(argv=None) -> int:
     # D-10 / Pitfall 6: write run_config.yaml BEFORE pipeline executes
     _write_run_config(args.config, config.output_dir)
 
+    # Resolve cross-job warm-start seed (EXT-04).  None when flag not provided.
+    warm_start = _load_warm_start(args.warm_start_from) if args.warm_start_from else None
+
     # Mode dispatch
     if args.mode == "optimize":
-        HyperparamOptimizer(config).run()
+        HyperparamOptimizer(config, warm_start=warm_start).run()
     elif args.mode == "eval":
-        params = _load_best_params(config.output_dir, fallback=config.default_params)
+        # Prefer local best_params.json (written by a prior optimize/full run in
+        # the same output_dir); fall back to the forwarded warm-start params so
+        # that cross-tier forwarding (synthetic → real) works without a local file.
+        params = _load_best_params(config.output_dir, fallback=None)
+        if not params and warm_start:
+            params = warm_start[0]
+        params = {**dict(config.default_params), **params} if params else dict(config.default_params)
         EvaluationRunner(config, params).run()
     else:  # args.mode == "full"
         # Pitfall 5: optimizer writes best_params.json; read it AFTER
-        HyperparamOptimizer(config).run()
+        HyperparamOptimizer(config, warm_start=warm_start).run()
         params = _load_best_params(config.output_dir, fallback=config.default_params)
         EvaluationRunner(config, params).run()
 

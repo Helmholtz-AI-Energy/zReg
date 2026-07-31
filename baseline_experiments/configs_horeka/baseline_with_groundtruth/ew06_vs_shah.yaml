@@ -24,7 +24,7 @@ default_params:
   window_size: 10
   step: 8
   cpd_penalty: "rigid"
-  dtw_dist_fn: euclidean
+  dtw_dist_fn: cpd
   n_breakpoints: 5
   k_neighbours: 5
   dist_metric: euclidean

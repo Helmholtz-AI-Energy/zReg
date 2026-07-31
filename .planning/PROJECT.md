@@ -171,4 +171,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-15 — v1.5 HoreKa Cluster Execution milestone started*
+*Last updated: 2026-07-31 — Phase 50 complete (torch_cluster FAIL on HoreKa: no wheel for torch 2.13.0+cu130; Open3D fallback unchanged)*

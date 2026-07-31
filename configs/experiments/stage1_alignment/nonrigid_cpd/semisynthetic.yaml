@@ -10,6 +10,7 @@ transform_spec:
   rotation_axis: [0, 0, 1]
 run_alignment: true
 run_label_transfer: false
+max_points_per_frame: 500
 tier: dev
 n_trials: 20
 search_strategy: auto

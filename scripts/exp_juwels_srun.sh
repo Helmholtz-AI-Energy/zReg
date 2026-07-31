@@ -12,4 +12,5 @@ echo "[rank ${SLURM_PROCID}] activated venv, launching python..."
 cd "${ZREG_REPO}"
 python -u run_eval.py \
     --config "${CONFIG}" \
-    --mode "${MODE:-full}"
+    --mode "${MODE:-full}" \
+    ${WARM_START_FROM:+--warm-start-from "${WARM_START_FROM}"}

@@ -32,7 +32,7 @@ search_space:
   cpd_penalty: ["rigid"]
   window_size: [5, 10]
   step: [8]  # fixed temporal downsampling — single-value list so every trial uses step=8
-  dtw_dist_fn: [euclidean]
+  dtw_dist_fn: [cpd]
   k_neighbours: [3, 5, 10]
   dist_metric: [euclidean]
   smoothing: [0.0, 0.1, 0.3]
@@ -43,7 +43,7 @@ default_params:
   window_size: 10
   step: 8
   cpd_penalty: "rigid"
-  dtw_dist_fn: euclidean
+  dtw_dist_fn: cpd
   n_breakpoints: 5
   k_neighbours: 5
   dist_metric: euclidean

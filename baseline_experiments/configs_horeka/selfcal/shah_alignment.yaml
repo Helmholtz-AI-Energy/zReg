@@ -31,13 +31,13 @@ search_space:
   cpd_penalty: ["rigid"]  # fixed to rigid — null/affine excluded; see README.md Runtime section for nonrigid exclusion reason
   window_size: [5, 10]  # 20 moved to configs_horeka_w20/ to avoid 4h wall-clock timeout
   step: [8]  # single-value list, not a real search - see README.md Runtime section: HyperparamOptimizer._objective merges its own hardcoded _default_params (step=1) with the trial's sampled params, so default_params.step alone is silently ignored unless step is also a search_space key
-  dtw_dist_fn: [euclidean, cosine]
+  dtw_dist_fn: [cpd]
 
 default_params:
   window_size: 10
   step: 8  # fixed temporal downsampling - was searched over [1,2], now fixed & excluded from search_space so every trial gets the full stride benefit (see README.md Runtime section)
   cpd_penalty: "rigid"
-  dtw_dist_fn: euclidean
+  dtw_dist_fn: cpd
   n_breakpoints: 5
   k_neighbours: 5
   dist_metric: euclidean

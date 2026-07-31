@@ -4,13 +4,13 @@ milestone: v1.6
 milestone_name: HoreKa Cluster Execution
 status: executing
 stopped_at: ""
-last_updated: "2026-07-31T12:20:12.000Z"
-last_activity: 2026-07-31 -- Phase 56 Plan 02 complete (generate_labels() orchestrator rewrite + D-07 fix + assign_cap_labels/assign_gaussian_labels deletion)
+last_updated: "2026-07-31T12:40:00.000Z"
+last_activity: 2026-07-31 -- Phase 56 Plan 03 complete (EvalConfig.label_generation + n_classes->n_labels rename cascade through DataFactory/optimizer.py/benchmark_runner.py/train_label_transfer.py)
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 7
-  completed_plans: 8
+  completed_plans: 9
   percent: 75
 ---
 
@@ -26,10 +26,10 @@ See: .planning/PROJECT.md (updated 2026-07-15 after v1.5/v1.6 roadmap creation)
 ## Current Position
 
 Phase: 56 (Configurable multi-label region-based labeling) — EXECUTING
-Plan: 2 of 5 complete (56-01, 56-02 done; 56-03 next)
+Plan: 3 of 5 complete (56-01, 56-02, 56-03 done; 56-04/56-05 next)
 Status: Executing Phase 56
-Tests: 1350 passed, 22 skipped, 1 xpassed (full suite; 2 pre-existing test_icp_registration.py full-suite-order flakes logged to deferred-items.md, unrelated to this phase)
-Last activity: 2026-07-31 -- Phase 56 Plan 02 complete (generate_labels() orchestrator rewrite + D-07 fix + assign_cap_labels/assign_gaussian_labels deletion)
+Tests: 1335 passed, 22 skipped, 1 xpassed, 17 failed (full suite; 14 pre-existing n_classes= kwarg TypeErrors in test files deferred to Plan 56-05, 2 pre-existing test_icp_registration.py full-suite-order flakes logged to deferred-items.md, unrelated to this phase)
+Last activity: 2026-07-31 -- Phase 56 Plan 03 complete (EvalConfig.label_generation field + n_classes->n_labels rename cascade through DataFactory/optimizer.py/benchmark_runner.py/train_label_transfer.py + example scenario YAML)
 
 Progress (v1.6): [████████░░] 75%
 
@@ -89,6 +89,7 @@ Full history: .planning/MILESTONES.md · Retrospective: .planning/RETROSPECTIVE.
 | 49 | 03 | ~20min | 2 | 2 |
 | 56 | 01 | ~15min | 2 | 1 |
 | 56 | 02 | ~17min | 2 | 11 |
+| 56 | 03 | ~20min | 3 | 5 |
 
 ## Accumulated Context
 
@@ -112,6 +113,7 @@ Full history: .planning/MILESTONES.md · Retrospective: .planning/RETROSPECTIVE.
 - Phase 49: cpd_weighted proven to work on raw non-CPD-aligned input (Assumption A1); leakage guard requires explicit held_out_seeds arg (Assumption A2)
 - Phase 56 Plan 01: `weight` resolved as a relative log-space multiplier (`+log(weight)` before `logsumexp`), not a normalized/softmax prior; voronoi deterministic score is unscaled `-dist_sq` (argmax-preserving, no division)
 - Phase 56 Plan 02: `generate_labels()` rewritten as config-driven orchestrator (`n_labels`/`label_specs` paths, `mode` switch); D-07 fixed by resolving all region/component centers once before the per-frame loop; `assign_cap_labels`/`assign_gaussian_labels` deleted (D-06, dead-clean, no shims); the `n_classes`→`n_labels` rename broke 8 additional call sites beyond `56-CONTEXT.md`'s documented 2 (eval/data_factory.py, eval/runners/optimizer.py, and 6 test files) — fixed as a Rule-1 deviation, which makes Plan 56-05's Task 1 (5 of those same files) a no-op when it runs later
+- Phase 56 Plan 03: `EvalConfig.label_generation` (`LabelGenerationConfig` model) added, defaulting to `None`; `DataFactory.generate_training_triple`/`generate_training_set` renamed `n_classes`→`n_labels` with a sentinel `int | None = None` three-way precedence (explicit caller arg > `self.config.label_generation` > hardcoded `n_labels=6` fallback); `optimizer.py`'s sanity tier consults `self.config.label_generation` with a hardcoded `n_labels=4` fallback; `benchmark_runner.py`/`train_label_transfer.py`'s own public `n_classes`-named surfaces left unchanged (out of D-04 scope), only their internal forwarding calls updated; `configs/label_generation_example.yaml` added. Full suite: 1335 passed/22 skipped/1 xpassed/17 failed — all 17 failures are pre-existing and out of this plan's scope (14 are `n_classes=` kwarg TypeErrors in test files deferred to Plan 56-05's Task 2; 2 are the already-logged `test_icp_registration.py` full-suite-order flake)
 
 ### Requirements
 

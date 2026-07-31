@@ -24,6 +24,8 @@ from zreg.data_generation import (
     add_outliers,
     generate_labels,
     remove_labels,
+    LabelComponentSpec,
+    LabelSpec,
 )
 from zreg.data_generation.generators import sample_ball, sample_bowl
 from zreg.core.dataset import zRegPointCloud
@@ -339,6 +341,236 @@ class TestLabelUtilities:
         for i in labelled:
             assert labelled[i]["label"] is not None
             assert torch.equal(labelled[i]["label"], original_colors[i])
+
+
+# ---------------------------------------------------------------------------
+# TestLabelRegionShapes
+# ---------------------------------------------------------------------------
+
+
+class TestLabelRegionShapes:
+    """Per-shape (voronoi/blob/cone) correctness and mixture-within-label (D-11) tests."""
+
+    def _single_point_traj(self, xyz):
+        """Single-frame trajectory with one point at `xyz`."""
+        pc = zRegPointCloud(pos=torch.tensor([xyz], dtype=torch.float32))
+        return {0: pc}
+
+    def _empty_traj(self):
+        """Single-frame trajectory with zero points."""
+        pc = zRegPointCloud(pos=torch.zeros((0, 3), dtype=torch.float32))
+        return {0: pc}
+
+    def test_voronoi_point_at_center_gets_matching_label(self):
+        """A point exactly at label 0's voronoi center gets label 0 when label 1's center is far away."""
+        traj = self._single_point_traj([0.0, 0.0, 0.0])
+        label_specs = [
+            LabelSpec(label_id=0, components=[LabelComponentSpec(shape="voronoi", center=[0.0, 0.0, 0.0])]),
+            LabelSpec(label_id=1, components=[LabelComponentSpec(shape="voronoi", center=[100.0, 100.0, 100.0])]),
+        ]
+        result = generate_labels(traj, label_specs=label_specs, mode="deterministic", seed=0)
+        assert result[0]["label"].item() == 0
+
+    def test_blob_point_at_center_gets_matching_label(self):
+        """A point exactly at label 0's blob center (sigma=1.0) gets label 0 when label 1's blob center is far away."""
+        traj = self._single_point_traj([0.0, 0.0, 0.0])
+        label_specs = [
+            LabelSpec(label_id=0, components=[LabelComponentSpec(shape="blob", center=[0.0, 0.0, 0.0], sigma=1.0)]),
+            LabelSpec(
+                label_id=1,
+                components=[LabelComponentSpec(shape="blob", center=[100.0, 100.0, 100.0], sigma=1.0)],
+            ),
+        ]
+        result = generate_labels(traj, label_specs=label_specs, mode="deterministic", seed=0)
+        assert result[0]["label"].item() == 0
+
+    def test_cone_point_at_pole_gets_matching_label(self):
+        """A point exactly at label 0's cone pole (sigma=20.0) gets label 0 when label 1's pole points opposite."""
+        traj = self._single_point_traj([0.0, 0.0, 1.0])
+        label_specs = [
+            LabelSpec(label_id=0, components=[LabelComponentSpec(shape="cone", center=[0.0, 0.0, 1.0], sigma=20.0)]),
+            LabelSpec(
+                label_id=1, components=[LabelComponentSpec(shape="cone", center=[0.0, 0.0, -1.0], sigma=20.0)]
+            ),
+        ]
+        result = generate_labels(traj, label_specs=label_specs, mode="deterministic", seed=0)
+        assert result[0]["label"].item() == 0
+
+    def test_mixture_within_label_beats_competing_single_component(self):
+        """A label with two components (one blob near the point, one far) still wins over a competing
+        single-component label whose one component is far — proving multi-component mixture
+        aggregation works (D-11)."""
+        traj = self._single_point_traj([0.0, 0.0, 0.0])
+        label_specs = [
+            LabelSpec(
+                label_id=0,
+                components=[
+                    LabelComponentSpec(shape="blob", center=[0.0, 0.0, 0.0], sigma=1.0),
+                    LabelComponentSpec(shape="blob", center=[50.0, 50.0, 50.0], sigma=1.0),
+                ],
+            ),
+            LabelSpec(
+                label_id=1,
+                components=[LabelComponentSpec(shape="blob", center=[50.0, 50.0, 50.0], sigma=1.0)],
+            ),
+        ]
+        result = generate_labels(traj, label_specs=label_specs, mode="deterministic", seed=0)
+        assert result[0]["label"].item() == 0
+
+    def test_empty_frame_voronoi_no_raise(self):
+        """generate_labels with label_specs (voronoi) on a zero-point frame produces a (0,)
+        torch.long label tensor without raising."""
+        traj = self._empty_traj()
+        label_specs = [
+            LabelSpec(label_id=0, components=[LabelComponentSpec(shape="voronoi", center=[0.0, 0.0, 0.0])]),
+            LabelSpec(label_id=1, components=[LabelComponentSpec(shape="voronoi", center=[10.0, 0.0, 0.0])]),
+        ]
+        result = generate_labels(traj, label_specs=label_specs, mode="deterministic", seed=0)
+        assert result[0]["label"].dtype == torch.long
+        assert result[0]["label"].shape == (0,)
+
+    def test_empty_frame_blob_cone_no_raise(self):
+        """generate_labels with label_specs (blob/cone) on a zero-point frame produces a (0,)
+        torch.long label tensor without raising."""
+        traj = self._empty_traj()
+        label_specs = [
+            LabelSpec(label_id=0, components=[LabelComponentSpec(shape="blob", center=[0.0, 0.0, 0.0], sigma=1.0)]),
+            LabelSpec(label_id=1, components=[LabelComponentSpec(shape="cone", center=[0.0, 0.0, 1.0], sigma=20.0)]),
+        ]
+        result = generate_labels(traj, label_specs=label_specs, mode="deterministic", seed=0)
+        assert result[0]["label"].dtype == torch.long
+        assert result[0]["label"].shape == (0,)
+
+
+# ---------------------------------------------------------------------------
+# TestLabelAssignmentModes
+# ---------------------------------------------------------------------------
+
+
+class TestLabelAssignmentModes:
+    """Deterministic (argmax) vs probabilistic (sampled) assignment-mode behavior tests (D-12)."""
+
+    def test_deterministic_mode_is_argmax_and_reproducible(self):
+        """Deterministic mode assigns the unambiguously closer label to every point, bitwise
+        reproducibly across repeated calls with the same seed."""
+        pos = torch.tensor([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [-1.0, 0.0, 0.0]])
+        traj = {0: zRegPointCloud(pos=pos)}
+        label_specs = [
+            LabelSpec(label_id=0, components=[LabelComponentSpec(shape="voronoi", center=[0.0, 0.0, 0.0])]),
+            LabelSpec(
+                label_id=1,
+                components=[LabelComponentSpec(shape="voronoi", center=[1000.0, 1000.0, 1000.0])],
+            ),
+        ]
+        for _ in range(3):
+            result = generate_labels(traj, label_specs=label_specs, mode="deterministic", seed=7)
+            assert torch.equal(result[0]["label"], torch.zeros(3, dtype=torch.long))
+
+    def test_probabilistic_mode_samples_valid_label(self):
+        """Probabilistic mode with two blob labels of very different distances yields a label_id
+        that is one of the two valid ids."""
+        pos = torch.tensor([[0.0, 0.0, 0.0]])
+        traj = {0: zRegPointCloud(pos=pos)}
+        label_specs = [
+            LabelSpec(label_id=0, components=[LabelComponentSpec(shape="blob", center=[0.0, 0.0, 0.0], sigma=1.0)]),
+            LabelSpec(
+                label_id=1,
+                components=[LabelComponentSpec(shape="blob", center=[10.0, 10.0, 10.0], sigma=1.0)],
+            ),
+        ]
+        result = generate_labels(traj, label_specs=label_specs, mode="probabilistic", seed=3)
+        assert result[0]["label"].item() in (0, 1)
+
+    def test_probabilistic_mode_majority_favors_nearer_label(self):
+        """Across many points concentrated near label 0's blob center, label 0 is assigned to a
+        majority of them (statistical, not exact-count, assertion)."""
+        torch.manual_seed(123)
+        pos = torch.randn(200, 3) * 0.1  # concentrated near the origin
+        traj = {0: zRegPointCloud(pos=pos)}
+        label_specs = [
+            LabelSpec(label_id=0, components=[LabelComponentSpec(shape="blob", center=[0.0, 0.0, 0.0], sigma=1.0)]),
+            LabelSpec(
+                label_id=1,
+                components=[LabelComponentSpec(shape="blob", center=[20.0, 20.0, 20.0], sigma=1.0)],
+            ),
+        ]
+        result = generate_labels(traj, label_specs=label_specs, mode="probabilistic", seed=9)
+        labels = result[0]["label"]
+        assert (labels == 0).float().mean().item() > 0.5
+
+    def test_probabilistic_mode_with_n_labels_raises(self):
+        """Probabilistic mode with n_labels (no label_specs) raises ValueError mentioning 'mode'
+        (D-10 — the simple path does not support probabilistic)."""
+        traj = generate_trajectory(n_points=10, n_frames=2, seed=40)
+        with pytest.raises(ValueError, match="mode"):
+            generate_labels(traj, n_labels=3, mode="probabilistic")
+
+    def test_probabilistic_voronoi_missing_temperature_raises(self):
+        """Probabilistic mode with a label_specs voronoi component missing temperature raises
+        ValueError mentioning 'temperature'."""
+        traj = {0: zRegPointCloud(pos=torch.tensor([[0.0, 0.0, 0.0]]))}
+        label_specs = [
+            LabelSpec(label_id=0, components=[LabelComponentSpec(shape="voronoi", center=[0.0, 0.0, 0.0])]),
+            LabelSpec(label_id=1, components=[LabelComponentSpec(shape="voronoi", center=[5.0, 0.0, 0.0])]),
+        ]
+        with pytest.raises(ValueError, match="temperature"):
+            generate_labels(traj, label_specs=label_specs, mode="probabilistic", seed=0)
+
+    def test_label_specs_arbitrary_label_ids_round_trip(self):
+        """label_specs with non-contiguous/arbitrary label_id values ({2, 7}) round-trips
+        correctly — output label values are exactly the configured label_ids, not positional
+        indices."""
+        pos = torch.tensor([[0.0, 0.0, 0.0], [50.0, 50.0, 50.0]])
+        traj = {0: zRegPointCloud(pos=pos)}
+        label_specs = [
+            LabelSpec(label_id=2, components=[LabelComponentSpec(shape="voronoi", center=[0.0, 0.0, 0.0])]),
+            LabelSpec(label_id=7, components=[LabelComponentSpec(shape="voronoi", center=[50.0, 50.0, 50.0])]),
+        ]
+        result = generate_labels(traj, label_specs=label_specs, mode="deterministic", seed=0)
+        labels = result[0]["label"]
+        assert set(labels.tolist()) <= {2, 7}
+        assert labels[0].item() == 2
+        assert labels[1].item() == 7
+
+
+# ---------------------------------------------------------------------------
+# TestLabelGenerationD07Regression
+# ---------------------------------------------------------------------------
+
+
+class TestLabelGenerationD07Regression:
+    """Regression tests proving region/component centers are resolved once per trajectory,
+    not redrawn per frame (D-07's exact bug fix)."""
+
+    def test_n_labels_path_identical_pos_across_frames_yields_identical_labels(self):
+        """Two frames with an identical single point at the same pos produce an identical label
+        under the n_labels path — only guaranteed if centers are resolved once per trajectory."""
+        pos = torch.tensor([[1.0, 2.0, 3.0]])
+        traj = {0: zRegPointCloud(pos=pos.clone()), 1: zRegPointCloud(pos=pos.clone())}
+        result = generate_labels(traj, n_labels=5, mode="deterministic", seed=0)
+        assert torch.equal(result[0]["label"], result[1]["label"])
+
+    def test_label_specs_path_identical_pos_across_frames_yields_identical_labels(self):
+        """Three frames with an identical single point at the same pos produce identical labels
+        under the label_specs multi-component mixture path."""
+        pos = torch.tensor([[1.0, 2.0, 3.0]])
+        traj = {i: zRegPointCloud(pos=pos.clone()) for i in range(3)}
+        label_specs = [
+            LabelSpec(
+                label_id=0,
+                components=[
+                    LabelComponentSpec(shape="blob", center=[1.0, 2.0, 3.0], sigma=1.0),
+                    LabelComponentSpec(shape="cone", center=[0.0, 0.0, 1.0], sigma=20.0),
+                ],
+            ),
+            LabelSpec(
+                label_id=1,
+                components=[LabelComponentSpec(shape="voronoi", center=[-5.0, -5.0, -5.0])],
+            ),
+        ]
+        result = generate_labels(traj, label_specs=label_specs, mode="deterministic", seed=0)
+        assert torch.equal(result[0]["label"], result[1]["label"])
+        assert torch.equal(result[1]["label"], result[2]["label"])
 
 
 # ---------------------------------------------------------------------------

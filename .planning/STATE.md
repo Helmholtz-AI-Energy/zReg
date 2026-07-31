@@ -4,14 +4,14 @@ milestone: v1.6
 milestone_name: HoreKa Cluster Execution
 status: executing
 stopped_at: ""
-last_updated: "2026-07-30T00:00:00.000Z"
-last_activity: 2026-07-30 -- Phase 55 complete (assign_cap_labels + assign_gaussian_labels, 65 tests)
+last_updated: "2026-07-31T12:03:40.000Z"
+last_activity: 2026-07-31 -- Phase 56 Plan 01 complete (LabelComponentSpec/LabelSpec + _component_score/_label_scores)
 progress:
   total_phases: 4
-  completed_phases: 4
-  total_plans: 8
-  completed_plans: 9
-  percent: 100
+  completed_phases: 3
+  total_plans: 7
+  completed_plans: 8
+  percent: 75
 ---
 
 # Project State
@@ -21,15 +21,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-15 after v1.5/v1.6 roadmap creation)
 
 **Core value:** Every existing capability works correctly, fails informatively, and is covered by tests.
-**Current focus:** v1.6 milestone complete — pending HoreKa full-allocation submission (BUDG-02 operator gate)
+**Current focus:** Phase 56 — Configurable multi-label region-based labeling
 
 ## Current Position
 
-Phase: 54 (complete)
-Plan: 2/2 plans complete
-Status: Ready to execute
+Phase: 56 (Configurable multi-label region-based labeling) — EXECUTING
+Plan: 1 of 5 complete (56-01 done; 56-02 next)
+Status: Executing Phase 56
 Tests: 1353 passed, 19 skipped, 1 xpassed (+23 new in Phase 54)
-Last activity: 2026-07-29 -- Phase 55 planning complete
+Last activity: 2026-07-31 -- Phase 56 Plan 01 complete (LabelComponentSpec/LabelSpec + _component_score/_label_scores)
 
 Progress (v1.6): [████████░░] 75%
 
@@ -87,6 +87,7 @@ Full history: .planning/MILESTONES.md · Retrospective: .planning/RETROSPECTIVE.
 | 49 | 01 | ~20min | 2 | 2 |
 | 49 | 02 | ~15min | 2 | 3 |
 | 49 | 03 | ~20min | 2 | 2 |
+| 56 | 01 | ~15min | 2 | 1 |
 
 ## Accumulated Context
 
@@ -108,6 +109,7 @@ Full history: .planning/MILESTONES.md · Retrospective: .planning/RETROSPECTIVE.
 - Phase 47: joint-cloud logits[n_source:] slicing contract single-sourced in test_zreg_models_joint_cloud.py; D-03 (Open3D ops benchmark) resolved sub-50ms
 - Phase 48: VALID_METHODS now ("knn_voting", "cpd_weighted", "pointnet2", "egnn"); checkpoint loaded once per run() call
 - Phase 49: cpd_weighted proven to work on raw non-CPD-aligned input (Assumption A1); leakage guard requires explicit held_out_seeds arg (Assumption A2)
+- Phase 56 Plan 01: `weight` resolved as a relative log-space multiplier (`+log(weight)` before `logsumexp`), not a normalized/softmax prior; voronoi deterministic score is unscaled `-dist_sq` (argmax-preserving, no division)
 
 ### Requirements
 

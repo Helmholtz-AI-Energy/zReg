@@ -132,13 +132,13 @@ Plans:
 **Goal:** zreg.data_generation.labels.generate_labels() becomes the single, config-driven entry point for labeling a point cloud trajectory — any number of labels, each defined by one or more region components (voronoi/gaussian blob/gaussian cone), assigned deterministically or probabilistically, with region centers fixed once per trajectory (not redrawn per frame) so label change is spatially traceable. assign_cap_labels/assign_gaussian_labels (Phase 55) are deleted entirely, absorbed as the cone shape's special case. EvalConfig.label_generation lets scenario YAML declare a label spec instead of hardcoded Python literals.
 **Requirements**: none mapped (see 56-CONTEXT.md D-01 through D-13 — phase added ad hoc, no formal REQUIREMENTS.md IDs)
 **Depends on:** Phase 55
-**Plans:** 5 plans
+**Plans:** 1/5 complete
 
 Plans:
 
 **Wave 1**
 
-- [ ] 56-01-PLAN.md — LabelComponentSpec/LabelSpec pydantic models + per-shape scoring (_component_score) + mixture aggregation (_label_scores) (D-08, D-09, D-10, D-11)
+- [x] 56-01-PLAN.md — LabelComponentSpec/LabelSpec pydantic models + per-shape scoring (_component_score) + mixture aggregation (_label_scores) (D-08, D-09, D-10, D-11)
 
 **Wave 2** *(depends on Wave 1)*
 

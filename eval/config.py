@@ -13,7 +13,19 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
-__all__ = ["EvalConfig", "EvalConfigError", "AlignmentPreprocessingConfig", "DataPreprocessingConfig"]
+# import-order guard: scipy-before-torch, see eval/data_factory.py:20-21
+# (zreg.core.dataset imports scipy internally; it MUST be imported before any
+# module that imports torch, to avoid the documented macOS-ARM libomp SIGABRT)
+from zreg.core.dataset import zRegPointCloud  # noqa: F401
+from zreg.data_generation import LabelComponentSpec, LabelSpec  # noqa: F401
+
+__all__ = [
+    "EvalConfig",
+    "EvalConfigError",
+    "AlignmentPreprocessingConfig",
+    "DataPreprocessingConfig",
+    "LabelGenerationConfig",
+]
 
 
 class EvalConfigError(ValueError):
@@ -93,6 +105,51 @@ class DataPreprocessingConfig(BaseModel):
 
     method: Literal["standardize", "normalize", "robust"] = "standardize"
     robust_outlier_threshold: float = 3.0
+
+
+class LabelGenerationConfig(BaseModel):
+    """Declarative label-generation spec for scenario YAML (D-13, Phase 56).
+
+    Wraps the two mutually-exclusive paths exposed by
+    ``zreg.data_generation.generate_labels``: a simple path (``n_labels``,
+    auto-random Voronoi centers) and a full path (``label_specs``, explicit
+    ``LabelSpec`` mixtures of voronoi/blob/cone components). Exactly one of
+    ``n_labels``/``label_specs`` must be set — mirrors ``generate_labels``'s
+    own validation so a bad config fails fast at ``EvalConfig`` construction
+    time rather than only at ``generate_labels()`` call time. Unknown keys
+    are rejected with ``extra='forbid'`` so config typos are caught at parse
+    time.
+
+    Parameters
+    ----------
+    n_labels : int or None
+        Number of auto-random Voronoi labels (simple path). Exactly one of
+        ``n_labels``/``label_specs`` must be given. Default ``None``.
+    label_specs : list[LabelSpec] or None
+        Explicit label specs (full path). Exactly one of
+        ``n_labels``/``label_specs`` must be given. Default ``None``.
+    mode : {"deterministic", "probabilistic"}
+        Assignment mode forwarded to ``generate_labels`` (D-12). Default
+        ``"deterministic"``.
+    seed : int or None
+        Seed forwarded to ``generate_labels``. Default ``42``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    n_labels: int | None = None
+    label_specs: list[LabelSpec] | None = None
+    mode: Literal["deterministic", "probabilistic"] = "deterministic"
+    seed: int | None = 42
+
+    @model_validator(mode="after")
+    def _validate_mutual_exclusivity(self) -> "LabelGenerationConfig":
+        if (self.n_labels is None) == (self.label_specs is None):
+            raise ValueError(
+                "exactly one of n_labels or label_specs must be provided "
+                f"(got n_labels={self.n_labels!r}, label_specs={self.label_specs!r})"
+            )
+        return self
 
 
 class EvalConfig(BaseModel):
@@ -177,6 +234,13 @@ class EvalConfig(BaseModel):
         Optional mapping of integer label IDs to descriptive names (e.g.
         ``{0: 'T cell', 1: 'B cell'}``).  Used by ``plot_trajectory`` for
         legend labels in the label-trajectory figure.  Default ``None``.
+    label_generation : LabelGenerationConfig or None
+        Declarative label-generation spec (D-13) consulted by
+        ``DataFactory.generate_training_triple``/``generate_training_set``
+        and ``HyperparamOptimizer``'s sanity tier when the caller does not
+        pass an explicit ``n_labels`` override. ``None`` (default) preserves
+        every existing hardcoded fallback (``n_labels=6``/``n_labels=4``)
+        unchanged — fully backward compatible.
     pipeline_mode : str
         Pipeline mode: ``'paired'`` loads ``target_data_path`` via
         ``DataFactory.load_target()``; ``'synthetic'`` is reserved for Phase 31
@@ -272,6 +336,7 @@ class EvalConfig(BaseModel):
         }
     )
     label_names: dict[int, str] | None = None
+    label_generation: LabelGenerationConfig | None = None
     pipeline_mode: Literal["paired", "synthetic"] = "paired"
     target_data_path: str | None = None
     transform_spec: dict | None = None

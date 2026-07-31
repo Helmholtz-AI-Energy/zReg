@@ -101,7 +101,7 @@ class TestBowlSparseRobustness:
         n_classes = 6
         cfg = EvalConfig(data_path="x")
         factory = DataFactory(cfg)
-        triple = factory.generate_training_triple(seed=1, n_classes=n_classes)  # odd seed -> bowl
+        triple = factory.generate_training_triple(seed=1, n_labels=n_classes)  # odd seed -> bowl
 
         source_pos = triple.source_cloud["pos"]
         target_pos = triple.target_cloud["pos"]

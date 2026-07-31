@@ -304,7 +304,7 @@ def _build_holdout_pair(config: EvalConfig, seeds):
     triples into one multi-frame dict keyed by seed INDEX (not seed value) for
     LabelTransferStage's contiguous sequential pairing.
     """
-    triples = DataFactory(config).generate_training_set(seeds, n_classes=N_CLASSES)
+    triples = DataFactory(config).generate_training_set(seeds, n_labels=N_CLASSES)
     source = {i: t.source_cloud for i, t in enumerate(triples)}
     target = {i: t.target_cloud for i, t in enumerate(triples)}
     return source, target

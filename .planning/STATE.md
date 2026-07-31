@@ -4,14 +4,14 @@ milestone: v1.6
 milestone_name: HoreKa Cluster Execution
 status: executing
 stopped_at: ""
-last_updated: "2026-07-31T12:40:00.000Z"
-last_activity: 2026-07-31 -- Phase 56 Plan 03 complete (EvalConfig.label_generation + n_classes->n_labels rename cascade through DataFactory/optimizer.py/benchmark_runner.py/train_label_transfer.py)
+last_updated: "2026-07-31T17:10:00.000Z"
+last_activity: 2026-07-31 -- Phase 56 Plan 04 complete (comprehensive tests: per-shape/mode/mixture/D-07 regression in test_generators.py + tests/test_label_generation_config.py)
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 7
-  completed_plans: 9
-  percent: 75
+  completed_plans: 10
+  percent: 80
 ---
 
 # Project State
@@ -26,12 +26,12 @@ See: .planning/PROJECT.md (updated 2026-07-15 after v1.5/v1.6 roadmap creation)
 ## Current Position
 
 Phase: 56 (Configurable multi-label region-based labeling) — EXECUTING
-Plan: 3 of 5 complete (56-01, 56-02, 56-03 done; 56-04/56-05 next)
+Plan: 4 of 5 complete (56-01, 56-02, 56-03, 56-04 done; 56-05 next)
 Status: Executing Phase 56
-Tests: 1335 passed, 22 skipped, 1 xpassed, 17 failed (full suite; 14 pre-existing n_classes= kwarg TypeErrors in test files deferred to Plan 56-05, 2 pre-existing test_icp_registration.py full-suite-order flakes logged to deferred-items.md, unrelated to this phase)
-Last activity: 2026-07-31 -- Phase 56 Plan 03 complete (EvalConfig.label_generation field + n_classes->n_labels rename cascade through DataFactory/optimizer.py/benchmark_runner.py/train_label_transfer.py + example scenario YAML)
+Tests: 1359 passed, 22 skipped, 1 xpassed, 17 failed (full suite; 14 pre-existing n_classes= kwarg TypeErrors in test files deferred to Plan 56-05, 2 pre-existing test_icp_registration.py full-suite-order flakes logged to deferred-items.md, unrelated to this phase)
+Last activity: 2026-07-31 -- Phase 56 Plan 04 complete (comprehensive pytest coverage: TestLabelRegionShapes/TestLabelAssignmentModes/TestLabelGenerationD07Regression in tests/test_generators.py + new tests/test_label_generation_config.py, 24 new tests, zero new failures)
 
-Progress (v1.6): [████████░░] 75%
+Progress (v1.6): [████████░░] 80%
 
 ## Shipped Milestones
 
@@ -90,6 +90,7 @@ Full history: .planning/MILESTONES.md · Retrospective: .planning/RETROSPECTIVE.
 | 56 | 01 | ~15min | 2 | 1 |
 | 56 | 02 | ~17min | 2 | 11 |
 | 56 | 03 | ~20min | 3 | 5 |
+| 56 | 04 | ~25min | 2 | 2 |
 
 ## Accumulated Context
 
@@ -114,6 +115,7 @@ Full history: .planning/MILESTONES.md · Retrospective: .planning/RETROSPECTIVE.
 - Phase 56 Plan 01: `weight` resolved as a relative log-space multiplier (`+log(weight)` before `logsumexp`), not a normalized/softmax prior; voronoi deterministic score is unscaled `-dist_sq` (argmax-preserving, no division)
 - Phase 56 Plan 02: `generate_labels()` rewritten as config-driven orchestrator (`n_labels`/`label_specs` paths, `mode` switch); D-07 fixed by resolving all region/component centers once before the per-frame loop; `assign_cap_labels`/`assign_gaussian_labels` deleted (D-06, dead-clean, no shims); the `n_classes`→`n_labels` rename broke 8 additional call sites beyond `56-CONTEXT.md`'s documented 2 (eval/data_factory.py, eval/runners/optimizer.py, and 6 test files) — fixed as a Rule-1 deviation, which makes Plan 56-05's Task 1 (5 of those same files) a no-op when it runs later
 - Phase 56 Plan 03: `EvalConfig.label_generation` (`LabelGenerationConfig` model) added, defaulting to `None`; `DataFactory.generate_training_triple`/`generate_training_set` renamed `n_classes`→`n_labels` with a sentinel `int | None = None` three-way precedence (explicit caller arg > `self.config.label_generation` > hardcoded `n_labels=6` fallback); `optimizer.py`'s sanity tier consults `self.config.label_generation` with a hardcoded `n_labels=4` fallback; `benchmark_runner.py`/`train_label_transfer.py`'s own public `n_classes`-named surfaces left unchanged (out of D-04 scope), only their internal forwarding calls updated; `configs/label_generation_example.yaml` added. Full suite: 1335 passed/22 skipped/1 xpassed/17 failed — all 17 failures are pre-existing and out of this plan's scope (14 are `n_classes=` kwarg TypeErrors in test files deferred to Plan 56-05's Task 2; 2 are the already-logged `test_icp_registration.py` full-suite-order flake)
+- Phase 56 Plan 04: added `TestLabelRegionShapes`/`TestLabelAssignmentModes`/`TestLabelGenerationD07Regression` (15 tests) to `tests/test_generators.py` and a new `tests/test_label_generation_config.py` (10 tests) mirroring `test_alignment_preprocessing_config.py`'s style; the D-07 regression tests prove `torch.equal` labels across frames with an identical point position, for both the `n_labels` and `label_specs` paths; the end-to-end `EvalConfig.label_generation`-vs-explicit-`n_labels` precedence test uses `seed=2` (not the plan's illustrative `seed=0`) because `seed=0` leaves a Voronoi label with zero points for this ball-shape/point-count combination, which would make the "exactly N unique values" assertion fail on a correct implementation. Full suite: 1359 passed/22 skipped/1 xpassed/17 failed — same 17 pre-existing failures as Plan 56-03's baseline, unchanged (24 new tests added, zero new failures)
 
 ### Requirements
 
@@ -155,6 +157,6 @@ None — test_search_strategies mock fixed (FakeIndividual k=int→str) to align
 
 ## Session Continuity
 
-Last session: 2026-07-27T07:40:45.602Z
-Stopped at: context exhaustion at 76% (2026-07-27)
-Next action: `/gsd:plan-phase 54` — Budget Calibration & Full-Suite Gate (BUDG-02, BUDG-03); requires real HoreKa timing data from Phase 52/53 full run
+Last session: 2026-07-31T17:10:00.000Z
+Stopped at: Phase 56 Plan 04 complete (56-04); Plan 56-05 next
+Next action: `/gsd:execute-phase 56` (continue) — 56-05-PLAN.md (fix rename-cascade breakage across the remaining existing test suite, 9 files, D-04); after Phase 56 wraps, `/gsd:plan-phase 54` — Budget Calibration & Full-Suite Gate (BUDG-02, BUDG-03) remains pending, requires real HoreKa timing data from Phase 52/53 full run

@@ -163,7 +163,7 @@ def _clear_propulate_checkpoints(output_dir: Path) -> None:
         return
     removed = [
         f
-        for pattern in ("*.pkl", "*.pickle")
+        for pattern in ("*.pkl", "*.pickle", "*.bkp")
         for f in output_dir.glob(pattern)
     ]
     for f in removed:

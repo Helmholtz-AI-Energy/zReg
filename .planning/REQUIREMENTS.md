@@ -34,18 +34,20 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| GT-01 | Phase 55 | Mapped |
-| GT-02 | Phase 55 | Mapped |
-| GT-03 | Phase 55 | Mapped |
-| GT-04 | Phase 56 | Mapped |
-| GT-05 | Phase 56 | Mapped |
-| GT-06 | Phase 56 | Mapped |
+| GT-01 | Phase 56 | Mapped |
+| GT-02 | Phase 56 | Mapped |
+| GT-03 | Phase 56 | Mapped |
+| GT-04 | Phase 57 | Mapped |
+| GT-05 | Phase 57 | Mapped |
+| GT-06 | Phase 57 | Mapped |
 
 **Coverage:**
 
 - v1 requirements: 6 total
-- Mapped to phases: 6 (Phases 55–56)
+- Mapped to phases: 6 (Phases 56–57)
 - Unmapped: 0 ✓
+
+**Note:** Phase numbering starts at 56 (not 55) because Phase 55 was already consumed by an unrelated ad-hoc phase (spherical-cap/Gaussian label generators for `zreg.data_generation.labels`), completed 2026-07-30 before v1.7 requirements were defined.
 
 ---
 *Requirements defined: 2026-08-01*

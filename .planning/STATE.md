@@ -2,11 +2,11 @@
 gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: Minor Adjustments
-status: planning
-last_updated: "2026-08-01T12:36:21.477Z"
+status: roadmapped
+last_updated: "2026-08-01T12:48:50.000Z"
 last_activity: 2026-08-01
 progress:
-  total_phases: 0
+  total_phases: 2
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -20,14 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-15 after v1.5/v1.6 roadmap creation)
 
 **Core value:** Every existing capability works correctly, fails informatively, and is covered by tests.
-**Current focus:** Phase 50 — gpu-native-geometry-ops
+**Current focus:** Phase 56 — ground-truth-field-consistency (v1.7; v1.6 paused at Phase 54)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-08-01 — Milestone v1.7 started
+Phase: 56 of 57 (Ground-Truth Field Consistency)
+Plan: — (not yet planned)
+Status: Ready to plan
+Last activity: 2026-08-01 — v1.7 ROADMAP.md created (Phases 56–57), REQUIREMENTS.md traceability updated
 
 ## Shipped Milestones
 
@@ -39,6 +39,15 @@ Last activity: 2026-08-01 — Milestone v1.7 started
 | v1.4 Trajectory Alignment & Optimization Enhancements | 39–43 | 2026-07-08 |
 
 Full history: .planning/MILESTONES.md · Retrospective: .planning/RETROSPECTIVE.md
+
+## v1.7 Phases — Minor Adjustments (Phases 56–57, current milestone)
+
+| Phase | Name | Requirements | Status |
+|-------|------|---------------|--------|
+| 56 | Ground-Truth Field Consistency | GT-01, GT-02, GT-03 | Not started |
+| 57 | Synthetic Labeled Subsample-Pair Generation | GT-04, GT-05, GT-06 | Not started |
+
+Note: Phase numbering starts at 56 (not 55, and not continuing from v1.6's Phase 54) because Phase 55 was already consumed by an unrelated ad-hoc phase (spherical-cap/Gaussian label generators for `zreg.data_generation.labels`), completed 2026-07-30. v1.6 (Phases 51–54) is paused at Phase 54; resumes after v1.7 ships.
 
 ## v1.5 Phases — Learned Label Transfer Methods (Phases 44–49 complete, 50 pending)
 
@@ -105,6 +114,8 @@ Full history: .planning/MILESTONES.md · Retrospective: .planning/RETROSPECTIVE.
 
 See: `.planning/REQUIREMENTS.md`
 
+- GT-01/02/03: ground-truth field consistency — `pc["label"]` not `pc["id"]`, correspondence-preserving y_true/y_pred pairing, config audit (Phase 56)
+- GT-04/05/06: synthetic labeled subsample-pair generation — YAML-configurable, DataFactory method, EvaluationRunner/HyperparamOptimizer support (Phase 57)
 - ENV-01/02/03: environment setup, data transfer, SLURM job script (Phase 51)
 - PARA-01/02/03: propulate multi-rank HPO, run_all.py rank-awareness, separate cluster configs (Phase 52)
 - GPU-01/02/03: EvalConfig device field, DataFactory device loading, verified GPU execution (Phase 53)
@@ -113,7 +124,7 @@ See: `.planning/REQUIREMENTS.md`
 
 ### Pending Todos
 
-Phase 54 planning not yet started — requires real HoreKa timing data from Phase 52/53 runs. Phase 50 (GPU-native geometry ops) still pending.
+v1.6 Phase 54 planning is paused (requires real HoreKa timing data from Phase 52/53 runs) — resumes after v1.7 ships. v1.7 Phase 56 is ready to plan.
 
 ### Blockers/Concerns
 
@@ -140,6 +151,6 @@ None — test_search_strategies mock fixed (FakeIndividual k=int→str) to align
 
 ## Session Continuity
 
-Last session: 2026-07-27T07:40:45.602Z
-Stopped at: context exhaustion at 76% (2026-07-27)
-Next action: `/gsd:plan-phase 54` — Budget Calibration & Full-Suite Gate (BUDG-02, BUDG-03); requires real HoreKa timing data from Phase 52/53 full run
+Last session: 2026-08-01T12:48:50.000Z
+Stopped at: v1.7 ROADMAP.md created (Phases 56–57)
+Next action: `/gsd:plan-phase 56` — Ground-Truth Field Consistency (GT-01, GT-02, GT-03)

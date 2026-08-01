@@ -389,6 +389,23 @@ class TestDTWCompute:
         for i, j in result.warping_path:
             assert abs(i - j) <= 1
 
+    def test_compute_cpd_metric_without_cpd_type_raises(self, small_trajectory_pair):
+        """distance_metric='cpd' with cpd_type=None raises ValueError instead of producing all-inf cost matrix.
+
+        This is the root cause of the multirank-test DTW backtrace failure: when
+        best_params.json is empty, default_params supplies cpd_penalty=null combined
+        with dtw_dist_fn=cpd, making every cost matrix cell inf and crashing backtrace.
+        """
+        x, y = small_trajectory_pair
+        dtw_obj = DynamicTimeWarping(
+            x, y,
+            distance_metric="cpd",
+            cpd_type=None,
+            downsample_method=None,
+        )
+        with pytest.raises(ValueError, match="cpd_type"):
+            dtw_obj.compute()
+
 
 class TestDTWAccessors:
     """Tests for DTW accessor methods."""

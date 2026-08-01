@@ -165,6 +165,13 @@ class AlignmentStage(PipelineStage):
         if not (isinstance(params["dtw_dist_fn"], str) and params["dtw_dist_fn"]):
             raise ValueError(f"dtw_dist_fn must be non-empty str; got {params['dtw_dist_fn']!r}")
 
+        if params["dtw_dist_fn"] == "cpd" and params["cpd_penalty"] is None:
+            raise ValueError(
+                "dtw_dist_fn='cpd' requires cpd_penalty to be set ('rigid', 'affine', or "
+                "'nonrigid'); cpd_penalty=None means no CPD registration runs, which produces "
+                "an all-inf DTW cost matrix and a backtrace failure."
+            )
+
         if not (isinstance(params["n_breakpoints"], int)
                 and not isinstance(params["n_breakpoints"], bool)
                 and params["n_breakpoints"] >= 0):

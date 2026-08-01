@@ -117,6 +117,17 @@ def create_pairwise_distance_matrix(
     )
     # distance_fn: list  # this is a list of callables / None (for cpd)
 
+    # Guard: distance_metric='cpd' uses reg.q from CPD registration as the distance value.
+    # If cpd_type=None, no CPD runs and cpd_metric stays torch.inf, making the entire cost
+    # matrix inf and causing DTW backtracing to fail with a misleading "window too tight" error.
+    if cpd_type is None and any(fn is None for fn in distance_fns):
+        raise ValueError(
+            "distance_metric='cpd' requires cpd_type to be set ('rigid', 'affine', or "
+            "'nonrigid'), but cpd_type=None. Without CPD registration the cpd distance "
+            "is always inf, producing an all-inf cost matrix and making DTW backtracing "
+            "impossible. Set cpd_type to match the desired CPD registration type."
+        )
+
     # Get the number of samples in each set of data
     x_samples, y_samples = max(x), max(y)
 

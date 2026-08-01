@@ -159,6 +159,18 @@ class TestAlignmentStageValidateParams:
         with pytest.raises(ValueError, match=match_str):
             stage.validate_params(params)
 
+    def test_dtw_dist_fn_cpd_with_null_cpd_penalty_raises(self, default_params, eval_config):
+        """dtw_dist_fn='cpd' combined with cpd_penalty=None raises ValueError.
+
+        This is the cross-constraint that prevents the multirank-test DTW backtrace
+        failure: cpd_penalty=None causes all cost matrix cells to be inf when
+        dtw_dist_fn='cpd', crashing the backtrace with a misleading window error.
+        """
+        params = {**default_params, "dtw_dist_fn": "cpd", "cpd_penalty": None}
+        stage = AlignmentStage(eval_config)
+        with pytest.raises(ValueError, match="dtw_dist_fn='cpd' requires cpd_penalty"):
+            stage.validate_params(params)
+
 
 # ---------------------------------------------------------------------------
 # TestAlignmentDistanceImproves — Plan 19-02 (POPULATED)

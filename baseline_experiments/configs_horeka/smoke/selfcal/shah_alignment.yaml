@@ -31,7 +31,7 @@ search_space:
 default_params:
   window_size: 10
   step: 8
-  cpd_penalty: null  # must be null/str — AlignmentStage.VALID_CPD rejects float 1.0
+  cpd_penalty: "rigid"  # fallback when best_params.json is empty; dtw_dist_fn=cpd requires a non-null cpd_penalty
   dtw_dist_fn: cpd
   n_breakpoints: 5
   k_neighbours: 5

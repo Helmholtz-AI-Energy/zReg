@@ -14,7 +14,7 @@ Label-transfer F1 scoring is computed against the correct ground-truth field (`p
 ## Implementation Decisions
 
 ### GT Field Convention
-- **D-01:** Add `ground_truth_field: Literal["id", "label"] = "label"` to `EvalConfig`. `DataFactory.get_ground_truth()` and `get_synthetic_ground_truth()` (`eval/data_factory.py`) read whichever field this names, defaulting to `"label"` — matching `generate_labels()`'s documented intent ("directly compatible with `zreg.metrics.compute_f1` without conversion") and what `LabelTransferStage` (`eval/stages/label_transfer.py:432`) actually transfers.
+- **D-01:** Add `ground_truth_field: Literal["id", "label"] = "label"` to `EvalConfig`. `DataFactory.get_ground_truth()` and `get_synthetic_ground_truth()` (`eval/data_factory.py`) read whichever field this names, defaulting to `"label"` — matching `generate_labels()`'s documented intent ("directly compatible with `zreg.metrics.compute_f1` without conversion") and what `LabelTransferStage` (`eval/stages/label_transfer.py:434`) actually transfers.
 - **D-02:** This is a default-plus-override, not a fully free-form field name — the only two valid values are `"id"` and `"label"` (the only integer-label-shaped fields on `zRegPointCloud`). No dataset identified during this discussion needs the override (see D-05/D-06 below), but the escape hatch stays in the design per explicit user request.
 
 ### Dropout/New-Points Correspondence Tracking

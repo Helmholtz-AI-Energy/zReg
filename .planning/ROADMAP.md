@@ -48,7 +48,12 @@
   3. Existing ground-truth configs (`baseline_experiments/configs/ground_truth/shah_sample1.yaml`, `kobitski_ew06.yaml`, and `configs/experiments/stage2_label_transfer/*/synthetic.yaml`) are audited and updated so label-transfer F1 remains meaningful under the corrected GT-field convention
   4. A label-transfer evaluation run against a `transform_spec` config with nonzero `dropout_fraction`/`n_new_points` produces a non-degenerate F1 score (not silently near-zero or spuriously perfect from misaligned arrays)
 
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+
+- [ ] 56-01-PLAN.md — EvalConfig.ground_truth_field + DataFactory correspondence-tracking (drop_points/sample_new_points) + GT extraction rewrite + eval_runner WR-01 re-scoping (GT-01, GT-02)
+- [ ] 56-02-PLAN.md — Ground-truth config audit: Shah/Kobitski comment fixes + degenerate-label documentation on stage2_label_transfer synthetic.yaml configs (GT-03)
 
 ### Phase 57: Synthetic Labeled Subsample-Pair Generation
 

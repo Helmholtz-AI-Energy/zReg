@@ -20,7 +20,7 @@ n_synthetic: 0
 
 search_space:
   cpd_penalty: ["rigid"]
-  window_size: [5, 10]  # 20 moved to configs_horeka_w20/ to avoid 4h wall-clock timeout
+  window_size: [10]  # 5 removed: frame diff after step=8 is 6 (47 source vs 53 target) → window<diff makes endpoint unreachable → Distance:inf; 20 moved to configs_horeka_w20/
   step: [8]
   dtw_dist_fn: [cpd]
   k_neighbours: [3, 5, 10]

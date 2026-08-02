@@ -1,7 +1,7 @@
 #!/bin/bash
 # Multi-rank validation test job for Phase 52 BUDG-04.
 # Submit this BEFORE the full launch_horeka.sbatch to validate correct multi-rank
-# behaviour on a short allocation (2 nodes x 2 ranks = 4 total, 30 min wall-clock).
+# behaviour on a short allocation (2 nodes x 2 ranks = 4 total, 60 min wall-clock).
 #
 # Passing criteria (D-13):
 #   1. SLURM log shows rank IDs 0, 1, 2, and 3 (all 4 ranks participated).
@@ -20,7 +20,7 @@
 #SBATCH --nodes=2                         # 2 nodes x 2 ranks = 4 total; small enough to schedule quickly
 #SBATCH --ntasks-per-node=2
 #SBATCH --gres=gpu:2
-#SBATCH --time=00:30:00
+#SBATCH --time=01:00:00
 #SBATCH --output=/home/hk-project-starter-p0024807/uitog/BA/zReg/baseline_experiments/logs/slurm-%j.out
 
 module load devel/cuda/12.4

@@ -637,48 +637,63 @@ class DataFactory:
         self,
         dataset: dict[int, zRegPointCloud],
     ) -> dict[int, torch.Tensor]:
-        """Extract cell-identity labels from a loaded dataset.
+        """Extract ground-truth labels from a loaded dataset.
 
-        Returns one id tensor per frame, keyed by frame index.  Mirrors the
-        structure of the dataset itself (D-11).
+        Returns one label tensor per frame, keyed by frame index.  Mirrors
+        the structure of the dataset itself (D-11).
 
-        By default (``config.ground_truth_path is None``) extracts ``pc["id"]``
-        from each frame in the supplied ``dataset`` (D-10).  If
-        ``config.ground_truth_path`` is explicitly set, the external file is
-        loaded using the same loader as ``config.data_format`` and its ``id``
-        fields are returned instead.
-
-        This method is intended for **real data** (where ``pc["id"]`` is the
-        canonical cell id from upstream tracking/annotation).  Synthetic data
-        flows should use ``pc["label"]`` from ``generate_labels`` instead.
+        Reads ``pc[config.ground_truth_field]`` from each frame in the
+        supplied ``dataset`` (Phase 56 D-01) when ``config.ground_truth_path
+        is None`` (D-10).  ``config.ground_truth_field`` defaults to
+        ``"label"`` — matching what ``LabelTransferStage.run()``
+        (``eval/stages/label_transfer.py:434``) actually transfers — and may
+        be overridden to ``"id"`` for datasets whose real class labels live
+        in that field instead (D-02).  If ``config.ground_truth_path`` is
+        explicitly set, the external file is loaded using the same loader as
+        ``config.data_format`` and its ``config.ground_truth_field`` fields
+        are returned instead.
 
         Parameters
         ----------
         dataset : dict[int, zRegPointCloud]
             In-memory dataset.  Ignored when ``config.ground_truth_path`` is
-            set (the external file is loaded and its ``id`` fields are used).
+            set (the external file is loaded and its
+            ``config.ground_truth_field`` fields are used).
 
         Returns
         -------
         dict[int, torch.Tensor]
-            One 1-D id tensor per frame, keyed by integer frame index.
+            One 1-D ground-truth tensor per frame, keyed by integer frame
+            index.
         """
+        field = self.config.ground_truth_field
         if self.config.ground_truth_path is not None:
             if self.config.data_format == "tracklets":
                 gt_ds, _ = load_data_from_tracklets(self.config.ground_truth_path, device=self.config.device)
             else:
                 gt_ds = load_shah_from_csv(self.config.ground_truth_path, device=self.config.device)
-            return {i: pc["id"] for i, pc in gt_ds.items()}
-        return {i: pc["id"] for i, pc in dataset.items()}
+            return {i: pc[field] for i, pc in gt_ds.items()}
+        return {i: pc[field] for i, pc in dataset.items()}
 
     def get_synthetic_ground_truth(self) -> dict[int, torch.Tensor]:
-        """Return per-frame cell-identity labels for synthetic mode (D-04, D-05, D-06).
+        """Return per-frame ground-truth labels for synthetic mode (D-04, D-05, D-06).
 
-        For rigid, affine, and noise transforms the correspondence between source
-        and target is identity: ``source[k][i]`` maps to ``target[k][i]``.
-        This method encodes that identity correspondence as per-frame label
-        tensors derived from ``self._source_dataset`` (set by
-        :meth:`generate_target`).
+        Reads ``pc[config.ground_truth_field]`` from ``self._source_dataset``
+        (set by :meth:`generate_target`) — defaulting to ``"label"``,
+        overridable to ``"id"`` (Phase 56 D-01/D-02).
+
+        For rigid, affine, and noise transforms the correspondence between
+        source and target is identity: ``source[k][i]`` maps to
+        ``target[k][i]``, so the source-frame field values are returned
+        unchanged.  When ``dropout_fraction``/``n_new_points`` were applied
+        (tracked via ``self._correspondence_idx``, populated by
+        :meth:`drop_points`/:meth:`sample_new_points`), the returned tensor
+        is instead **gathered** by that tracked correspondence so its length
+        matches the target's actual (post-dropout/new-points) per-frame
+        point count — points with no original-source correspondence (newly
+        added by ``sample_new_points``) receive a ``-1`` sentinel label,
+        which ``zreg.evaluation.label_transfer.compute_f1`` already excludes
+        from scoring (Phase 56 D-03/D-04, GT-02).
 
         This method is for **synthetic mode only**.  For real-data paired mode,
         use :meth:`get_ground_truth` (which accepts an explicit dataset argument).
@@ -693,14 +708,18 @@ class DataFactory:
             Per-frame 1-D tensors of dtype ``torch.long``, keyed by integer
             frame index.  Values are either:
 
-            - ``pc["id"].to(torch.long)`` when ``pc["id"]`` is not ``None``
-              (D-04); or
+            - ``pc[config.ground_truth_field].to(torch.long)`` when that
+              field is not ``None`` (D-04); or
             - ``torch.arange(n_points, dtype=torch.long)`` as an ordinal
-              fallback when ``pc["id"] is None`` (D-05).
+              fallback when the field is ``None`` (D-05);
 
-            Dtype is always ``torch.long`` regardless of the source
-            ``pc["id"]`` dtype (D-06), consistent with ``compute_f1``
-            expectations.
+            gathered by ``self._correspondence_idx[k]`` (with ``-1``
+            sentinel for uncorrelated new points) when a correspondence map
+            is present for frame ``k``, otherwise returned unchanged
+            (identity — no dropout/new-points were applied).
+
+            Dtype is always ``torch.long`` regardless of the source field's
+            dtype (D-06), consistent with ``compute_f1`` expectations.
 
         Raises
         ------
@@ -712,22 +731,39 @@ class DataFactory:
         Notes
         -----
         - D-04: identity correspondence for rigid/affine/noise transforms.
-        - D-05: ordinal fallback when source frames have no cell-id labels.
+        - D-05: ordinal fallback when source frames have no ground-truth
+          field values.
         - D-06: ``torch.long`` dtype guarantee — consistent with
           ``compute_f1`` label expectations.
         - Guard checks ``self._synthetic_target is None`` (D-03 contract).
+        - Phase 56 D-03/D-04: correspondence-gather fix for GT-02 — see
+          class docstring for ``self._correspondence_idx``.
         """
         if self._synthetic_target is None:
             raise RuntimeError(
                 "DataFactory.get_synthetic_ground_truth: generate_target() must be "
                 "called first to populate _synthetic_target and _source_dataset."
             )
+        field = self.config.ground_truth_field
         result: dict[int, torch.Tensor] = {}
         for k, pc in self._source_dataset.items():
-            if pc["id"] is not None:
-                result[k] = pc["id"].to(torch.long)  # D-04 + D-06: id cast to torch.long
+            field_values = pc[field]
+            if field_values is not None:
+                base = field_values.to(torch.long)  # D-04 + D-06: cast to torch.long
             else:
-                result[k] = torch.arange(pc["pos"].shape[0], dtype=torch.long)  # D-05 + D-06: ordinal fallback
+                base = torch.arange(pc["pos"].shape[0], dtype=torch.long)  # D-05 + D-06: ordinal fallback
+
+            if self._correspondence_idx is not None and k in self._correspondence_idx:
+                # Phase 56 D-03/D-04 (GT-02): gather by tracked correspondence
+                # instead of returning positionally — produces a tensor
+                # already sized to match the target's actual point count.
+                corr = self._correspondence_idx[k]
+                gathered = torch.full((corr.shape[0],), -1, dtype=torch.long)
+                valid = corr >= 0
+                gathered[valid] = base[corr[valid]]
+                result[k] = gathered
+            else:
+                result[k] = base
         return result
 
     def scale(

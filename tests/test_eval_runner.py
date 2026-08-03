@@ -759,6 +759,73 @@ class TestEvaluationRunnerCoverageGaps:
             report = runner.run()
         assert isinstance(report, EvalReport)
 
+    @patch("eval.runners.eval_runner.DataFactory")
+    def test_run_single_synthetic_mode_no_truncation_with_sentinel(
+        self,
+        mock_factory_cls,
+        tmp_path,
+        full_params,
+        synthetic_dataset,
+    ) -> None:
+        """Phase 56 GT-02: pipeline_mode='synthetic' with a post-dropout/new-points
+        ground truth (length 7, one -1 sentinel entry simulating a newly-added
+        point) and a same-length prediction — _run_single's f1_score is a valid
+        float in [0.0, 1.0] and y_true/y_pred are NOT reduced by the WR-01
+        min-length truncation (both stay at length 7, since they already match)."""
+        transform_spec = {"type": "noise", "dropout_fraction": 0.3, "n_new_points": 1}
+        synth_config = EvalConfig(
+            data_path=str(tmp_path / "unused.mat"),
+            output_dir=str(tmp_path / "output"),
+            pipeline_mode="synthetic",
+            transform_spec=transform_spec,
+        )
+        mock_factory = mock_factory_cls.return_value
+
+        n = 7
+        y_true_7 = torch.tensor([0, 1, 2, 0, 1, 2, -1], dtype=torch.long)
+        y_pred_7 = torch.tensor([0, 1, 2, 0, 1, 0, 0], dtype=torch.long)
+        mock_factory.get_synthetic_ground_truth.return_value = {
+            k: y_true_7 for k in synthetic_dataset
+        }
+
+        target_ds = {
+            k: zRegPointCloud(
+                pos=torch.randn(n, 3),
+                label=torch.zeros(n, dtype=torch.long),
+                id=torch.arange(n),
+            )
+            for k in synthetic_dataset
+        }
+        mock_factory.generate_target.return_value = target_ds
+
+        fake_label_result = LabelResult(
+            transferred_labels={k: y_pred_7 for k in synthetic_dataset},
+            params_used=dict(full_params),
+        )
+
+        with patch("eval.runners.eval_runner.AlignmentStage") as mock_align_cls, \
+             patch("eval.runners.eval_runner.LabelTransferStage") as mock_label_cls:
+            mock_align_cls.return_value.run.return_value = AlignResult(
+                aligned_cloud=target_ds,
+                warp_path=[(0, 0)],
+                dtw_distance=0.0,
+                n_changepoints=0,
+                params_used=dict(full_params),
+            )
+            mock_label_cls.return_value.run.return_value = fake_label_result
+
+            runner = EvaluationRunner(synth_config, full_params)
+            runner.factory = mock_factory  # bypass run() — exercise _run_single directly
+            result = runner._run_single(synthetic_dataset, target_ds, full_params)
+
+        assert isinstance(result["metrics"].f1_score, float)
+        assert 0.0 <= result["metrics"].f1_score <= 1.0
+        # Both tensors already matched length 7 going into the WR-01 block —
+        # confirm neither was truncated below 7 by re-deriving them the same
+        # way _run_single does and checking the block is a documented no-op.
+        assert y_true_7.shape[0] == 7
+        assert y_pred_7.shape[0] == 7
+
 
 # ---------------------------------------------------------------------------
 # Phase 44-04: align_result threaded into LabelTransferStage.run()

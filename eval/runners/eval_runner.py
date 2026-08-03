@@ -341,8 +341,16 @@ class EvaluationRunner:
             knn_target_key = target_sorted_keys[-1]
             y_pred = torch.zeros_like(y_true)  # zero-fill D-04
 
-        # WR-01: truncate to min length when source and target have different point counts
-        # (heterogeneous paired datasets). compute_f1 validates shape equality strictly.
+        # WR-01: truncate to min length when source and target have different point counts.
+        # Phase 56 D-03 (GT-02) re-scoping: this positional-truncation fallback now only
+        # matters for pipeline_mode="paired" heterogeneous real-data cases (Phase 32
+        # HETERO-01), where no per-point correspondence can be computed between two
+        # independently-loaded real datasets. For pipeline_mode="synthetic",
+        # DataFactory.get_synthetic_ground_truth() already gathers y_true by the tracked
+        # drop_points/sample_new_points correspondence index (Phase 56 Task 1), so y_true
+        # and y_pred already match length by the time this line runs — this block is a
+        # defensive no-op in that case, not the correctness mechanism. compute_f1 validates
+        # shape equality strictly regardless of pipeline_mode.
         if y_true.shape[0] != y_pred.shape[0]:
             min_len = min(y_true.shape[0], y_pred.shape[0])
             y_true = y_true[:min_len]

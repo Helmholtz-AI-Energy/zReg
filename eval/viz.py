@@ -6,7 +6,9 @@ Two public functions produce figures:
   alignment branch (source, target, aligned, superposed) plus two pairs for
   the label branch (source labels, transferred labels).  Returns a list of
   written path strings.
-- ``plot_metrics`` — horizontal bar chart of 6 normalised metrics per D-09.
+- ``plot_metrics`` — horizontal bar chart of 6 normalised metrics per D-09,
+  grouped and colour-coded as alignment vs. label-transfer metrics with a
+  legend, and labelled with the "higher is better" convention.
 
 Notes
 -----
@@ -579,8 +581,13 @@ def plot_metrics(report: EvalReport, path: Union[str, Path]) -> list[str]:
     """Render a horizontal bar chart of 6 normalised metric scores to PDF + PNG.
 
     Produces a single horizontal bar chart with 6 bars, one per canonical
-    short-name metric key from ``StageMetrics.normalized``.  The x-axis spans
-    ``[0, 1]`` (normalised score range per D-09).
+    short-name metric key from ``StageMetrics.normalized``, grouped and
+    colour-coded by which pipeline stage they measure — alignment vs. label
+    transfer — with a legend identifying the two groups and an axis label
+    stating the "higher is better" convention that ``MetricsEngine.normalize``
+    guarantees for every one of the six values (see ``eval/metrics.py`` module
+    docstring, "Interpreting normalized metrics", for what the raw metrics are
+    normalised against).
 
     Parameters
     ----------
@@ -608,11 +615,25 @@ def plot_metrics(report: EvalReport, path: Union[str, Path]) -> list[str]:
     -----
     D-09: Horizontal bar chart chosen for immediate readability of 6
     normalised metric scores.  Values from ``report.metrics.normalized``
-    are already in ``[0, 1]`` after ``MetricsEngine.normalize``.
+    are already in ``[0, 1]`` after ``MetricsEngine.normalize``, and every
+    value follows the same convention — 1.0 is always best, 0.0 is always
+    worst — regardless of whether the underlying raw metric is originally
+    lower-is-better (chamfer, hausdorff, path_smoothness, temporal_stability)
+    or higher-is-better (f1, knn_consistency).  This is stated explicitly on
+    the x-axis so the chart is self-describing without the caption.
 
     The 6 canonical short-name keys (Pitfall 4 from RESEARCH.md) are
     hardcoded in this function to guarantee consistent bar order regardless
     of dict insertion order.  They match the keys in ``EvalConfig.metric_weights``.
+    The first four keys are alignment-stage metrics; the last two are
+    label-transfer-stage metrics.  Bars are coloured accordingly (blue /
+    orange, a validated colour-blind-safe adjacent pair) with a thin
+    separator rule between the two groups and a two-entry legend.
+
+    Style is deliberately minimal — flat fills, no chart title, hairline
+    axis and gridlines, no top/right spines — closer to a journal figure
+    than a dashboard widget, since this plot is meant to sit in a paper or
+    report figure alongside a caption rather than stand alone.
 
     FRAME-08 mandatory rules:
     - ``plt.close(fig)`` is called after ``fig.savefig``.
@@ -620,7 +641,7 @@ def plot_metrics(report: EvalReport, path: Union[str, Path]) -> list[str]:
 
     The x-axis limit is set to ``[0, 1]`` via ``ax.set_xlim(0, 1)`` per D-09.
     """
-    labels = [
+    metric_keys = [
         "chamfer",
         "hausdorff",
         "path_smoothness",
@@ -628,12 +649,59 @@ def plot_metrics(report: EvalReport, path: Union[str, Path]) -> list[str]:
         "f1",
         "knn_consistency",
     ]
-    values = [report.metrics.normalized.get(k, 0.0) for k in labels]
+    display_names = {
+        "chamfer": "Chamfer",
+        "hausdorff": "Hausdorff",
+        "path_smoothness": "Path smoothness",
+        "temporal_stability": "Temporal stability",
+        "f1": "F1",
+        "knn_consistency": "kNN consistency",
+    }
+    # First 4 keys are alignment-stage metrics, last 2 are label-transfer-stage
+    # metrics (Pitfall 4 key order) — grouping below relies on this split index.
+    n_alignment = 4
+    alignment_keys = set(metric_keys[:n_alignment])
 
-    fig, ax = plt.subplots(figsize=(8, 4))
-    ax.barh(labels, values)
+    # Colour-blind-safe adjacent pair (validated categorical slots 1 & 2).
+    ALIGNMENT_COLOR = "#2a78d6"
+    LABEL_TRANSFER_COLOR = "#eb6834"
+
+    labels = [display_names[k] for k in metric_keys]
+    values = [report.metrics.normalized.get(k, 0.0) for k in metric_keys]
+    colors = [
+        ALIGNMENT_COLOR if k in alignment_keys else LABEL_TRANSFER_COLOR
+        for k in metric_keys
+    ]
+
+    fig, ax = plt.subplots(figsize=(6.5, 3.6))
+    y_pos = list(range(len(labels)))
+    ax.barh(y_pos, values, color=colors, height=0.6, zorder=3)
+    ax.set_yticks(y_pos)
+    ax.set_yticklabels(labels, fontsize=9)
+    ax.invert_yaxis()  # first metric on top
     ax.set_xlim(0, 1)
-    ax.set_xlabel("Normalised Score")
+    ax.set_xlabel("Normalised score (higher is better →)", fontsize=9)
+
+    # Minimal / journal-figure style: no title, no top/right/left spines,
+    # hairline gridlines behind the bars, thin bottom axis.
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["left"].set_visible(False)
+    ax.spines["bottom"].set_color("#c3c2b7")
+    ax.tick_params(axis="both", length=0, labelsize=9)
+    ax.xaxis.grid(True, color="#e1e0d9", linewidth=0.8, zorder=0)
+    ax.set_axisbelow(True)
+
+    # Separator rule between the alignment and label-transfer groups.
+    ax.axhline(n_alignment - 0.5, color="#c3c2b7", linewidth=0.8, zorder=2)
+
+    legend_patches = [
+        mpatches.Patch(color=ALIGNMENT_COLOR, label="Alignment"),
+        mpatches.Patch(color=LABEL_TRANSFER_COLOR, label="Label transfer"),
+    ]
+    ax.legend(handles=legend_patches, loc="lower right", frameon=False, fontsize=8)
+
+    fig.tight_layout()
     written: list[str] = []
     _save_fig(fig, Path(path).with_suffix(""), written)
     return written

@@ -13,8 +13,11 @@
 # continuous RGB-like noise (N,3 floats, not discrete classes) and its "id"
 # field is a unique per-point tracking identity (every point its own
 # singleton — verified directly against the real tracklets file: 6930/6930
-# unique ids in frame 0), unlike Shah's "id" which carries real small-integer
-# class labels. Running label transfer against Kobitski would score against
+# unique ids in frame 0). Corrected (Phase 56 D-05/D-06): Shah's real
+# cell-type classes live in its "label" field (populated from the CSV
+# "layer" column by load_shah_from_csv), NOT its "id" field — an earlier
+# version of this comment backwards-attributed the real classes to Shah's
+# "id". Running label transfer against Kobitski would score against
 # a meaningless "ground truth". ground_truth/shah_sample1.yaml is the one
 # that exercises both stages (Shah's label field is genuine classes).
 #

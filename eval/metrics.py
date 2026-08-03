@@ -44,6 +44,71 @@ uses the same short keys, so ``compute_score`` is a clean dot product.
 calls ``.item()`` on the tensor returns before packing into ``StageMetrics``
 (whose fields are typed ``float``) to avoid silent loss of precision or
 ``ValidationError`` from pydantic.
+
+Interpreting normalized metrics
+--------------------------------
+The six raw metrics fall into two families that are normalized very
+differently, and knowing which family a metric belongs to is necessary to
+read the normalized value correctly.
+
+**1. Distance-based metrics — chamfer, hausdorff, temporal_stability.**
+These are unbounded, lower-is-better values measured in the *coordinate
+units of the point cloud passed into the metric*, not in some fixed
+percentage or physical unit.  ``normalize()`` maps them through the
+saturating curve ``1 / (1 + x)``:
+
+- ``x = 0`` → ``1.0`` (identical clouds / zero drift — the best possible
+  score).
+- ``x = 1`` (one coordinate unit of average error) → ``0.5``.
+- As ``x → ∞``, the score → ``0`` but never reaches it.
+
+Crucially, "one coordinate unit" is **not** an absolute, cross-dataset
+constant — it is whatever scale the point cloud happens to be in when the
+metric is computed.  In this pipeline that scale is normally set by
+``EvalConfig.data_preprocessing`` (default ``method="standardize"``, i.e.
+z-score normalization applied per-dimension in ``DataFactory.load_real`` /
+``load_target`` — see ``eval/config.py:DataPreprocessingConfig``), so by
+default ``x = 1`` roughly corresponds to *one standard deviation* of the
+point spread in that trajectory, not to a fixed physical distance.  If
+preprocessing is disabled (``data_preprocessing=None``) or set to a
+different method, the same raw ``x`` value means something else again.
+**Practical consequence:** a normalized chamfer score of 0.8 in one run and
+0.8 in another run are only "equally good" if both runs used the same
+preprocessing config on datasets of comparable spread — they are not
+comparable across datasets with different scale/units, or across a
+preprocessed vs. an unpreprocessed run.
+
+**2. path_smoothness is a distance-based metric too, but not spatial.**
+It is the variance of DTW-path curvature computed over *index* pairs
+``(i, j)``, not over point coordinates, so it is dimensionless and
+independent of point-cloud scale or ``data_preprocessing``.  Its magnitude
+instead scales with the DTW path length / number of frames (a longer,
+noisier warp path produces a larger raw value).  The same ``1 / (1 + x)``
+saturating map is applied for consistency of range, but the "1 unit"
+reference point here means "one unit of path curvature," unrelated to
+spatial scale.
+
+**3. Fraction-based metrics — f1, knn_consistency.**
+These are already bounded in ``[0, 1]`` by construction (F1 is an
+F-measure over label counts; kNN consistency is literally a fraction of
+matching neighbours) — ``normalize()`` passes them through unchanged.
+Unlike the distance-based family, these ARE directly comparable across
+datasets and runs, since "1.0" always means the same thing (perfect label
+agreement) regardless of point-cloud scale.
+
+**What the normalized scores are for.**  Because of the scale-dependence
+above, treat the six ``normalized`` values as being most reliable for:
+
+- feeding ``compute_score``'s weighted sum for hyperparameter search /
+  ranking trials *within* one dataset and preprocessing configuration;
+- eyeballing which of the six metrics is comparatively weak or strong for
+  a single run.
+
+Do not use them for absolute claims across runs ("chamfer went from 0.6 to
+0.8, so alignment improved by 0.2") without also checking the corresponding
+raw values (``StageMetrics.chamfer_distance`` etc., or
+``MetricsEngine.aggregate``'s per-field ``mean``/``std``) in their native
+units — the raw values are what actually carries physical meaning.
 """
 
 # stdlib first
@@ -143,6 +208,13 @@ class MetricsEngine:
         - ``"temporal_stability"``  ``1 / (1 + temporal_stability)``
         - ``"f1"``                  ``f1_score`` (pass-through)
         - ``"knn_consistency"``     ``knn_consistency`` (pass-through)
+
+        See the module docstring's "Interpreting normalized metrics" section
+        for what each raw value is normalized *against* (point-cloud scale
+        for chamfer/hausdorff/temporal_stability vs. DTW path index space for
+        path_smoothness vs. already-bounded fractions for f1/knn_consistency)
+        and why normalized scores from different datasets or preprocessing
+        configs are not directly comparable for the distance-based metrics.
         """
         return {
             "chamfer": 1.0 / (1.0 + metrics.chamfer_distance),

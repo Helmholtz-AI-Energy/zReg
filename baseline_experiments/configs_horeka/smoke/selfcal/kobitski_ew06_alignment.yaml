@@ -27,13 +27,13 @@ n_synthetic: 0
 
 search_space:
   cpd_penalty: ["rigid", "affine", "nonrigid"]  # null excluded: dtw_dist_fn=cpd uses reg.q as distance; cpd_metric=inf when cpd_type=None → all-inf cost matrix → DTW backtrace fails
-  window_size: [5, 10, 20]
-  step: [8]  # single-value list, not a real search - see README.md Runtime section: HyperparamOptimizer._objective merges its own hardcoded _default_params (step=1) with the trial's sampled params, so default_params.step alone is silently ignored unless step is also a search_space key
+  window_size: [10, 20]  # 5 removed: smoke step=16 gives 24 frames; frame_diff=0 (selfcal) so 5 is valid but redundant at this scale; keep 10+20 to exercise both regimes
+  step: [16]  # smoke-only override: step=16 → 24 frames (vs 47 at step=8); window=20 then costs 24×41×0.7s≈11.5min/trial×5≈57min, fits in 1h; full configs keep step=8
   dtw_dist_fn: [cpd]
 
 default_params:
   window_size: 10
-  step: 8  # fixed temporal downsampling - was searched over [1,2], now fixed & excluded from search_space so every trial gets the full stride benefit (see README.md Runtime section)
+  step: 16  # smoke-only: matches search_space step=[16] above
   cpd_penalty: "rigid"  # fallback when best_params.json is empty; dtw_dist_fn=cpd requires a non-null cpd_penalty
   dtw_dist_fn: cpd
   n_breakpoints: 5

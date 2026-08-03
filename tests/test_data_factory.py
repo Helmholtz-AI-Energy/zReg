@@ -117,6 +117,21 @@ class TestEvalConfigFromYAML:
         with pytest.raises(EvalConfigError, match="pipeline_mode"):
             EvalConfig.from_yaml(p)
 
+    def test_ground_truth_field_defaults_to_label(self):
+        """Phase 56 D-01: ground_truth_field defaults to 'label' on direct construction."""
+        cfg = EvalConfig(data_path="x")
+        assert cfg.ground_truth_field == "label"
+
+    def test_ground_truth_field_accepts_id_override(self):
+        """Phase 56 D-02: ground_truth_field='id' is a valid explicit override."""
+        cfg = EvalConfig(data_path="x", ground_truth_field="id")
+        assert cfg.ground_truth_field == "id"
+
+    def test_ground_truth_field_rejects_invalid_string(self):
+        """Phase 56 D-02: ground_truth_field is a closed Literal — no free-form values."""
+        with pytest.raises(pydantic.ValidationError):
+            EvalConfig(data_path="x", ground_truth_field="bogus")
+
     def test_target_data_path_optional_and_round_trips(self, tmp_path):
         """target_data_path round-trips from YAML; default is None."""
         p = tmp_path / "with_target.yaml"
@@ -419,6 +434,16 @@ class TestGenerateTarget:
         assert factory._synthetic_target is None
         assert factory._source_dataset is None
         assert factory._transform_spec is None
+        assert factory._correspondence_idx is None  # Phase 56 D-03/D-04
+
+    def test_generate_target_resets_correspondence_idx_when_noise_only(self):
+        """Phase 56 D-03: noise-only generate_target() leaves _correspondence_idx None
+        (never touches drop_points/sample_new_points)."""
+        cfg = EvalConfig(data_path="x")
+        factory = DataFactory(cfg)
+        ds = self._make_small_ds()
+        factory.generate_target(ds, {"type": "noise", "sigma": 0.1})
+        assert factory._correspondence_idx is None
 
     def test_generate_target_with_noise_returns_distinct_dataset(self):
         """D-01: noise transform produces pos tensors different from input dataset."""
@@ -941,6 +966,19 @@ class TestDropPoints:
         factory.drop_points(ds, 0.3, seed=42)
         assert ds[0]["pos"].shape[0] == 100
 
+    def test_correspondence_idx_matches_id_field_on_fresh_factory(self):
+        """Phase 56 D-03: on a fresh factory, _correspondence_idx[i] equals the
+        idx tensor produced by torch.randperm — verified via ds['id']=arange(100)
+        indexed by the same idx, so _correspondence_idx[i] == out[i]['id'] by
+        construction."""
+        cfg = EvalConfig(data_path="x", augmentation_params={})
+        factory = DataFactory(cfg)
+        ds = self._make_ds_100pts()
+        out = factory.drop_points(ds, 0.3, seed=42)
+        for i in ds:
+            assert factory._correspondence_idx[i].shape[0] == 70
+            assert torch.equal(factory._correspondence_idx[i], out[i]["id"])
+
 
 # ---------------------------------------------------------------------------
 # TestSampleNewPoints — sample_new_points(dataset, n_extra, seed) (Plan 27-01)
@@ -1012,6 +1050,36 @@ class TestSampleNewPoints:
         out = factory.sample_new_points(ds, 10, seed=42)
         for i in ds:
             assert out[i]["fps-idx"].shape[0] == 110
+
+    def test_correspondence_idx_fresh_factory(self):
+        """Phase 56 D-03: on a fresh factory, _correspondence_idx[i] is
+        arange(100) followed by 10 sentinel -1 entries."""
+        cfg = EvalConfig(data_path="x", augmentation_params={})
+        factory = DataFactory(cfg)
+        ds = self._make_ds_100pts()
+        factory.sample_new_points(ds, 10, seed=42)
+        for i in ds:
+            corr = factory._correspondence_idx[i]
+            assert corr.shape[0] == 110
+            assert torch.equal(corr[:100], torch.arange(100, dtype=torch.long))
+            assert (corr[100:] == -1).all()
+
+    def test_correspondence_idx_chains_after_drop_points(self):
+        """Phase 56 D-03/D-04: chaining drop_points then sample_new_points on the
+        SAME factory instance composes correspondence correctly (matches
+        augment()'s dispatch order: dropout_fraction before n_new_points)."""
+        cfg = EvalConfig(data_path="x", augmentation_params={})
+        factory = DataFactory(cfg)
+        ds = self._make_ds_100pts()
+        dropped = factory.drop_points(ds, 0.3, seed=42)
+        after_drop_corr = {i: t.clone() for i, t in factory._correspondence_idx.items()}
+        extended = factory.sample_new_points(dropped, 5, seed=1)
+        for i in ds:
+            corr = factory._correspondence_idx[i]
+            assert corr.shape[0] == 75  # 70 + 5
+            assert torch.equal(corr[:70], after_drop_corr[i])
+            assert (corr[70:] == -1).all()
+        assert extended[0]["pos"].shape[0] == 75
 
 
 # ---------------------------------------------------------------------------

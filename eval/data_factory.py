@@ -146,6 +146,12 @@ class DataFactory:
         self._source_dataset: dict[int, zRegPointCloud] | None = None
         self._transform_spec: dict | None = None
         self._preprocessing_stats: dict | None = None
+        # Phase 56 D-03/D-04: per-frame original-index correspondence map,
+        # populated by drop_points()/sample_new_points() and consumed by
+        # get_synthetic_ground_truth() to gather (not truncate) y_true when
+        # dropout/new-points change point counts. Deliberately reusable by
+        # Phase 57 (subsample-pair generation has the same need).
+        self._correspondence_idx: dict[int, torch.Tensor] | None = None
 
     def load_real(self) -> dict[int, zRegPointCloud]:
         """Load the real dataset from disk (lazy, cached).
@@ -327,6 +333,7 @@ class DataFactory:
             )
         # D-02: save original augmentation_params and restore in finally
         original_params = self.config.augmentation_params
+        self._correspondence_idx = None  # D-03/D-04 (Phase 56): reset so this call composes a fresh correspondence map
         try:
             self.config.augmentation_params = augment_params
             result = self.augment(dataset)
@@ -946,9 +953,23 @@ class DataFactory:
         -------
         dict[int, zRegPointCloud]
             New trajectory with fewer points per frame.
+
+        Notes
+        -----
+        Phase 56 D-03: also updates ``self._correspondence_idx`` — a
+        per-frame map from retained-position to original-source-position,
+        composed with any prior correspondence from an earlier
+        ``drop_points``/``sample_new_points`` call in the same
+        ``augment()``/``generate_target()`` chain. Note (out of scope,
+        D-03): if ``add_outliers`` (the ``"n_outliers"`` augment key,
+        dispatched BEFORE ``dropout_fraction``/``n_new_points``) was applied
+        earlier in the same chain, outlier-injected points are
+        indistinguishable from genuine source points here — correspondence
+        tracking is scoped to drop_points/sample_new_points only.
         """
         torch.manual_seed(seed)
         result: dict[int, zRegPointCloud] = {}
+        new_corr: dict[int, torch.Tensor] = {}
         for i, pc in dataset.items():
             n = pc["pos"].shape[0]
             keep = max(1, round(n * (1.0 - fraction)))
@@ -959,6 +980,12 @@ class DataFactory:
                 id=pc["id"][idx] if pc["id"] is not None else None,
             )
             result[i]["fps-idx"] = pc["fps-idx"][idx] if pc["fps-idx"] is not None else None
+            # Phase 56 D-03: compose with prior correspondence, or start fresh
+            if self._correspondence_idx is not None and i in self._correspondence_idx:
+                new_corr[i] = self._correspondence_idx[i][idx]
+            else:
+                new_corr[i] = idx.clone()
+        self._correspondence_idx = new_corr
         return result
 
     def sample_new_points(
@@ -995,9 +1022,17 @@ class DataFactory:
         -------
         dict[int, zRegPointCloud]
             New trajectory with ``n_extra`` additional points per frame.
+
+        Notes
+        -----
+        Phase 56 D-03: also updates ``self._correspondence_idx`` — appends
+        ``-1`` sentinel entries (no original-source correspondence) for the
+        newly-sampled points, composed with any prior correspondence from an
+        earlier ``drop_points``/``sample_new_points`` call in the same chain.
         """
         torch.manual_seed(seed)
         result: dict[int, zRegPointCloud] = {}
+        new_corr: dict[int, torch.Tensor] = {}
         for i, pc in dataset.items():
             pos = pc["pos"]
             bbox_min = pos.min(dim=0).values
@@ -1020,4 +1055,14 @@ class DataFactory:
                 id=_extend(pc["id"]),
             )
             result[i]["fps-idx"] = _extend(pc["fps-idx"])
+            # Phase 56 D-03: compose with prior correspondence, or start fresh
+            # from an identity map over the PRE-extension point count.
+            if self._correspondence_idx is not None and i in self._correspondence_idx:
+                base = self._correspondence_idx[i]
+            else:
+                base = torch.arange(pos.shape[0], dtype=torch.long, device=pos.device)
+            new_corr[i] = torch.cat(
+                [base, torch.full((n_extra,), -1, dtype=torch.long, device=pos.device)]
+            )
+        self._correspondence_idx = new_corr
         return result

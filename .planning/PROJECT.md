@@ -51,13 +51,16 @@ Every existing capability works correctly, fails informatively, and is covered b
 
 ### Active
 
-v1.7 Minor Adjustments — GT-04/05/06 (Phase 57, synthetic labeled subsample-pair generation) remain; see `.planning/REQUIREMENTS.md`.
+v1.7 Minor Adjustments — all 6 requirements satisfied (Phases 56 and 57 both complete and verified); see `.planning/REQUIREMENTS.md`. v1.6 HoreKa Cluster Execution (Phase 54) resumes next.
 
-### Validated in v1.7 (2026-08-04, partial — Phase 56 of 57)
+### Validated in v1.7 (2026-08-04, complete — Phases 56 and 57)
 
 - ✓ GT-01: `EvalConfig.ground_truth_field: Literal["id","label"]="label"` — GT extraction now reads the field `LabelTransferStage` actually transfers — Phase 56
 - ✓ GT-02: correspondence-tracked `y_true`/`y_pred` pairing (`_correspondence_idx` through `drop_points`/`sample_new_points`) replacing positional truncation — Phase 56
 - ✓ GT-03: Shah/Kobitski ground-truth config comments corrected; fully-synthetic label-transfer configs' degenerate placeholder documented — Phase 56
+- ✓ GT-04: `transform_spec: {type: "subsample_pair"}` — YAML-configurable synthetic dataset pair generation via subsampling — Phase 57
+- ✓ GT-05: `DataFactory.generate_subsample_pair()` — generalizes beyond `generate_training_triple()` to accept any already-loaded dataset (real or synthetic) — Phase 57
+- ✓ GT-06: `EvaluationRunner`/`HyperparamOptimizer` (all three `pipeline_mode=="synthetic"` call sites) run label-transfer HPO against subsample-pair ground truth, with D-07's opt-in tier-gated multi-seed averaging — Phase 57
 
 ### Validated in v1.4 (2026-07-08)
 
@@ -176,4 +179,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-04 — Phase 56 (Ground-Truth Field Consistency) complete, GT-01/02/03 satisfied*
+*Last updated: 2026-08-04 — Phase 57 (Synthetic Labeled Subsample-Pair Generation) complete, GT-04/05/06 satisfied — v1.7 Minor Adjustments fully complete*

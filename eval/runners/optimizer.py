@@ -410,10 +410,36 @@ class HyperparamOptimizer:
             # Pitfall 4: merge defaults first, trial params override
             merged = {**self._default_params, **params}
 
+            # Phase 57 GT-06: carries the sanity-tier isolated scratch DataFactory
+            # from site 2 (this block) to site 3 (GT-selection, below) within
+            # this single _objective() call.
+            scratch_factory = None
+
             # Phase 30/31 source/target dispatch — Pitfall 7 + CONTEXT D-03/D-10/D-11
             # Phase 31 MODE-02/MODE-03: synthetic mode branches added here
             if self.config.pipeline_mode == "synthetic":
-                if tier_name == "sanity":
+                if self._is_subsample_pair_mode():
+                    # Phase 57 GT-06/D-06/T-57-06: subsample_pair mode.
+                    if tier_name == "sanity":
+                        # Sanity tier ALWAYS synthesizes fresh small geometry,
+                        # regardless of the original transform_spec["synthesize"]
+                        # value — matching the existing convention that the
+                        # sanity tier never touches real data. Uses an isolated
+                        # scratch DataFactory, mirroring
+                        # _apply_transform_to_dataset's isolation contract —
+                        # self._factory is never touched here.
+                        sanity_spec = {**self.config.transform_spec, "synthesize": True}
+                        scratch_factory = DataFactory(self.config)
+                        tier_dataset, tier_target = scratch_factory.generate_subsample_pair(
+                            None, sanity_spec
+                        )
+                    else:  # dev / full
+                        tier_target = {
+                            k: self._factory._synthetic_target[k]
+                            for k in tier_dataset
+                            if k in self._factory._synthetic_target
+                        }
+                elif tier_name == "sanity":
                     # D-11: apply transform locally — NOT via self._factory.generate_target()
                     # to avoid overwriting _synthetic_target (Pitfall 3)
                     tier_target = _apply_transform_to_dataset(
@@ -454,7 +480,18 @@ class HyperparamOptimizer:
 
             # GT selection — branches on pipeline_mode (Phase 31 MODE-03, D-08/D-09)
             if self.config.pipeline_mode == "synthetic":
-                if tier_name == "sanity":
+                if self._is_subsample_pair_mode():
+                    # Phase 57 GT-06: correspondence-based extraction (not
+                    # positional) for both tiers — subsample_pair's
+                    # source/target views do not share point-for-point
+                    # positional correspondence the way rigid/noise
+                    # identity-transform pairs do.
+                    if tier_name == "sanity":
+                        # Same scratch_factory instance created at site 2.
+                        y_true = scratch_factory.get_synthetic_ground_truth()[source_sorted_keys[-1]]
+                    else:  # dev / full
+                        y_true = self._factory.get_synthetic_ground_truth()[source_sorted_keys[-1]]
+                elif tier_name == "sanity":
                     # Sanity toy dataset has labels in pc["label"] (generate_labels contract,
                     # Pitfall 5 from Phase 31 RESEARCH.md). get_synthetic_ground_truth() reads
                     # _source_dataset (the real dataset), not the toy dataset — use label directly.

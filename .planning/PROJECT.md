@@ -51,7 +51,13 @@ Every existing capability works correctly, fails informatively, and is covered b
 
 ### Active
 
-v1.7 Minor Adjustments — requirements being defined, see `.planning/REQUIREMENTS.md`.
+v1.7 Minor Adjustments — GT-04/05/06 (Phase 57, synthetic labeled subsample-pair generation) remain; see `.planning/REQUIREMENTS.md`.
+
+### Validated in v1.7 (2026-08-04, partial — Phase 56 of 57)
+
+- ✓ GT-01: `EvalConfig.ground_truth_field: Literal["id","label"]="label"` — GT extraction now reads the field `LabelTransferStage` actually transfers — Phase 56
+- ✓ GT-02: correspondence-tracked `y_true`/`y_pred` pairing (`_correspondence_idx` through `drop_points`/`sample_new_points`) replacing positional truncation — Phase 56
+- ✓ GT-03: Shah/Kobitski ground-truth config comments corrected; fully-synthetic label-transfer configs' degenerate placeholder documented — Phase 56
 
 ### Validated in v1.4 (2026-07-08)
 
@@ -170,4 +176,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-01 — v1.7 Minor Adjustments milestone started*
+*Last updated: 2026-08-04 — Phase 56 (Ground-Truth Field Consistency) complete, GT-01/02/03 satisfied*

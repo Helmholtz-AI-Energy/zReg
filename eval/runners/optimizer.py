@@ -233,8 +233,20 @@ class HyperparamOptimizer:
             and self.config.transform_spec is not None
             and self.config.tier != "sanity"
         ):
-            real_source = self._factory.load_real()
-            self._factory.generate_target(real_source, self.config.transform_spec)
+            # Phase 57 GT-06/D-06: subsample_pair mode pre-populates via
+            # generate_subsample_pair() (single fixed seed for every trial)
+            # instead of generate_target(); the rigid/noise path below is
+            # otherwise completely unchanged.
+            if self._is_subsample_pair_mode():
+                base = (
+                    None
+                    if self.config.transform_spec.get("synthesize", False)
+                    else self._factory.load_real()
+                )
+                self._factory.generate_subsample_pair(base, self.config.transform_spec)
+            else:
+                real_source = self._factory.load_real()
+                self._factory.generate_target(real_source, self.config.transform_spec)
 
         # Tier execution sequence — stop at config.tier ceiling (D-01)
         TIER_SEQUENCE = ["sanity", "dev", "full"]
@@ -531,14 +543,45 @@ class HyperparamOptimizer:
             traj = generate_trajectory(n_points=50, n_frames=3, seed=42)
             return generate_labels(traj, n_classes=4, seed=42)
         elif tier == "dev":
+            # Phase 57 GT-06: subsample_pair mode — _subsample_source_view is
+            # only non-None after run()'s pre-populate step has run for this
+            # tier ceiling (tier != "sanity"); _tier_dataset("dev") is only
+            # ever called from within that same tier loop, so no None-dereference
+            # risk exists (see T-57-07).
+            if self._is_subsample_pair_mode():
+                return self._factory._subsample_source_view
             # Use real data if available, otherwise fall back to synthetic
             data_path = Path(self.config.data_path) if self.config.data_path else None
             if data_path and data_path.exists():
                 return self._factory.load_real()
             return self._factory.generate_synthetic()
         else:
+            # Phase 57 GT-06: subsample_pair mode — see "dev" branch comment above.
+            if self._is_subsample_pair_mode():
+                return self._factory._subsample_source_view
             # full tier — full real dataset
             return self._factory.load_real()
+
+    def _is_subsample_pair_mode(self) -> bool:
+        """Return True when the current config targets subsample_pair generation.
+
+        Phase 57 GT-06 / D-06: the default single-fixed-seed subsample_pair
+        path is dispatched on this predicate at all three
+        ``pipeline_mode == "synthetic"`` call sites in this file (``run()``'s
+        pre-populate step, ``_tier_dataset()``, ``_objective()``).
+
+        Returns
+        -------
+        bool
+            ``True`` iff ``pipeline_mode == "synthetic"`` AND
+            ``transform_spec is not None`` AND
+            ``transform_spec.get("type") == "subsample_pair"``.
+        """
+        return (
+            self.config.pipeline_mode == "synthetic"
+            and self.config.transform_spec is not None
+            and self.config.transform_spec.get("type") == "subsample_pair"
+        )
 
     @staticmethod
     def prune_candidates(history: list[Trial], keep_top_k: int) -> list[dict]:

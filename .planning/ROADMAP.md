@@ -23,7 +23,7 @@
 **Milestone Goal:** General-purpose catch-all milestone for small, unrelated fixes and additions that don't warrant their own themed milestone — fixing the ground-truth field mismatch in the evaluation framework and adding a synthetic labeled subsample-pair generation mechanism. (Paused v1.6 HoreKa work resumes at Phase 54 after this milestone ships.)
 
 - [x] **Phase 56: Ground-Truth Field Consistency** - Label-transfer F1 ground truth is drawn from the same field `LabelTransferStage` actually transfers, and stays correctly paired even when `transform_spec` changes point counts (completed 2026-08-04)
-- [ ] **Phase 57: Synthetic Labeled Subsample-Pair Generation** - Label-transfer HPO can run against a config-driven synthetic subsample-pair ground truth mechanism, alongside the existing `transform_spec` mechanism
+- [x] **Phase 57: Synthetic Labeled Subsample-Pair Generation** - Label-transfer HPO can run against a config-driven synthetic subsample-pair ground truth mechanism, alongside the existing `transform_spec` mechanism (completed 2026-08-04)
 
 ### 🚧 v1.6 HoreKa Cluster Execution (In Progress)
 
@@ -73,16 +73,16 @@ Plans:
 
 **Wave 1**
 
-- [ ] 57-01-PLAN.md — DataFactory.generate_subsample_pair() + _subsample_source_view attribute + config docstring (GT-04, GT-05)
+- [x] 57-01-PLAN.md — DataFactory.generate_subsample_pair() + _subsample_source_view attribute + config docstring (GT-04, GT-05)
 
 **Wave 2** *(both depend on 57-01, no file overlap between them)*
 
-- [ ] 57-02-PLAN.md — EvaluationRunner.run() subsample_pair dispatch branch (GT-04, GT-06)
-- [ ] 57-03-PLAN.md — HyperparamOptimizer single-seed subsample_pair wiring across run()/_tier_dataset()/_objective() (GT-06)
+- [x] 57-02-PLAN.md — EvaluationRunner.run() subsample_pair dispatch branch (GT-04, GT-06)
+- [x] 57-03-PLAN.md — HyperparamOptimizer single-seed subsample_pair wiring across run()/_tier_dataset()/_objective() (GT-06)
 
 **Wave 3** *(depends on 57-03, same file)*
 
-- [ ] 57-04-PLAN.md — D-07 opt-in multi-seed averaging, gated to the full tier (GT-04, GT-06)
+- [x] 57-04-PLAN.md — D-07 opt-in multi-seed averaging, gated to the full tier (GT-04, GT-06)
 
 ### Phase 51: Environment & Access
 
@@ -178,7 +178,7 @@ Plans:
 **Goal:** zreg.data_generation.labels exposes assign_cap_labels (hard spherical-cap boundary) and assign_gaussian_labels (angle-dependent Bernoulli labels), both following the immutable deep-copy contract and exported from the package.
 **Requirements**: none mapped
 **Depends on:** Phase 54
-**Plans:** 2/2 plans complete
+**Plans:** 4/4 plans complete
 
 Plans:
 
@@ -410,7 +410,7 @@ Phases execute in numeric order: 56 → 57 (v1.6 paused after Phase 51; resumes 
 | 53. GPU Acceleration | v1.6 | 0/TBD | Not started | - |
 | 54. Budget Calibration & Full-Suite Gate | v1.6 | 0/TBD | Not started | - |
 | 56. Ground-Truth Field Consistency | v1.7 | 2/2 | Complete    | 2026-08-04 |
-| 57. Synthetic Labeled Subsample-Pair Generation | v1.7 | 0/4 | Not started | - |
+| 57. Synthetic Labeled Subsample-Pair Generation | v1.7 | 4/4 | Complete    | 2026-08-04 |
 
 | Milestone | Phases | Plans | Status | Shipped |
 |-----------|--------|-------|--------|---------|
@@ -422,4 +422,4 @@ Phases execute in numeric order: 56 → 57 (v1.6 paused after Phase 51; resumes 
 | v1.6 HoreKa Cluster Execution | 51–54 (4) | TBD | 🚧 In progress | - |
 | v1.7 Minor Adjustments | 56–57 (2) | TBD | 🚧 In progress | - |
 
-_Next: `/gsd:execute-phase 57` to execute Phase 57 (Synthetic Labeled Subsample-Pair Generation, 4 plans across 3 waves)._
+_v1.7 Minor Adjustments complete (Phases 56–57, both verified). v1.6 HoreKa Cluster Execution resumes next: `/gsd:plan-phase 54` (Budget Calibration & Full-Suite Gate). Or run `/gsd:complete-milestone` to formally close out v1.7 first._

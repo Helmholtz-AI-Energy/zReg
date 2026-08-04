@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: Minor Adjustments
 status: executing
-stopped_at: Phase 57 context gathered
-last_updated: "2026-08-04T11:44:03.925Z"
-last_activity: 2026-08-04 -- Phase 57 execution started
+stopped_at: Phase 57 complete (VERIFICATION.md passed, 6/6 must-haves) — v1.7 milestone complete
+last_updated: "2026-08-04T14:42:25.816Z"
+last_activity: 2026-08-04 -- Phase 57 complete, GT-04/05/06 satisfied; v1.7 Minor Adjustments fully complete
 progress:
   total_phases: 50
-  completed_phases: 24
+  completed_phases: 25
   total_plans: 69
-  completed_plans: 93
-  percent: 48
+  completed_plans: 97
+  percent: 50
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-15 after v1.5/v1.6 roadmap creation)
 
 **Core value:** Every existing capability works correctly, fails informatively, and is covered by tests.
-**Current focus:** Phase 57 — Synthetic Labeled Subsample-Pair Generation
+**Current focus:** v1.7 Minor Adjustments complete — v1.6 Phase 54 (Budget Calibration & Full-Suite Gate) resumes next
 
 ## Current Position
 
-Phase: 57 (Synthetic Labeled Subsample-Pair Generation) — EXECUTING
-Plan: 1 of 4
-Status: Executing Phase 57
-Last activity: 2026-08-04 -- Phase 57 execution started
+Phase: 57 of 57 — complete; v1.7 milestone fully satisfied (6/6 requirements)
+Plan: 57-01, 57-02, 57-03, 57-04 (all 4 executed, VERIFICATION.md passed)
+Status: v1.7 Minor Adjustments complete. Next: resume v1.6 (Phase 54) or run /gsd:complete-milestone
+Last activity: 2026-08-04 -- Phase 57 complete, GT-04/05/06 satisfied; v1.7 fully complete
 
 ## Shipped Milestones
 
@@ -46,7 +46,7 @@ Full history: .planning/MILESTONES.md · Retrospective: .planning/RETROSPECTIVE.
 | Phase | Name | Requirements | Status |
 |-------|------|---------------|--------|
 | 56 | Ground-Truth Field Consistency | GT-01, GT-02, GT-03 | ✅ Complete (2026-08-04) |
-| 57 | Synthetic Labeled Subsample-Pair Generation | GT-04, GT-05, GT-06 | Not started |
+| 57 | Synthetic Labeled Subsample-Pair Generation | GT-04, GT-05, GT-06 | ✅ Complete (2026-08-04) |
 
 Note: Phase numbering starts at 56 (not 55, and not continuing from v1.6's Phase 54) because Phase 55 was already consumed by an unrelated ad-hoc phase (spherical-cap/Gaussian label generators for `zreg.data_generation.labels`), completed 2026-07-30. v1.6 (Phases 51–54) is paused at Phase 54; resumes after v1.7 ships.
 

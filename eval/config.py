@@ -208,7 +208,11 @@ class EvalConfig(BaseModel):
         Dict must contain at least one recognised augmentation key beyond the
         ``"type"`` discriminator (e.g. ``{"type": "rigid", "rotation_deg":
         30.0, "rotation_axis": [0, 0, 1]}`` or ``{"type": "noise", "sigma":
-        0.1}``).  Default ``None``.
+        0.1}``).  A third recognised ``"type"`` value, ``"subsample_pair"``
+        (Phase 57 GT-04), drives ``DataFactory.generate_subsample_pair()``
+        instead of ``generate_target()`` — see that method's docstring for
+        its own key set (``source_fraction``, ``target_fraction``,
+        ``synthesize``, ``seed``, etc.).  Default ``None``.
     target_data_format : str or None
         Format override for the target dataset loader.  Accepted values:
         ``"tracklets"`` or ``"csv"``.  ``None`` (default) inherits

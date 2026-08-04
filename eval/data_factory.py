@@ -152,6 +152,12 @@ class DataFactory:
         # dropout/new-points change point counts. Deliberately reusable by
         # Phase 57 (subsample-pair generation has the same need).
         self._correspondence_idx: dict[int, torch.Tensor] | None = None
+        # Phase 57 D-01: populated by generate_subsample_pair() — the source
+        # view is a SEPARATE subsample from the base dataset, distinct from
+        # self._source_dataset (which holds the pre-subsampling base, for
+        # GT-extraction compatibility) and from self._synthetic_target (which
+        # holds the target view).
+        self._subsample_source_view: dict[int, zRegPointCloud] | None = None
 
     def load_real(self) -> dict[int, zRegPointCloud]:
         """Load the real dataset from disk (lazy, cached).
@@ -344,6 +350,213 @@ class DataFactory:
         self._source_dataset = dataset
         self._transform_spec = transform_spec
         return result
+
+    def generate_subsample_pair(
+        self,
+        dataset: dict[int, zRegPointCloud] | None,
+        transform_spec: dict,
+    ) -> tuple[dict[int, zRegPointCloud], dict[int, zRegPointCloud]]:
+        """Generate a labeled (source, target) subsample-pair with tracked correspondence.
+
+        Sibling mechanism to :meth:`generate_target`'s known-transform path
+        (Phase 57 GT-04/GT-05): instead of applying a fixed geometric
+        transform to a single dataset, this method subsamples a base labeled
+        point cloud TWICE — once per view — using
+        :meth:`drop_points`/``self._correspondence_idx`` (Phase 56 D-01),
+        producing two independently-dropped views with per-point
+        correspondence tracked back to the base dataset.
+
+        Two input modes (D-02):
+
+        - Real/already-loaded data: pass an explicit ``dataset`` (e.g. from
+          :meth:`load_real`/:meth:`load_target`) and leave
+          ``transform_spec["synthesize"]`` unset/``False``.
+        - Synthesize-from-scratch: set ``transform_spec["synthesize"] =
+          True`` and ``dataset=None``; a base cloud is built via the same
+          ``sample_ball``/``sample_bowl`` + :func:`generate_labels` geometry
+          pipeline used by :meth:`generate_training_triple` (which itself is
+          NOT called or modified — this is a sibling, not a wrapper).
+
+        Whether a rigid/noise-style perturbation is layered onto the target
+        view is derived from ``self.config.run_alignment`` (D-03), not a new
+        user-facing flag: when ``True``, a genuine registration challenge is
+        added via :meth:`generate_target`; when ``False``, source and target
+        stay in the same coordinate frame.
+
+        Parameters
+        ----------
+        dataset : dict[int, zRegPointCloud] or None
+            Already-loaded base dataset to subsample from. Required
+            (non-``None``) unless ``transform_spec["synthesize"]`` is
+            ``True``.
+        transform_spec : dict
+            Subsample-pair specification. Recognised keys:
+
+            - ``"seed"`` (int, default 42): drives base-cloud synthesis (if
+              ``synthesize``), the source view's subsample selection, and the
+              default target-view perturbation (when ``run_alignment=True``
+              and no explicit perturbation keys are given). MUST be a single
+              ``int`` — a ``list`` is rejected (see Raises); multi-seed
+              averaging is an ``optimizer.py``-level concern (D-06/D-07).
+            - ``"source_fraction"`` / ``"target_fraction"`` (float, default
+              0.8 each): fraction of ``base_dataset`` points RETAINED in each
+              view. Must be in ``(0.0, 1.0]``.
+            - ``"synthesize"`` (bool, default ``False``): when ``True``,
+              build ``base_dataset`` from scratch instead of requiring
+              ``dataset``.
+            - ``"n_classes"``, ``"shape"``, ``"n_points"``: forwarded to the
+              synthesize-from-scratch geometry pipeline (only consulted when
+              ``synthesize`` is ``True``); mirrors
+              :meth:`generate_training_triple`'s own parameters/defaults.
+            - ``"rotation_deg"``, ``"rotation_axis"``, ``"scale_factor"``,
+              ``"sigma"``: optional explicit perturbation keys applied to the
+              target view when ``run_alignment=True``. When none of these are
+              present, a default rotation+scale perturbation is derived from
+              ``"seed"`` (mirrors :meth:`generate_training_triple`'s default
+              transform construction). ``"dropout_fraction"``,
+              ``"n_outliers"``, ``"n_new_points"``, and ``"augment_seed"`` are
+              deliberately NOT forwarded here — a second dropout on top of
+              the view subsampling is out of this method's scope and would
+              require additional correspondence composition this method does
+              not perform.
+
+        Returns
+        -------
+        tuple[dict[int, zRegPointCloud], dict[int, zRegPointCloud]]
+            ``(source_view, target_view)`` — two independently-subsampled
+            labeled views of ``base_dataset``. Also stored as
+            ``self._subsample_source_view`` (source) and
+            ``self._synthetic_target`` (target).
+
+        Raises
+        ------
+        ValueError
+            If ``transform_spec["seed"]`` is a ``list`` — this method accepts
+            a single ``int`` seed only; ``HyperparamOptimizer`` resolves seed
+            lists into individual per-seed calls (D-06/D-07).
+        ValueError
+            If ``source_fraction`` or ``target_fraction`` is not in
+            ``(0.0, 1.0]``.
+        ValueError
+            If ``dataset is None`` and ``transform_spec["synthesize"]`` is
+            not ``True`` — naming ``transform_spec['synthesize']`` as the
+            flag to set instead.
+
+        Notes
+        -----
+        - D-01: reuses Phase 56's ``drop_points()``/``self._correspondence_idx``
+          machinery rather than reimplementing index tracking.
+        - Producer contract match (GT-extraction compatibility): after this
+          call, ``self._source_dataset`` is the BASE (pre-subsampling)
+          dataset and ``self._correspondence_idx`` is the target view's
+          correspondence back to that base — exactly matching
+          :meth:`generate_target`'s producer contract, so
+          :meth:`get_synthetic_ground_truth` works unmodified.
+        - CRITICAL: :meth:`drop_points` COMPOSES with any prior
+          ``self._correspondence_idx`` when it is non-``None`` rather than
+          starting fresh, so each of the two ``drop_points`` calls below is
+          preceded by an explicit ``self._correspondence_idx = None`` reset —
+          omitting either reset raises ``IndexError`` on any realistic call
+          (see 57-PATTERNS.md Analog 3).
+        """
+        # Step 1: seed extraction + list-seed rejection (D-06/D-07)
+        seed = transform_spec.get("seed", 42)
+        if isinstance(seed, list):
+            raise ValueError(
+                "DataFactory.generate_subsample_pair: transform_spec['seed'] "
+                "must be a single int, not a list. Multi-seed averaging is an "
+                "optimizer.py-level concern — HyperparamOptimizer resolves "
+                "seed lists into individual per-seed calls (D-06/D-07); this "
+                "method never silently averages or picks one entry from a list."
+            )
+
+        # Step 2: fraction validation
+        source_fraction = transform_spec.get("source_fraction", 0.8)
+        target_fraction = transform_spec.get("target_fraction", 0.8)
+        if not (0.0 < source_fraction <= 1.0):
+            raise ValueError(
+                "DataFactory.generate_subsample_pair: source_fraction must be "
+                f"in (0.0, 1.0]; got {source_fraction!r}"
+            )
+        if not (0.0 < target_fraction <= 1.0):
+            raise ValueError(
+                "DataFactory.generate_subsample_pair: target_fraction must be "
+                f"in (0.0, 1.0]; got {target_fraction!r}"
+            )
+
+        # Step 3: base_dataset — synthesize-from-scratch (D-02) or use the
+        # supplied already-loaded dataset
+        synthesize = transform_spec.get("synthesize", False)
+        if synthesize:
+            n_classes = transform_spec.get("n_classes", 6)
+            shape = transform_spec.get("shape")
+            n_points = transform_spec.get("n_points")
+            geom_rng = random.Random(seed)
+            if n_points is None:
+                n_points = geom_rng.randint(100, 300)
+            if shape is None:
+                shape = "ball" if seed % 2 == 0 else "bowl"
+            if shape == "ball":
+                pos = sample_ball(n_points, seed=seed)
+            elif shape == "bowl":
+                pos = sample_bowl(n_points, seed=seed)
+            else:
+                raise ValueError(
+                    "DataFactory.generate_subsample_pair: unknown shape "
+                    f"{shape!r}; expected 'ball' or 'bowl'"
+                )
+            base_frame = {0: zRegPointCloud(pos=pos)}
+            base_dataset = generate_labels(base_frame, n_classes=n_classes, seed=seed)
+        else:
+            if dataset is None:
+                raise ValueError(
+                    "DataFactory.generate_subsample_pair: dataset is None but "
+                    "transform_spec['synthesize'] is not True. Either pass an "
+                    "already-loaded dataset or set transform_spec['synthesize'] "
+                    "= True to generate one from scratch."
+                )
+            base_dataset = dataset
+
+        # Step 4: subsample TWICE from base_dataset using DIFFERENT seeds so
+        # the two views are genuinely different point subsets. drop_points()
+        # COMPOSES with any prior self._correspondence_idx when non-None, so
+        # each call below MUST be preceded by an explicit reset (see Notes).
+        self._correspondence_idx = None  # defensive reset (reused/non-fresh instance)
+        source_view = self.drop_points(base_dataset, 1.0 - source_fraction, seed=seed)
+        source_corr = self._correspondence_idx  # capture before the next reset clears it
+        self._correspondence_idx = None  # required reset — prevents composing against source_corr
+        target_view = self.drop_points(base_dataset, 1.0 - target_fraction, seed=seed + 1)
+        target_corr = self._correspondence_idx
+
+        # Step 5: optional D-03-conditional perturbation of the target view
+        if self.config.run_alignment:
+            perturb_keys = ("rotation_deg", "rotation_axis", "scale_factor", "sigma")
+            perturb_spec = {k: transform_spec[k] for k in perturb_keys if k in transform_spec}
+            if not perturb_spec:
+                perturb_rng = random.Random(seed)
+                perturb_spec = {
+                    "rotation_deg": perturb_rng.uniform(0, 360),
+                    "rotation_axis": [0.0, 0.0, 1.0],
+                    "scale_factor": perturb_rng.uniform(0.8, 1.2),
+                }
+            # generate_target() overwrites self._source_dataset (to the
+            # pre-perturbation target_view) and leaves self._correspondence_idx
+            # None (perturb_spec never contains dropout_fraction/n_new_points).
+            # Restore the correct base-dataset GT contract immediately after.
+            target_view = self.generate_target(target_view, perturb_spec)
+            self._correspondence_idx = target_corr
+            self._source_dataset = base_dataset
+        else:
+            self._correspondence_idx = target_corr
+            self._source_dataset = base_dataset
+            self._synthetic_target = target_view
+
+        # Step 6: regardless of branch — finalize instance state (D-05)
+        self._subsample_source_view = source_view
+        self._transform_spec = transform_spec
+        self._synthetic_target = target_view
+
+        return source_view, target_view
 
     def generate_training_triple(
         self,

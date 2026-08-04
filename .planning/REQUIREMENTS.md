@@ -9,9 +9,9 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Ground-Truth Field Consistency
 
-- [ ] **GT-01**: F1 ground truth is drawn from the same `zRegPointCloud` field that `LabelTransferStage` actually transfers (`pc["label"]`), for both `pipeline_mode: paired` and `pipeline_mode: synthetic`
-- [ ] **GT-02**: `eval_runner`'s `y_true`/`y_pred` pairing preserves correct per-point correspondence when `transform_spec`'s `dropout_fraction`/`n_new_points` cause source and target point counts to diverge, instead of truncating by position
-- [ ] **GT-03**: Existing ground-truth configs (Shah/Kobitski real-data, fully-synthetic ball/bowl label-transfer configs) are audited and updated so label-transfer F1 stays meaningful under the corrected GT-field convention
+- [x] **GT-01**: F1 ground truth is drawn from the same `zRegPointCloud` field that `LabelTransferStage` actually transfers (`pc["label"]`), for both `pipeline_mode: paired` and `pipeline_mode: synthetic`
+- [x] **GT-02**: `eval_runner`'s `y_true`/`y_pred` pairing preserves correct per-point correspondence when `transform_spec`'s `dropout_fraction`/`n_new_points` cause source and target point counts to diverge, instead of truncating by position
+- [x] **GT-03**: Existing ground-truth configs (Shah/Kobitski real-data, fully-synthetic ball/bowl label-transfer configs) are audited and updated so label-transfer F1 stays meaningful under the corrected GT-field convention
 
 ### Synthetic Labeled Subsample-Pair Generation
 
@@ -34,9 +34,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| GT-01 | Phase 56 | Mapped |
-| GT-02 | Phase 56 | Mapped |
-| GT-03 | Phase 56 | Mapped |
+| GT-01 | Phase 56 | Satisfied (2026-08-04) |
+| GT-02 | Phase 56 | Satisfied (2026-08-04) |
+| GT-03 | Phase 56 | Satisfied (2026-08-04) |
 | GT-04 | Phase 57 | Mapped |
 | GT-05 | Phase 57 | Mapped |
 | GT-06 | Phase 57 | Mapped |
@@ -45,10 +45,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 - v1 requirements: 6 total
 - Mapped to phases: 6 (Phases 56–57)
+- Satisfied: 3 (GT-01, GT-02, GT-03 — Phase 56, VERIFICATION.md: passed, 9/9 must-haves)
 - Unmapped: 0 ✓
 
 **Note:** Phase numbering starts at 56 (not 55) because Phase 55 was already consumed by an unrelated ad-hoc phase (spherical-cap/Gaussian label generators for `zreg.data_generation.labels`), completed 2026-07-30 before v1.7 requirements were defined.
 
 ---
 *Requirements defined: 2026-08-01*
-*Last updated: 2026-08-01*
+*Last updated: 2026-08-04 — Phase 56 complete, GT-01/02/03 satisfied*

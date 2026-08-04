@@ -22,7 +22,7 @@
 
 **Milestone Goal:** General-purpose catch-all milestone for small, unrelated fixes and additions that don't warrant their own themed milestone — fixing the ground-truth field mismatch in the evaluation framework and adding a synthetic labeled subsample-pair generation mechanism. (Paused v1.6 HoreKa work resumes at Phase 54 after this milestone ships.)
 
-- [ ] **Phase 56: Ground-Truth Field Consistency** - Label-transfer F1 ground truth is drawn from the same field `LabelTransferStage` actually transfers, and stays correctly paired even when `transform_spec` changes point counts
+- [x] **Phase 56: Ground-Truth Field Consistency** - Label-transfer F1 ground truth is drawn from the same field `LabelTransferStage` actually transfers, and stays correctly paired even when `transform_spec` changes point counts (completed 2026-08-04)
 - [ ] **Phase 57: Synthetic Labeled Subsample-Pair Generation** - Label-transfer HPO can run against a config-driven synthetic subsample-pair ground truth mechanism, alongside the existing `transform_spec` mechanism
 
 ### 🚧 v1.6 HoreKa Cluster Execution (In Progress)
@@ -52,8 +52,8 @@
 
 Plans:
 
-- [ ] 56-01-PLAN.md — EvalConfig.ground_truth_field + DataFactory correspondence-tracking (drop_points/sample_new_points) + GT extraction rewrite + eval_runner WR-01 re-scoping (GT-01, GT-02)
-- [ ] 56-02-PLAN.md — Ground-truth config audit: Shah/Kobitski comment fixes + degenerate-label documentation on stage2_label_transfer synthetic.yaml configs (GT-03)
+- [x] 56-01-PLAN.md — EvalConfig.ground_truth_field + DataFactory correspondence-tracking (drop_points/sample_new_points) + GT extraction rewrite + eval_runner WR-01 re-scoping (GT-01, GT-02)
+- [x] 56-02-PLAN.md — Ground-truth config audit: Shah/Kobitski comment fixes + degenerate-label documentation on stage2_label_transfer synthetic.yaml configs (GT-03)
 
 ### Phase 57: Synthetic Labeled Subsample-Pair Generation
 
@@ -163,7 +163,7 @@ Plans:
 **Goal:** zreg.data_generation.labels exposes assign_cap_labels (hard spherical-cap boundary) and assign_gaussian_labels (angle-dependent Bernoulli labels), both following the immutable deep-copy contract and exported from the package.
 **Requirements**: none mapped
 **Depends on:** Phase 54
-**Plans:** 1/1 complete
+**Plans:** 2/2 plans complete
 
 Plans:
 
@@ -394,7 +394,7 @@ Phases execute in numeric order: 56 → 57 (v1.6 paused after Phase 51; resumes 
 | 52. Multi-Rank Parallelism & Validation | v1.6 | 0/TBD | Not started | - |
 | 53. GPU Acceleration | v1.6 | 0/TBD | Not started | - |
 | 54. Budget Calibration & Full-Suite Gate | v1.6 | 0/TBD | Not started | - |
-| 56. Ground-Truth Field Consistency | v1.7 | 0/TBD | Not started | - |
+| 56. Ground-Truth Field Consistency | v1.7 | 2/2 | Complete    | 2026-08-04 |
 | 57. Synthetic Labeled Subsample-Pair Generation | v1.7 | 0/TBD | Not started | - |
 
 | Milestone | Phases | Plans | Status | Shipped |
@@ -407,4 +407,4 @@ Phases execute in numeric order: 56 → 57 (v1.6 paused after Phase 51; resumes 
 | v1.6 HoreKa Cluster Execution | 51–54 (4) | TBD | 🚧 In progress | - |
 | v1.7 Minor Adjustments | 56–57 (2) | TBD | 🚧 In progress | - |
 
-_Next: `/gsd:plan-phase 56` to plan Phase 56 (Ground-Truth Field Consistency)._
+_Next: `/gsd:plan-phase 57` to plan Phase 57 (Synthetic Labeled Subsample-Pair Generation)._

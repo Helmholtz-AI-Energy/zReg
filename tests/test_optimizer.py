@@ -450,6 +450,249 @@ class TestOptimizerSyntheticMode:
 
 
 # ---------------------------------------------------------------------------
+# TestOptimizerSubsamplePair — Phase 57 GT-06 / D-06
+# ---------------------------------------------------------------------------
+
+
+class TestOptimizerSubsamplePair:
+    """Phase 57: subsample_pair single-fixed-seed wiring for HyperparamOptimizer.
+
+    Verifies:
+    - _is_subsample_pair_mode() correctly identifies subsample_pair/rigid/paired configs
+    - run()'s pre-populate step calls generate_subsample_pair() (not generate_target())
+      for subsample_pair mode
+    - _tier_dataset("dev"/"full") return self._factory._subsample_source_view in
+      subsample_pair mode
+    - sanity tier uses an isolated scratch DataFactory, never self._factory
+      (T-57-06)
+    - a real (non-mocked) end-to-end full-tier sweep completes and produces a
+      non-empty SearchResult.history
+    """
+
+    @staticmethod
+    def _make_scratch_factory(dataset: dict) -> MagicMock:
+        """Build a MagicMock standing in for an isolated scratch DataFactory instance."""
+        scratch = MagicMock()
+        scratch.generate_subsample_pair.return_value = (dataset, dataset)
+        scratch.get_synthetic_ground_truth.return_value = {
+            k: dataset[k]["label"] for k in dataset
+        }
+        return scratch
+
+    def _make_factory_side_effect(self, main_factory: MagicMock, dataset: dict):
+        """Return a DataFactory(...) side_effect: 1st call -> main_factory,
+        every subsequent call -> a fresh isolated scratch-factory MagicMock
+        (mirrors _objective's ``DataFactory(self.config)`` sanity-tier call,
+        which must be a genuinely distinct instance from ``self._factory``).
+        """
+        calls = {"n": 0}
+
+        def _side_effect(*args, **kwargs):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return main_factory
+            return self._make_scratch_factory(dataset)
+
+        return _side_effect
+
+    # -- _is_subsample_pair_mode() direct unit tests -----------------------
+
+    def test_is_subsample_pair_mode_true_for_subsample_pair_config(self, tmp_path):
+        cfg = EvalConfig(
+            data_path=str(tmp_path / "unused.mat"),
+            output_dir=str(tmp_path / "output"),
+            pipeline_mode="synthetic",
+            transform_spec={"type": "subsample_pair", "seed": 1},
+        )
+        optimizer = HyperparamOptimizer(cfg)
+        assert optimizer._is_subsample_pair_mode() is True
+
+    def test_is_subsample_pair_mode_false_for_rigid_config(self, tmp_path):
+        cfg = EvalConfig(
+            data_path=str(tmp_path / "unused.mat"),
+            output_dir=str(tmp_path / "output"),
+            pipeline_mode="synthetic",
+            transform_spec={"type": "rigid", "rotation_deg": 30.0, "rotation_axis": [0, 0, 1]},
+        )
+        optimizer = HyperparamOptimizer(cfg)
+        assert optimizer._is_subsample_pair_mode() is False
+
+    def test_is_subsample_pair_mode_false_for_paired_config(self, tmp_path):
+        cfg = EvalConfig(
+            data_path=str(tmp_path / "unused.mat"),
+            output_dir=str(tmp_path / "output"),
+            pipeline_mode="paired",
+        )
+        optimizer = HyperparamOptimizer(cfg)
+        assert optimizer._is_subsample_pair_mode() is False
+
+    # -- _tier_dataset("dev"/"full") direct unit tests ----------------------
+
+    def test_tier_dataset_dev_and_full_return_subsample_source_view(
+        self, tmp_path, synthetic_dataset
+    ) -> None:
+        cfg = EvalConfig(
+            data_path=str(tmp_path / "unused.mat"),
+            output_dir=str(tmp_path / "output"),
+            pipeline_mode="synthetic",
+            transform_spec={"type": "subsample_pair", "seed": 7},
+        )
+        optimizer = HyperparamOptimizer(cfg)
+        optimizer._factory = MagicMock()
+        optimizer._factory._subsample_source_view = synthetic_dataset
+
+        assert optimizer._tier_dataset("dev") is synthetic_dataset
+        assert optimizer._tier_dataset("full") is synthetic_dataset
+
+    # -- run() pre-populate dispatch ----------------------------------------
+
+    @patch("eval.runners.optimizer.MetricsEngine")
+    @patch("eval.runners.optimizer.DataFactory")
+    def test_run_prepopulate_calls_generate_subsample_pair_not_generate_target(
+        self,
+        mock_factory_cls,
+        mock_engine_cls,
+        tmp_path,
+        synthetic_dataset,
+    ) -> None:
+        """run()'s pre-populate step must dispatch to generate_subsample_pair(),
+        not generate_target(), for subsample_pair mode (D-06)."""
+        transform_spec = {
+            "type": "subsample_pair",
+            "seed": 42,
+            "synthesize": True,
+            "n_classes": 3,
+        }
+        synth_config = EvalConfig(
+            data_path=str(tmp_path / "unused.mat"),
+            output_dir=str(tmp_path / "output"),
+            search_strategy="grid",
+            tier="full",
+            n_trials=1,
+            run_alignment=True,
+            run_label_transfer=True,
+            search_space={"window_size": [3], "k_neighbours": [3]},
+            pipeline_mode="synthetic",
+            transform_spec=transform_spec,
+        )
+        main_factory = MagicMock()
+        main_factory._subsample_source_view = synthetic_dataset
+        main_factory._synthetic_target = synthetic_dataset
+        main_factory.get_synthetic_ground_truth.return_value = {
+            k: synthetic_dataset[k]["label"] for k in synthetic_dataset
+        }
+        mock_factory_cls.side_effect = self._make_factory_side_effect(
+            main_factory, synthetic_dataset
+        )
+
+        stub_metrics = StageMetrics(
+            chamfer_distance=0.0,
+            hausdorff_distance=0.0,
+            path_smoothness=0.0,
+            temporal_stability=0.0,
+            f1_score=0.5,
+            knn_consistency=0.5,
+        )
+        mock_engine_cls.return_value.compute_stage_metrics.return_value = stub_metrics
+        mock_engine_cls.return_value.compute_score.return_value = 0.5
+        mock_engine_cls.return_value.sanity_check.return_value = []
+
+        optimizer = HyperparamOptimizer(synth_config)
+        optimizer.run()
+
+        main_factory.generate_subsample_pair.assert_called_once_with(None, transform_spec)
+        main_factory.generate_target.assert_not_called()
+
+    # -- sanity-tier isolation ------------------------------------------------
+
+    @patch("eval.runners.optimizer.MetricsEngine")
+    @patch("eval.runners.optimizer.DataFactory")
+    def test_sanity_subsample_pair_does_not_call_main_factory(
+        self,
+        mock_factory_cls,
+        mock_engine_cls,
+        tmp_path,
+        synthetic_dataset,
+    ) -> None:
+        """Sanity-tier trials in subsample_pair mode must NEVER call
+        self._factory.generate_subsample_pair() (T-57-06) — only the
+        pre-populate step (skipped entirely for tier='sanity') is allowed to
+        touch the main factory's generate_subsample_pair()."""
+        transform_spec = {
+            "type": "subsample_pair",
+            "seed": 3,
+            "synthesize": True,
+            "n_classes": 3,
+        }
+        synth_config = EvalConfig(
+            data_path=str(tmp_path / "unused.mat"),
+            output_dir=str(tmp_path / "output"),
+            search_strategy="grid",
+            tier="sanity",
+            n_trials=1,
+            run_alignment=True,
+            run_label_transfer=True,
+            search_space={"window_size": [3], "k_neighbours": [3]},
+            pipeline_mode="synthetic",
+            transform_spec=transform_spec,
+        )
+        main_factory = MagicMock()
+        mock_factory_cls.side_effect = self._make_factory_side_effect(
+            main_factory, synthetic_dataset
+        )
+
+        stub_metrics = StageMetrics(
+            chamfer_distance=0.0,
+            hausdorff_distance=0.0,
+            path_smoothness=0.0,
+            temporal_stability=0.0,
+            f1_score=0.5,
+            knn_consistency=0.5,
+        )
+        mock_engine_cls.return_value.compute_stage_metrics.return_value = stub_metrics
+        mock_engine_cls.return_value.compute_score.return_value = 0.5
+        mock_engine_cls.return_value.sanity_check.return_value = []
+
+        optimizer = HyperparamOptimizer(synth_config)
+        optimizer.run()
+
+        main_factory.generate_subsample_pair.assert_not_called()
+
+    # -- real end-to-end smoke test (no mocking) -----------------------------
+
+    def test_end_to_end_subsample_pair_full_tier_smoke(self, tmp_path) -> None:
+        """A full-tier HPO sweep against a real subsample_pair config completes
+        without raising and produces a non-empty SearchResult.history with
+        finite scores."""
+        config = EvalConfig(
+            data_path=str(tmp_path / "unused.mat"),
+            output_dir=str(tmp_path / "output"),
+            pipeline_mode="synthetic",
+            transform_spec={
+                "type": "subsample_pair",
+                "synthesize": True,
+                "seed": 5,
+                "n_classes": 3,
+                "n_points": 60,
+                "source_fraction": 0.8,
+                "target_fraction": 0.8,
+            },
+            tier="full",
+            n_trials=3,
+            search_strategy="grid",
+            search_space={"window_size": [3], "k_neighbours": [3]},
+        )
+        result = HyperparamOptimizer(config).run()
+
+        assert isinstance(result, SearchResult)
+        assert len(result.history) > 0, "SearchResult.history must be non-empty"
+        for trial in result.history:
+            assert isinstance(trial.score, float)
+            assert trial.score == trial.score, "score must not be NaN"  # NaN != NaN
+            assert trial.score not in (float("inf"), float("-inf")), "score must be finite"
+
+
+# ---------------------------------------------------------------------------
 # Coverage gap tests for optimizer.py
 # ---------------------------------------------------------------------------
 

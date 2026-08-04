@@ -530,6 +530,175 @@ class TestGenerateTarget:
 
 
 # ---------------------------------------------------------------------------
+# TestGenerateSubsamplePair — Phase 57 GT-04/GT-05: generate_subsample_pair()
+# ---------------------------------------------------------------------------
+
+
+class TestGenerateSubsamplePair:
+    """generate_subsample_pair() — subsample-pair generation with tracked correspondence."""
+
+    def _make_ds_100pts(self):
+        """Single-frame, 100-point dataset with populated label and id fields."""
+        pc = zRegPointCloud(
+            pos=torch.randn(100, 3),
+            label=torch.arange(100, dtype=torch.long),
+            id=torch.arange(100),
+        )
+        pc["fps-idx"] = None
+        return {0: pc}
+
+    def test_list_seed_raises_value_error(self):
+        """seed as a list is rejected (D-06/D-07 — optimizer.py-level concern)."""
+        cfg = EvalConfig(data_path="x")
+        factory = DataFactory(cfg)
+        ds = self._make_ds_100pts()
+        with pytest.raises(ValueError, match="seed"):
+            factory.generate_subsample_pair(ds, {"seed": [1, 2]})
+
+    def test_missing_dataset_when_not_synthesize_raises_value_error(self):
+        """dataset=None with synthesize not set (defaults False) raises ValueError naming 'synthesize'."""
+        cfg = EvalConfig(data_path="x")
+        factory = DataFactory(cfg)
+        with pytest.raises(ValueError, match="synthesize"):
+            factory.generate_subsample_pair(None, {"source_fraction": 0.5})
+
+    def test_source_fraction_zero_raises_value_error(self):
+        """source_fraction=0.0 is out of the (0.0, 1.0] range."""
+        cfg = EvalConfig(data_path="x")
+        factory = DataFactory(cfg)
+        ds = self._make_ds_100pts()
+        with pytest.raises(ValueError, match="source_fraction"):
+            factory.generate_subsample_pair(ds, {"source_fraction": 0.0})
+
+    def test_source_fraction_above_one_raises_value_error(self):
+        """source_fraction=1.1 is out of the (0.0, 1.0] range."""
+        cfg = EvalConfig(data_path="x")
+        factory = DataFactory(cfg)
+        ds = self._make_ds_100pts()
+        with pytest.raises(ValueError, match="source_fraction"):
+            factory.generate_subsample_pair(ds, {"source_fraction": 1.1})
+
+    def test_target_fraction_zero_raises_value_error(self):
+        """target_fraction=0.0 is out of the (0.0, 1.0] range."""
+        cfg = EvalConfig(data_path="x")
+        factory = DataFactory(cfg)
+        ds = self._make_ds_100pts()
+        with pytest.raises(ValueError, match="target_fraction"):
+            factory.generate_subsample_pair(ds, {"target_fraction": 0.0})
+
+    def test_target_fraction_above_one_raises_value_error(self):
+        """target_fraction=1.1 is out of the (0.0, 1.0] range."""
+        cfg = EvalConfig(data_path="x")
+        factory = DataFactory(cfg)
+        ds = self._make_ds_100pts()
+        with pytest.raises(ValueError, match="target_fraction"):
+            factory.generate_subsample_pair(ds, {"target_fraction": 1.1})
+
+    def test_run_alignment_true_applies_real_geometric_transform(self):
+        """D-03: with run_alignment=True (default), the target view's retained
+        points are NOT bitwise-identical to the corresponding base positions —
+        proving a real perturbation (rotation/scale) was layered on top of the
+        subsampling, not just an identity subsample."""
+        cfg = EvalConfig(data_path="x")  # run_alignment=True by default
+        factory = DataFactory(cfg)
+        ds = self._make_ds_100pts()
+        source, target = factory.generate_subsample_pair(
+            ds, {"source_fraction": 0.8, "target_fraction": 0.8, "seed": 42}
+        )
+        corr = factory._correspondence_idx[0]
+        valid = corr >= 0
+        pre_perturbation_expected = ds[0]["pos"][corr[valid]]
+        assert not torch.allclose(pre_perturbation_expected, target[0]["pos"][valid])
+
+    def test_run_alignment_true_source_and_target_are_different_selections(self):
+        """The seed+1 target-seed offset produces genuinely different retained
+        points between source and target views (not the same subsample twice)."""
+        cfg = EvalConfig(data_path="x")
+        factory = DataFactory(cfg)
+        ds = self._make_ds_100pts()
+        source, target = factory.generate_subsample_pair(
+            ds, {"source_fraction": 0.8, "target_fraction": 0.8, "seed": 42}
+        )
+        assert (
+            source[0]["pos"].shape[0] != target[0]["pos"].shape[0]
+            or not torch.equal(source[0]["pos"], target[0]["pos"])
+        )
+
+    def test_run_alignment_false_no_perturbation_layered(self):
+        """D-03: with run_alignment=False, the target view's retained-point
+        positions exactly equal the corresponding base positions (no rotation/
+        scale/noise applied) — source and target stay in the same coordinate
+        frame."""
+        cfg = EvalConfig(data_path="x", run_alignment=False)
+        factory = DataFactory(cfg)
+        ds = self._make_ds_100pts()
+        source, target = factory.generate_subsample_pair(
+            ds, {"source_fraction": 0.8, "target_fraction": 0.8, "seed": 42}
+        )
+        corr = factory._correspondence_idx[0]
+        valid = corr >= 0
+        assert torch.equal(ds[0]["pos"][corr[valid]], target[0]["pos"][valid])
+
+    def test_instance_state_after_explicit_dataset_call(self):
+        """After a non-synthesize call, _subsample_source_view/_source_dataset/
+        _synthetic_target are set per the producer contract."""
+        cfg = EvalConfig(data_path="x")
+        factory = DataFactory(cfg)
+        ds = self._make_ds_100pts()
+        source, target = factory.generate_subsample_pair(
+            ds, {"source_fraction": 0.8, "target_fraction": 0.8, "seed": 42}
+        )
+        assert factory._subsample_source_view is source
+        assert factory._source_dataset is ds
+        assert factory._synthetic_target is target
+
+    def test_get_synthetic_ground_truth_matches_target_length_and_values(self):
+        """get_synthetic_ground_truth() after generate_subsample_pair returns a
+        per-frame tensor whose length equals the target view's point count and
+        whose non-sentinel entries equal the base dataset's label field gathered
+        at the tracked correspondence (mirrors Phase 56 gather-correctness)."""
+        cfg = EvalConfig(data_path="x")
+        factory = DataFactory(cfg)
+        ds = self._make_ds_100pts()
+        source, target = factory.generate_subsample_pair(
+            ds, {"source_fraction": 0.8, "target_fraction": 0.8, "seed": 42}
+        )
+        gt = factory.get_synthetic_ground_truth()
+        assert gt[0].shape[0] == target[0]["pos"].shape[0]
+        corr = factory._correspondence_idx[0]
+        valid = corr >= 0
+        assert torch.equal(gt[0][valid], ds[0][cfg.ground_truth_field][corr[valid]])
+
+    def test_synthesize_mode_produces_labeled_pair_without_dataset(self):
+        """synthesize=True mode produces a labeled source/target pair with no
+        dataset argument required."""
+        cfg = EvalConfig(data_path="x")
+        factory = DataFactory(cfg)
+        source, target = factory.generate_subsample_pair(
+            None, {"synthesize": True, "seed": 7, "n_classes": 3}
+        )
+        assert source[0]["label"] is not None
+        assert target[0]["label"] is not None
+
+    def test_reproducibility_across_fresh_factory_instances(self):
+        """Two calls with identical transform_spec (including identical seed)
+        on two separate, fresh DataFactory instances produce bitwise-identical
+        source/target positions."""
+        cfg = EvalConfig(data_path="x")
+        ds = self._make_ds_100pts()
+        spec = {"source_fraction": 0.8, "target_fraction": 0.8, "seed": 42}
+
+        factory_a = DataFactory(cfg)
+        source_a, target_a = factory_a.generate_subsample_pair(ds, dict(spec))
+
+        factory_b = DataFactory(cfg)
+        source_b, target_b = factory_b.generate_subsample_pair(ds, dict(spec))
+
+        assert torch.equal(source_a[0]["pos"], source_b[0]["pos"])
+        assert torch.equal(target_a[0]["pos"], target_b[0]["pos"])
+
+
+# ---------------------------------------------------------------------------
 # TestGenerateSynthetic — caching + seed reproducibility (Plan 17-02)
 # ---------------------------------------------------------------------------
 

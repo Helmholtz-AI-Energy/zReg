@@ -101,6 +101,11 @@ _log = logging.getLogger(__name__)
 SANITY_N_TRIALS: int = 5
 DEV_N_TRIALS: int = 20
 
+# Phase 57 GT-04/D-07: multi-seed averaging for subsample_pair mode is gated
+# to this tier only — sanity/dev tiers gracefully fall back to a single seed
+# (see _resolve_subsample_pair_seeds) rather than paying the full N-seed cost.
+SUBSAMPLE_PAIR_MULTISEED_TIER: str = "full"
+
 
 def _apply_transform_to_dataset(
     dataset: dict,
@@ -134,6 +139,75 @@ def _apply_transform_to_dataset(
     scratch_cfg = config.model_copy(update={"augmentation_params": augment_params})
     scratch_factory = DataFactory(scratch_cfg)
     return scratch_factory.augment(dataset)
+
+
+def _resolve_subsample_pair_seeds(transform_spec: dict, tier_name: str) -> list[int]:
+    """Resolve ``transform_spec['seed']`` into the list of seeds a trial should use (D-07).
+
+    Phase 57 GT-04/GT-06: ``transform_spec['seed']`` for ``subsample_pair``
+    mode is normally a single ``int`` (D-06's default, unchanged fixed-seed
+    path). It MAY optionally be a ``list`` of ints, in which case D-07's
+    opt-in multi-seed averaging applies — but ONLY on the ``full`` tier
+    (``SUBSAMPLE_PAIR_MULTISEED_TIER``); sanity/dev tiers gracefully fall
+    back to the list's first entry so they never silently pay the full
+    N-seed cost.
+
+    Parameters
+    ----------
+    transform_spec : dict
+        The current ``subsample_pair`` transform spec. ``"seed"`` defaults to
+        ``42`` when absent, matching :meth:`DataFactory.generate_subsample_pair`.
+    tier_name : str
+        Current tier ("sanity" / "dev" / "full").
+
+    Returns
+    -------
+    list[int]
+        ``[seed]`` for the default int-seed case (every non-list-seed call,
+        including every call Plan 57-03's code already makes);
+        ``[seed[0]]`` for a list seed on a non-``full`` tier (graceful
+        fallback); ``list(seed)`` unchanged for a list seed on the ``full``
+        tier.
+
+    Raises
+    ------
+    ValueError
+        If ``seed`` is a list and empty, or if ``seed`` is neither an ``int``
+        nor a ``list``.
+
+    Notes
+    -----
+    **Never raises for a list seed on a non-full tier** — deliberately a
+    graceful fallback (logged warning), not a raised exception, since
+    ``_objective``'s broad ``except Exception: return 0.0`` would otherwise
+    silently swallow a raised validation error and mask it as a generic
+    failed-trial score instead of a clear signal (D-07).
+    """
+    seed = transform_spec.get("seed", 42)
+    if isinstance(seed, int):
+        return [seed]
+    if isinstance(seed, list):
+        if len(seed) == 0:
+            raise ValueError(
+                "_resolve_subsample_pair_seeds: transform_spec['seed'] list "
+                "must be non-empty."
+            )
+        if tier_name != SUBSAMPLE_PAIR_MULTISEED_TIER:
+            _log.warning(
+                "_resolve_subsample_pair_seeds: multi-seed averaging (D-07) is "
+                "gated to the %r tier; tier %r will use only seed[0]=%r instead "
+                "of averaging across all %d seeds.",
+                SUBSAMPLE_PAIR_MULTISEED_TIER,
+                tier_name,
+                seed[0],
+                len(seed),
+            )
+            return [seed[0]]
+        return list(seed)
+    raise ValueError(
+        "_resolve_subsample_pair_seeds: transform_spec['seed'] must be an "
+        f"int or a list of ints, got {type(seed).__name__}."
+    )
 
 
 class HyperparamOptimizer:
@@ -238,12 +312,23 @@ class HyperparamOptimizer:
             # instead of generate_target(); the rigid/noise path below is
             # otherwise completely unchanged.
             if self._is_subsample_pair_mode():
-                base = (
-                    None
-                    if self.config.transform_spec.get("synthesize", False)
-                    else self._factory.load_real()
-                )
-                self._factory.generate_subsample_pair(base, self.config.transform_spec)
+                # Phase 57 GT-04/D-07: a list-valued seed defers ALL generation
+                # to per-trial multiseed scoring inside _objective() — there is
+                # no single fixed target to pre-populate here, since each seed
+                # produces its own independent subsample pair. Skip the
+                # generate_subsample_pair() call entirely in that case (it
+                # would otherwise raise, since that method only accepts a
+                # single int seed).
+                seed = self.config.transform_spec.get("seed", 42)
+                if isinstance(seed, list):
+                    pass
+                else:
+                    base = (
+                        None
+                        if self.config.transform_spec.get("synthesize", False)
+                        else self._factory.load_real()
+                    )
+                    self._factory.generate_subsample_pair(base, self.config.transform_spec)
             else:
                 real_source = self._factory.load_real()
                 self._factory.generate_target(real_source, self.config.transform_spec)

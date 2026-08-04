@@ -435,10 +435,12 @@ class HyperparamOptimizer:
                 label_result = LabelTransferStage(self.config).run(stage_input, tier_target, merged)
 
             # Argument assembly — mirrors eval_runner._run_single exactly (Phase 30 Pitfall 4 rename)
-            # Pitfall 4 — source_pos/target_pos avoid shadowing tier_dataset/tier_target parameters
+            # Pitfall 4 — target_pos avoids shadowing tier_dataset/tier_target parameters
             source_sorted_keys = sorted(tier_dataset.keys())
             target_sorted_keys = sorted(tier_target.keys())
-            source_pos = tier_dataset[source_sorted_keys[0]]["pos"]
+            # chamfer/hausdorff no longer use source_pos/target_pos directly — they are
+            # computed per-frame from stage_input/tier_target inside compute_stage_metrics.
+            # target_pos is still needed here as the knn_consistency point cloud below.
             target_pos = tier_target[target_sorted_keys[-1]]["pos"]
             warp_path = align_result.warp_path if align_result else []
             transforms: list = []
@@ -486,8 +488,8 @@ class HyperparamOptimizer:
                 y_pred = y_pred[:min_len]
 
             metrics = self._engine.compute_stage_metrics(
-                source_pos,
-                target_pos,
+                stage_input,
+                tier_target,
                 warp_path,
                 transforms,
                 y_true,

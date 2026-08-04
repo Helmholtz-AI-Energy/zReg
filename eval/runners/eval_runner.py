@@ -286,10 +286,16 @@ class EvaluationRunner:
         **``transforms=[]``:** ``AlignResult`` has no transforms field.
         ``temporal_stability([])`` returns 0.0 — intentional (RESEARCH Pitfall 3).
 
-        **Source/target frame selection:** source_frame = ``source[source_sorted_keys[0]]``
-        (source's first frame), target_frame = ``target[target_sorted_keys[-1]]``
-        (target's last frame) — maximum temporal span across two distinct trajectories
-        (Phase 30 cross-trajectory interpretation of Open Q3).
+        **Chamfer/Hausdorff frame coverage:** ``chamfer_distance`` and
+        ``hausdorff_distance`` are computed per-frame between ``stage_input``
+        (the aligned cloud, or raw ``source`` when alignment is skipped) and
+        every ``target`` frame it shares a key with, then averaged by
+        ``MetricsEngine._frame_averaged_chamfer_hausdorff`` — not on a single
+        frame pair.  ``y_true``/``y_pred`` (for F1) still use the
+        source's-first-frame / target's-last-frame convention (maximum
+        temporal span across two distinct trajectories, Phase 30
+        cross-trajectory interpretation of Open Q3), since label identity is
+        only meaningfully compared at a single point in time.
 
         **Zero-fill (D-04):** Skipped-stage metrics are zeroed via
         ``model_copy(update={...})`` because ``StageMetrics`` is a frozen
@@ -313,13 +319,8 @@ class EvaluationRunner:
             label_result = LabelTransferStage(self.config).run(stage_input, target, params, align_result=align_result)
 
         # --- Argument assembly for compute_stage_metrics (8 positional args) ---
-        # Pitfall 4 — local source_pos/target_pos avoid shadowing the source/target parameters
         source_sorted_keys = sorted(source.keys())
         target_sorted_keys = sorted(target.keys())
-        source_frame = source[source_sorted_keys[0]]
-        target_frame = target[target_sorted_keys[-1]]
-        source_pos = source_frame["pos"]   # shape (N, 3)
-        target_pos = target_frame["pos"]   # shape (M, 3)
 
         warp_path = align_result.warp_path if align_result else []
         transforms = []  # AlignResult has no transform objects — temporal_stability([]) returns 0.0
@@ -359,7 +360,7 @@ class EvaluationRunner:
         )
 
         metrics = self.engine.compute_stage_metrics(
-            source_pos, target_pos, warp_path, transforms,
+            stage_input, target, warp_path, transforms,
             y_true, y_pred, points_for_knn, labels_for_knn,
             k_neighbours=params.get("k_neighbours", 10),
         )

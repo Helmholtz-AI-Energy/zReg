@@ -19,10 +19,14 @@ methods plus one convenience helper:
   cases (Pitfall 3): empty cloud, single-frame dataset, all-same labels,
   all-sentinel labels, non-finite metric values.
 - ``compute_stage_metrics(...)`` — optional helper (per A1) that runs all six
-  primitives, applies ``.item()`` coercion (Pitfall 5) for scalar
-  ``torch.Tensor`` returns from ``chamfer``/``hausdorff``/``temporal_stability``,
-  packs into a ``StageMetrics`` instance, and returns it with ``normalized``
-  pre-populated via ``model_copy``.
+  primitives, packs into a ``StageMetrics`` instance, and returns it with
+  ``normalized`` pre-populated via ``model_copy``.  ``chamfer`` and
+  ``hausdorff`` are computed per-frame between ``aligned_cloud`` and
+  ``target`` (every frame key shared by both) and then averaged — NOT on a
+  single frame pair — via the private ``_frame_averaged_chamfer_hausdorff``
+  helper.  ``.item()`` coercion (Pitfall 5) for scalar ``torch.Tensor``
+  returns from ``chamfer``/``hausdorff``/``temporal_stability`` happens
+  inside that helper and at the ``temporal_stability`` call site.
 
 The engine is stateless aside from ``self.config``.  Construction performs no
 I/O.  Every metric call is a one-way delegation to ``zreg.metrics.*`` — no
@@ -127,6 +131,7 @@ from zreg.evaluation import (
     path_smoothness,
     temporal_stability,
 )
+from zreg.core.dataset import zRegPointCloud
 
 # torch AFTER zreg.* imports
 import torch
@@ -397,10 +402,56 @@ class MetricsEngine:
                     flags.append(f"non-finite metric: {name}={value}")
         return flags
 
+    def _frame_averaged_chamfer_hausdorff(
+        self,
+        aligned_cloud: dict[int, zRegPointCloud],
+        target: dict[int, zRegPointCloud],
+    ) -> tuple[float, float]:
+        """Mean Chamfer and Hausdorff distance across every shared frame.
+
+        Computes ``chamfer``/``hausdorff`` once per frame key present in
+        *both* ``aligned_cloud`` and ``target`` (the ``AlignResult`` contract
+        guarantees ``aligned_cloud.keys() == target.keys()``, but the
+        intersection is used defensively rather than assuming it), then
+        averages each metric across frames.  This replaces the previous
+        single-frame-pair behaviour (first source frame vs. last target
+        frame, on the *unaligned* input) with a per-frame measurement of the
+        alignment stage's actual output.
+
+        Parameters
+        ----------
+        aligned_cloud : dict[int, zRegPointCloud]
+            Per-frame aligned source point clouds, e.g.
+            ``AlignResult.aligned_cloud`` (or raw ``source`` when the
+            alignment stage was skipped — the caller is responsible for that
+            fallback).
+        target : dict[int, zRegPointCloud]
+            Per-frame target point clouds, keyed the same way.
+
+        Returns
+        -------
+        tuple[float, float]
+            ``(mean_chamfer, mean_hausdorff)``.  ``(0.0, 0.0)`` if
+            ``aligned_cloud`` and ``target`` share no frame keys.
+        """
+        common_keys = sorted(set(aligned_cloud) & set(target))
+        if not common_keys:
+            return 0.0, 0.0
+
+        chamfer_vals = []
+        hausdorff_vals = []
+        for key in common_keys:
+            src_pos = aligned_cloud[key]["pos"]
+            tgt_pos = target[key]["pos"]
+            chamfer_vals.append(chamfer(src_pos, tgt_pos).item())  # Pitfall 5: .item()
+            hausdorff_vals.append(hausdorff(src_pos, tgt_pos).item())  # Pitfall 5
+
+        return statistics.mean(chamfer_vals), statistics.mean(hausdorff_vals)
+
     def compute_stage_metrics(
         self,
-        source: torch.Tensor,
-        target: torch.Tensor,
+        aligned_cloud: dict[int, zRegPointCloud],
+        target: dict[int, zRegPointCloud],
         warp_path: list[tuple[int, int]],
         transforms: list,
         y_true: torch.Tensor,
@@ -411,21 +462,25 @@ class MetricsEngine:
     ) -> StageMetrics:
         """Run all six raw metrics and return a fully-populated ``StageMetrics``.
 
-        Convenience wrapper (A1) for Phase 21 ``EvaluationRunner``.  Applies
-        Pitfall 5 ``.item()`` coercion to the scalar ``torch.Tensor`` returns
-        from ``chamfer``, ``hausdorff``, and ``temporal_stability`` before
-        packing them into ``StageMetrics`` (whose fields are typed ``float``).
-        Then populates ``StageMetrics.normalized`` via ``self.normalize``
-        and ``model_copy``.
+        Convenience wrapper (A1) for Phase 21 ``EvaluationRunner``.  Packs
+        the six raw metric values into ``StageMetrics`` (whose fields are
+        typed ``float``), then populates ``StageMetrics.normalized`` via
+        ``self.normalize`` and ``model_copy``.
 
         Parameters
         ----------
-        source : torch.Tensor
-            Source point cloud, shape ``(N, 3)``.  Passed to ``chamfer``
-            and ``hausdorff`` as the first argument.
-        target : torch.Tensor
-            Target point cloud, shape ``(M, 3)``.  Passed to ``chamfer``
-            and ``hausdorff`` as the second argument.
+        aligned_cloud : dict[int, zRegPointCloud]
+            Per-frame aligned source point clouds — typically
+            ``AlignResult.aligned_cloud`` (spatially registered per frame
+            when CPD/ICP/SWD ran, temporally resampled only when
+            ``cpd_penalty=None``), or the raw ``source`` dict when the
+            alignment stage was skipped.  ``chamfer`` and ``hausdorff`` are
+            computed once per frame key shared with ``target`` and then
+            averaged (see ``_frame_averaged_chamfer_hausdorff``) — not on a
+            single frame pair.
+        target : dict[int, zRegPointCloud]
+            Per-frame target point clouds, keyed the same way as
+            ``aligned_cloud``.
         warp_path : list[tuple[int, int]]
             DTW alignment path passed to ``path_smoothness``.
         transforms : list
@@ -450,11 +505,15 @@ class MetricsEngine:
 
         Notes
         -----
-        Called by ``EvaluationRunner._run_single`` (Phase 21).
+        Called by ``EvaluationRunner._run_single`` (Phase 21) and
+        ``HyperparamOptimizer._objective`` (Phase 22).
         """
+        chamfer_mean, hausdorff_mean = self._frame_averaged_chamfer_hausdorff(
+            aligned_cloud, target
+        )
         sm = StageMetrics(
-            chamfer_distance=chamfer(source, target).item(),  # Pitfall 5: .item()
-            hausdorff_distance=hausdorff(source, target).item(),  # Pitfall 5
+            chamfer_distance=chamfer_mean,
+            hausdorff_distance=hausdorff_mean,
             path_smoothness=path_smoothness(warp_path),  # already float
             temporal_stability=temporal_stability(transforms).item(),  # Pitfall 5
             f1_score=compute_f1(y_true, y_pred),  # already float

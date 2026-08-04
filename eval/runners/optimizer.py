@@ -495,6 +495,22 @@ class HyperparamOptimizer:
             # Pitfall 4: merge defaults first, trial params override
             merged = {**self._default_params, **params}
 
+            # Phase 57 GT-04/D-07: opt-in multi-seed averaging early-exit.
+            # This is the ONLY edit this plan makes to _objective's existing
+            # body — when len(seeds) == 1 (the default int-seed case, or the
+            # graceful sanity/dev fallback from _resolve_subsample_pair_seeds),
+            # execution falls through unchanged into the existing logic below,
+            # exactly satisfying D-06's "no changes needed inside _objective
+            # for the default path."
+            if self._is_subsample_pair_mode():
+                seeds = _resolve_subsample_pair_seeds(
+                    self.config.transform_spec, tier_name
+                )
+                if len(seeds) > 1:
+                    return self._score_subsample_pair_multiseed(
+                        params, merged, tier_name, seeds, history_out
+                    )
+
             # Phase 57 GT-06: carries the sanity-tier isolated scratch DataFactory
             # from site 2 (this block) to site 3 (GT-selection, below) within
             # this single _objective() call.
@@ -641,6 +657,143 @@ class HyperparamOptimizer:
         except Exception as exc:
             _log.warning("Trial failed: %s", exc)
             return 0.0  # D-09: failed trial returns 0.0; search continues; no Trial appended
+
+    def _score_subsample_pair_multiseed(
+        self,
+        params: dict,
+        merged: dict,
+        tier_name: str,
+        seeds: list[int],
+        history_out: list[Trial],
+    ) -> float:
+        """Score one trial by averaging across N independent subsample pairs (D-07).
+
+        Phase 57 GT-04/D-07: called from ``_objective``'s early-exit branch
+        only when ``_resolve_subsample_pair_seeds`` returns more than one
+        seed (opt-in multi-seed averaging, gated to the ``full`` tier). Each
+        seed's subsample pair is generated and scored in full isolation via a
+        FRESH ``DataFactory`` instance — never ``self._factory`` and never a
+        single scratch instance reused across seeds — because
+        ``_correspondence_idx``/``_synthetic_target``/``_source_dataset`` are
+        single-slot instance attributes that would otherwise be clobbered
+        between seeds within the same trial (T-57-11).
+
+        Parameters
+        ----------
+        params : dict
+            Trial hyperparameters from the search strategy (unmerged —
+            stored as-is on the resulting ``Trial``, mirroring
+            ``_objective``).
+        merged : dict
+            ``{**self._default_params, **params}`` — already merged by the
+            caller (``_objective``); passed through to
+            ``AlignmentStage``/``LabelTransferStage``.
+        tier_name : str
+            Current tier name — always ``"full"`` in practice (the only tier
+            this method is ever invoked from, per
+            ``_resolve_subsample_pair_seeds``'s gating), stored on the
+            resulting ``Trial``.
+        seeds : list[int]
+            Resolved seed list (``len(seeds) > 1`` — guaranteed by the
+            caller).
+        history_out : list[Trial]
+            Mutable list to append the single averaged ``Trial`` to on
+            success.
+
+        Returns
+        -------
+        float
+            The arithmetic mean of the N per-seed
+            ``MetricsEngine.compute_score`` results.
+
+        Notes
+        -----
+        Exceptions are NOT caught here — they propagate to the caller's
+        (``_objective``'s) existing ``except Exception: return 0.0`` handler,
+        so a failed multiseed trial scores ``0.0`` exactly like any other
+        failed trial (D-09 consistency).
+        """
+        # Resolved ONCE, reused across all N seeds — load_real() is
+        # cached/idempotent per DataFactory's existing contract, so this is
+        # not redundant I/O.
+        base = (
+            None
+            if self.config.transform_spec.get("synthesize", False)
+            else self._factory.load_real()
+        )
+
+        scores: list[float] = []
+        last_metrics: StageMetrics | None = None
+
+        for s in seeds:
+            per_seed_spec = {**self.config.transform_spec, "seed": s}
+            # A FRESH DataFactory per seed — never reused across iterations
+            # and never self._factory (T-57-11).
+            scratch_factory = DataFactory(self.config)
+            source_view, target_view = scratch_factory.generate_subsample_pair(
+                base, per_seed_spec
+            )
+
+            align_result = None
+            label_result = None
+            stage_input = source_view
+
+            if self.config.run_alignment:
+                align_result = AlignmentStage(self.config).run(
+                    source_view, target_view, merged
+                )
+                stage_input = align_result.aligned_cloud
+
+            if self.config.run_label_transfer:
+                label_result = LabelTransferStage(self.config).run(
+                    stage_input, target_view, merged
+                )
+
+            source_sorted_keys = sorted(source_view.keys())
+            target_sorted_keys = sorted(target_view.keys())
+            source_pos = source_view[source_sorted_keys[0]]["pos"]
+            target_pos = target_view[target_sorted_keys[-1]]["pos"]
+            warp_path = align_result.warp_path if align_result else []
+
+            y_true = scratch_factory.get_synthetic_ground_truth()[source_sorted_keys[-1]]
+            if label_result is not None:
+                transferred_keys = sorted(label_result.transferred_labels.keys())
+                y_pred = label_result.transferred_labels[transferred_keys[-1]]
+            else:
+                y_pred = torch.zeros_like(y_true)
+
+            # WR-01: truncate to min length when source and target have
+            # different point counts.
+            if y_true.shape[0] != y_pred.shape[0]:
+                min_len = min(y_true.shape[0], y_pred.shape[0])
+                y_true = y_true[:min_len]
+                y_pred = y_pred[:min_len]
+
+            metrics = self._engine.compute_stage_metrics(
+                source_pos,
+                target_pos,
+                warp_path,
+                [],
+                y_true,
+                y_pred,
+                target_pos,
+                y_pred,
+                k_neighbours=merged.get("k_neighbours", 10),
+            )
+            scores.append(self._engine.compute_score(metrics))
+            # Kept as a representative sample for search_history.json logging
+            # only — NOT the source of the averaged score.
+            last_metrics = metrics
+
+        avg_score = sum(scores) / len(scores)
+        trial_obj = Trial(
+            params=dict(params),
+            score=avg_score,
+            metrics=last_metrics,
+            tier=tier_name,
+        )
+        history_out.append(trial_obj)
+        return avg_score
 
     def _tier_dataset(self, tier: str) -> dict:
         """Return the dataset slice appropriate for the given tier.

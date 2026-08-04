@@ -141,7 +141,14 @@ class EvaluationRunner:
         The pipeline follows the FRAME-07 orchestration contract:
 
         1. ``Path(config.output_dir).mkdir(parents=True, exist_ok=True)`` — D-12
-        2. Instantiate ``DataFactory`` and load real dataset.
+        2. Instantiate ``DataFactory`` and build ``(source, target)`` via a
+           three-way dispatch (Phase 57 GT-04/GT-06): ``pipeline_mode ==
+           "paired"`` -> ``load_real()``/``load_target()``;
+           ``transform_spec["type"] == "subsample_pair"`` ->
+           ``generate_subsample_pair()`` (skipping ``load_real()`` entirely
+           when ``transform_spec["synthesize"]`` is ``True``, D-02); otherwise
+           (rigid/noise ``transform_spec``) -> ``load_real()`` +
+           ``generate_target()`` (Phase 31 MODE-02, unchanged).
         3. Call ``_run_single(dataset, self.params)`` to execute stages and
            compute metrics.
         4. Construct ``EvalReport`` from results.
@@ -185,10 +192,24 @@ class EvaluationRunner:
         Path(self.config.output_dir).mkdir(parents=True, exist_ok=True)  # D-12
 
         self.factory = DataFactory(self.config)
-        source = self.factory.load_real()
         if self.config.pipeline_mode == "paired":
+            source = self.factory.load_real()
             target = self.factory.load_target()
-        else:  # pipeline_mode == "synthetic" — Phase 31 MODE-02
+        elif (
+            self.config.transform_spec is not None
+            and self.config.transform_spec.get("type") == "subsample_pair"
+        ):
+            # Phase 57 GT-04/GT-05/GT-06 (D-02): subsample-pair dispatch — do NOT
+            # call load_real() when transform_spec["synthesize"] is True, so a
+            # subsample_pair run can execute with no real data available at all.
+            base = (
+                None
+                if self.config.transform_spec.get("synthesize", False)
+                else self.factory.load_real()
+            )
+            source, target = self.factory.generate_subsample_pair(base, self.config.transform_spec)
+        else:  # pipeline_mode == "synthetic" — Phase 31 MODE-02 (rigid/noise transform_spec)
+            source = self.factory.load_real()
             target = self.factory.generate_target(source, self.config.transform_spec)
 
         result = self._run_single(source, target, self.params)

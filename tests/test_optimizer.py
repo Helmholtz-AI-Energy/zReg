@@ -291,7 +291,11 @@ class TestBayesianSearch:
 # ---------------------------------------------------------------------------
 
 
-from eval.runners.optimizer import _apply_transform_to_dataset  # noqa: E402
+from eval.runners.optimizer import (  # noqa: E402
+    _apply_transform_to_dataset,
+    _resolve_subsample_pair_seeds,
+    SUBSAMPLE_PAIR_MULTISEED_TIER,
+)
 from eval.data_factory import DataFactory  # noqa: E402
 
 
@@ -679,6 +683,224 @@ class TestOptimizerSubsamplePair:
             },
             tier="full",
             n_trials=3,
+            search_strategy="grid",
+            search_space={"window_size": [3], "k_neighbours": [3]},
+        )
+        result = HyperparamOptimizer(config).run()
+
+        assert isinstance(result, SearchResult)
+        assert len(result.history) > 0, "SearchResult.history must be non-empty"
+        for trial in result.history:
+            assert isinstance(trial.score, float)
+            assert trial.score == trial.score, "score must not be NaN"  # NaN != NaN
+            assert trial.score not in (float("inf"), float("-inf")), "score must be finite"
+
+
+# ---------------------------------------------------------------------------
+# TestSubsamplePairMultiseed — Phase 57 GT-04 / D-07
+# ---------------------------------------------------------------------------
+
+
+class TestSubsamplePairMultiseed:
+    """Phase 57: D-07 opt-in multi-seed averaging for subsample_pair mode.
+
+    Verifies:
+    - _resolve_subsample_pair_seeds()'s full decision table (int seed, list
+      on full tier, list graceful fallback on sanity/dev, empty-list and
+      wrong-type raises)
+    - _objective()'s early-exit dispatch: single int seed never calls
+      _score_subsample_pair_multiseed; a list seed on the full tier does
+    - averaging correctness: the returned score is the exact arithmetic
+      mean of the per-seed compute_score values
+    - a real end-to-end 3-seed full-tier sweep completes without raising
+    """
+
+    # -- _resolve_subsample_pair_seeds() direct unit tests -------------------
+
+    def test_resolve_seeds_int_seed_returns_single_element_list(self):
+        assert _resolve_subsample_pair_seeds({"seed": 42}, "sanity") == [42]
+        assert _resolve_subsample_pair_seeds({"seed": 42}, "full") == [42]
+
+    def test_resolve_seeds_list_on_full_tier_returns_unchanged(self):
+        assert _resolve_subsample_pair_seeds({"seed": [1, 2, 3]}, "full") == [1, 2, 3]
+        assert SUBSAMPLE_PAIR_MULTISEED_TIER == "full"
+
+    def test_resolve_seeds_list_on_sanity_tier_falls_back_to_first(self):
+        assert _resolve_subsample_pair_seeds({"seed": [1, 2, 3]}, "sanity") == [1]
+
+    def test_resolve_seeds_list_on_dev_tier_falls_back_to_first(self):
+        assert _resolve_subsample_pair_seeds({"seed": [1, 2, 3]}, "dev") == [1]
+
+    def test_resolve_seeds_empty_list_raises_value_error(self):
+        with pytest.raises(ValueError):
+            _resolve_subsample_pair_seeds({"seed": []}, "full")
+
+    def test_resolve_seeds_wrong_type_raises_value_error(self):
+        with pytest.raises(ValueError):
+            _resolve_subsample_pair_seeds({"seed": "bad"}, "full")
+
+    # -- _objective() early-exit dispatch -------------------------------------
+
+    @patch("eval.runners.optimizer.HyperparamOptimizer._score_subsample_pair_multiseed")
+    def test_single_int_seed_never_calls_multiseed_scorer(
+        self, mock_multiseed, tmp_path
+    ) -> None:
+        """A plain int seed (the default, unchanged Plan 57-03 path) must
+        NEVER trigger _score_subsample_pair_multiseed (D-06)."""
+        config = EvalConfig(
+            data_path=str(tmp_path / "unused.mat"),
+            output_dir=str(tmp_path / "output"),
+            pipeline_mode="synthetic",
+            transform_spec={
+                "type": "subsample_pair",
+                "synthesize": True,
+                "seed": 42,
+                "n_classes": 3,
+                "n_points": 40,
+                "source_fraction": 0.8,
+                "target_fraction": 0.8,
+            },
+            tier="full",
+            n_trials=1,
+            search_strategy="grid",
+            search_space={"window_size": [3], "k_neighbours": [3]},
+        )
+        HyperparamOptimizer(config).run()
+        mock_multiseed.assert_not_called()
+
+    @patch("eval.runners.optimizer.HyperparamOptimizer._score_subsample_pair_multiseed")
+    def test_list_seed_full_tier_calls_multiseed_scorer(
+        self, mock_multiseed, tmp_path
+    ) -> None:
+        """A list seed on the full tier must dispatch to
+        _score_subsample_pair_multiseed (D-07)."""
+        mock_multiseed.return_value = 0.5
+        config = EvalConfig(
+            data_path=str(tmp_path / "unused.mat"),
+            output_dir=str(tmp_path / "output"),
+            pipeline_mode="synthetic",
+            transform_spec={
+                "type": "subsample_pair",
+                "synthesize": True,
+                "seed": [1, 2],
+                "n_classes": 3,
+                "n_points": 40,
+                "source_fraction": 0.8,
+                "target_fraction": 0.8,
+            },
+            tier="full",
+            n_trials=1,
+            search_strategy="grid",
+            search_space={"window_size": [3], "k_neighbours": [3]},
+        )
+        HyperparamOptimizer(config).run()
+        mock_multiseed.assert_called()
+
+    # -- averaging correctness (mocked stages/engine) -------------------------
+
+    @patch("eval.runners.optimizer.MetricsEngine")
+    @patch("eval.runners.optimizer.LabelTransferStage")
+    @patch("eval.runners.optimizer.AlignmentStage")
+    @patch("eval.runners.optimizer.DataFactory")
+    def test_score_subsample_pair_multiseed_averages_correctly(
+        self,
+        mock_factory_cls,
+        mock_align_cls,
+        mock_label_cls,
+        mock_engine_cls,
+        tmp_path,
+        synthetic_dataset,
+    ) -> None:
+        """The returned score is the exact arithmetic mean of the per-seed
+        compute_score values (not the first or last seed's score alone),
+        and exactly one Trial is appended to history_out."""
+        config = EvalConfig(
+            data_path=str(tmp_path / "unused.mat"),
+            output_dir=str(tmp_path / "output"),
+            pipeline_mode="synthetic",
+            run_alignment=True,
+            run_label_transfer=True,
+            transform_spec={
+                "type": "subsample_pair",
+                "synthesize": True,
+                "seed": [1, 2],
+            },
+            search_space={"window_size": [3], "k_neighbours": [3]},
+        )
+
+        # 1st DataFactory(...) call = self._factory (constructed in __init__);
+        # 2nd/3rd calls = the per-seed FRESH scratch factories inside
+        # _score_subsample_pair_multiseed (T-57-11 isolation).
+        main_factory = MagicMock()
+        gt = {k: synthetic_dataset[k]["label"] for k in synthetic_dataset}
+        scratch_1 = MagicMock()
+        scratch_1.generate_subsample_pair.return_value = (synthetic_dataset, synthetic_dataset)
+        scratch_1.get_synthetic_ground_truth.return_value = gt
+        scratch_2 = MagicMock()
+        scratch_2.generate_subsample_pair.return_value = (synthetic_dataset, synthetic_dataset)
+        scratch_2.get_synthetic_ground_truth.return_value = gt
+        mock_factory_cls.side_effect = [main_factory, scratch_1, scratch_2]
+
+        mock_align_cls.return_value.run.return_value = MagicMock(
+            aligned_cloud=synthetic_dataset, warp_path=[]
+        )
+        mock_label_cls.return_value.run.return_value = MagicMock(
+            transferred_labels=gt
+        )
+
+        stub_metrics = StageMetrics(
+            chamfer_distance=0.0,
+            hausdorff_distance=0.0,
+            path_smoothness=0.0,
+            temporal_stability=0.0,
+            f1_score=0.5,
+            knn_consistency=0.5,
+        )
+        mock_engine_cls.return_value.compute_stage_metrics.return_value = stub_metrics
+        mock_engine_cls.return_value.compute_score.side_effect = [0.4, 0.6]
+
+        optimizer = HyperparamOptimizer(config)
+        history_out: list[Trial] = []
+        merged = dict(optimizer._default_params)
+
+        score = optimizer._score_subsample_pair_multiseed(
+            {}, merged, "full", [1, 2], history_out
+        )
+
+        assert score == pytest.approx(0.5), (
+            "averaged score must be the exact arithmetic mean of [0.4, 0.6]"
+        )
+        assert len(history_out) == 1, (
+            "exactly one Trial must be appended per multiseed trial call"
+        )
+        assert history_out[0].score == pytest.approx(0.5)
+        assert history_out[0].tier == "full"
+        # Each seed used its own FRESH DataFactory — never self._factory (main_factory).
+        main_factory.generate_subsample_pair.assert_not_called()
+
+    # -- real end-to-end smoke test (no mocking) -------------------------------
+
+    def test_end_to_end_subsample_pair_multiseed_full_tier_smoke(
+        self, tmp_path
+    ) -> None:
+        """A full-tier HPO sweep with a 3-entry seed list completes without
+        raising and produces a non-empty SearchResult.history with finite
+        scores (D-07 real integration)."""
+        config = EvalConfig(
+            data_path=str(tmp_path / "unused.mat"),
+            output_dir=str(tmp_path / "output"),
+            pipeline_mode="synthetic",
+            transform_spec={
+                "type": "subsample_pair",
+                "synthesize": True,
+                "seed": [11, 12, 13],
+                "n_classes": 3,
+                "n_points": 60,
+                "source_fraction": 0.8,
+                "target_fraction": 0.8,
+            },
+            tier="full",
+            n_trials=2,
             search_strategy="grid",
             search_space={"window_size": [3], "k_neighbours": [3]},
         )

@@ -67,7 +67,22 @@ Plans:
   3. `EvaluationRunner` and `HyperparamOptimizer` can run a label-transfer HPO sweep end-to-end against subsample-pair-generated ground truth (not just the training pipeline that originally consumed `generate_training_triple()`)
   4. The subsample-pair mechanism coexists with the existing `transform_spec` known-transform mechanism — both remain independently selectable via config without one breaking the other
 
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+
+**Wave 1**
+
+- [ ] 57-01-PLAN.md — DataFactory.generate_subsample_pair() + _subsample_source_view attribute + config docstring (GT-04, GT-05)
+
+**Wave 2** *(both depend on 57-01, no file overlap between them)*
+
+- [ ] 57-02-PLAN.md — EvaluationRunner.run() subsample_pair dispatch branch (GT-04, GT-06)
+- [ ] 57-03-PLAN.md — HyperparamOptimizer single-seed subsample_pair wiring across run()/_tier_dataset()/_objective() (GT-06)
+
+**Wave 3** *(depends on 57-03, same file)*
+
+- [ ] 57-04-PLAN.md — D-07 opt-in multi-seed averaging, gated to the full tier (GT-04, GT-06)
 
 ### Phase 51: Environment & Access
 
@@ -395,7 +410,7 @@ Phases execute in numeric order: 56 → 57 (v1.6 paused after Phase 51; resumes 
 | 53. GPU Acceleration | v1.6 | 0/TBD | Not started | - |
 | 54. Budget Calibration & Full-Suite Gate | v1.6 | 0/TBD | Not started | - |
 | 56. Ground-Truth Field Consistency | v1.7 | 2/2 | Complete    | 2026-08-04 |
-| 57. Synthetic Labeled Subsample-Pair Generation | v1.7 | 0/TBD | Not started | - |
+| 57. Synthetic Labeled Subsample-Pair Generation | v1.7 | 0/4 | Not started | - |
 
 | Milestone | Phases | Plans | Status | Shipped |
 |-----------|--------|-------|--------|---------|
@@ -407,4 +422,4 @@ Phases execute in numeric order: 56 → 57 (v1.6 paused after Phase 51; resumes 
 | v1.6 HoreKa Cluster Execution | 51–54 (4) | TBD | 🚧 In progress | - |
 | v1.7 Minor Adjustments | 56–57 (2) | TBD | 🚧 In progress | - |
 
-_Next: `/gsd:plan-phase 57` to plan Phase 57 (Synthetic Labeled Subsample-Pair Generation)._
+_Next: `/gsd:execute-phase 57` to execute Phase 57 (Synthetic Labeled Subsample-Pair Generation, 4 plans across 3 waves)._

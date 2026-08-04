@@ -689,6 +689,140 @@ class TestEvaluationRunnerSyntheticMode:
 
 
 # ---------------------------------------------------------------------------
+# TestEvaluationRunnerSubsamplePair — Phase 57 GT-04/GT-06
+# ---------------------------------------------------------------------------
+
+
+class TestEvaluationRunnerSubsamplePair:
+    """Phase 57: transform_spec["type"] == "subsample_pair" dispatch wiring.
+
+    Verifies that:
+    - run() dispatches to factory.generate_subsample_pair() (not
+      generate_target()/load_target()) when transform_spec["type"] ==
+      "subsample_pair", both in "dataset" mode (synthesize absent/False,
+      real load_real() dataset passed as base) and "synthesize" mode
+      (synthesize=True, load_real() skipped entirely — D-02).
+    - _run_single()'s GT-extraction branch needs no changes: it already
+      calls get_synthetic_ground_truth() (not get_ground_truth()) for
+      pipeline_mode="synthetic" regardless of which transform_spec["type"]
+      produced target.
+    - A real (non-mocked) end-to-end run against a subsample_pair config
+      produces a non-degenerate F1 score.
+    """
+
+    @patch("eval.runners.eval_runner.DataFactory")
+    def test_dataset_mode_calls_generate_subsample_pair(
+        self,
+        mock_factory_cls,
+        tmp_path,
+        full_params,
+        synthetic_dataset,
+    ) -> None:
+        """Dataset mode (synthesize absent): generate_subsample_pair called once
+        with (load_real() result, transform_spec); generate_target/load_target
+        are NOT called."""
+        transform_spec = {
+            "type": "subsample_pair",
+            "source_fraction": 0.8,
+            "target_fraction": 0.8,
+            "seed": 42,
+        }
+        synth_config = EvalConfig(
+            data_path=str(tmp_path / "unused.mat"),
+            output_dir=str(tmp_path / "output"),
+            pipeline_mode="synthetic",
+            transform_spec=transform_spec,
+        )
+        mock_factory = mock_factory_cls.return_value
+        mock_factory.load_real.return_value = synthetic_dataset
+        mock_factory.generate_subsample_pair.return_value = (synthetic_dataset, synthetic_dataset)
+        mock_factory.get_synthetic_ground_truth.return_value = {
+            k: synthetic_dataset[k]["label"] for k in synthetic_dataset
+        }
+        runner = EvaluationRunner(synth_config, full_params)
+        runner.run()
+        mock_factory.generate_subsample_pair.assert_called_once_with(
+            synthetic_dataset, synth_config.transform_spec
+        )
+        mock_factory.generate_target.assert_not_called()
+        mock_factory.load_target.assert_not_called()
+        # GT-extraction reuse: no new code needed in _run_single (Plan 57-02 claim).
+        assert mock_factory.get_synthetic_ground_truth.called is True
+        assert mock_factory.get_ground_truth.called is False
+
+    @patch("eval.runners.eval_runner.DataFactory")
+    def test_synthesize_mode_skips_load_real(
+        self,
+        mock_factory_cls,
+        tmp_path,
+        full_params,
+        synthetic_dataset,
+    ) -> None:
+        """Synthesize mode (transform_spec["synthesize"]=True): load_real() is
+        NEVER called; generate_subsample_pair called once with (None, transform_spec)
+        — D-02's 'no real data available' contract."""
+        transform_spec = {
+            "type": "subsample_pair",
+            "synthesize": True,
+            "source_fraction": 0.8,
+            "target_fraction": 0.8,
+            "seed": 42,
+        }
+        synth_config = EvalConfig(
+            data_path=str(tmp_path / "unused.mat"),
+            output_dir=str(tmp_path / "output"),
+            pipeline_mode="synthetic",
+            transform_spec=transform_spec,
+        )
+        mock_factory = mock_factory_cls.return_value
+        mock_factory.load_real.return_value = synthetic_dataset
+        mock_factory.generate_subsample_pair.return_value = (synthetic_dataset, synthetic_dataset)
+        mock_factory.get_synthetic_ground_truth.return_value = {
+            k: synthetic_dataset[k]["label"] for k in synthetic_dataset
+        }
+        runner = EvaluationRunner(synth_config, full_params)
+        runner.run()
+        assert mock_factory.load_real.called is False
+        mock_factory.generate_subsample_pair.assert_called_once_with(
+            None, synth_config.transform_spec
+        )
+        # GT-extraction reuse: no new code needed in _run_single (Plan 57-02 claim).
+        assert mock_factory.get_synthetic_ground_truth.called is True
+        assert mock_factory.get_ground_truth.called is False
+
+    def test_end_to_end_subsample_pair_produces_nondegenerate_f1(
+        self,
+        tmp_path,
+        full_params,
+    ) -> None:
+        """Real (non-mocked) EvaluationRunner.run() against a synthesize-mode
+        subsample_pair config produces a finite F1 score in [0.0, 1.0]."""
+        transform_spec = {
+            "type": "subsample_pair",
+            "synthesize": True,
+            "seed": 3,
+            "n_classes": 3,
+            "n_points": 60,
+            "source_fraction": 0.8,
+            "target_fraction": 0.8,
+        }
+        config = EvalConfig(
+            data_path=str(tmp_path / "unused.mat"),  # never read: synthesize=True
+            output_dir=str(tmp_path / "output"),
+            pipeline_mode="synthetic",
+            transform_spec=transform_spec,
+            run_alignment=True,
+            run_label_transfer=True,
+        )
+        runner = EvaluationRunner(config, full_params)
+        report = runner.run()
+        f1 = report.metrics.f1_score
+        assert isinstance(f1, float)
+        assert f1 == f1  # not NaN
+        assert 0.0 <= f1 <= 1.0
+
+
+# ---------------------------------------------------------------------------
 # Coverage gap tests for eval_runner.py
 # ---------------------------------------------------------------------------
 

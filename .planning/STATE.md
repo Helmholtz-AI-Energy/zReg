@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.6
-milestone_name: HoreKa Cluster Execution
+milestone: v1.7
+milestone_name: Minor Adjustments
 status: executing
-stopped_at: context exhaustion at 80% (2026-08-02)
-last_updated: "2026-08-02T19:53:59.222Z"
-last_activity: 2026-07-31
+stopped_at: Phase 58 complete (VERIFICATION.md passed, 6/6 must-haves) — v1.7 milestone complete; merged into feature/evaluation_framework
+last_updated: "2026-08-05T00:00:00.000Z"
+last_activity: 2026-08-05 -- v1.7 (Phases 57-58) merged into feature/evaluation_framework, renumbered from 56-57 to resolve collision with that branch's own Phase 56
 progress:
-  total_phases: 4
-  completed_phases: 3
-  total_plans: 7
-  completed_plans: 8
-  percent: 75
+  total_phases: 50
+  completed_phases: 25
+  total_plans: 69
+  completed_plans: 97
+  percent: 50
 ---
 
 # Project State
@@ -21,17 +21,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-15 after v1.5/v1.6 roadmap creation)
 
 **Core value:** Every existing capability works correctly, fails informatively, and is covered by tests.
-**Current focus:** Phase 50 — gpu-native-geometry-ops
+**Current focus:** v1.7 Minor Adjustments complete — v1.6 Phase 54 (Budget Calibration & Full-Suite Gate) resumes next
 
 ## Current Position
 
-Phase: 51
-Plan: Not started
-Status: Executing Phase 50
-Tests: 1374 passed, 22 skipped, 1 xpassed, 2 failed (full suite post-merge with Phase 56; the 2 failures are the pre-existing test_icp_registration.py full-suite-order flakes logged in Phase 56's deferred-items.md, unrelated to Phase 50/51)
-Last activity: 2026-07-31
-
-Progress (v1.6): [████████░░] 80%
+Phase: 58 of 58 — v1.7 milestone complete (6/6 requirements satisfied), now merged into feature/evaluation_framework
+Plan: 58-01, 58-02, 58-03, 58-04 (all 4 executed, VERIFICATION.md passed)
+Status: v1.7 Minor Adjustments complete and merged. Next: resume v1.6 (Phase 54) or run /gsd:complete-milestone
+Tests (this branch, pre-merge): 1410 passed, 22 skipped, 1 xpassed, 1 failed (tests/test_icp_registration.py::test_icp_translation_recovery — pre-existing full-suite-order flake, confirmed unrelated and passes in isolation)
+Last activity: 2026-08-05 -- merged into feature/evaluation_framework; renumbered 56-57 -> 57-58 to resolve a Phase 56 collision with that branch's own concurrent work
 
 ## Shipped Milestones
 
@@ -43,6 +41,15 @@ Progress (v1.6): [████████░░] 80%
 | v1.4 Trajectory Alignment & Optimization Enhancements | 39–43 | 2026-07-08 |
 
 Full history: .planning/MILESTONES.md · Retrospective: .planning/RETROSPECTIVE.md
+
+## v1.7 Phases — Minor Adjustments (Phases 57–58, current milestone)
+
+| Phase | Name | Requirements | Status |
+|-------|------|---------------|--------|
+| 57 | Ground-Truth Field Consistency | GT-01, GT-02, GT-03 | ✅ Complete (2026-08-04) |
+| 58 | Synthetic Labeled Subsample-Pair Generation | GT-04, GT-05, GT-06 | ✅ Complete (2026-08-04) |
+
+Note: v1.7 was originally planned as Phases 56–57. Phase 55 was already consumed by an ad-hoc out-of-band phase (spherical-cap/Gaussian label generators), completed 2026-07-30 — shared history on both branches. Phase 56 was independently consumed by a *different* ad-hoc phase developed concurrently on `feature/evaluation_framework` (Configurable multi-label region-based labeling, completed 2026-07-31, see `.planning/phases/56-configurable-multi-label-region-based-labeling-rework-genera/`) — discovered only when this branch merged back in on 2026-08-05. v1.7 was renumbered to Phases 57–58 to resolve the collision. v1.6 (Phases 51–54) is paused at Phase 54; resumes now that v1.7 has shipped.
 
 ## v1.5 Phases — Learned Label Transfer Methods (Phases 44–49 complete, 50 pending)
 
@@ -99,6 +106,7 @@ Full history: .planning/MILESTONES.md · Retrospective: .planning/RETROSPECTIVE.
 
 - Phase 56 added: Configurable multi-label region-based labeling — rework generate_labels() to support arbitrary n_labels, voronoi/gaussian-blob/gaussian-cone region shapes, deterministic and probabilistic assignment modes, and config-driven specification via EvalConfig
 - Phase 56 completed (5/5 plans, verified) and merged into feature/evaluation_framework on 2026-07-31, alongside this branch's own concurrent Phase 50/51 progress
+- v1.7 Minor Adjustments (Phases 57-58, originally planned as 56-57 on a separate branch before this merge — renumbered to resolve the Phase 56 collision with the entry above) added and completed: Phase 57 Ground-Truth Field Consistency (GT-01/02/03) and Phase 58 Synthetic Labeled Subsample-Pair Generation (GT-04/05/06), merged into feature/evaluation_framework on 2026-08-05
 
 ### v1.6 Design Decisions
 
@@ -124,6 +132,8 @@ Full history: .planning/MILESTONES.md · Retrospective: .planning/RETROSPECTIVE.
 
 See: `.planning/REQUIREMENTS.md`
 
+- GT-01/02/03: ground-truth field consistency — `pc["label"]` not `pc["id"]`, correspondence-preserving y_true/y_pred pairing, config audit (Phase 57)
+- GT-04/05/06: synthetic labeled subsample-pair generation — YAML-configurable, DataFactory method, EvaluationRunner/HyperparamOptimizer support (Phase 58)
 - ENV-01/02/03: environment setup, data transfer, SLURM job script (Phase 51)
 - PARA-01/02/03: propulate multi-rank HPO, run_all.py rank-awareness, separate cluster configs (Phase 52)
 - GPU-01/02/03: EvalConfig device field, DataFactory device loading, verified GPU execution (Phase 53)
@@ -132,7 +142,7 @@ See: `.planning/REQUIREMENTS.md`
 
 ### Pending Todos
 
-Phase 54 planning not yet started — requires real HoreKa timing data from Phase 52/53 runs. Phase 50 (GPU-native geometry ops) still pending.
+v1.6 Phase 54 planning is paused (requires real HoreKa timing data from Phase 52/53 runs) — v1.7 has now shipped (Phases 57-58 both complete and merged), so Phase 54 is ready to resume.
 
 ### Blockers/Concerns
 
@@ -160,6 +170,6 @@ None — test_search_strategies mock fixed (FakeIndividual k=int→str) to align
 
 ## Session Continuity
 
-Last session: 2026-08-02T19:53:59.213Z
-Stopped at: context exhaustion at 80% (2026-08-02)
-Next action: `/gsd:plan-phase 54` — Budget Calibration & Full-Suite Gate (BUDG-02, BUDG-03) remains pending, requires real HoreKa timing data from Phase 52/53 full run
+Last session: 2026-08-05T00:00:00.000Z
+Stopped at: v1.7 Minor Adjustments (Phases 57-58) merged into feature/evaluation_framework, renumbered to resolve Phase 56 collision
+Next action: `/gsd:plan-phase 54` — Budget Calibration & Full-Suite Gate (BUDG-02, BUDG-03); requires real HoreKa timing data from Phase 52/53 full run. Or `/gsd:complete-milestone` to formally close out v1.7 first.

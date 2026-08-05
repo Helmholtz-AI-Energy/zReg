@@ -117,6 +117,21 @@ class TestEvalConfigFromYAML:
         with pytest.raises(EvalConfigError, match="pipeline_mode"):
             EvalConfig.from_yaml(p)
 
+    def test_ground_truth_field_defaults_to_label(self):
+        """Phase 56 D-01: ground_truth_field defaults to 'label' on direct construction."""
+        cfg = EvalConfig(data_path="x")
+        assert cfg.ground_truth_field == "label"
+
+    def test_ground_truth_field_accepts_id_override(self):
+        """Phase 56 D-02: ground_truth_field='id' is a valid explicit override."""
+        cfg = EvalConfig(data_path="x", ground_truth_field="id")
+        assert cfg.ground_truth_field == "id"
+
+    def test_ground_truth_field_rejects_invalid_string(self):
+        """Phase 56 D-02: ground_truth_field is a closed Literal — no free-form values."""
+        with pytest.raises(pydantic.ValidationError):
+            EvalConfig(data_path="x", ground_truth_field="bogus")
+
     def test_target_data_path_optional_and_round_trips(self, tmp_path):
         """target_data_path round-trips from YAML; default is None."""
         p = tmp_path / "with_target.yaml"
@@ -419,6 +434,16 @@ class TestGenerateTarget:
         assert factory._synthetic_target is None
         assert factory._source_dataset is None
         assert factory._transform_spec is None
+        assert factory._correspondence_idx is None  # Phase 56 D-03/D-04
+
+    def test_generate_target_resets_correspondence_idx_when_noise_only(self):
+        """Phase 56 D-03: noise-only generate_target() leaves _correspondence_idx None
+        (never touches drop_points/sample_new_points)."""
+        cfg = EvalConfig(data_path="x")
+        factory = DataFactory(cfg)
+        ds = self._make_small_ds()
+        factory.generate_target(ds, {"type": "noise", "sigma": 0.1})
+        assert factory._correspondence_idx is None
 
     def test_generate_target_with_noise_returns_distinct_dataset(self):
         """D-01: noise transform produces pos tensors different from input dataset."""
@@ -502,6 +527,175 @@ class TestGenerateTarget:
         )
         for k in ds:
             assert not torch.equal(out[k]["pos"], ds[k]["pos"])
+
+
+# ---------------------------------------------------------------------------
+# TestGenerateSubsamplePair — Phase 57 GT-04/GT-05: generate_subsample_pair()
+# ---------------------------------------------------------------------------
+
+
+class TestGenerateSubsamplePair:
+    """generate_subsample_pair() — subsample-pair generation with tracked correspondence."""
+
+    def _make_ds_100pts(self):
+        """Single-frame, 100-point dataset with populated label and id fields."""
+        pc = zRegPointCloud(
+            pos=torch.randn(100, 3),
+            label=torch.arange(100, dtype=torch.long),
+            id=torch.arange(100),
+        )
+        pc["fps-idx"] = None
+        return {0: pc}
+
+    def test_list_seed_raises_value_error(self):
+        """seed as a list is rejected (D-06/D-07 — optimizer.py-level concern)."""
+        cfg = EvalConfig(data_path="x")
+        factory = DataFactory(cfg)
+        ds = self._make_ds_100pts()
+        with pytest.raises(ValueError, match="seed"):
+            factory.generate_subsample_pair(ds, {"seed": [1, 2]})
+
+    def test_missing_dataset_when_not_synthesize_raises_value_error(self):
+        """dataset=None with synthesize not set (defaults False) raises ValueError naming 'synthesize'."""
+        cfg = EvalConfig(data_path="x")
+        factory = DataFactory(cfg)
+        with pytest.raises(ValueError, match="synthesize"):
+            factory.generate_subsample_pair(None, {"source_fraction": 0.5})
+
+    def test_source_fraction_zero_raises_value_error(self):
+        """source_fraction=0.0 is out of the (0.0, 1.0] range."""
+        cfg = EvalConfig(data_path="x")
+        factory = DataFactory(cfg)
+        ds = self._make_ds_100pts()
+        with pytest.raises(ValueError, match="source_fraction"):
+            factory.generate_subsample_pair(ds, {"source_fraction": 0.0})
+
+    def test_source_fraction_above_one_raises_value_error(self):
+        """source_fraction=1.1 is out of the (0.0, 1.0] range."""
+        cfg = EvalConfig(data_path="x")
+        factory = DataFactory(cfg)
+        ds = self._make_ds_100pts()
+        with pytest.raises(ValueError, match="source_fraction"):
+            factory.generate_subsample_pair(ds, {"source_fraction": 1.1})
+
+    def test_target_fraction_zero_raises_value_error(self):
+        """target_fraction=0.0 is out of the (0.0, 1.0] range."""
+        cfg = EvalConfig(data_path="x")
+        factory = DataFactory(cfg)
+        ds = self._make_ds_100pts()
+        with pytest.raises(ValueError, match="target_fraction"):
+            factory.generate_subsample_pair(ds, {"target_fraction": 0.0})
+
+    def test_target_fraction_above_one_raises_value_error(self):
+        """target_fraction=1.1 is out of the (0.0, 1.0] range."""
+        cfg = EvalConfig(data_path="x")
+        factory = DataFactory(cfg)
+        ds = self._make_ds_100pts()
+        with pytest.raises(ValueError, match="target_fraction"):
+            factory.generate_subsample_pair(ds, {"target_fraction": 1.1})
+
+    def test_run_alignment_true_applies_real_geometric_transform(self):
+        """D-03: with run_alignment=True (default), the target view's retained
+        points are NOT bitwise-identical to the corresponding base positions —
+        proving a real perturbation (rotation/scale) was layered on top of the
+        subsampling, not just an identity subsample."""
+        cfg = EvalConfig(data_path="x")  # run_alignment=True by default
+        factory = DataFactory(cfg)
+        ds = self._make_ds_100pts()
+        source, target = factory.generate_subsample_pair(
+            ds, {"source_fraction": 0.8, "target_fraction": 0.8, "seed": 42}
+        )
+        corr = factory._correspondence_idx[0]
+        valid = corr >= 0
+        pre_perturbation_expected = ds[0]["pos"][corr[valid]]
+        assert not torch.allclose(pre_perturbation_expected, target[0]["pos"][valid])
+
+    def test_run_alignment_true_source_and_target_are_different_selections(self):
+        """The seed+1 target-seed offset produces genuinely different retained
+        points between source and target views (not the same subsample twice)."""
+        cfg = EvalConfig(data_path="x")
+        factory = DataFactory(cfg)
+        ds = self._make_ds_100pts()
+        source, target = factory.generate_subsample_pair(
+            ds, {"source_fraction": 0.8, "target_fraction": 0.8, "seed": 42}
+        )
+        assert (
+            source[0]["pos"].shape[0] != target[0]["pos"].shape[0]
+            or not torch.equal(source[0]["pos"], target[0]["pos"])
+        )
+
+    def test_run_alignment_false_no_perturbation_layered(self):
+        """D-03: with run_alignment=False, the target view's retained-point
+        positions exactly equal the corresponding base positions (no rotation/
+        scale/noise applied) — source and target stay in the same coordinate
+        frame."""
+        cfg = EvalConfig(data_path="x", run_alignment=False)
+        factory = DataFactory(cfg)
+        ds = self._make_ds_100pts()
+        source, target = factory.generate_subsample_pair(
+            ds, {"source_fraction": 0.8, "target_fraction": 0.8, "seed": 42}
+        )
+        corr = factory._correspondence_idx[0]
+        valid = corr >= 0
+        assert torch.equal(ds[0]["pos"][corr[valid]], target[0]["pos"][valid])
+
+    def test_instance_state_after_explicit_dataset_call(self):
+        """After a non-synthesize call, _subsample_source_view/_source_dataset/
+        _synthetic_target are set per the producer contract."""
+        cfg = EvalConfig(data_path="x")
+        factory = DataFactory(cfg)
+        ds = self._make_ds_100pts()
+        source, target = factory.generate_subsample_pair(
+            ds, {"source_fraction": 0.8, "target_fraction": 0.8, "seed": 42}
+        )
+        assert factory._subsample_source_view is source
+        assert factory._source_dataset is ds
+        assert factory._synthetic_target is target
+
+    def test_get_synthetic_ground_truth_matches_target_length_and_values(self):
+        """get_synthetic_ground_truth() after generate_subsample_pair returns a
+        per-frame tensor whose length equals the target view's point count and
+        whose non-sentinel entries equal the base dataset's label field gathered
+        at the tracked correspondence (mirrors Phase 56 gather-correctness)."""
+        cfg = EvalConfig(data_path="x")
+        factory = DataFactory(cfg)
+        ds = self._make_ds_100pts()
+        source, target = factory.generate_subsample_pair(
+            ds, {"source_fraction": 0.8, "target_fraction": 0.8, "seed": 42}
+        )
+        gt = factory.get_synthetic_ground_truth()
+        assert gt[0].shape[0] == target[0]["pos"].shape[0]
+        corr = factory._correspondence_idx[0]
+        valid = corr >= 0
+        assert torch.equal(gt[0][valid], ds[0][cfg.ground_truth_field][corr[valid]])
+
+    def test_synthesize_mode_produces_labeled_pair_without_dataset(self):
+        """synthesize=True mode produces a labeled source/target pair with no
+        dataset argument required."""
+        cfg = EvalConfig(data_path="x")
+        factory = DataFactory(cfg)
+        source, target = factory.generate_subsample_pair(
+            None, {"synthesize": True, "seed": 7, "n_classes": 3}
+        )
+        assert source[0]["label"] is not None
+        assert target[0]["label"] is not None
+
+    def test_reproducibility_across_fresh_factory_instances(self):
+        """Two calls with identical transform_spec (including identical seed)
+        on two separate, fresh DataFactory instances produce bitwise-identical
+        source/target positions."""
+        cfg = EvalConfig(data_path="x")
+        ds = self._make_ds_100pts()
+        spec = {"source_fraction": 0.8, "target_fraction": 0.8, "seed": 42}
+
+        factory_a = DataFactory(cfg)
+        source_a, target_a = factory_a.generate_subsample_pair(ds, dict(spec))
+
+        factory_b = DataFactory(cfg)
+        source_b, target_b = factory_b.generate_subsample_pair(ds, dict(spec))
+
+        assert torch.equal(source_a[0]["pos"], source_b[0]["pos"])
+        assert torch.equal(target_a[0]["pos"], target_b[0]["pos"])
 
 
 # ---------------------------------------------------------------------------
@@ -639,9 +833,29 @@ class TestGetGroundTruth:
     """D-10/D-11: id extraction from in-memory dataset and external GT path."""
 
     def test_extracts_id_from_pc(self):
-        """D-10, D-11: returns {i: ds[i]['id']} when ground_truth_path is None."""
+        """D-10, D-11, Phase 56 D-02: returns {i: ds[i]['id']} when ground_truth_path
+        is None and ground_truth_field is explicitly overridden to 'id'."""
         ds = {
             i: zRegPointCloud(pos=torch.zeros(2, 3), label=None, id=torch.tensor([i, i + 100]))
+            for i in range(3)
+        }
+        cfg = EvalConfig(data_path="x", ground_truth_field="id")
+        factory = DataFactory(cfg)
+        gt = factory.get_ground_truth(ds)
+        assert set(gt.keys()) == set(ds.keys())
+        for i in ds:
+            assert torch.equal(gt[i], ds[i]["id"])
+
+    def test_extracts_label_from_pc_by_default(self):
+        """Phase 56 D-01: with default config (ground_truth_field='label'),
+        get_ground_truth returns pc['label'] when the dataset has a populated,
+        distinct label field."""
+        ds = {
+            i: zRegPointCloud(
+                pos=torch.zeros(2, 3),
+                label=torch.tensor([i, i + 100]),
+                id=torch.tensor([i * 1000, i * 1000 + 1]),
+            )
             for i in range(3)
         }
         cfg = EvalConfig(data_path="x")
@@ -649,11 +863,15 @@ class TestGetGroundTruth:
         gt = factory.get_ground_truth(ds)
         assert set(gt.keys()) == set(ds.keys())
         for i in ds:
-            assert torch.equal(gt[i], ds[i]["id"])
+            assert torch.equal(gt[i], ds[i]["label"])
 
     def test_external_gt_path(self):
-        """D-10: when ground_truth_path is set, loads via same loader as data_format."""
-        cfg = EvalConfig(data_path="x.mat", data_format="tracklets", ground_truth_path="gt.mat")
+        """D-10, Phase 56 D-02: when ground_truth_path is set, loads via same loader
+        as data_format, and reads the 'id' field explicitly overridden here."""
+        cfg = EvalConfig(
+            data_path="x.mat", data_format="tracklets", ground_truth_path="gt.mat",
+            ground_truth_field="id",
+        )
         factory = DataFactory(cfg)
         external_ds = {0: zRegPointCloud(pos=torch.zeros(3, 3), label=None, id=torch.arange(3))}
         with patch("eval.data_factory.load_data_from_tracklets", return_value=(external_ds, {})) as m:
@@ -705,7 +923,16 @@ class TestGetSyntheticGroundTruth:
             factory.get_synthetic_ground_truth()
 
     def test_returns_id_tensors_when_source_has_ids(self):
-        """D-04: returns pc['id'] cast to torch.long when source frames have ids."""
+        """D-04: returns pc['id'] cast to torch.long when source frames have ids.
+
+        Phase 56 note: fixture has label=None, so under the new
+        ground_truth_field='label' default this actually exercises the
+        ordinal-fallback path (D-05) — it passes because
+        torch.arange(5).to(torch.long) coincidentally equals the ordinal
+        fallback tensor. Kept for regression coverage of that coincidence;
+        see test_extracts_id_from_pc in TestGetGroundTruth for an explicit
+        'id'-override test.
+        """
         cfg = EvalConfig(data_path="x")
         factory = DataFactory(cfg)
         ds = self._make_ds_with_ids()
@@ -716,7 +943,13 @@ class TestGetSyntheticGroundTruth:
             assert torch.equal(gt[k], expected)
 
     def test_returns_ordinal_fallback_when_source_id_is_none(self):
-        """D-05: returns torch.arange(n, dtype=torch.long) per frame when pc['id'] is None."""
+        """D-05: returns torch.arange(n, dtype=torch.long) per frame when pc['id'] is None.
+
+        Phase 56 note: fixture also has label=None, so under the new
+        ground_truth_field='label' default this exercises the ordinal
+        fallback via the 'label' field being None (same fallback code path
+        as before, just reached via a different field name).
+        """
         cfg = EvalConfig(data_path="x")
         factory = DataFactory(cfg)
         ds = self._make_ds_no_ids()
@@ -728,7 +961,12 @@ class TestGetSyntheticGroundTruth:
             assert torch.equal(gt[k], expected)
 
     def test_dtype_is_torch_long_for_id_path(self):
-        """D-06: returned tensors have dtype torch.long when source ids are float32."""
+        """D-06: returned tensors have dtype torch.long when source ids are float32.
+
+        Phase 56 note: fixture has label=None, so this exercises the ordinal
+        fallback (torch.long by construction) rather than the id field itself
+        under the new ground_truth_field='label' default.
+        """
         cfg = EvalConfig(data_path="x")
         factory = DataFactory(cfg)
         ds = self._make_ds_with_ids()
@@ -755,6 +993,87 @@ class TestGetSyntheticGroundTruth:
         factory.generate_target(ds, {"type": "noise", "sigma": 0.01})
         gt = factory.get_synthetic_ground_truth()
         assert set(gt.keys()) == set(ds.keys())
+
+    def _make_ds_20pts_with_labels(self):
+        """2-frame, 20-point source dataset with a populated, distinct label field."""
+        ds = {}
+        for i in range(2):
+            pc = zRegPointCloud(
+                pos=torch.randn(20, 3),
+                label=torch.arange(20, dtype=torch.long),
+                id=None,
+            )
+            pc["fps-idx"] = None
+            ds[i] = pc
+        return ds
+
+    def test_gather_matches_target_length_after_dropout(self):
+        """Phase 56 D-03/D-04 (GT-02): after dropout_fraction, gt[k] length matches
+        the target's actual post-dropout point count (gathered by tracked
+        correspondence), not the original 20-point source count. Values are
+        gathered from the retained original positions, proving correctness
+        beyond just length."""
+        cfg = EvalConfig(data_path="x")
+        factory = DataFactory(cfg)
+        ds = self._make_ds_20pts_with_labels()
+        factory.generate_target(ds, {"type": "noise", "dropout_fraction": 0.3, "augment_seed": 42})
+        gt = factory.get_synthetic_ground_truth()
+        for k in ds:
+            target_n = factory._synthetic_target[k]["pos"].shape[0]
+            assert target_n < 20  # dropout actually removed points
+            assert gt[k].shape[0] == target_n
+            # gathered values equal the original labels at the tracked correspondence
+            corr = factory._correspondence_idx[k]
+            assert torch.equal(gt[k], ds[k]["label"][corr])
+
+    def test_gather_appends_sentinel_for_new_points(self):
+        """GT-02: after n_new_points, gt[k] length = original + n_new, with the
+        first `n_original` entries equal to the source field and a -1 sentinel
+        for the newly-added points (no original-source correspondence)."""
+        cfg = EvalConfig(data_path="x")
+        factory = DataFactory(cfg)
+        ds = self._make_ds_20pts_with_labels()
+        factory.generate_target(ds, {"type": "extend", "n_new_points": 4, "augment_seed": 3})
+        gt = factory.get_synthetic_ground_truth()
+        for k in ds:
+            assert gt[k].shape[0] == 24  # 20 + 4
+            assert torch.equal(gt[k][:20], ds[k][factory.config.ground_truth_field])
+            assert (gt[k][20:] == -1).all()
+
+    def test_gather_combined_dropout_and_new_points(self):
+        """GT-02: combined dropout_fraction + n_new_points on a 20-point source
+        returns gt[k].shape[0] == round(20*0.5) + 3 == 13, with the last 3
+        entries sentinel -1."""
+        cfg = EvalConfig(data_path="x")
+        factory = DataFactory(cfg)
+        ds = self._make_ds_20pts_with_labels()
+        factory.generate_target(
+            ds, {"dropout_fraction": 0.5, "n_new_points": 3, "augment_seed": 7}
+        )
+        gt = factory.get_synthetic_ground_truth()
+        for k in ds:
+            assert gt[k].shape[0] == 13
+            assert (gt[k][-3:] == -1).all()
+
+    def test_compute_f1_accepts_gathered_length_without_shape_error(self):
+        """GT-02: the length produced by get_synthetic_ground_truth is directly
+        usable by compute_f1 without further truncation — no ValueError for
+        shape mismatch when y_pred is constructed with the same length."""
+        from zreg.evaluation.label_transfer import compute_f1
+
+        cfg = EvalConfig(data_path="x")
+        factory = DataFactory(cfg)
+        ds = self._make_ds_20pts_with_labels()
+        factory.generate_target(
+            ds, {"dropout_fraction": 0.5, "n_new_points": 3, "augment_seed": 7}
+        )
+        gt = factory.get_synthetic_ground_truth()
+        for k in ds:
+            y_true = gt[k]
+            y_pred = torch.zeros_like(y_true)
+            score = compute_f1(y_true, y_pred)  # must not raise ValueError
+            assert isinstance(score, float)
+            assert 0.0 <= score <= 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -941,6 +1260,19 @@ class TestDropPoints:
         factory.drop_points(ds, 0.3, seed=42)
         assert ds[0]["pos"].shape[0] == 100
 
+    def test_correspondence_idx_matches_id_field_on_fresh_factory(self):
+        """Phase 56 D-03: on a fresh factory, _correspondence_idx[i] equals the
+        idx tensor produced by torch.randperm — verified via ds['id']=arange(100)
+        indexed by the same idx, so _correspondence_idx[i] == out[i]['id'] by
+        construction."""
+        cfg = EvalConfig(data_path="x", augmentation_params={})
+        factory = DataFactory(cfg)
+        ds = self._make_ds_100pts()
+        out = factory.drop_points(ds, 0.3, seed=42)
+        for i in ds:
+            assert factory._correspondence_idx[i].shape[0] == 70
+            assert torch.equal(factory._correspondence_idx[i], out[i]["id"])
+
 
 # ---------------------------------------------------------------------------
 # TestSampleNewPoints — sample_new_points(dataset, n_extra, seed) (Plan 27-01)
@@ -1012,6 +1344,36 @@ class TestSampleNewPoints:
         out = factory.sample_new_points(ds, 10, seed=42)
         for i in ds:
             assert out[i]["fps-idx"].shape[0] == 110
+
+    def test_correspondence_idx_fresh_factory(self):
+        """Phase 56 D-03: on a fresh factory, _correspondence_idx[i] is
+        arange(100) followed by 10 sentinel -1 entries."""
+        cfg = EvalConfig(data_path="x", augmentation_params={})
+        factory = DataFactory(cfg)
+        ds = self._make_ds_100pts()
+        factory.sample_new_points(ds, 10, seed=42)
+        for i in ds:
+            corr = factory._correspondence_idx[i]
+            assert corr.shape[0] == 110
+            assert torch.equal(corr[:100], torch.arange(100, dtype=torch.long))
+            assert (corr[100:] == -1).all()
+
+    def test_correspondence_idx_chains_after_drop_points(self):
+        """Phase 56 D-03/D-04: chaining drop_points then sample_new_points on the
+        SAME factory instance composes correspondence correctly (matches
+        augment()'s dispatch order: dropout_fraction before n_new_points)."""
+        cfg = EvalConfig(data_path="x", augmentation_params={})
+        factory = DataFactory(cfg)
+        ds = self._make_ds_100pts()
+        dropped = factory.drop_points(ds, 0.3, seed=42)
+        after_drop_corr = {i: t.clone() for i, t in factory._correspondence_idx.items()}
+        extended = factory.sample_new_points(dropped, 5, seed=1)
+        for i in ds:
+            corr = factory._correspondence_idx[i]
+            assert corr.shape[0] == 75  # 70 + 5
+            assert torch.equal(corr[:70], after_drop_corr[i])
+            assert (corr[70:] == -1).all()
+        assert extended[0]["pos"].shape[0] == 75
 
 
 # ---------------------------------------------------------------------------
@@ -1167,11 +1529,13 @@ class TestGetGroundTruthCSVFormat:
     """eval/data_factory.py:446 — load_shah_from_csv branch in get_ground_truth."""
 
     def test_csv_format_uses_load_shah_from_csv(self):
-        """When data_format='csv' and ground_truth_path is set, load_shah_from_csv is called."""
+        """When data_format='csv' and ground_truth_path is set, load_shah_from_csv is
+        called (Phase 56 D-02: ground_truth_field explicitly overridden to 'id')."""
         cfg = EvalConfig(
             data_path="x.csv",
             data_format="csv",
             ground_truth_path="gt.csv",
+            ground_truth_field="id",
         )
         factory = DataFactory(cfg)
         external_ds = {0: zRegPointCloud(pos=torch.zeros(3, 3), label=None, id=torch.arange(3))}

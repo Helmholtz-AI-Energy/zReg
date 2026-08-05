@@ -3,6 +3,20 @@
 # Alignment uses best non-rigid CPD params from Stage 1.
 # Set egnn_checkpoint_path to your trained checkpoint before running.
 # Run: python run_eval.py --config <this> --mode full
+#
+# GT-03 audit note (Phase 56): this config's data_path
+# (ball_realistic_kobitski.csv) has a "label" column that is currently a
+# constant placeholder — every point is assigned label=1 by
+# scripts/generate_datasets.py:239 (_make_trajectory). Under the Phase 56
+# ground_truth_field="label" default (D-01), F1 against this ground truth
+# is trivially maximizable (single-class target) and is NOT a meaningful
+# label-transfer accuracy signal; treat any F1 score from this config as an
+# end-to-end pipeline smoke-test signal only. Wiring a real multi-class
+# label source (generate_labels()) was considered and deliberately
+# deferred — risk of per-frame temporal-labeling incoherence from
+# generate_labels()'s independently-randomized per-frame Voronoi
+# partitions, and scope overlap with Phase 57's generation-mechanism
+# territory (CONTEXT.md Claude's Discretion).
 data_path: data/synthetic/fully_synthetic/ball_realistic_kobitski.csv
 data_format: csv
 pipeline_mode: synthetic

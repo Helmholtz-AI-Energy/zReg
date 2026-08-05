@@ -141,7 +141,14 @@ class EvaluationRunner:
         The pipeline follows the FRAME-07 orchestration contract:
 
         1. ``Path(config.output_dir).mkdir(parents=True, exist_ok=True)`` — D-12
-        2. Instantiate ``DataFactory`` and load real dataset.
+        2. Instantiate ``DataFactory`` and build ``(source, target)`` via a
+           three-way dispatch (Phase 57 GT-04/GT-06): ``pipeline_mode ==
+           "paired"`` -> ``load_real()``/``load_target()``;
+           ``transform_spec["type"] == "subsample_pair"`` ->
+           ``generate_subsample_pair()`` (skipping ``load_real()`` entirely
+           when ``transform_spec["synthesize"]`` is ``True``, D-02); otherwise
+           (rigid/noise ``transform_spec``) -> ``load_real()`` +
+           ``generate_target()`` (Phase 31 MODE-02, unchanged).
         3. Call ``_run_single(dataset, self.params)`` to execute stages and
            compute metrics.
         4. Construct ``EvalReport`` from results.
@@ -185,10 +192,24 @@ class EvaluationRunner:
         Path(self.config.output_dir).mkdir(parents=True, exist_ok=True)  # D-12
 
         self.factory = DataFactory(self.config)
-        source = self.factory.load_real()
         if self.config.pipeline_mode == "paired":
+            source = self.factory.load_real()
             target = self.factory.load_target()
-        else:  # pipeline_mode == "synthetic" — Phase 31 MODE-02
+        elif (
+            self.config.transform_spec is not None
+            and self.config.transform_spec.get("type") == "subsample_pair"
+        ):
+            # Phase 57 GT-04/GT-05/GT-06 (D-02): subsample-pair dispatch — do NOT
+            # call load_real() when transform_spec["synthesize"] is True, so a
+            # subsample_pair run can execute with no real data available at all.
+            base = (
+                None
+                if self.config.transform_spec.get("synthesize", False)
+                else self.factory.load_real()
+            )
+            source, target = self.factory.generate_subsample_pair(base, self.config.transform_spec)
+        else:  # pipeline_mode == "synthetic" — Phase 31 MODE-02 (rigid/noise transform_spec)
+            source = self.factory.load_real()
             target = self.factory.generate_target(source, self.config.transform_spec)
 
         result = self._run_single(source, target, self.params)
@@ -342,8 +363,16 @@ class EvaluationRunner:
             knn_target_key = target_sorted_keys[-1]
             y_pred = torch.zeros_like(y_true)  # zero-fill D-04
 
-        # WR-01: truncate to min length when source and target have different point counts
-        # (heterogeneous paired datasets). compute_f1 validates shape equality strictly.
+        # WR-01: truncate to min length when source and target have different point counts.
+        # Phase 56 D-03 (GT-02) re-scoping: this positional-truncation fallback now only
+        # matters for pipeline_mode="paired" heterogeneous real-data cases (Phase 32
+        # HETERO-01), where no per-point correspondence can be computed between two
+        # independently-loaded real datasets. For pipeline_mode="synthetic",
+        # DataFactory.get_synthetic_ground_truth() already gathers y_true by the tracked
+        # drop_points/sample_new_points correspondence index (Phase 56 Task 1), so y_true
+        # and y_pred already match length by the time this line runs — this block is a
+        # defensive no-op in that case, not the correctness mechanism. compute_f1 validates
+        # shape equality strictly regardless of pipeline_mode.
         if y_true.shape[0] != y_pred.shape[0]:
             min_len = min(y_true.shape[0], y_pred.shape[0])
             y_true = y_true[:min_len]

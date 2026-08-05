@@ -175,6 +175,18 @@ class EvalConfig(BaseModel):
     ground_truth_path : str or None
         Optional external ground-truth file.  ``None`` means extract from
         the dataset's ``id`` field (D-10).
+    ground_truth_field : str
+        Which ``zRegPointCloud`` field ``DataFactory.get_ground_truth()`` and
+        ``get_synthetic_ground_truth()`` read as the F1 ground-truth source:
+        ``"label"`` (default, Phase 56 D-01) or ``"id"`` (escape hatch, D-02).
+        The default matches ``generate_labels()``'s documented F1-compatible
+        convention and the field ``LabelTransferStage.run()``
+        (``eval/stages/label_transfer.py:434``) actually transfers — prior to
+        Phase 56 this was hardcoded to ``"id"``, a per-point tracking identity
+        rather than a class label, making F1 scores meaningless by default.
+        Only ``"id"`` and ``"label"`` are valid (no free-form field name);
+        set to ``"id"`` for datasets whose real class labels happen to live
+        in the ``id`` field instead.
     n_synthetic : int
         Number of synthetic frames to generate (default 100).
     transform_degree : float
@@ -260,7 +272,11 @@ class EvalConfig(BaseModel):
         Dict must contain at least one recognised augmentation key beyond the
         ``"type"`` discriminator (e.g. ``{"type": "rigid", "rotation_deg":
         30.0, "rotation_axis": [0, 0, 1]}`` or ``{"type": "noise", "sigma":
-        0.1}``).  Default ``None``.
+        0.1}``).  A third recognised ``"type"`` value, ``"subsample_pair"``
+        (Phase 57 GT-04), drives ``DataFactory.generate_subsample_pair()``
+        instead of ``generate_target()`` — see that method's docstring for
+        its own key set (``source_fraction``, ``target_fraction``,
+        ``synthesize``, ``seed``, etc.).  Default ``None``.
     target_data_format : str or None
         Format override for the target dataset loader.  Accepted values:
         ``"tracklets"`` or ``"csv"``.  ``None`` (default) inherits
@@ -309,6 +325,7 @@ class EvalConfig(BaseModel):
     data_path: str
     data_format: str = "tracklets"
     ground_truth_path: str | None = None
+    ground_truth_field: Literal["id", "label"] = "label"
     n_synthetic: int = 100
     transform_degree: float = 0.1
     augmentation_params: dict = Field(default_factory=dict)

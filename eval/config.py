@@ -368,16 +368,6 @@ class EvalConfig(BaseModel):
         default="knn_voting",
         description="Label transfer method: 'knn_voting', 'cpd_weighted', 'pointnet2', or 'egnn'"
     )
-    label_source: Literal["source", "target"] = Field(
-        default="source",
-        description=(
-            "Which dataset provides the class labels for transfer. "
-            "'source' (default): labels come from the source trajectory (correct for synthetic/selfcal). "
-            "'target': labels come from the target trajectory (use for paired mode where the target "
-            "dataset — e.g. Shah — carries the ground-truth class labels and source — e.g. Kobitski — "
-            "is unlabeled and should receive them)."
-        ),
-    )
     label_field: str = Field(
         default="label",
         description=(

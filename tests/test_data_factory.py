@@ -697,6 +697,55 @@ class TestGenerateSubsamplePair:
         assert torch.equal(source_a[0]["pos"], source_b[0]["pos"])
         assert torch.equal(target_a[0]["pos"], target_b[0]["pos"])
 
+    def test_synthesize_explicit_ball_shape(self):
+        """synthesize=True with shape='ball' explicitly set skips auto-assignment (498->500 arc)."""
+        cfg = EvalConfig(data_path="x")
+        factory = DataFactory(cfg)
+        source, target = factory.generate_subsample_pair(
+            None, {"synthesize": True, "seed": 1, "n_classes": 3, "shape": "ball", "n_points": 50}
+        )
+        assert source[0]["pos"].shape[1] == 3
+        assert target[0]["pos"].shape[1] == 3
+
+    def test_synthesize_explicit_bowl_shape(self):
+        """synthesize=True with shape='bowl' explicitly set skips auto-assignment (498->500 arc)."""
+        cfg = EvalConfig(data_path="x")
+        factory = DataFactory(cfg)
+        source, target = factory.generate_subsample_pair(
+            None, {"synthesize": True, "seed": 2, "n_classes": 3, "shape": "bowl", "n_points": 50}
+        )
+        assert source[0]["pos"].shape[1] == 3
+
+    def test_synthesize_unknown_shape_raises_value_error(self):
+        """synthesize=True with an unknown shape raises ValueError (line 505)."""
+        cfg = EvalConfig(data_path="x")
+        factory = DataFactory(cfg)
+        with pytest.raises(ValueError, match="unknown shape"):
+            factory.generate_subsample_pair(
+                None, {"synthesize": True, "seed": 1, "n_classes": 3, "shape": "cube", "n_points": 50}
+            )
+
+    def test_run_alignment_with_explicit_perturb_keys_uses_them(self):
+        """Explicit rotation_deg in transform_spec skips auto-perturb generation (536->547 arc)."""
+        cfg = EvalConfig(data_path="x", run_alignment=True)
+        factory = DataFactory(cfg)
+        source, target = factory.generate_subsample_pair(
+            None,
+            {
+                "synthesize": True,
+                "seed": 5,
+                "n_classes": 3,
+                "n_points": 50,
+                "source_fraction": 0.8,
+                "target_fraction": 0.8,
+                "rotation_deg": 30.0,
+                "rotation_axis": [0.0, 0.0, 1.0],
+                "scale_factor": 1.0,
+            },
+        )
+        assert source[0]["pos"].shape[1] == 3
+        assert target[0]["pos"].shape[1] == 3
+
 
 # ---------------------------------------------------------------------------
 # TestGenerateSynthetic — caching + seed reproducibility (Plan 17-02)
@@ -1272,6 +1321,22 @@ class TestDropPoints:
         for i in ds:
             assert factory._correspondence_idx[i].shape[0] == 70
             assert torch.equal(factory._correspondence_idx[i], out[i]["id"])
+
+    def test_drop_points_composes_prior_correspondence_idx(self):
+        """Phase 56 D-03: second drop_points call without resetting _correspondence_idx
+        composes indices (line 1262: new_corr[i] = self._correspondence_idx[i][idx])."""
+        cfg = EvalConfig(data_path="x", augmentation_params={})
+        factory = DataFactory(cfg)
+        ds = self._make_ds_100pts()
+        # First call: _correspondence_idx is None → fresh index set
+        out1 = factory.drop_points(ds, 0.2, seed=10)
+        corr1 = {i: factory._correspondence_idx[i].clone() for i in ds}
+        # Second call WITHOUT resetting: composes the new sub-index into the prior one
+        out2 = factory.drop_points(out1, 0.25, seed=20)
+        for i in ds:
+            # Composed index must be a subset of the first-pass index
+            assert factory._correspondence_idx[i].shape[0] == out2[i]["pos"].shape[0]
+            assert factory._correspondence_idx[i].shape[0] < corr1[i].shape[0]
 
 
 # ---------------------------------------------------------------------------

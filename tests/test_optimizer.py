@@ -1492,6 +1492,230 @@ class TestHyperparamOptimizerCoverageGaps:
         mock_factory.load_real.assert_called_once()
         assert result is synthetic_dataset
 
+    @patch("eval.runners.optimizer.DataFactory")
+    def test_is_rank_zero_false_skips_save_best_params(
+        self, mock_factory_cls, tmp_path, synthetic_dataset
+    ):
+        """optimizer.py:458->460 — _is_rank_zero()=False skips save_best_params."""
+        mock_factory = mock_factory_cls.return_value
+        mock_factory.load_real.return_value = synthetic_dataset
+        mock_factory.load_target.return_value = synthetic_dataset
+        mock_factory.get_ground_truth.side_effect = lambda ds: {k: ds[k]["label"] for k in ds}
+
+        cfg = EvalConfig(
+            data_path=str(tmp_path / "x"),
+            output_dir=str(tmp_path / "out"),
+            search_strategy="grid",
+            tier="sanity",
+            n_trials=1,
+            search_space={"window_size": [3]},
+        )
+        optimizer = HyperparamOptimizer(cfg)
+        with patch.object(optimizer, "_is_rank_zero", return_value=False), \
+             patch.object(optimizer, "save_best_params") as mock_save:
+            optimizer.run()
+        mock_save.assert_not_called()
+
+    @patch("eval.runners.optimizer.LabelTransferStage")
+    @patch("eval.runners.optimizer.AlignmentStage")
+    @patch("eval.runners.optimizer.DataFactory")
+    def test_multiseed_run_alignment_false_skips_alignment_stage(
+        self, mock_factory_cls, mock_align_cls, mock_label_cls, tmp_path, synthetic_dataset
+    ):
+        """optimizer.py:746->752 — run_alignment=False skips AlignmentStage in multiseed loop."""
+        gt = {k: synthetic_dataset[k]["label"] for k in synthetic_dataset}
+        main_factory = MagicMock()
+        scratch = MagicMock()
+        scratch.generate_subsample_pair.return_value = (synthetic_dataset, synthetic_dataset)
+        scratch.get_synthetic_ground_truth.return_value = gt
+        mock_factory_cls.side_effect = [main_factory, scratch, scratch]
+
+        mock_label_cls.return_value.run.return_value = MagicMock(
+            transferred_labels=gt
+        )
+
+        stub_metrics = StageMetrics(
+            chamfer_distance=0.0, hausdorff_distance=0.0, path_smoothness=0.0,
+            temporal_stability=0.0, f1_score=0.5, knn_consistency=0.5,
+        )
+        with patch("eval.runners.optimizer.MetricsEngine") as mock_engine_cls:
+            mock_engine_cls.return_value.compute_stage_metrics.return_value = stub_metrics
+            mock_engine_cls.return_value.compute_score.return_value = 0.5
+
+            cfg = EvalConfig(
+                data_path=str(tmp_path / "unused.mat"),
+                output_dir=str(tmp_path / "output"),
+                pipeline_mode="synthetic",
+                run_alignment=False,
+                run_label_transfer=True,
+                transform_spec={
+                    "type": "subsample_pair",
+                    "synthesize": True,
+                    "seed": [1, 2],
+                    "n_classes": 3,
+                    "n_points": 40,
+                    "source_fraction": 0.8,
+                    "target_fraction": 0.8,
+                },
+                tier="full",
+                n_trials=1,
+                search_strategy="grid",
+                search_space={"window_size": [3], "k_neighbours": [3]},
+            )
+            optimizer = HyperparamOptimizer(cfg)
+            history: list[Trial] = []
+            merged = dict(optimizer._default_params)
+            optimizer._score_subsample_pair_multiseed({}, merged, "full", [1, 2], history)
+
+        mock_align_cls.return_value.run.assert_not_called()
+        assert len(history) == 1
+
+    @patch("eval.runners.optimizer.LabelTransferStage")
+    @patch("eval.runners.optimizer.AlignmentStage")
+    @patch("eval.runners.optimizer.DataFactory")
+    def test_multiseed_run_label_transfer_false_zeros_ypred(
+        self, mock_factory_cls, mock_align_cls, mock_label_cls, tmp_path, synthetic_dataset
+    ):
+        """optimizer.py:752->757, 768 — run_label_transfer=False produces zero y_pred."""
+        gt = {k: synthetic_dataset[k]["label"] for k in synthetic_dataset}
+        main_factory = MagicMock()
+        scratch = MagicMock()
+        scratch.generate_subsample_pair.return_value = (synthetic_dataset, synthetic_dataset)
+        scratch.get_synthetic_ground_truth.return_value = gt
+        mock_factory_cls.side_effect = [main_factory, scratch]
+
+        mock_align_cls.return_value.run.return_value = MagicMock(
+            aligned_cloud=synthetic_dataset, warp_path=[]
+        )
+
+        stub_metrics = StageMetrics(
+            chamfer_distance=0.0, hausdorff_distance=0.0, path_smoothness=0.0,
+            temporal_stability=0.0, f1_score=0.0, knn_consistency=0.0,
+        )
+        with patch("eval.runners.optimizer.MetricsEngine") as mock_engine_cls:
+            mock_engine_cls.return_value.compute_stage_metrics.return_value = stub_metrics
+            mock_engine_cls.return_value.compute_score.return_value = 0.0
+
+            cfg = EvalConfig(
+                data_path=str(tmp_path / "unused.mat"),
+                output_dir=str(tmp_path / "output"),
+                pipeline_mode="synthetic",
+                run_alignment=True,
+                run_label_transfer=False,
+                transform_spec={
+                    "type": "subsample_pair",
+                    "synthesize": True,
+                    "seed": [1],
+                    "n_classes": 3,
+                    "n_points": 40,
+                    "source_fraction": 0.8,
+                    "target_fraction": 0.8,
+                },
+                tier="full",
+                n_trials=1,
+                search_strategy="grid",
+                search_space={"window_size": [3]},
+            )
+            optimizer = HyperparamOptimizer(cfg)
+            history: list[Trial] = []
+            merged = dict(optimizer._default_params)
+            optimizer._score_subsample_pair_multiseed({}, merged, "full", [1], history)
+
+        mock_label_cls.return_value.run.assert_not_called()
+        assert len(history) == 1
+        # y_pred is zeros — f1 with all-zero prediction is 0.0
+        _, call_kwargs = mock_engine_cls.return_value.compute_stage_metrics.call_args
+        y_pred_arg = mock_engine_cls.return_value.compute_stage_metrics.call_args[0][5]
+        assert (y_pred_arg == 0).all()
+
+    @patch("eval.runners.optimizer.LabelTransferStage")
+    @patch("eval.runners.optimizer.AlignmentStage")
+    @patch("eval.runners.optimizer.DataFactory")
+    def test_multiseed_wr01_truncates_when_shapes_differ(
+        self, mock_factory_cls, mock_align_cls, mock_label_cls, tmp_path, synthetic_dataset
+    ):
+        """optimizer.py:773-775 — y_true/y_pred truncated to min length when shapes differ."""
+        from zreg.data_generation import generate_labels, generate_trajectory
+
+        ds_source = generate_labels(generate_trajectory(n_points=10, n_frames=3, seed=0), n_labels=3, seed=0)
+        ds_target = generate_labels(generate_trajectory(n_points=10, n_frames=3, seed=1), n_labels=3, seed=1)
+        gt = {k: ds_source[k]["label"] for k in ds_source}
+
+        main_factory = MagicMock()
+        scratch = MagicMock()
+        scratch.generate_subsample_pair.return_value = (ds_source, ds_target)
+        scratch.get_synthetic_ground_truth.return_value = gt
+        mock_factory_cls.side_effect = [main_factory, scratch]
+
+        mock_align_cls.return_value.run.return_value = MagicMock(
+            aligned_cloud=ds_source, warp_path=[]
+        )
+        # transferred_labels has 7 points per frame but y_true has 10 → triggers WR-01
+        mock_label_cls.return_value.run.return_value = MagicMock(
+            transferred_labels={k: torch.zeros(7, dtype=torch.long) for k in ds_target}
+        )
+
+        stub_metrics = StageMetrics(
+            chamfer_distance=0.0, hausdorff_distance=0.0, path_smoothness=0.0,
+            temporal_stability=0.0, f1_score=0.0, knn_consistency=0.0,
+        )
+        with patch("eval.runners.optimizer.MetricsEngine") as mock_engine_cls:
+            mock_engine_cls.return_value.compute_stage_metrics.return_value = stub_metrics
+            mock_engine_cls.return_value.compute_score.return_value = 0.0
+
+            cfg = EvalConfig(
+                data_path=str(tmp_path / "unused.mat"),
+                output_dir=str(tmp_path / "output"),
+                pipeline_mode="synthetic",
+                run_alignment=True,
+                run_label_transfer=True,
+                transform_spec={
+                    "type": "subsample_pair",
+                    "synthesize": True,
+                    "seed": [1],
+                    "n_classes": 3,
+                    "n_points": 40,
+                    "source_fraction": 0.8,
+                    "target_fraction": 0.8,
+                },
+                tier="full",
+                n_trials=1,
+                search_strategy="grid",
+                search_space={"window_size": [3]},
+            )
+            optimizer = HyperparamOptimizer(cfg)
+            history: list[Trial] = []
+            merged = dict(optimizer._default_params)
+            optimizer._score_subsample_pair_multiseed({}, merged, "full", [1], history)
+
+        # compute_stage_metrics must have been called — WR-01 truncation succeeded
+        mock_engine_cls.return_value.compute_stage_metrics.assert_called_once()
+        y_true_arg = mock_engine_cls.return_value.compute_stage_metrics.call_args[0][4]
+        y_pred_arg = mock_engine_cls.return_value.compute_stage_metrics.call_args[0][5]
+        assert y_true_arg.shape[0] == y_pred_arg.shape[0] == 7
+
+    @patch("eval.runners.optimizer.DataFactory")
+    def test_tier_dataset_sanity_with_label_generation(
+        self, mock_factory_cls, tmp_path
+    ):
+        """optimizer.py:831-832 — _tier_dataset('sanity') uses LabelGenerationConfig when set."""
+        from eval.config import LabelGenerationConfig
+
+        mock_factory_cls.return_value  # suppress unused warning
+
+        cfg = EvalConfig(
+            data_path=str(tmp_path / "x"),
+            output_dir=str(tmp_path / "out"),
+            search_space={"window_size": [3]},
+            label_generation=LabelGenerationConfig(n_labels=5, seed=7),
+        )
+        optimizer = HyperparamOptimizer(cfg)
+        ds = optimizer._tier_dataset("sanity")
+        # With n_labels=5, each frame's label tensor must use values in [0, 4]
+        for frame in ds.values():
+            assert frame["label"] is not None
+            assert frame["label"].max().item() <= 4
+
 
 # ---------------------------------------------------------------------------
 # test_sobol_is_default_when_strategy_absent + TestSobolOptimizerIntegration

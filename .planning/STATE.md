@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-15 after v1.5/v1.6 roadmap creation)
 
 **Core value:** Every existing capability works correctly, fails informatively, and is covered by tests.
-**Current focus:** v1.7 Minor Adjustments complete — v1.6 Phase 54 (Budget Calibration & Full-Suite Gate) resumes next
+**Current focus:** v1.7, v1.6, and v1.5 are all complete. No active phase — next step is `/gsd:complete-milestone` (v1.5/v1.6/v1.7 are shippable) or starting a new milestone.
 
 ## Current Position
 
 Phase: 58 of 58 — v1.7 milestone complete (6/6 requirements satisfied), now merged into feature/evaluation_framework
 Plan: 58-01, 58-02, 58-03, 58-04 (all 4 executed, VERIFICATION.md passed)
-Status: v1.7 Minor Adjustments complete and merged. Next: resume v1.6 (Phase 54) or run /gsd:complete-milestone
+Status: v1.7 Minor Adjustments complete and merged. v1.6 (Phases 51-54) and v1.5 (Phases 44-50) also confirmed complete on reconciliation (2026-08-05) - their completion had drifted out of tracking. Next: /gsd:complete-milestone for any/all of v1.5/v1.6/v1.7, or start a new milestone.
 Tests (this branch, pre-merge): 1410 passed, 22 skipped, 1 xpassed, 1 failed (tests/test_icp_registration.py::test_icp_translation_recovery — pre-existing full-suite-order flake, confirmed unrelated and passes in isolation)
 Last activity: 2026-08-05 -- merged into feature/evaluation_framework; renumbered 56-57 -> 57-58 to resolve a Phase 56 collision with that branch's own concurrent work
 
@@ -49,9 +49,9 @@ Full history: .planning/MILESTONES.md · Retrospective: .planning/RETROSPECTIVE.
 | 57 | Ground-Truth Field Consistency | GT-01, GT-02, GT-03 | ✅ Complete (2026-08-04) |
 | 58 | Synthetic Labeled Subsample-Pair Generation | GT-04, GT-05, GT-06 | ✅ Complete (2026-08-04) |
 
-Note: v1.7 was originally planned as Phases 56–57. Phase 55 was already consumed by an ad-hoc out-of-band phase (spherical-cap/Gaussian label generators), completed 2026-07-30 — shared history on both branches. Phase 56 was independently consumed by a *different* ad-hoc phase developed concurrently on `feature/evaluation_framework` (Configurable multi-label region-based labeling, completed 2026-07-31, see `.planning/phases/56-configurable-multi-label-region-based-labeling-rework-genera/`) — discovered only when this branch merged back in on 2026-08-05. v1.7 was renumbered to Phases 57–58 to resolve the collision. v1.6 (Phases 51–54) is paused at Phase 54; resumes now that v1.7 has shipped.
+Note: v1.7 was originally planned as Phases 56–57. Phase 55 was already consumed by an ad-hoc out-of-band phase (spherical-cap/Gaussian label generators), completed 2026-07-30 — shared history on both branches. Phase 56 was independently consumed by a *different* ad-hoc phase developed concurrently on `feature/evaluation_framework` (Configurable multi-label region-based labeling, completed 2026-07-31, see `.planning/phases/56-configurable-multi-label-region-based-labeling-rework-genera/`) — discovered only when this branch merged back in on 2026-08-05. v1.7 was renumbered to Phases 57–58 to resolve the collision. v1.6 (Phases 51-54) is fully complete (UAT 9/9 passed 2026-07-23) - its completion had drifted out of STATE.md/ROADMAP.md tracking after the completing branch diverged from feature/evaluation_framework before merging back; reconciled 2026-08-05.
 
-## v1.5 Phases — Learned Label Transfer Methods (Phases 44–49 complete, 50 pending)
+## v1.5 Phases — Learned Label Transfer Methods (Complete)
 
 | Phase | Name | Plans | Status |
 |-------|------|-------|--------|
@@ -61,16 +61,16 @@ Note: v1.7 was originally planned as Phases 56–57. Phase 55 was already consum
 | 47 | eGNN and PointNet++ Model Implementation & Training Infrastructure | 5 | ✅ Completed |
 | 48 | LabelTransferStage Integration for Learned Methods | 2 | ✅ Completed |
 | 49 | Evaluation & Benchmarking of Learned Label-Transfer Methods | 3 | ✅ Completed |
-| 50 | GPU-Native Geometry Ops for Cluster Deployment | 0/TBD | Pending |
+| 50 | GPU-Native Geometry Ops for Cluster Deployment | 2/2 | ✅ Completed (2026-07-31) |
 
-## v1.6 Phases — HoreKa Cluster Execution
+## v1.6 Phases — HoreKa Cluster Execution (Complete)
 
 | Phase | Name | Requirements | Status |
 |-------|------|---------------|--------|
 | 51 | Environment & Access | ENV-01, ENV-02, ENV-03, OUT-01 | ✅ Completed |
 | 52 | Multi-Rank Parallelism & Validation | PARA-01, PARA-02, PARA-03, BUDG-01, BUDG-04 | ✅ Completed (HoreKa smoke + multirank tests passed) |
 | 53 | GPU Acceleration | GPU-01, GPU-02, GPU-03 | ✅ Completed (EvalConfig.device + cluster configs device: cuda) |
-| 54 | Budget Calibration & Full-Suite Gate | BUDG-02, BUDG-03 | Not started |
+| 54 | Budget Calibration & Full-Suite Gate | BUDG-02, BUDG-03 | ✅ Completed (UAT 9/9 passed 2026-07-23) |
 
 ## Performance Metrics (v1.5 ML track)
 
@@ -142,7 +142,7 @@ See: `.planning/REQUIREMENTS.md`
 
 ### Pending Todos
 
-v1.6 Phase 54 planning is paused (requires real HoreKa timing data from Phase 52/53 runs) — v1.7 has now shipped (Phases 57-58 both complete and merged), so Phase 54 is ready to resume.
+None open. v1.5, v1.6, and v1.7 are all complete; none are formally closed via /gsd:complete-milestone yet.
 
 ### Blockers/Concerns
 

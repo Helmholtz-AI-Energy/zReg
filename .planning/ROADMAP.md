@@ -3,8 +3,8 @@
 ## Milestones
 
 - ✅ **v1.7 Minor Adjustments** — Phases 57–58 (shipped 2026-08-04)
-- ⏸️ **v1.6 HoreKa Cluster Execution** — Phases 51–54 (paused — Phase 54 remaining, resumes after v1.7)
-- 🚧 **v1.5 Learned Label Transfer Methods** — Phases 44–50 (in progress — Phase 50 pending)
+- ✅ **v1.6 HoreKa Cluster Execution** — Phases 51–54 (shipped 2026-07-23)
+- ✅ **v1.5 Learned Label Transfer Methods** — Phases 44–50 (shipped 2026-07-31)
 - ✅ **v1.4 Trajectory Alignment & Optimization Enhancements** — Phases 39–43 (shipped 2026-07-08) — [archive](.planning/milestones/v1.4-ROADMAP.md)
 - ✅ **v1.2 Evaluation Framework & Debt Resolution** — Phases 12–38 (shipped 2026-06-26) — [archive](.planning/milestones/v1.2-ROADMAP.md)
 - ✅ **v1.1 Code Quality & Refactoring** — Phases 6–11.1 (shipped 2026-05-13) — [archive](.planning/milestones/v1.1-ROADMAP.md)
@@ -20,19 +20,19 @@
 
 ### ✅ v1.7 Minor Adjustments (Complete)
 
-**Milestone Goal:** General-purpose catch-all milestone for small, unrelated fixes and additions that don't warrant their own themed milestone — fixing the ground-truth field mismatch in the evaluation framework and adding a synthetic labeled subsample-pair generation mechanism. (Paused v1.6 HoreKa work resumes at Phase 54 after this milestone ships.)
+**Milestone Goal:** General-purpose catch-all milestone for small, unrelated fixes and additions that don't warrant their own themed milestone — fixing the ground-truth field mismatch in the evaluation framework and adding a synthetic labeled subsample-pair generation mechanism. (v1.6 HoreKa work was believed paused at Phase 54 when this milestone started, but turned out to already be complete — see v1.6 section below.)
 
 - [x] **Phase 57: Ground-Truth Field Consistency** - Label-transfer F1 ground truth is drawn from the same field `LabelTransferStage` actually transfers, and stays correctly paired even when `transform_spec` changes point counts (completed 2026-08-04)
 - [x] **Phase 58: Synthetic Labeled Subsample-Pair Generation** - Label-transfer HPO can run against a config-driven synthetic subsample-pair ground truth mechanism, alongside the existing `transform_spec` mechanism (completed 2026-08-04)
 
-### 🚧 v1.6 HoreKa Cluster Execution (In Progress)
+### ✅ v1.6 HoreKa Cluster Execution (Complete)
 
 **Milestone Goal:** Run the `baseline_experiments` evaluation suite on the HoreKa HPC cluster with GPU support, replacing the current laptop-constrained (CPU-only, subsampled) execution, within a 3-hour GPU time budget.
 
 - [x] **Phase 51: Environment & Access** - Operator can activate the HoreKa environment, transfer real datasets, and submit a working end-to-end job script *(1 plan — ready to execute)* (completed 2026-07-15)
-- [ ] **Phase 52: Multi-Rank Parallelism & Validation** - HPO trials run concurrently across MPI ranks via propulate, orchestration stays single-writer, validated on a short test job
-- [ ] **Phase 53: GPU Acceleration** - Real per-operation GPU acceleration threaded through EvalConfig, DataFactory, and AlignmentStage
-- [ ] **Phase 54: Budget Calibration & Full-Suite Gate** - Full 7-run suite is calibrated and verified to fit the 3-hour GPU cap before the full allocation is submitted
+- [x] **Phase 52: Multi-Rank Parallelism & Validation** - HPO trials run concurrently across MPI ranks via propulate, orchestration stays single-writer, validated on a short test job (completed)
+- [x] **Phase 53: GPU Acceleration** - Real per-operation GPU acceleration threaded through EvalConfig, DataFactory, and AlignmentStage (completed)
+- [x] **Phase 54: Budget Calibration & Full-Suite Gate** - Full 7-run suite is calibrated and verified to fit the 3-hour GPU cap before the full allocation is submitted (completed 2026-07-23, UAT 9/9 passed — see `.planning/phases/54-budget-calibration-full-suite-gate/54-UAT.md`; this milestone's completion had drifted out of STATE.md/ROADMAP.md tracking after the branch that completed it diverged from `feature/evaluation_framework` before merging back — reconciled 2026-08-05)
 
 ## Phase Details
 
@@ -135,8 +135,8 @@ Plans:
 **Plans**: 2 plans
 Plans:
 
-- [ ] 53-01-PLAN.md — EvalConfig device field + DataFactory device threading + tests (GPU-01, GPU-02)
-- [ ] 53-02-PLAN.md — 8 cluster YAML configs + sbatch GPU-03 annotation (GPU-03)
+- [x] 53-01-PLAN.md — EvalConfig device field + DataFactory device threading + tests (GPU-01, GPU-02)
+- [x] 53-02-PLAN.md — 8 cluster YAML configs + sbatch GPU-03 annotation (GPU-03)
 
 ### Phase 54: Budget Calibration & Full-Suite Gate
 
@@ -161,7 +161,7 @@ Plans:
 
 - [x] 54-02-PLAN.md — extract_calibration.py new script + tests for aggregate_cost.py and extract_calibration.py (BUDG-02, BUDG-03)
 
-### 🚧 v1.5 Learned Label Transfer Methods (Phases 44–49 complete, Phase 50 pending)
+### ✅ v1.5 Learned Label Transfer Methods (Complete)
 
 **Milestone Goal:** Extend LabelTransferStage with learned point-cloud methods (CPD-weighted, eGNN, PointNet++) — full stack from architecture selection through training infrastructure, inference integration, and evaluation/benchmarking.
 
@@ -171,7 +171,7 @@ Plans:
 - [x] **Phase 47: eGNN/PointNet++ Model Implementation & Training Infrastructure** — completed 2026-07-15
 - [x] **Phase 48: LabelTransferStage Integration for Learned Methods** — completed 2026-07-15
 - [x] **Phase 49: Evaluation & Benchmarking of Learned Label-Transfer Methods** — completed 2026-07-15
-- [x] **Phase 50: GPU-Native Geometry Ops** — pending (blocked on cluster verification) (completed 2026-07-31)
+- [x] **Phase 50: GPU-Native Geometry Ops** — completed 2026-07-31 (VERIFICATION.md: passed)
 
 ### Phase 55: Spherical-cap and Gaussian label generators for zreg.data_generation.labels ✅ 2026-07-30
 
@@ -432,9 +432,9 @@ Phases execute in numeric order: 57 → 58 (v1.6 paused after Phase 51; resumes 
 | 49. Benchmarking of Learned Methods | v1.5 | 3/3 | ✅ Complete | 2026-07-15 |
 | 50. GPU-Native Geometry Ops | v1.5 | 2/2 | Complete    | 2026-07-31 |
 | 51. Environment & Access | v1.6 | 1/1 | Complete    | 2026-07-15 |
-| 52. Multi-Rank Parallelism & Validation | v1.6 | 0/TBD | Not started | - |
-| 53. GPU Acceleration | v1.6 | 0/TBD | Not started | - |
-| 54. Budget Calibration & Full-Suite Gate | v1.6 | 0/TBD | Not started | - |
+| 52. Multi-Rank Parallelism & Validation | v1.6 | 3/3 | Complete    | 2026-07-23 |
+| 53. GPU Acceleration | v1.6 | 2/2 | Complete    | 2026-07-23 |
+| 54. Budget Calibration & Full-Suite Gate | v1.6 | 2/2 | Complete    | 2026-07-23 |
 | 57. Ground-Truth Field Consistency | v1.7 | 2/2 | Complete    | 2026-08-04 |
 | 58. Synthetic Labeled Subsample-Pair Generation | v1.7 | 4/4 | Complete    | 2026-08-04 |
 
@@ -444,8 +444,8 @@ Phases execute in numeric order: 57 → 58 (v1.6 paused after Phase 51; resumes 
 | v1.1 Code Quality & Refactoring | 6–11.1 (7) | 14 | ✅ Complete | 2026-05-13 |
 | v1.2 Evaluation Framework & Debt Resolution | 12–38 (27) | 55 | ✅ Complete | 2026-06-26 |
 | v1.4 Trajectory Alignment & Optimization Enhancements | 39–43 (5) | 11 | ✅ Complete | 2026-07-08 |
-| v1.5 Learned Label Transfer Methods | 44–50 (7) | 18 | 🚧 In progress (50 pending) | - |
-| v1.6 HoreKa Cluster Execution | 51–54 (4) | TBD | 🚧 In progress | - |
+| v1.5 Learned Label Transfer Methods | 44–50 (7) | 18 | ✅ Complete | 2026-07-31 |
+| v1.6 HoreKa Cluster Execution | 51–54 (4) | 9 | ✅ Complete | 2026-07-23 |
 | v1.7 Minor Adjustments | 57–58 (2) | 6 | ✅ Complete | 2026-08-04 |
 
-_v1.7 Minor Adjustments complete (Phases 57–58, both verified; renumbered from the originally-planned 56–57 on merge into `feature/evaluation_framework` to resolve a Phase 56 collision with that branch's own concurrent work — see the Phase Numbering note above). v1.6 HoreKa Cluster Execution resumes next: `/gsd:plan-phase 54` (Budget Calibration & Full-Suite Gate). Or run `/gsd:complete-milestone` to formally close out v1.7 first._
+_v1.7 Minor Adjustments complete (Phases 57–58, both verified; renumbered from the originally-planned 56–57 on merge into `feature/evaluation_framework` to resolve a Phase 56 collision with that branch's own concurrent work — see the Phase Numbering note above). v1.6 HoreKa Cluster Execution is ALSO complete (Phases 51–54, UAT 9/9 passed 2026-07-23 — this had drifted out of tracking after the completing branch diverged from `feature/evaluation_framework` before merging back; reconciled 2026-08-05). v1.5 Learned Label Transfer Methods is complete too (Phases 44–50, shipped 2026-07-31). Run `/gsd:complete-milestone` to formally close out any of these._

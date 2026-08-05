@@ -431,11 +431,11 @@ class LabelTransferStage(PipelineStage):
                     f"k_neighbours={params['k_neighbours']} exceeds source frame "
                     f"{sk} point count ({n_src})"
                 )
-            labels_tensor = src_frame.get("label")
+            labels_tensor = src_frame.get(self.config.label_field)
             if labels_tensor is None:
                 raise ValueError(
-                    f"Source frame {sk} has no 'label' field. "
-                    "Label transfer requires annotated data."
+                    f"Source frame {sk} has no '{self.config.label_field}' field. "
+                    "Label transfer requires annotated data. Check config.label_field."
                 )
 
             if params["method"] == "cpd_weighted":

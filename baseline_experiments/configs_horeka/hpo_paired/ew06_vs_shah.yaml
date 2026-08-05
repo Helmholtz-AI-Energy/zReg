@@ -3,7 +3,8 @@
 # on proxy metrics (chamfer, hausdorff, path smoothness, temporal stability) plus label transfer
 # accuracy (f1, knn_consistency) using Shah's per-cell "id" labels on the held-out val split.
 #
-# Unlike selfcal/ground_truth configs this is pipeline_mode: paired, so there is no known ground
+# Unlike selfcal/ground_truth configs this is pipeline_mode: paired
+label_source: "target"  # Shah provides the 3-class germ-layer labels; Kobitski (unlabeled) receives them, so there is no known ground
 # truth transform — the optimizer minimises the weighted metric composite directly on real data.
 #
 # search_strategy: auto resolves to propulate when SLURM_JOB_ID is set (see eval/runners/optimizer.py).
@@ -18,6 +19,7 @@ data_format: tracklets
 target_data_path: data/external/sample/shah_data/sample-1/sample-1-cell-tracks.csv
 target_data_format: csv
 pipeline_mode: paired
+label_source: "target"  # Shah provides the 3-class germ-layer labels; Kobitski (unlabeled) receives them
 device: "cuda"
 max_points_per_frame: 1000
 run_alignment: true

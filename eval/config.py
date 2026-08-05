@@ -368,6 +368,25 @@ class EvalConfig(BaseModel):
         default="knn_voting",
         description="Label transfer method: 'knn_voting', 'cpd_weighted', 'pointnet2', or 'egnn'"
     )
+    label_source: Literal["source", "target"] = Field(
+        default="source",
+        description=(
+            "Which dataset provides the class labels for transfer. "
+            "'source' (default): labels come from the source trajectory (correct for synthetic/selfcal). "
+            "'target': labels come from the target trajectory (use for paired mode where the target "
+            "dataset — e.g. Shah — carries the ground-truth class labels and source — e.g. Kobitski — "
+            "is unlabeled and should receive them)."
+        ),
+    )
+    label_field: str = Field(
+        default="label",
+        description=(
+            "Which field in the label-source point cloud holds the class labels to transfer. "
+            "Defaults to 'label' (correct for Shah, where load_shah_from_csv puts the 3-class "
+            "layer column into pc['label']). Override to 'id' if a dataset stores class info "
+            "in the id field instead."
+        ),
+    )
     device: str = Field(
         default="cpu",
         description="Compute device: 'cpu', 'cuda', 'cuda:0', 'cuda:1', or 'mps'"

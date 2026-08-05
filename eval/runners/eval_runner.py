@@ -337,7 +337,12 @@ class EvaluationRunner:
             stage_input = source  # D-05 — use source as fallback
 
         if self.config.run_label_transfer:
-            label_result = LabelTransferStage(self.config).run(stage_input, target, params, align_result=align_result)
+            if self.config.label_source == "target":
+                # Target (e.g. Shah) is the label source; aligned source (e.g. Kobitski) receives labels.
+                lt_source, lt_target = target, stage_input
+            else:
+                lt_source, lt_target = stage_input, target
+            label_result = LabelTransferStage(self.config).run(lt_source, lt_target, params, align_result=align_result)
 
         # --- Argument assembly for compute_stage_metrics (8 positional args) ---
         source_sorted_keys = sorted(source.keys())

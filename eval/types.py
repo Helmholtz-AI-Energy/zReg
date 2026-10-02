@@ -295,6 +295,9 @@ class SearchResult(BaseModel):
         All trials in the search, in execution order.
     tier : str
         Search-tier label: one of ``"sanity"``, ``"dev"``, ``"full"``.
+    failed_trials : list[dict[str, Any]], optional
+        Records of trials that raised or produced a non-finite score
+        (Phase 59 NUM-05).  Default empty list.
 
     Attributes
     ----------
@@ -302,6 +305,11 @@ class SearchResult(BaseModel):
     best_score : float
     history : list[Trial]
     tier : str
+    failed_trials : list[dict[str, Any]]
+        Records of trials that raised or produced a non-finite score, each
+        with keys ``params``, ``tier``, ``error`` (repr of the exception or a
+        non-finite-score description), ``error_type`` and ``rank``.  On rank 0
+        of an MPI run this holds every rank's records.
     """
 
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
@@ -310,6 +318,7 @@ class SearchResult(BaseModel):
     best_score: float
     history: list[Trial]
     tier: str
+    failed_trials: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class EvalReport(BaseModel):

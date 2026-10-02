@@ -375,6 +375,12 @@ class TestOptimizerSyntheticMode:
         mock_factory.get_ground_truth.side_effect = (
             lambda ds: {k: ds[k]["label"] for k in ds}
         )
+        # The sanity tier's isolated scratch factory (same patched class) applies
+        # the transform via augment(); return the input so trials really succeed.
+        # Phase 59 NUM-05: before, augment() returned a MagicMock, every trial
+        # failed silently with 0.0 and this test still passed; an all-failed run
+        # now raises.
+        mock_factory.augment.side_effect = lambda ds: ds
         # stub MetricsEngine so objective body runs to completion
         stub_metrics = StageMetrics(
             chamfer_distance=0.0,
@@ -389,10 +395,12 @@ class TestOptimizerSyntheticMode:
         mock_engine_cls.return_value.sanity_check.return_value = []
 
         optimizer = HyperparamOptimizer(synth_config)
-        optimizer.run()
+        result = optimizer.run()
 
         # The main factory's generate_target must NEVER be called in sanity tier (D-11)
         mock_factory.generate_target.assert_not_called()
+        assert result.failed_trials == []
+        assert len(result.history) == 4
 
     @patch("eval.runners.optimizer.MetricsEngine")
     @patch("eval.runners.optimizer.DataFactory")
@@ -1185,10 +1193,14 @@ class TestHyperparamOptimizerCoverageGaps:
     @patch("eval.runners.optimizer.LabelTransferStage")
     @patch("eval.runners.optimizer.AlignmentStage")
     @patch("eval.runners.optimizer.DataFactory")
-    def test_paired_sanity_null_gt_raises_then_returns_zero(
+    def test_paired_sanity_null_gt_records_failure_and_raises(
         self, mock_factory_cls, mock_align_cls, mock_label_cls, tmp_path
     ):
-        """optimizer.py:430 — ValueError raised when y_true is None (both id and color absent)."""
+        """ValueError when y_true is None (both id and label absent) is a recorded failure.
+
+        Phase 59 NUM-05: previously the trial silently returned 0.0 and run()
+        returned an empty SearchResult; the only trial failing now raises.
+        """
         from zreg.data_generation import generate_trajectory
         from eval.types import AlignResult, LabelResult, StageMetrics
 
@@ -1233,11 +1245,16 @@ class TestHyperparamOptimizerCoverageGaps:
             )
             optimizer = HyperparamOptimizer(cfg)
             # _tier_dataset("sanity") always generates labeled data — override to return
-            # label=None, id=None dataset so y_true is None → ValueError at line 430,
-            # caught by except Exception at 471 → trial returns 0.0, run() completes
+            # label=None, id=None dataset so y_true is None → ValueError, caught by
+            # _objective's except branch → recorded failure (-inf); the run has no
+            # successful trial, so it raises after writing failed_trials.json.
             with patch.object(optimizer, "_tier_dataset", return_value=ds_base):
-                result = optimizer.run()
-        assert isinstance(result, SearchResult)
+                with pytest.raises(RuntimeError, match="All 1 HPO trials failed"):
+                    optimizer.run()
+        records = json.loads((tmp_path / "out" / "failed_trials.json").read_text())
+        assert len(records) == 1
+        assert records[0]["error_type"] == "ValueError"
+        assert "No ground-truth labels" in records[0]["error"]
 
     @patch("eval.runners.optimizer.DataFactory")
     def test_propulate_strategy_mocked(self, mock_factory_cls, tmp_path, synthetic_dataset):

@@ -22,8 +22,13 @@ Key design decisions implemented here:
   ``EvaluationRunner``.  Keeps each trial lightweight.
 - **D-08** Dataset passed to ``_objective`` is the tier-specific subset from
   ``_tier_dataset``, not the full dataset.
-- **D-09** If a trial raises an exception, ``_objective`` returns ``0.0`` and logs
-  a warning.  The search continues.
+- **D-09** If a trial raises an exception, ``_objective`` logs it with its
+  traceback, records it as a failure and returns ``float("-inf")`` (worst for the
+  maximised objective; Phase 59 NUM-05).  The search continues.  Failures of all
+  MPI ranks are gathered to rank 0 into ``SearchResult.failed_trials`` /
+  ``failed_trials.json``; successful trials of all ranks are merged on rank 0
+  (finite scores only); a run with no successful trial in the merged history
+  raises ``RuntimeError`` on every rank.
 - **D-10** Study name fixed as ``"zreg-hpo"``; re-running with the same
   ``output_dir`` resumes existing study (``load_if_exists=True``).
 - **D-11** SQLite at ``{output_dir}/optuna.db``.
@@ -75,6 +80,7 @@ tiers call ``self._factory.load_target()`` to obtain the target trajectory from
 
 import json
 import logging
+import math
 import os
 from pathlib import Path
 from typing import Any
@@ -145,6 +151,89 @@ def _apply_transform_to_dataset(
     return scratch_factory.augment(dataset)
 
 
+def _mpi_world_comm():
+    """Return mpi4py's ``COMM_WORLD`` when running on more than one MPI rank.
+
+    Returns
+    -------
+    mpi4py.MPI.Comm or None
+        ``MPI.COMM_WORLD`` if mpi4py imports and ``COMM_WORLD.Get_size() > 1``;
+        ``None`` for single-process runs (no mpi4py, or a world of size 1), in
+        which case the outcome reduction uses local data without collectives.
+
+    Notes
+    -----
+    Same probe pattern as ``HyperparamOptimizer._detect_backend``: an
+    ``ImportError`` means "not an MPI environment" and is silent; other MPI
+    initialisation errors are logged at DEBUG level (Pitfall 6).
+    """
+    try:
+        from mpi4py import MPI
+        comm = MPI.COMM_WORLD
+        if comm.Get_size() > 1:
+            return comm
+    except ImportError:
+        pass  # not an MPI environment
+    except Exception as exc:  # Pitfall 6: MPI init failures are not always ImportError
+        _log.debug("MPI communicator probe failed: %s", exc)
+    return None
+
+
+def _merge_trial_histories(
+    per_rank_histories: list[list[dict[str, Any]]],
+    start_rank: int = 0,
+) -> tuple[list[Trial], list[dict[str, Any]]]:
+    """Merge per-rank successful-trial histories, keeping finite scores only.
+
+    Parameters
+    ----------
+    per_rank_histories : list[list[dict[str, Any]]]
+        One list per rank (in rank order) of ``Trial.model_dump()`` dicts —
+        the pickle-safe transport form used by ``_reduce_trial_outcomes``.
+    start_rank : int, optional
+        Rank number of the first entry in ``per_rank_histories``.  Default 0.
+
+    Returns
+    -------
+    tuple[list[Trial], list[dict[str, Any]]]
+        ``(merged, bad)``: the finite-score trials of all ranks in rank order,
+        and one failure record per non-finite trial with keys ``params``,
+        ``tier``, ``error``, ``error_type`` (``"NonFiniteScore"``) and ``rank``.
+
+    Notes
+    -----
+    Phase 59 NUM-05: the Propulate branch of ``run()`` builds ``Trial`` objects
+    from the ``(params, score)`` pairs ``PropulateSearch`` returns, so a
+    non-finite score that slips past Propulate's ``loss == inf`` filter (for
+    example a NaN loss) would otherwise reach best selection.  Filtering here
+    guarantees for every strategy that no ``-inf``/``NaN`` trial is ever
+    selected as best or written to ``search_history.json``.
+    """
+    merged: list[Trial] = []
+    bad: list[dict[str, Any]] = []
+    for offset, history in enumerate(per_rank_histories):
+        rank = start_rank + offset
+        for entry in history:
+            trial = Trial.model_validate(entry)
+            if math.isfinite(trial.score):
+                merged.append(trial)
+                continue
+            _log.warning(
+                "Dropping trial with non-finite score %r from rank %d (params=%s)",
+                trial.score,
+                rank,
+                trial.params,
+            )
+            bad.append({
+                "params": dict(trial.params),
+                "tier": trial.tier,
+                "error": f"non-finite score {trial.score!r}",
+                "error_type": "NonFiniteScore",
+                "rank": rank,
+            })
+    return merged, bad
+
+
 def _resolve_subsample_pair_seeds(transform_spec: dict, tier_name: str) -> list[int]:
     """Resolve ``transform_spec['seed']`` into the list of seeds a trial should use (D-07).
 
@@ -183,9 +272,10 @@ def _resolve_subsample_pair_seeds(transform_spec: dict, tier_name: str) -> list[
     -----
     **Never raises for a list seed on a non-full tier** — deliberately a
     graceful fallback (logged warning), not a raised exception, since
-    ``_objective``'s broad ``except Exception: return 0.0`` would otherwise
-    silently swallow a raised validation error and mask it as a generic
-    failed-trial score instead of a clear signal (D-07).
+    ``_objective``'s broad ``except Exception`` handler would otherwise turn
+    a raised validation error into a failed trial (``-inf``, recorded in
+    ``SearchResult.failed_trials``) instead of a clear configuration signal
+    (D-07).
     """
     seed = transform_spec.get("seed", 42)
     if isinstance(seed, int):
@@ -262,6 +352,12 @@ class HyperparamOptimizer:
         self._initial_warm_start = warm_start
         # Phase 59 NUM-04: the F1-unavailable reason is logged once per instance.
         self._f1_unavailable_logged = False
+        # Phase 59 NUM-05: per-run trial outcome bookkeeping (reset in run()).
+        self._failed_trials: list[dict[str, Any]] = []
+        self._n_succeeded: int = 0
+        # MPI communicator for the outcome reduction. None => resolved lazily in
+        # run() via _mpi_world_comm(); tests inject a communicator here.
+        self._comm = None
 
         # _default_params: fallback for all 9 required stage keys (Pitfall 4)
         # These fill any gaps when search_space covers only a subset of required keys.
@@ -288,17 +384,52 @@ class HyperparamOptimizer:
         -------
         SearchResult
             Frozen pydantic model with ``best_params``, ``best_score``,
-            ``history`` (all ``Trial`` objects from all tiers), and ``tier``
-            (the ceiling tier from ``config.tier``).
+            ``history`` (the finite-score successful ``Trial`` objects of all
+            tiers and, on rank 0, of all MPI ranks), ``tier`` (the ceiling tier
+            from ``config.tier``) and ``failed_trials`` (failure records; on
+            rank 0 those of every rank).  Non-zero MPI ranks return an empty
+            result and never write to disk.
+
+        Raises
+        ------
+        RuntimeError
+            On every rank, when at least one trial was attempted on some rank
+            but the merged (all-rank) history holds no successful trial.
+            Rank 0 writes ``failed_trials.json`` before raising.
 
         Notes
         -----
         **T-22-02:** ``output_dir`` is resolved via ``Path(...).resolve()`` as
         the first line to prevent path traversal attacks.
+
+        **Phase 59 NUM-05 — global outcome reduction:** after the tier loop
+        every rank calls ``_reduce_trial_outcomes`` on its history (gather to
+        rank 0, then broadcast of the global counts) before any
+        rank-dependent branch.  The persisted result on rank 0 is built from
+        the merged history of all ranks, so rank 0 writes another rank's best
+        params even if all of its own trials failed.  Under Propulate rank
+        0's ``all_history`` is already global (``PropulateSearch.search``
+        returns every rank's evaluated individuals on rank 0 and ``[]``
+        elsewhere, eval/search_strategies.py ~505-526), so the merge adds no
+        duplicates there.
+
+        **Known limitation (Phase 61, MPI robustness):** grid / random /
+        sobol / bayesian under ``mpirun -n N`` run the same search on every
+        rank, so the merged history can contain the same params evaluated by
+        several ranks.  Each entry is a real evaluation and best selection is
+        unaffected.
         """
         # T-22-02: resolve output_dir to prevent path traversal
         output_dir = Path(self.config.output_dir).resolve()
         output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Phase 59 NUM-05: per-run bookkeeping — a second run() on the same
+        # instance reports only its own outcomes.
+        self._failed_trials = []
+        self._n_succeeded = 0
+        # Resolved lazily so constructing an optimizer does not initialise MPI.
+        if self._comm is None:
+            self._comm = _mpi_world_comm()
 
         # Synthetic mode: pre-populate _synthetic_target so dev/full tiers can access it.
         # Must be done before the tier loop because _objective reads _factory._synthetic_target
@@ -445,29 +576,129 @@ class HyperparamOptimizer:
             if all_history:
                 warm_start = self.prune_candidates(all_history, keep_top_k=3)
 
-        # Construct SearchResult from full history
-        if not all_history:
+        # Phase 59 NUM-05: global outcome reduction. Called unconditionally by
+        # every rank, before any rank-dependent branch (collective-order
+        # contract, see _reduce_trial_outcomes).
+        merged_history, failed_records, n_ok, n_fail, n_hist = self._reduce_trial_outcomes(all_history)
+
+        # Construct SearchResult from the merged all-rank history. Every trial
+        # in merged_history has a finite score (_merge_trial_histories filter),
+        # so a failed (-inf) or NaN trial can never be selected as best.
+        if not merged_history:
             result = SearchResult(
                 best_params={},
                 best_score=0.0,
                 history=[],
                 tier=self.config.tier,
+                failed_trials=list(failed_records),
             )
         else:
-            best_trial = max(all_history, key=lambda t: t.score)
+            best_trial = max(merged_history, key=lambda t: t.score)
             result = SearchResult(
                 best_params=dict(best_trial.params),
                 best_score=best_trial.score,
-                history=list(all_history),
+                history=list(merged_history),
                 tier=self.config.tier,
+                failed_trials=list(failed_records),
             )
 
-        # Only rank 0 writes results — PropulateSearch returns [] on non-rank-0,
-        # so all other ranks have empty all_history and must not write to disk
-        # (concurrent writes from 16 ranks corrupt best_params.json via race).
+        # Raise rule — identical on every rank because n_ok / n_fail / n_hist
+        # come from rank 0's broadcast. Zero attempted trials (n_ok + n_fail
+        # == 0) keeps the old empty-result behaviour.
+        if n_hist == 0 and (n_ok + n_fail) > 0:
+            if self._is_rank_zero():
+                with open(output_dir / "failed_trials.json", "w") as f:
+                    json.dump(failed_records, f, indent=2)
+            if n_fail > 0:
+                if self._failed_trials:
+                    first = self._failed_trials[0]
+                    detail = f"first local failure: {first['error_type']}: {first['error']}"
+                else:
+                    detail = f"see {output_dir / 'failed_trials.json'} on rank 0"
+                raise RuntimeError(
+                    f"All {n_fail} HPO trials failed across all ranks "
+                    f"(no successful trial to select best params from); {detail}"
+                )
+            raise RuntimeError(
+                f"No successful HPO trial reached rank 0 although {n_ok} trial(s) "
+                "succeeded; the merged history is empty."
+            )
+
+        # Only rank 0 writes results: it holds the merged history of every
+        # rank (non-zero ranks get an empty merged_history from the reduction)
+        # and concurrent writes from many ranks would corrupt best_params.json.
         if self._is_rank_zero():
             self.save_best_params(result, output_dir)
         return result
+
+    def _reduce_trial_outcomes(
+        self, local_history: list[Trial]
+    ) -> tuple[list[Trial], list[dict[str, Any]], int, int, int]:
+        """Merge trial outcomes of all MPI ranks on rank 0 (Phase 59 NUM-05).
+
+        Parameters
+        ----------
+        local_history : list[Trial]
+            This rank's successful trials (``run()``'s ``all_history``).
+
+        Returns
+        -------
+        tuple[list[Trial], list[dict[str, Any]], int, int, int]
+            ``(merged_history, failure_records, n_ok, n_fail, n_hist)``.
+            On rank 0 (or single-process) ``merged_history`` holds the
+            finite-score trials of every rank and ``failure_records`` every
+            rank's failures (each tagged with ``rank``) plus any non-finite
+            trials dropped by ``_merge_trial_histories``.  On other ranks
+            ``merged_history`` is empty and ``failure_records`` holds only the
+            local failures.  ``n_ok`` (successful objective evaluations),
+            ``n_fail`` (len of rank 0's failure records) and ``n_hist`` (len of
+            rank 0's merged history) are global and identical on every rank.
+
+        Notes
+        -----
+        **Collective-order contract:** with a communicator, every rank calls
+        exactly ``comm.gather(payload, root=0)`` then ``comm.bcast(summary,
+        root=0)`` — same collectives, same order, no early return or
+        rank-dependent branch before them.  ``_objective`` runs on every rank
+        under Propulate and under mpirun-launched grid / random / sobol /
+        bayesian searches; a divergent call order would deadlock the job.
+
+        **Transport:** the payload carries ``Trial.model_dump()`` dicts (plain,
+        pickle-safe data), never ``Trial`` objects.
+
+        **Propulate contract:** in the propulate branch of ``run()`` rank 0's
+        ``local_history`` already holds every rank's successful evaluations —
+        ``PropulateSearch.search`` returns them on rank 0 after Propulate's
+        final intra-island receive and ``[]`` on every other rank
+        (eval/search_strategies.py ~505-526) — so other ranks contribute empty
+        histories and the merge introduces no duplicates.
+
+        Without a communicator (no mpi4py, or a world of size 1) the same
+        merge runs on local data with no collectives.
+        """
+        comm = self._comm
+        rank = comm.Get_rank() if comm is not None else 0
+        payload = {
+            "failures": [dict(r, rank=rank) for r in self._failed_trials],
+            "history": [t.model_dump() for t in local_history],
+            "n_ok": self._n_succeeded,
+        }
+        if comm is None:
+            merged, bad = _merge_trial_histories([payload["history"]], start_rank=rank)
+            failures = payload["failures"] + bad
+            return merged, failures, self._n_succeeded, len(failures), len(merged)
+
+        gathered = comm.gather(payload, root=0)
+        if rank == 0:
+            merged, bad = _merge_trial_histories([p["history"] for p in gathered], start_rank=0)
+            failures = [rec for p in gathered for rec in p["failures"]] + bad
+            summary = (sum(p["n_ok"] for p in gathered), len(failures), len(merged))
+        else:
+            merged = []
+            failures = payload["failures"]
+            summary = None
+        n_ok, n_fail, n_hist = comm.bcast(summary, root=0)
+        return merged, failures, n_ok, n_fail, n_hist
 
     def _objective(
         self,
@@ -492,8 +723,8 @@ class HyperparamOptimizer:
         Returns
         -------
         float
-            Score from ``MetricsEngine.compute_score``, or ``0.0`` on any
-            exception (D-09).
+            Score from ``MetricsEngine.compute_score``, or ``float("-inf")``
+            when the trial raises (D-09, Phase 59 NUM-05).
 
         Notes
         -----
@@ -501,8 +732,13 @@ class HyperparamOptimizer:
         **params}`` ensures all required stage keys are present even when the
         search space covers only a subset.
 
-        **D-09:** Failed trials return ``0.0`` and do NOT append to
-        ``history_out``.
+        **D-09 / NUM-05:** a failed trial is logged with its traceback,
+        appended to ``self._failed_trials`` as ``{params, tier, error,
+        error_type}`` and returns ``-inf`` (worst for the maximised objective;
+        every strategy tolerates it and Propulate's ``loss == inf`` filter
+        drops it).  It does NOT append to ``history_out``.  A successful trial
+        increments ``self._n_succeeded``.  Only ``Exception`` is caught, so
+        ``KeyboardInterrupt`` / ``SystemExit`` still propagate.
         """
         try:
             # Pitfall 4: merge defaults first, trial params override
@@ -523,9 +759,11 @@ class HyperparamOptimizer:
                     self.config.transform_spec, tier_name
                 )
                 if len(seeds) > 1:
-                    return self._score_subsample_pair_multiseed(
+                    multiseed_score = self._score_subsample_pair_multiseed(
                         params, merged, tier_name, seeds, history_out
                     )
+                    self._n_succeeded += 1
+                    return multiseed_score
 
             # Phase 57 GT-06: carries the sanity-tier isolated scratch DataFactory
             # from site 2 (this block) to site 3 (GT-selection, below) within
@@ -698,11 +936,19 @@ class HyperparamOptimizer:
                 tier=tier_name,
             )
             history_out.append(trial_obj)
+            self._n_succeeded += 1
             return score
 
         except Exception as exc:
-            _log.warning("Trial failed: %s", exc)
-            return 0.0  # D-09: failed trial returns 0.0; search continues; no Trial appended
+            # D-09 / Phase 59 NUM-05: visible, counted, worst-scored failure.
+            _log.warning("Trial failed (tier=%s, params=%s)", tier_name, params, exc_info=True)
+            self._failed_trials.append({
+                "params": dict(params),
+                "tier": tier_name,
+                "error": repr(exc),
+                "error_type": type(exc).__name__,
+            })
+            return float("-inf")
 
     def _score_subsample_pair_multiseed(
         self,
@@ -762,9 +1008,9 @@ class HyperparamOptimizer:
         Notes
         -----
         Exceptions are NOT caught here — they propagate to the caller's
-        (``_objective``'s) existing ``except Exception: return 0.0`` handler,
-        so a failed multiseed trial scores ``0.0`` exactly like any other
-        failed trial (D-09 consistency).
+        (``_objective``'s) ``except Exception`` handler, so a failed multiseed
+        trial is recorded as a failure and scores ``-inf`` exactly like any
+        other failed trial (D-09 consistency, Phase 59 NUM-05).
         """
         # Resolved ONCE, reused across all N seeds — load_real() is
         # cached/idempotent per DataFactory's existing contract, so this is
@@ -979,17 +1225,23 @@ class HyperparamOptimizer:
     def save_best_params(
         self, result: SearchResult, output_dir: str | Path
     ) -> None:
-        """Write ``best_params.json`` and ``search_history.json`` to ``output_dir``.
+        """Write ``best_params.json``, ``search_history.json`` and ``failed_trials.json``.
 
         Parameters
         ----------
         result : SearchResult
-            Completed search result with best params and full trial history.
+            Completed search result with best params, the merged trial
+            history and the failure records.
         output_dir : str or Path
             Directory where JSON files are written.
 
         Notes
         -----
+        ``best_params.json`` stays a flat dict and ``search_history.json`` a
+        list of ``Trial`` dicts (downstream scripts parse both); the history
+        holds the finite-score successful trials of all ranks.  Failures
+        (Phase 59 NUM-05) go to ``failed_trials.json`` as a list of records.
+
         Uses ``model_dump()`` + ``json.dump()``.  The JSON shortcut raises
         ``PydanticSerializationError`` for ``torch.Tensor`` fields and must not
         be used (RESEARCH Pitfall 2 / D-12).
@@ -1005,8 +1257,18 @@ class HyperparamOptimizer:
         with open(out / "search_history.json", "w") as f:
             json.dump(history_dicts, f, indent=2)
 
+        # failed_trials.json — failure records of every rank (NUM-05)
+        with open(out / "failed_trials.json", "w") as f:
+            json.dump(result.failed_trials, f, indent=2)
+
     def _is_rank_zero(self) -> bool:
-        """Return True if running single-process or if this is MPI rank 0."""
+        """Return True if running single-process or if this is MPI rank 0.
+
+        An injected / resolved communicator (``self._comm``) takes precedence
+        over ``MPI.COMM_WORLD``.
+        """
+        if self._comm is not None:
+            return self._comm.Get_rank() == 0
         try:
             from mpi4py import MPI
             return MPI.COMM_WORLD.Get_rank() == 0

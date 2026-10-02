@@ -19,10 +19,25 @@ Covers:
   - NUM-04 (HPO half): ``_objective`` honours ``label_source`` through the
     shared ``resolve_label_transfer_pair`` helper and zero-fills F1 when it is
     unavailable.
+  - NUM-05 (optimizer half): a raising trial scores ``-inf``, is logged with its
+    traceback and recorded as a failure; counters reset per ``run()``; failures
+    and successful histories of every MPI rank are merged on rank 0 (finite
+    scores only); a run raises only when no rank produced a successful trial.
+
+NUM-05 multi-rank tests substitute only the MPI transport (``_ThreadComm``) and,
+for the Propulate branch, the uninstalled propulate library
+(``_ContractPropulateSearch``); the optimizer code under test is unmodified.
 """
 
+import itertools
+import json
 import logging
 import math
+import pickle
+import sys
+import threading
+import types
+from pathlib import Path
 
 import pytest
 
@@ -34,15 +49,21 @@ import torch
 import optuna  # noqa: F401  (import-order contract: torch -> optuna -> eval)
 
 from eval.config import EvalConfig
+from eval.runners import optimizer as optimizer_module
 from eval.runners.optimizer import HyperparamOptimizer
+from eval.types import StageMetrics, Trial
 
 _OPT_LOGGER = "eval.runners.optimizer"
 
 
-def _cfg(tmp_path, *, rot=0.0, seed=None, tier="full") -> EvalConfig:
+def _cfg(
+    tmp_path, *, rot=0.0, seed=None, tier="full", search_space=None, search_strategy="grid"
+) -> EvalConfig:
     """Synthetic subsample_pair config used by the multi-seed / list-seed tests."""
     if seed is None:
         seed = [1, 2]
+    if search_space is None:
+        search_space = {"window_size": [3], "k_neighbours": [3]}
     return EvalConfig(
         data_path=str(tmp_path / "unused.mat"),
         output_dir=str(tmp_path / "out"),
@@ -63,8 +84,8 @@ def _cfg(tmp_path, *, rot=0.0, seed=None, tier="full") -> EvalConfig:
         },
         tier=tier,
         n_trials=1,
-        search_strategy="grid",
-        search_space={"window_size": [3], "k_neighbours": [3]},
+        search_strategy=search_strategy,
+        search_space=search_space,
     )
 
 
@@ -248,3 +269,431 @@ def test_objective_paired_target_without_label_transfer_zero_fills_f1(
     assert len(hist) == 1
     assert math.isfinite(score)
     assert hist[0].metrics.f1_score == 0.0
+
+
+# ---------------------------------------------------------------------------
+# NUM-05 (optimizer half): failed trials are recorded, worst-scored and merged
+# across MPI ranks.
+#
+# A real failing trial needs no mock: k_neighbours larger than the frame point
+# count makes LabelTransferStage raise ValueError
+# (eval/stages/label_transfer.py, "exceeds source frame").
+# ---------------------------------------------------------------------------
+
+_OK_K = 3
+_FAIL_K = 10000
+_JOIN_TIMEOUT = 300.0
+
+
+def _num05_cfg(tmp_path, k_values, *, strategy="grid") -> EvalConfig:
+    """Cheap sanity-tier config whose trials succeed (k=3) or raise (k=10000)."""
+    return _cfg(
+        tmp_path,
+        seed=1,
+        tier="sanity",
+        search_space={"k_neighbours": list(k_values)},
+        search_strategy=strategy,
+    )
+
+
+def _zero_metrics() -> StageMetrics:
+    return StageMetrics(
+        chamfer_distance=0.0,
+        hausdorff_distance=0.0,
+        path_smoothness=0.0,
+        temporal_stability=0.0,
+        f1_score=0.0,
+        knn_consistency=0.0,
+    )
+
+
+def _trial(k: int, score: float) -> Trial:
+    return Trial(params={"k_neighbours": k}, score=score, metrics=_zero_metrics(), tier="sanity")
+
+
+def _read_json(path: Path):
+    with open(path) as f:
+        return json.load(f)
+
+
+def test_failed_trial_is_recorded_and_worst(tmp_path, caplog) -> None:
+    """A raising trial returns -inf, appends no Trial and is recorded with its traceback."""
+    opt = HyperparamOptimizer(_num05_cfg(tmp_path, [_FAIL_K]))
+    hist: list = []
+    with caplog.at_level(logging.WARNING, logger=_OPT_LOGGER):
+        score = opt._objective({"k_neighbours": _FAIL_K}, opt._tier_dataset("sanity"), "sanity", hist)
+
+    assert score == float("-inf")  # 6c1c37f: 0.0
+    assert hist == []
+    assert len(opt._failed_trials) == 1
+    record = opt._failed_trials[0]
+    assert {"params", "tier", "error", "error_type"} <= set(record)
+    assert record["tier"] == "sanity"
+    assert record["params"] == {"k_neighbours": _FAIL_K}
+    assert "k_neighbours" in record["error"]
+    assert record["error_type"] == "ValueError"
+    failed_logs = [r for r in caplog.records if "Trial failed" in r.getMessage()]
+    assert failed_logs, "the failure must be logged"
+    assert all(r.exc_info for r in failed_logs), "the traceback must be logged (exc_info)"
+
+
+def test_successful_trial_counted(tmp_path) -> None:
+    """A successful trial increments the success counter and records no failure."""
+    opt = HyperparamOptimizer(_num05_cfg(tmp_path, [_OK_K]))
+    hist: list = []
+    score = opt._objective({"k_neighbours": _OK_K}, opt._tier_dataset("sanity"), "sanity", hist)
+    assert math.isfinite(score)
+    assert len(hist) == 1
+    assert opt._n_succeeded == 1
+    assert opt._failed_trials == []
+
+
+def test_run_resets_counters_between_calls(tmp_path) -> None:
+    """A second run() on the same instance reports only its own outcomes (cycle-2 LOW)."""
+    opt = HyperparamOptimizer(_num05_cfg(tmp_path, [_OK_K, _FAIL_K]))
+    first = opt.run()
+    n_ok_first = opt._n_succeeded
+    second = opt.run()
+    assert len(first.failed_trials) >= 1
+    assert len(second.failed_trials) == len(first.failed_trials)
+    assert opt._n_succeeded == n_ok_first
+
+
+def test_all_failed_run_raises_and_writes_failed_trials_json(tmp_path) -> None:
+    """Every trial failing raises loudly after failed_trials.json is written (A5)."""
+    cfg = _num05_cfg(tmp_path, [_FAIL_K])
+    opt = HyperparamOptimizer(cfg)
+    with pytest.raises(RuntimeError, match=r"All .*failed"):
+        opt.run()  # 6c1c37f: returned SearchResult(best_params={}) silently
+    failed_path = Path(cfg.output_dir).resolve() / "failed_trials.json"
+    assert failed_path.exists()
+    records = _read_json(failed_path)
+    assert isinstance(records, list)
+    assert len(records) == 1  # grid over one value -> one attempted trial
+    assert all(r["rank"] == 0 for r in records)
+    assert all(r["error_type"] == "ValueError" for r in records)
+
+
+def test_search_result_carries_failed_trials(tmp_path) -> None:
+    """Mixed outcomes: the finite trial wins, failures are kept and persisted."""
+    cfg = _num05_cfg(tmp_path, [_OK_K, _FAIL_K])
+    result = HyperparamOptimizer(cfg).run()
+    out = Path(cfg.output_dir).resolve()
+    assert len(result.failed_trials) >= 1
+    assert result.best_params["k_neighbours"] == _OK_K
+    assert math.isfinite(result.best_score)
+    assert len(_read_json(out / "failed_trials.json")) == len(result.failed_trials)
+    history = _read_json(out / "search_history.json")
+    assert isinstance(history, list) and history
+    assert all(math.isfinite(t["score"]) for t in history)
+    assert _read_json(out / "best_params.json") == dict(result.best_params)
+
+
+@pytest.mark.parametrize("strategy", ["grid", "random", "sobol", "bayesian"])
+def test_mixed_outcomes_every_strategy(tmp_path, strategy) -> None:
+    """Every search strategy survives -inf trials and never selects one as best.
+
+    warm_start lists both values: every strategy's search() evaluates warm-start
+    params first (Optuna via enqueue_trial), so the failing value is evaluated
+    deterministically even though random/sobol sample only SANITY_N_TRIALS points.
+    """
+    cfg = _num05_cfg(tmp_path, [_OK_K, _FAIL_K], strategy=strategy)
+    opt = HyperparamOptimizer(cfg, warm_start=[{"k_neighbours": _OK_K}, {"k_neighbours": _FAIL_K}])
+    result = opt.run()
+    out = Path(cfg.output_dir).resolve()
+    assert result.best_params["k_neighbours"] == _OK_K
+    assert math.isfinite(result.best_score)
+    assert result.history
+    assert all(math.isfinite(t.score) for t in result.history)
+    assert all(math.isfinite(t["score"]) for t in _read_json(out / "search_history.json"))
+    assert len(_read_json(out / "failed_trials.json")) >= 1
+
+
+def test_merge_drops_non_finite_scores() -> None:
+    """The merge keeps finite trials only; non-finite ones become failure records."""
+    from eval.runners.optimizer import _merge_trial_histories
+
+    ok = _trial(3, 0.4).model_dump()
+    neg_inf = _trial(4, float("-inf")).model_dump()
+    nan = _trial(5, float("nan")).model_dump()
+    merged, bad = _merge_trial_histories([[ok], [neg_inf, nan]], start_rank=0)
+    assert [t.score for t in merged] == [0.4]
+    assert isinstance(merged[0], Trial)
+    assert len(bad) == 2
+    assert all(r["error_type"] == "NonFiniteScore" for r in bad)
+    assert all(r["rank"] == 1 for r in bad)
+    assert [r["params"]["k_neighbours"] for r in bad] == [4, 5]
+
+
+# --- thread-simulated MPI ranks --------------------------------------------
+
+
+class _ThreadHub:
+    """Shared rendezvous state for the ``_ThreadComm`` ranks of one test."""
+
+    def __init__(self, size: int) -> None:
+        self.size = size
+        self.barrier = threading.Barrier(size, timeout=_JOIN_TIMEOUT)
+        self.slots: list = [None] * size
+        self.bvalue = None
+        self.local = threading.local()
+        self.population: list = []
+        self.lock = threading.Lock()
+
+
+class _ThreadComm:
+    """In-process stand-in for the mpi4py COMM_WORLD transport (lowercase API).
+
+    Only the transport is simulated: payloads round-trip through pickle exactly
+    like mpi4py's lowercase collectives, and each collective's name is logged so
+    tests can assert that every rank issued the same collectives in the same
+    order. The optimizer code under test runs unmodified.
+    """
+
+    def __init__(self, hub: _ThreadHub, rank: int) -> None:
+        self.hub = hub
+        self.rank = rank
+        self.calls: list[str] = []
+
+    def Get_rank(self) -> int:  # noqa: N802 (mpi4py API)
+        return self.rank
+
+    def Get_size(self) -> int:  # noqa: N802 (mpi4py API)
+        return self.hub.size
+
+    def gather(self, obj, root=0):
+        self.calls.append("gather")
+        self.hub.slots[self.rank] = pickle.loads(pickle.dumps(obj))
+        self.hub.barrier.wait()
+        out = list(self.hub.slots) if self.rank == root else None
+        self.hub.barrier.wait()
+        return out
+
+    def bcast(self, obj, root=0):
+        self.calls.append("bcast")
+        if self.rank == root:
+            self.hub.bvalue = pickle.dumps(obj)
+        self.hub.barrier.wait()
+        out = pickle.loads(self.hub.bvalue)
+        self.hub.barrier.wait()
+        return out
+
+
+def _run_in_rank_threads(hub: _ThreadHub, fns: list) -> tuple[list, list]:
+    """Run ``fns[r]()`` on thread r; return (results, exceptions) per rank.
+
+    A thread still alive after the timeout means divergent collectives (a
+    deadlock under real MPI) and fails the test.
+    """
+    results: list = [None] * len(fns)
+    errors: list = [None] * len(fns)
+
+    def runner(r: int) -> None:
+        hub.local.rank = r
+        try:
+            results[r] = fns[r]()
+        except BaseException as exc:  # noqa: BLE001 — reported per rank
+            errors[r] = exc
+
+    threads = [threading.Thread(target=runner, args=(r,), daemon=True) for r in range(len(fns))]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(_JOIN_TIMEOUT)
+    assert not any(t.is_alive() for t in threads), "a rank hung: divergent collectives"
+    return results, errors
+
+
+def _rank_optimizers(tmp_path, k_per_rank: list, *, strategy="grid"):
+    hub = _ThreadHub(len(k_per_rank))
+    opts, cfgs = [], []
+    for r, ks in enumerate(k_per_rank):
+        cfg = _num05_cfg(tmp_path / f"rank{r}", ks, strategy=strategy)
+        opt = HyperparamOptimizer(cfg)
+        opt._comm = _ThreadComm(hub, r)
+        opts.append(opt)
+        cfgs.append(cfg)
+    return hub, opts, cfgs
+
+
+def test_reduce_trial_outcomes_merges_all_ranks(tmp_path) -> None:
+    """gather + bcast merge failures, successes and histories of every rank."""
+    hub, opts, _ = _rank_optimizers(tmp_path, [[_OK_K], [_OK_K]])
+    opts[0]._failed_trials = [
+        {"params": {"k_neighbours": 9}, "tier": "sanity", "error": "e0", "error_type": "ValueError"},
+    ]
+    opts[0]._n_succeeded = 1
+    opts[1]._failed_trials = [
+        {"params": {"k_neighbours": 8}, "tier": "sanity", "error": "e1", "error_type": "ValueError"},
+        {"params": {"k_neighbours": 7}, "tier": "sanity", "error": "e2", "error_type": "ValueError"},
+    ]
+    opts[1]._n_succeeded = 1
+    local = [[_trial(3, 0.4)], [_trial(5, 0.6)]]
+
+    results, errors = _run_in_rank_threads(
+        hub, [lambda r=r: opts[r]._reduce_trial_outcomes(local[r]) for r in range(2)]
+    )
+    assert errors == [None, None]
+    for _merged, _failures, n_ok, n_fail, n_hist in results:
+        assert (n_ok, n_fail, n_hist) == (2, 3, 2)
+    merged0, failures0 = results[0][0], results[0][1]
+    assert sorted(t.score for t in merged0) == [0.4, 0.6]
+    assert len(failures0) == 3
+    assert {r["rank"] for r in failures0} == {0, 1}
+    assert results[1][0] == []
+    assert opts[0]._comm.calls == ["gather", "bcast"]
+    assert opts[1]._comm.calls == ["gather", "bcast"]
+
+
+def test_run_threads_rank1_all_failed_does_not_raise(tmp_path) -> None:
+    """Rank 1 failing everything is fine when rank 0 succeeded (global success)."""
+    hub, opts, cfgs = _rank_optimizers(tmp_path, [[_OK_K], [_FAIL_K]])
+    _, errors = _run_in_rank_threads(hub, [opts[0].run, opts[1].run])
+    assert errors == [None, None]
+    out0 = Path(cfgs[0].output_dir).resolve()
+    out1 = Path(cfgs[1].output_dir).resolve()
+    failed = _read_json(out0 / "failed_trials.json")
+    assert any(r["rank"] == 1 for r in failed)
+    assert _read_json(out0 / "best_params.json")["k_neighbours"] == _OK_K
+    for name in ("best_params.json", "search_history.json", "failed_trials.json"):
+        assert not (out1 / name).exists(), f"rank 1 must not write {name}"
+    assert opts[0]._comm.calls == opts[1]._comm.calls == ["gather", "bcast"]
+
+
+def test_run_threads_rank0_all_failed_rank1_succeeds(tmp_path) -> None:
+    """Cycle-2 HIGH inverse case: rank 0 persists rank 1's successful trial."""
+    hub, opts, cfgs = _rank_optimizers(tmp_path, [[_FAIL_K], [_OK_K]])
+    results, errors = _run_in_rank_threads(hub, [opts[0].run, opts[1].run])
+    assert errors == [None, None]
+    out0 = Path(cfgs[0].output_dir).resolve()
+    assert _read_json(out0 / "best_params.json")["k_neighbours"] == _OK_K
+    history = _read_json(out0 / "search_history.json")
+    assert history, "rank 0 must persist rank 1's successful history"
+    assert all(math.isfinite(t["score"]) for t in history)
+    assert any(t["params"]["k_neighbours"] == _OK_K for t in history)
+    assert results[0].best_params["k_neighbours"] == _OK_K
+    failed = _read_json(out0 / "failed_trials.json")
+    assert any(r["rank"] == 0 for r in failed)
+
+
+def test_run_threads_all_ranks_failed_raise_consistently(tmp_path) -> None:
+    """No successful trial on any rank: every rank raises; rank 0 lists all failures."""
+    hub, opts, cfgs = _rank_optimizers(tmp_path, [[_FAIL_K], [_FAIL_K]])
+    _, errors = _run_in_rank_threads(hub, [opts[0].run, opts[1].run])
+    assert all(isinstance(e, RuntimeError) for e in errors), errors
+    assert all("All" in str(e) for e in errors)
+    failed = _read_json(Path(cfgs[0].output_dir).resolve() / "failed_trials.json")
+    assert {r["rank"] for r in failed} == {0, 1}
+
+
+class _ContractPropulateSearch:
+    """Stand-in for the uninstalled propulate library (dependency, not unit under test).
+
+    Reproduces the verified return contract of ``PropulateSearch.search``
+    (eval/search_strategies.py:393-526): every rank evaluates the objective
+    (loss = -score), Propulate's final intra-island receive (propulate 1.2.2
+    propulator.py ~519) plus ``comm.Barrier()`` make every rank's individuals
+    visible on rank 0, non-zero ranks return ``[]`` (~505), and rank 0 returns
+    ``(params, -loss)`` for every individual whose loss is not ``inf`` (513).
+    """
+
+    hub: _ThreadHub | None = None
+    # Ranks that evaluate nothing (e.g. more ranks than individuals to evaluate).
+    idle_ranks: tuple = ()
+
+    def search(self, search_space, objective_fn, n_trials, output_dir, warm_start=None):
+        hub = type(self).hub
+        rank = hub.local.rank
+        keys = list(search_space)
+        combos = [] if rank in type(self).idle_ranks else list(
+            itertools.product(*(search_space[k] for k in keys))
+        )
+        for combo in combos:
+            params = dict(zip(keys, combo))
+            loss = -objective_fn(params)
+            with hub.lock:
+                hub.population.append((params, loss))
+        hub.barrier.wait()  # final intra-island receive + comm.Barrier()
+        if rank != 0:
+            return []
+        return [(dict(p), -loss) for p, loss in hub.population if loss != float("inf")]
+
+
+def test_run_threads_propulate_contract_rank0_all_failed(tmp_path, monkeypatch) -> None:
+    """Propulate branch: rank 0's history is already global; the gather adds no duplicate."""
+    hub, opts, cfgs = _rank_optimizers(tmp_path, [[_FAIL_K], [_OK_K]], strategy="propulate")
+    monkeypatch.setattr(_ContractPropulateSearch, "hub", hub)
+    monkeypatch.setattr(optimizer_module, "PropulateSearch", _ContractPropulateSearch)
+    results, errors = _run_in_rank_threads(hub, [opts[0].run, opts[1].run])
+    assert errors == [None, None]
+    out0 = Path(cfgs[0].output_dir).resolve()
+    assert _read_json(out0 / "best_params.json")["k_neighbours"] == _OK_K
+    history = _read_json(out0 / "search_history.json")
+    assert len(history) == 1
+    assert math.isfinite(history[0]["score"])
+    failed = _read_json(out0 / "failed_trials.json")
+    assert any(r["rank"] == 0 for r in failed)
+    assert results[0].best_params["k_neighbours"] == _OK_K
+
+
+def test_run_threads_idle_rank_raises_with_pointer_to_failed_trials(tmp_path, monkeypatch) -> None:
+    """A rank with no local trial still raises when no rank succeeded (same decision everywhere)."""
+    hub, opts, cfgs = _rank_optimizers(tmp_path, [[_FAIL_K], [_OK_K]], strategy="propulate")
+    monkeypatch.setattr(_ContractPropulateSearch, "hub", hub)
+    monkeypatch.setattr(_ContractPropulateSearch, "idle_ranks", (1,))
+    monkeypatch.setattr(optimizer_module, "PropulateSearch", _ContractPropulateSearch)
+    _, errors = _run_in_rank_threads(hub, [opts[0].run, opts[1].run])
+    assert all(isinstance(e, RuntimeError) for e in errors), errors
+    assert "first local failure: ValueError" in str(errors[0])
+    assert "failed_trials.json" in str(errors[1])
+    failed = _read_json(Path(cfgs[0].output_dir).resolve() / "failed_trials.json")
+    assert [r["rank"] for r in failed] == [0]
+
+
+class _SuccessDroppingSearch:
+    """Strategy stand-in whose evaluated (successful) trial never reaches the result."""
+
+    def search(self, search_space, objective_fn, n_trials, output_dir, warm_start=None):
+        objective_fn({k: v[0] for k, v in search_space.items()})
+        return []
+
+
+def test_success_missing_from_history_raises(tmp_path, monkeypatch) -> None:
+    """A success that never reaches the merged history is not silently persisted as {}."""
+    cfg = _num05_cfg(tmp_path, [_OK_K], strategy="propulate")
+    monkeypatch.setattr(optimizer_module, "PropulateSearch", _SuccessDroppingSearch)
+    opt = HyperparamOptimizer(cfg)
+    with pytest.raises(RuntimeError, match="No successful HPO trial reached rank 0"):
+        opt.run()
+    assert _read_json(Path(cfg.output_dir).resolve() / "failed_trials.json") == []
+
+
+class _FakeWorld:
+    def __init__(self, size=None, exc=None) -> None:
+        self._size, self._exc = size, exc
+
+    def Get_size(self) -> int:  # noqa: N802 (mpi4py API)
+        if self._exc is not None:
+            raise self._exc
+        return self._size
+
+
+def _fake_mpi4py(world: _FakeWorld) -> types.ModuleType:
+    mod = types.ModuleType("mpi4py")
+    mod.MPI = types.SimpleNamespace(COMM_WORLD=world)
+    return mod
+
+
+def test_mpi_world_comm_probe(monkeypatch) -> None:
+    """COMM_WORLD only for size > 1; None for size 1, missing mpi4py or MPI init errors."""
+    from eval.runners.optimizer import _mpi_world_comm
+
+    world2 = _FakeWorld(size=2)
+    monkeypatch.setitem(sys.modules, "mpi4py", _fake_mpi4py(world2))
+    assert _mpi_world_comm() is world2
+    monkeypatch.setitem(sys.modules, "mpi4py", _fake_mpi4py(_FakeWorld(size=1)))
+    assert _mpi_world_comm() is None
+    monkeypatch.setitem(sys.modules, "mpi4py", _fake_mpi4py(_FakeWorld(exc=RuntimeError("init"))))
+    assert _mpi_world_comm() is None
+    monkeypatch.setitem(sys.modules, "mpi4py", None)  # import mpi4py -> ImportError
+    assert _mpi_world_comm() is None

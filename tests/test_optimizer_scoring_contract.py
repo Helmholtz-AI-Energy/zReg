@@ -337,6 +337,48 @@ def test_failed_trial_is_recorded_and_worst(tmp_path, caplog) -> None:
     assert all(r.exc_info for r in failed_logs), "the traceback must be logged (exc_info)"
 
 
+def _no_scorable_frame(*_args, **_kwargs):
+    """Frame average of an alignment whose every shared frame is degenerate."""
+    from eval.metrics import FrameAverage
+
+    inf = float("inf")
+    return FrameAverage(inf, inf, 0, ["frame coverage: skipped degenerate frame 0: non-finite result"])
+
+
+def test_trial_without_scorable_frame_is_recorded_as_failed(tmp_path, monkeypatch, caplog) -> None:
+    """WR-01: zero scored frames is a failed trial (-inf), not a finite rankable score.
+
+    Only the frame-average primitive is substituted to simulate a degenerate
+    alignment (e.g. NaN positions after a CPD divergence); ``_objective`` and
+    ``compute_stage_metrics`` run unmodified.
+    """
+    opt = HyperparamOptimizer(_num05_cfg(tmp_path, [_OK_K]))
+    monkeypatch.setattr(opt._engine, "_frame_averaged_chamfer_hausdorff", _no_scorable_frame)
+    hist: list = []
+    with caplog.at_level(logging.WARNING, logger=_OPT_LOGGER):
+        score = opt._objective({"k_neighbours": _OK_K}, opt._tier_dataset("sanity"), "sanity", hist)
+
+    assert score == float("-inf")
+    assert hist == []
+    assert opt._n_succeeded == 0
+    assert len(opt._failed_trials) == 1
+    assert "no scorable frame" in opt._failed_trials[0]["error"]
+    assert _trial_failed_records(caplog)
+
+
+def test_multiseed_trial_without_scorable_frame_is_recorded_as_failed(tmp_path, monkeypatch) -> None:
+    """WR-01: the multiseed path applies the same no-scorable-frame rule."""
+    opt = HyperparamOptimizer(_cfg(tmp_path, seed=[1, 2], tier="full"))
+    monkeypatch.setattr(opt._engine, "_frame_averaged_chamfer_hausdorff", _no_scorable_frame)
+    hist: list = []
+    score = opt._objective({"window_size": 3, "k_neighbours": 3}, {}, "full", hist)
+
+    assert score == float("-inf")
+    assert hist == []
+    assert len(opt._failed_trials) == 1
+    assert "no scorable frame" in opt._failed_trials[0]["error"]
+
+
 def test_successful_trial_counted(tmp_path) -> None:
     """A successful trial increments the success counter and records no failure."""
     opt = HyperparamOptimizer(_num05_cfg(tmp_path, [_OK_K]))

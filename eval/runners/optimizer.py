@@ -924,6 +924,7 @@ class HyperparamOptimizer:
                 y_pred,
                 k_neighbours=merged.get("k_neighbours", 10),
             )
+            self._require_scorable_frames(metrics)
             if f1_reason is not None:
                 metrics = metrics.model_copy(update={"f1_score": 0.0})
                 metrics = metrics.model_copy(update={"normalized": self._engine.normalize(metrics)})
@@ -949,6 +950,42 @@ class HyperparamOptimizer:
                 "error_type": type(exc).__name__,
             })
             return float("-inf")
+
+    def _require_scorable_frames(self, metrics: StageMetrics) -> None:
+        """Raise when an alignment trial produced no scorable frame (WR-01).
+
+        ``compute_stage_metrics`` sets chamfer/hausdorff to ``+inf`` when no
+        frame could be scored (no shared frame keys, or every shared frame
+        degenerate, e.g. NaN positions after a CPD divergence).  ``+inf``
+        normalises to ``0.0`` for those two components only, so the composite
+        score would stay finite and rankable.  Raising here routes the trial
+        through ``_objective``'s ``except`` handler: it is recorded in
+        ``self._failed_trials`` and scored ``-inf`` (D-05, NUM-05).
+
+        Only enforced when alignment runs: without alignment chamfer/hausdorff
+        are not what the search optimises.
+
+        Parameters
+        ----------
+        metrics : StageMetrics
+            Metrics of the trial (or of one seed of a multiseed trial).
+
+        Raises
+        ------
+        ValueError
+            If alignment ran and chamfer or hausdorff is non-finite.
+        """
+        if not self.config.run_alignment:
+            return
+        if not (
+            math.isfinite(metrics.chamfer_distance)
+            and math.isfinite(metrics.hausdorff_distance)
+        ):
+            raise ValueError(
+                "no scorable frame: chamfer/hausdorff are non-finite "
+                f"({metrics.chamfer_distance}, {metrics.hausdorff_distance}); "
+                f"coverage flags: {metrics.coverage_flags}"
+            )
 
     def _score_subsample_pair_multiseed(
         self,
@@ -1088,6 +1125,7 @@ class HyperparamOptimizer:
                 y_pred,
                 k_neighbours=merged.get("k_neighbours", 10),
             )
+            self._require_scorable_frames(metrics)
             scores.append(self._engine.compute_score(metrics))
             # Kept as a representative sample for search_history.json logging
             # only — NOT the source of the averaged score.

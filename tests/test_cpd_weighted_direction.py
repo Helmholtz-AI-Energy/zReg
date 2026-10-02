@@ -176,10 +176,14 @@ def test_stage_default_direction_unchanged(tmp_path):
     assert _cluster_accuracy(out, tgt_cluster) >= 0.95
 
 
-def test_stage_target_direction_zero_mass_row_raises(tmp_path):
-    """A receiver point with an all-zero posterior row fails loudly naming the frame (D-05)."""
+def test_stage_target_direction_zero_mass_row_falls_back_to_nearest(tmp_path):
+    """WR-02: an isolated zero-mass receiver row gets the nearest provider label and a flag.
+
+    One underflowing point (far from every provider point) must not abort the
+    whole trajectory; the other rows keep the posterior-weighted vote.
+    """
     provider, _ = _clustered(PROVIDER_PER_CLUSTER, seed=5, labelled=True)
-    receiver, _ = _clustered(RECEIVER_PER_CLUSTER, seed=6, labelled=False)
+    receiver, rcv_cluster = _clustered(RECEIVER_PER_CLUSTER, seed=6, labelled=False)
     pos = receiver["pos"].clone()
     pos[0] = torch.tensor([1e4, 1e4, 1e4])
     receiver = zRegPointCloud(pos=pos)
@@ -189,7 +193,31 @@ def test_stage_target_direction_zero_mass_row_raises(tmp_path):
     assert bool((row_sums[1:] > 0).all())
 
     stage = LabelTransferStage(_stage_cfg(tmp_path, "target"))
-    with pytest.raises(ValueError, match=r"posterior.*frame 7"):
+    result = stage.run(
+        {7: provider}, {7: receiver}, dict(LT_PARAMS),
+        align_result=_align_result({7: receiver}, {7: estep}),
+    )
+    out = result.transferred_labels[7]
+    assert out.shape == (pos.shape[0],)
+    nearest = torch.cdist(pos[:1], provider["pos"]).argmin().item()
+    assert out[0].item() == provider["label"][nearest].item()
+    assert _values(out) <= set(PROVIDER_CLASSES)
+    assert _cluster_accuracy(out[1:], rcv_cluster[1:]) >= 0.95
+    assert len(result.flags) == 1
+    assert "frame 7" in result.flags[0] and "1 of" in result.flags[0]
+
+
+def test_stage_target_direction_all_zero_mass_frame_raises(tmp_path):
+    """A frame in which every receiver row has zero mass still fails loudly naming the frame (D-05)."""
+    provider, _ = _clustered(PROVIDER_PER_CLUSTER, seed=5, labelled=True)
+    receiver, _ = _clustered(RECEIVER_PER_CLUSTER, seed=6, labelled=False)
+    pos = receiver["pos"].clone() + 1e4
+    receiver = zRegPointCloud(pos=pos)
+    estep = _estep(pos, provider["pos"], sigma2=1.0)
+    assert bool((estep.pmat.sum(dim=1) == 0).all())
+
+    stage = LabelTransferStage(_stage_cfg(tmp_path, "target"))
+    with pytest.raises(ValueError, match=r"posterior.*every receiver point.*frame 7"):
         stage.run(
             {7: provider}, {7: receiver}, dict(LT_PARAMS),
             align_result=_align_result({7: receiver}, {7: estep}),

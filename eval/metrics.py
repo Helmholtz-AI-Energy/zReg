@@ -393,6 +393,8 @@ class MetricsEngine:
         6. ``metrics.coverage_flags`` (frame-coverage problems recorded by
            ``compute_stage_metrics``) are appended verbatim; each starts
            with ``"frame coverage:"``.
+        7. ``label.flags`` (label-transfer problems handled locally, e.g. a
+           ``cpd_weighted`` zero-mass fallback) are appended verbatim.
         """
         flags: list[str] = []
         if align is not None:
@@ -423,6 +425,7 @@ class MetricsEngine:
                     same_flagged = True
                 if same_flagged and sentinel_flagged:
                     break
+            flags.extend(label.flags)
         if metrics is not None:
             for name in (
                 "chamfer_distance",

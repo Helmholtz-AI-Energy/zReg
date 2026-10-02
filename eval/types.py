@@ -155,12 +155,18 @@ class LabelResult(BaseModel):
         Mean Chamfer distance between source and target before label transfer.
         Computed per-frame pair using the same sequential pairing as ``run()``.
         Value of 0.0 indicates identical clouds or unchecked (default).
+    flags : list[str]
+        Per-frame label-transfer problems that were handled locally instead
+        of aborting the run (e.g. ``cpd_weighted`` receiver points with zero
+        posterior mass that fell back to the nearest provider label).
+        Surfaced by ``MetricsEngine.sanity_check``.  Empty by default.
 
     Attributes
     ----------
     transferred_labels : dict[int, torch.Tensor]
     params_used : dict[str, Any]
     pre_transfer_alignment : float
+    flags : list[str]
     """
 
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
@@ -168,6 +174,7 @@ class LabelResult(BaseModel):
     transferred_labels: dict[int, torch.Tensor]
     params_used: dict[str, Any]
     pre_transfer_alignment: float = Field(default=0.0, ge=0.0)
+    flags: list[str] = Field(default_factory=list)
 
 
 class StageMetrics(BaseModel):

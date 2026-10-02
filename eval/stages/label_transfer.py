@@ -54,8 +54,11 @@ CPD-posterior-weighted-average math, fixing two call-site bugs so
     posterior-weighted vote of the target's labels (target -> aligned
     source).
 
-  A receiver point whose posterior row sums to zero (or is non-finite) raises
-  ``ValueError`` naming the frame instead of producing NaN-derived labels.
+  A receiver point whose posterior row sums to zero (or is non-finite), e.g.
+  through float underflow far from every provider point, gets the label of
+  its nearest provider point instead of a NaN-derived label; the frame and
+  count are logged and recorded in ``LabelResult.flags``.  Only a frame in
+  which *every* receiver row has zero mass raises ``ValueError``.
 - **categorical one-hot/argmax (D-05):** a literal weighted average of
   raw class indices is meaningless, so source labels are one-hot encoded
   before the call and the resulting soft scores are discretized back via
@@ -360,9 +363,11 @@ class LabelTransferStage(PipelineStage):
             entry for the current frame pair's target key (D-08) — this
             happens when ``alignment_method`` is not ``"cpd"`` or
             ``cpd_penalty`` is ``None``, since the CPD posterior is only
-            captured for CPD-registered frames.  Also raised when a
-            receiver point's oriented CPD posterior row has zero or
-            non-finite mass (Phase 59 D-05).  See ``validate_params``
+            captured for CPD-registered frames.  Also raised when every
+            receiver point of a frame has an oriented CPD posterior row with
+            zero or non-finite mass (Phase 59 D-05); isolated zero-mass rows
+            fall back to the nearest provider label instead and are recorded
+            in ``LabelResult.flags``.  See ``validate_params``
             for the other ``ValueError`` cases.
 
         Notes
@@ -423,6 +428,7 @@ class LabelTransferStage(PipelineStage):
 
         n_pairs = min(len(source_keys), len(target_keys))
         transferred: dict[int, torch.Tensor] = {}
+        flags: list[str] = []
 
         # Phase 48: load the learned model ONCE per run() call, before the
         # per-frame loop (Pattern 3) — never reloaded per frame pair.
@@ -488,12 +494,29 @@ class LabelTransferStage(PipelineStage):
                 row_mass = oriented.pmat.sum(dim=1)
                 bad_rows = ~torch.isfinite(row_mass) | (row_mass <= 0)
                 n_bad = int(bad_rows.sum().item())
-                if n_bad > 0:
+                if n_bad > 0 and n_bad == bad_rows.numel():
                     raise ValueError(
                         f"method='cpd_weighted': CPD posterior has zero or non-finite mass "
-                        f"for {n_bad} receiver point(s) in frame {tk}; cannot weight provider "
-                        "labels (consider knn_voting or check alignment)"
+                        f"for every receiver point ({n_bad}) in frame {tk}; cannot weight "
+                        "provider labels (consider knn_voting or check alignment)"
                     )
+                if n_bad > 0:
+                    # WR-02: a few receiver points far from every provider point
+                    # underflow to zero posterior mass at converged sigma^2. Label
+                    # them locally (nearest provider label) instead of aborting
+                    # the whole trajectory, and record it.
+                    msg = (
+                        f"cpd_weighted: {n_bad} of {bad_rows.numel()} receiver point(s) "
+                        f"in frame {tk} had zero or non-finite posterior mass; "
+                        "nearest-neighbour (k=1) fallback"
+                    )
+                    _log.warning(msg)
+                    flags.append(msg)
+                    # Placeholder rows keep the row normalisation finite; their
+                    # argmax is overwritten by the fallback below.
+                    safe_pmat = oriented.pmat.clone()
+                    safe_pmat[bad_rows] = 1.0
+                    oriented = oriented._replace(pmat=safe_pmat)
                 one_hot = torch.nn.functional.one_hot(labels_tensor.long()).float()
                 soft_scores = transfer_colors(
                     src_frame["pos"],
@@ -502,7 +525,16 @@ class LabelTransferStage(PipelineStage):
                     source_colors=one_hot,
                     estep_result=oriented,
                 )
-                transferred[tk] = soft_scores.argmax(dim=1)
+                frame_labels = soft_scores.argmax(dim=1)
+                if n_bad > 0:
+                    fallback = transfer_colors(
+                        src_frame["pos"],
+                        tgt_frame["pos"][bad_rows],
+                        method=ColorTransferMethod.NEAREST_NEIGHBOR,
+                        source_colors=labels_tensor.long().unsqueeze(-1),
+                    )[:, 0]
+                    frame_labels[bad_rows] = fallback.to(frame_labels.dtype)
+                transferred[tk] = frame_labels
             elif params["method"] in ("pointnet2", "egnn"):
                 # Phase 48: joint-cloud construction MUST byte-for-byte mirror
                 # train_label_transfer.py:train_step's encoding (48-RESEARCH.md
@@ -533,4 +565,5 @@ class LabelTransferStage(PipelineStage):
             transferred_labels=transferred,
             params_used=dict(params),
             pre_transfer_alignment=alignment_dist,
+            flags=flags,
         )

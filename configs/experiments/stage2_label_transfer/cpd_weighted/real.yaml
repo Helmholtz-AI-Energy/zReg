@@ -6,6 +6,8 @@ data_format: tracklets
 target_data_path: data/external/sample/shah_data/sample-1/sample-1-cell-tracks.csv
 target_data_format: csv
 pipeline_mode: paired
+label_source: "target"  # Shah provides the 3-class germ-layer labels; Kobitski (unlabeled) receives them
+# cpd_weighted uses the CPD posterior row-normalised for target->source transfer (Phase 59 NUM-04, plan 59-08).
 run_alignment: true
 run_label_transfer: true
 label_transfer_method: cpd_weighted

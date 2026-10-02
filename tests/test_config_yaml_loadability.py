@@ -59,3 +59,49 @@ def test_from_yaml_rejects_duplicate_key(tmp_path):
     p.write_text("data_path: x.tracklets\ntier: dev\ntier: dev\n")
     with pytest.raises(EvalConfigError, match="duplicate"):
         EvalConfig.from_yaml(p)
+
+
+# Census of Kobitski (.tracklets) -> Shah (.csv) paired label-transfer configs
+# (Phase 59 NUM-04).  Pinned so a new config in the wrong direction, or a broken
+# glob, is noticed.
+KOBITSKI_TO_SHAH_LABEL_CONFIG_COUNT = 27
+
+
+def test_kobitski_to_shah_label_configs_use_target_direction():
+    """Every Kobitski->Shah paired label-transfer config takes labels from Shah.
+
+    Shah (target) carries the 3-class germ-layer labels; Kobitski (source) is
+    unlabeled.  The default ``label_source='source'`` would transfer Kobitski's
+    arbitrary colour indices onto Shah, so every such config must set
+    ``label_source: "target"``.  No allow-list: every matching config counts.
+    """
+    matched = []
+    wrong = []
+    for path in YAMLS:
+        cfg = EvalConfig.from_yaml(path)
+        if not (
+            cfg.pipeline_mode == "paired"
+            and cfg.run_label_transfer
+            and cfg.data_path.endswith(".tracklets")
+            and (cfg.target_data_path or "").endswith(".csv")
+        ):
+            continue
+        rel = str(path.relative_to(REPO_ROOT))
+        matched.append(rel)
+        if cfg.label_source != "target":
+            wrong.append(rel)
+    assert not wrong, (
+        'Kobitski->Shah label-transfer configs must set label_source: "target"; '
+        f"wrong direction in {len(wrong)} file(s):\n" + "\n".join(wrong)
+    )
+    assert len(matched) == KOBITSKI_TO_SHAH_LABEL_CONFIG_COUNT, (
+        f"expected {KOBITSKI_TO_SHAH_LABEL_CONFIG_COUNT} Kobitski->Shah label-transfer configs, "
+        f"found {len(matched)}:\n" + "\n".join(matched)
+    )
+
+
+def test_cpd_weighted_real_config_uses_target_direction():
+    """Explicit pin for the cpd_weighted real-data config flagged in review (HIGH 1)."""
+    cfg = EvalConfig.from_yaml(REPO_ROOT / "configs/experiments/stage2_label_transfer/cpd_weighted/real.yaml")
+    assert cfg.label_transfer_method == "cpd_weighted"
+    assert cfg.label_source == "target"

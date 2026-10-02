@@ -11,8 +11,15 @@ Key design decisions implemented here:
   (``window_size``, ``step``, ``cpd_penalty``, ``dtw_dist_fn``,
   ``n_breakpoints``) and label-transfer keys (``k_neighbours``,
   ``dist_metric``, ``smoothing``, ``threshold``) are disjoint.
-- **D-04** Zero-fill (0.0) for skipped-stage metrics.  ``StageMetrics`` stays
-  all-float; callers zero-weight skipped metrics via ``config.metric_weights``.
+- **Unavailable stages (Phase 59 D-05, NUM-05; supersedes D-04's blanket
+  zero-fill)**: metrics of a skipped stage are reported as the *worst* value —
+  ``+inf`` for lower-is-better alignment metrics (normalised ``0.0``), ``0.0``
+  for higher-is-better label metrics — and always carry a
+  ``"stage unavailable: ..."`` sanity flag.  ``StageMetrics`` stays all-float.
+- **Label direction (Phase 59 D-01, NUM-04)**: ``config.label_source`` selects
+  the label provider via ``resolve_label_transfer_pair``; results carry the
+  ``label_provider`` and ``label_receiver`` so downstream consumers read
+  original labels from the provider and positions from the receiver.
 - **D-06** If both ``run_alignment=False`` AND ``run_label_transfer=False``,
   ``__init__`` raises ``ValueError("At least one stage must be enabled")``
   immediately (fail-fast).
@@ -55,6 +62,7 @@ import torch
 from eval.config import EvalConfig
 from eval.data_factory import DataFactory
 from eval.metrics import MetricsEngine
+from eval.runners._label_direction import f1_unavailable_reason, resolve_label_transfer_pair
 from eval.stages import AlignmentStage, LabelTransferStage
 from eval.tracking import export_trajectory
 from eval.types import AlignResult, EvalReport, LabelResult, StageMetrics
@@ -301,6 +309,17 @@ class EvaluationRunner:
               ``MetricsEngine.sanity_check``.
             - ``"align"``: ``AlignResult | None``.
             - ``"label"``: ``LabelResult | None``.
+            - ``"label_provider"``: the trajectory whose labels were
+              transferred (``target`` when ``config.label_source ==
+              "target"``, else the aligned source), or ``None`` when label
+              transfer did not run.  Consumers that show the *original*
+              labels must read them from here (Phase 59 D-01).
+            - ``"label_receiver"``: the trajectory that received the labels
+              (the aligned source when ``label_source == "target"``, else
+              ``target``), or ``None`` when label transfer did not run.
+              ``LabelResult.transferred_labels`` is keyed by its frames, so
+              consumers pairing transferred labels with positions must read
+              positions from here.
 
         Notes
         -----
@@ -318,9 +337,23 @@ class EvaluationRunner:
         cross-trajectory interpretation of Open Q3), since label identity is
         only meaningfully compared at a single point in time.
 
-        **Zero-fill (D-04):** Skipped-stage metrics are zeroed via
-        ``model_copy(update={...})`` because ``StageMetrics`` is a frozen
-        pydantic model (RESEARCH Pitfall 6).
+        **Unavailable stages (Phase 59 D-05, NUM-05):** metrics of a skipped
+        stage are never reported as perfect.  Skipped alignment sets
+        ``chamfer_distance``, ``hausdorff_distance``, ``path_smoothness`` and
+        ``temporal_stability`` to ``+inf`` (normalised ``0.0``); skipped label
+        transfer sets ``f1_score`` and ``knn_consistency`` to ``0.0`` (already
+        the worst value).  Each case appends a ``"stage unavailable: ..."``
+        sanity flag.  Updates go through ``model_copy(update={...})`` because
+        ``StageMetrics`` is a frozen pydantic model (RESEARCH Pitfall 6).
+
+        **Label direction (Phase 59 D-01, NUM-04):** ``config.label_source``
+        decides the provider via ``resolve_label_transfer_pair``.  In paired
+        mode with ``label_source == "target"`` and no ``ground_truth_path``
+        the receiver (aligned source) has no ground truth: ``f1_score`` is
+        zero-filled and an ``"f1 unavailable: ..."`` flag is appended instead
+        of comparing unrelated label spaces.  In the default direction F1
+        still compares the source's ground truth against the labels
+        transferred onto the target positionally (Phase 63 U5-4).
         """
         # WR-02: guard against _run_single being called before run() initialises factory
         if self.factory is None:
@@ -336,33 +369,63 @@ class EvaluationRunner:
         else:
             stage_input = source  # D-05 — use source as fallback
 
+        # Phase 59 D-01 (NUM-04): the label provider is chosen by config.label_source.
+        # When label_source == "target" the target (e.g. Shah, germ-layer labels) is
+        # the provider and the aligned source (e.g. Kobitski) receives the labels;
+        # c68c63c's "the source is always Shah" premise was wrong for every paired
+        # config.  Without label transfer, target stands in as the receiver for the
+        # knn defaults below, but no provider/receiver is reported.
+        lt_source, lt_target = resolve_label_transfer_pair(self.config, stage_input, target)
         if self.config.run_label_transfer:
-            # Source (Shah) is always the label provider; target (Kobitski) always receives labels.
-            label_result = LabelTransferStage(self.config).run(stage_input, target, params, align_result=align_result)
+            label_result = LabelTransferStage(self.config).run(
+                lt_source, lt_target, params, align_result=align_result
+            )
+        else:
+            lt_target = target
 
         # --- Argument assembly for compute_stage_metrics (8 positional args) ---
         source_sorted_keys = sorted(source.keys())
-        target_sorted_keys = sorted(target.keys())
 
         warp_path = align_result.warp_path if align_result else []
         transforms = []  # AlignResult has no transform objects — temporal_stability([]) returns 0.0
 
-        # Ground truth — branches on pipeline_mode (Phase 31 MODE-03)
-        if self.config.pipeline_mode == "synthetic":
-            gt = self.factory.get_synthetic_ground_truth()
-        else:
-            gt = self.factory.get_ground_truth(source)  # {frame_key: id_tensor}
-        y_true = gt[source_sorted_keys[-1]]
         if label_result is not None:
-            # Label keys are TARGET frames per Plan 30-01 LabelTransferStage contract
-            # Use last key actually present in transferred_labels (= last paired target
-            # frame) — guards against KeyError when |source| < |target| (CR-01).
+            # Label keys are RECEIVER frames (LabelTransferStage contract).  Use the
+            # last key actually present in transferred_labels (= last paired receiver
+            # frame) — guards against KeyError when |provider| < |receiver| (CR-01).
             transferred_keys = sorted(label_result.transferred_labels.keys())
             knn_target_key = transferred_keys[-1]
             y_pred = label_result.transferred_labels[knn_target_key]
         else:
-            knn_target_key = target_sorted_keys[-1]
-            y_pred = torch.zeros_like(y_true)  # zero-fill D-04
+            knn_target_key = sorted(lt_target.keys())[-1]
+            y_pred = None  # zero-filled below once y_true's shape is known
+
+        # KNN consistency needs points and labels from the same RECEIVER frame: the
+        # transferred labels live on the receiver's points (aligned source when
+        # label_source == "target"), never on the provider's.  When |provider| <
+        # |receiver|, the last transferred frame differs from the receiver's global
+        # last frame, so knn_target_key (last transferred key) is used.
+        points_for_knn = lt_target[knn_target_key]["pos"]
+
+        # Ground truth.  Swapped paired mode has none on the receiving side
+        # (orchestrator resolution A2/A3): do not read it — use a shape-compatible
+        # placeholder and zero-fill f1_score after compute_stage_metrics.
+        f1_reason = f1_unavailable_reason(self.config)
+        if f1_reason is not None:
+            y_true = (
+                y_pred.clone()
+                if y_pred is not None
+                else torch.zeros(points_for_knn.shape[0], dtype=torch.long)
+            )
+        else:
+            # Branches on pipeline_mode (Phase 31 MODE-03)
+            if self.config.pipeline_mode == "synthetic":
+                gt = self.factory.get_synthetic_ground_truth()
+            else:
+                gt = self.factory.get_ground_truth(source)  # {frame_key: label_tensor}
+            y_true = gt[source_sorted_keys[-1]]
+        if y_pred is None:
+            y_pred = torch.zeros_like(y_true)  # label stage skipped — zero-filled below
 
         # WR-01: truncate to min length when source and target have different point counts.
         # Phase 56 D-03 (GT-02) re-scoping: this positional-truncation fallback now only
@@ -379,37 +442,63 @@ class EvaluationRunner:
             y_true = y_true[:min_len]
             y_pred = y_pred[:min_len]
 
-        # KNN consistency needs points and labels from the same target frame.
-        # When |source| < |target|, the last transferred frame differs from the
-        # global last target frame, causing a cell-count mismatch.
-        points_for_knn = target[knn_target_key]["pos"]
         labels_for_knn = (
             label_result.transferred_labels[knn_target_key]
             if label_result is not None
-            else y_pred
+            # Label stage skipped: a placeholder matching the receiver frame's point
+            # count (y_pred follows y_true's length, which can differ); the
+            # resulting knn_consistency is zero-filled below.
+            else torch.zeros(points_for_knn.shape[0], dtype=torch.long)
         )
 
+        # chamfer/hausdorff stay aligned-source vs target (alignment quality).
         metrics = self.engine.compute_stage_metrics(
             stage_input, target, warp_path, transforms,
             y_true, y_pred, points_for_knn, labels_for_knn,
             k_neighbours=params.get("k_neighbours", 10),
         )
 
-        # Zero-fill for skipped stages (D-04) — frozen model requires model_copy (Pitfall 6)
+        # Unavailable stages (D-05, NUM-05) — frozen model requires model_copy (Pitfall 6).
+        # Lower-is-better metrics that were not computed are +inf (normalised 0.0),
+        # never 0.0 (which normalises to 1.0 = perfect).
+        stage_flags: list[str] = []
         if not self.config.run_alignment:
             metrics = metrics.model_copy(update={
-                "chamfer_distance": 0.0,
-                "hausdorff_distance": 0.0,
-                "path_smoothness": 0.0,
-                "temporal_stability": 0.0,
+                "chamfer_distance": float("inf"),
+                "hausdorff_distance": float("inf"),
+                "path_smoothness": float("inf"),
+                "temporal_stability": float("inf"),
             })
             metrics = metrics.model_copy(update={"normalized": self.engine.normalize(metrics)})
+            stage_flags.append(
+                "stage unavailable: alignment disabled (run_alignment=false); "
+                "chamfer_distance, hausdorff_distance, path_smoothness, temporal_stability "
+                "not computed (reported as inf, normalised 0.0)"
+            )
         if not self.config.run_label_transfer:
+            # Higher-is-better: 0.0 is already the worst value.
             metrics = metrics.model_copy(update={"f1_score": 0.0, "knn_consistency": 0.0})
             metrics = metrics.model_copy(update={"normalized": self.engine.normalize(metrics)})
+            stage_flags.append(
+                "stage unavailable: label transfer disabled (run_label_transfer=false); "
+                "f1_score, knn_consistency zero-filled"
+            )
+        elif f1_reason is not None:
+            metrics = metrics.model_copy(update={"f1_score": 0.0})
+            metrics = metrics.model_copy(update={"normalized": self.engine.normalize(metrics)})
+            stage_flags.append(f1_reason)
 
         flags = self.engine.sanity_check(align=align_result, label=label_result, metrics=metrics)
-        return {"metrics": metrics, "sanity_flags": flags, "align": align_result, "label": label_result}
+        flags.extend(stage_flags)
+        label_ran = label_result is not None
+        return {
+            "metrics": metrics,
+            "sanity_flags": flags,
+            "align": align_result,
+            "label": label_result,
+            "label_provider": lt_source if label_ran else None,
+            "label_receiver": lt_target if label_ran else None,
+        }
 
     def save_report(
         self,

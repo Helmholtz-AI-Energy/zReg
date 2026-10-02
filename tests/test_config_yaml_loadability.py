@@ -61,6 +61,24 @@ def test_from_yaml_rejects_duplicate_key(tmp_path):
         EvalConfig.from_yaml(p)
 
 
+def test_unique_key_loader_allows_merge_key_override():
+    """An explicit key overriding a ``<<:`` merged key is not a duplicate."""
+    from eval.config import _UniqueKeyLoader
+
+    doc = "base: &b {k: 1}\nchild:\n  <<: *b\n  k: 2\n"
+    assert yaml.load(doc, Loader=_UniqueKeyLoader) == {"base": {"k": 1}, "child": {"k": 2}}
+
+
+def test_unique_key_loader_rejects_nested_duplicate_and_unhashable_key():
+    """Nested duplicates and unhashable keys both surface as yaml.YAMLError."""
+    from eval.config import _UniqueKeyLoader
+
+    with pytest.raises(yaml.YAMLError, match="duplicate key 'k'"):
+        yaml.load("a:\n  k: 1\n  k: 2\n", Loader=_UniqueKeyLoader)
+    with pytest.raises(yaml.YAMLError, match="unhashable"):
+        yaml.load("? [1, 2]\n: v\n", Loader=_UniqueKeyLoader)
+
+
 # Census of Kobitski (.tracklets) -> Shah (.csv) paired label-transfer configs
 # (Phase 59 NUM-04).  Pinned so a new config in the wrong direction, or a broken
 # glob, is noticed.

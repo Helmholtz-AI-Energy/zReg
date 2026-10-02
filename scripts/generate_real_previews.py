@@ -10,7 +10,7 @@ _repo = Path(__file__).parent.parent
 sys.path.insert(0, str(_repo))
 sys.path.insert(0, str(_repo / "src"))
 
-from zreg.dataset import load_data_from_tracklets  # noqa: E402 — must precede torch
+from zreg.core.dataset import load_data_from_tracklets  # noqa: E402 — must precede torch
 import torch  # noqa: F401, E402
 import numpy as np  # noqa: E402
 import matplotlib  # noqa: E402
@@ -20,7 +20,6 @@ import matplotlib.pyplot as plt  # noqa: E402
 from eval.viz import render_dataset_triptych  # noqa: E402
 
 OUT_DIR = _repo / "reports" / "dataset_previews" / "real"
-OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 COLOR = "#2a6496"
 MAX_PTS = 4_000
@@ -29,6 +28,7 @@ MAX_PTS = 4_000
 def _triptych_from_dict(
     dataset: "dict[int, object]",
     name: str,
+    out_dir: Path,
     dpi: int = 150,
 ) -> Path:
     """Render a 1×3 triptych PNG from a dict[int, zRegPointCloud]."""
@@ -61,7 +61,7 @@ def _triptych_from_dict(
         ax.yaxis.pane.fill = False
         ax.zaxis.pane.fill = False
 
-    out = OUT_DIR / f"{name}.png"
+    out = out_dir / f"{name}.png"
     try:
         fig.savefig(out, dpi=dpi, bbox_inches="tight")
     finally:
@@ -79,19 +79,22 @@ KOBITSKI_FILES = {
 SHAH_CSV = "data/external/sample/shah_data/sample-1/sample-1-cell-tracks.csv"
 
 
-def main() -> None:
-    print(f"Writing previews to {OUT_DIR}")
+def main(out_dir: Path = OUT_DIR, repo: Path = _repo) -> None:
+    out_dir = Path(out_dir)
+    repo = Path(repo)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    print(f"Writing previews to {out_dir}")
 
     # --- Shah (CSV — render_dataset_triptych handles it natively) ---
-    shah_path = _repo / SHAH_CSV
-    out = render_dataset_triptych(shah_path, name="shah_sample1", output_dir=OUT_DIR)
+    shah_path = repo / SHAH_CSV
+    out = render_dataset_triptych(shah_path, name="shah_sample1", output_dir=out_dir)
     print(f"  {out}")
 
     # --- Kobitski (tracklets) ---
     for name, rel_path in KOBITSKI_FILES.items():
-        abs_path = _repo / rel_path
+        abs_path = repo / rel_path
         dataset, _ = load_data_from_tracklets(str(abs_path), device="cpu")
-        out = _triptych_from_dict(dataset, name=name)
+        out = _triptych_from_dict(dataset, name, out_dir, dpi=150)
         print(f"  {out}")
 
     print("Done.")

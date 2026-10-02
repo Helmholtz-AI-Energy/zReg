@@ -8,9 +8,11 @@ This script shows how to:
 3. Transfer colors from source to target using different methods
 """
 
-import torch
-import zreg
+from zreg.core.dataset import zRegPointCloud
+from zreg.algorithms.cpd import RigidCPD, cpd_registration
 from zreg.label_transfer import transfer_labels as transfer_colors, LabelTransferMethod as ColorTransferMethod
+
+import torch  # imported after zreg (libomp ordering on macOS ARM)
 
 
 def main():
@@ -36,7 +38,7 @@ def main():
         [1.0, 1.0, 0.0]   # Yellow
     ], dtype=torch.float32)
 
-    source_pc = zreg.dataset.zRegPointCloud(pos=source_pos, label=source_colors)
+    source_pc = zRegPointCloud(pos=source_pos, label=source_colors)
 
     # Target point cloud (slightly offset and rotated)
     target_pos = torch.tensor([
@@ -46,14 +48,14 @@ def main():
         [0.9, 0.9, 0.0]   # Close to source[3]
     ], dtype=torch.float32)
 
-    target_pc = zreg.dataset.zRegPointCloud(pos=target_pos)
+    target_pc = zRegPointCloud(pos=target_pos)
 
     print(f"Source: {source_pc['pos'].shape[0]} points")
     print(f"Target: {target_pc['pos'].shape[0]} points")
 
     # Perform CPD registration
     print("\nPerforming CPD registration...")
-    cpd_result = zreg.cpd.cpd_registration(
+    cpd_result = cpd_registration(
         source_pc, target_pc,
         tf_type_name="rigid",
         maxiter=50,
@@ -80,7 +82,7 @@ def main():
 
     # We need to run the expectation step to get probabilities
     # For this example, we'll create a simple CPD object and get the E-step result
-    cpd_obj = zreg.cpd.RigidCPD(source_pc["pos"], log_freq=-1)
+    cpd_obj = RigidCPD(source_pc["pos"], log_freq=-1)
     cpd_obj.transformation = cpd_result.transformation  # Use the result
 
     # Run one expectation step to get probabilities

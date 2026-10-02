@@ -92,6 +92,7 @@ import optuna
 from eval.config import EvalConfig
 from eval.data_factory import DataFactory
 from eval.metrics import MetricsEngine
+from eval.runners._label_direction import f1_unavailable_reason, resolve_label_transfer_pair
 from eval.search_strategies import BayesianSearch, GridSearch, PropulateSearch, RandomSearch, SobolSearch
 from eval.stages import AlignmentStage, LabelTransferStage
 from eval.types import SearchResult, StageMetrics, Trial
@@ -259,6 +260,8 @@ class HyperparamOptimizer:
         # Seed from a prior run's best_params (cross-job forwarding, EXT-04).
         # Stored here; injected as initial warm_start in run() before the tier loop.
         self._initial_warm_start = warm_start
+        # Phase 59 NUM-04: the F1-unavailable reason is logged once per instance.
+        self._f1_unavailable_logged = False
 
         # _default_params: fallback for all 9 required stage keys (Pitfall 4)
         # These fill any gaps when search_space covers only a subset of required keys.
@@ -315,23 +318,30 @@ class HyperparamOptimizer:
             # instead of generate_target(); the rigid/noise path below is
             # otherwise completely unchanged.
             if self._is_subsample_pair_mode():
-                # Phase 57 GT-04/D-07: a list-valued seed defers ALL generation
-                # to per-trial multiseed scoring inside _objective() — there is
-                # no single fixed target to pre-populate here, since each seed
-                # produces its own independent subsample pair. Skip the
-                # generate_subsample_pair() call entirely in that case (it
-                # would otherwise raise, since that method only accepts a
-                # single int seed).
+                # Phase 59 NUM-03 (D-04): a list-valued seed pre-populates with
+                # seed[0] so the dev/full tier datasets exist. Sanity/dev tiers
+                # score seed[0] only (graceful fallback in
+                # _resolve_subsample_pair_seeds); the full tier averages all
+                # seeds via _score_subsample_pair_multiseed, which builds its
+                # own per-seed pairs. Before Phase 59 this branch skipped the
+                # pre-populate, so _tier_dataset returned None and every
+                # sanity/dev trial failed silently.
                 seed = self.config.transform_spec.get("seed", 42)
+                prepopulate_spec = self.config.transform_spec
                 if isinstance(seed, list):
-                    pass
-                else:
-                    base = (
-                        None
-                        if self.config.transform_spec.get("synthesize", False)
-                        else self._factory.load_real()
-                    )
-                    self._factory.generate_subsample_pair(base, self.config.transform_spec)
+                    if len(seed) == 0:
+                        raise ValueError(
+                            "_resolve_subsample_pair_seeds: transform_spec['seed'] list "
+                            "must be non-empty."
+                        )
+                    first_seed = seed[0]
+                    prepopulate_spec = {**self.config.transform_spec, "seed": first_seed}
+                base = (
+                    None
+                    if self.config.transform_spec.get("synthesize", False)
+                    else self._factory.load_real()
+                )
+                self._factory.generate_subsample_pair(base, prepopulate_spec)
             else:
                 real_source = self._factory.load_real()
                 self._factory.generate_target(real_source, self.config.transform_spec)
@@ -505,6 +515,9 @@ class HyperparamOptimizer:
             # execution falls through unchanged into the existing logic below,
             # exactly satisfying D-06's "no changes needed inside _objective
             # for the default path."
+            # Phase 59 NUM-03: ``seeds`` is defined whenever subsample_pair mode
+            # is active so the sanity branch below can pin seed[0].
+            seeds: list[int] = []
             if self._is_subsample_pair_mode():
                 seeds = _resolve_subsample_pair_seeds(
                     self.config.transform_spec, tier_name
@@ -532,7 +545,9 @@ class HyperparamOptimizer:
                         # scratch DataFactory, mirroring
                         # _apply_transform_to_dataset's isolation contract —
                         # self._factory is never touched here.
-                        sanity_spec = {**self.config.transform_spec, "synthesize": True}
+                        # Phase 59 NUM-03: pin the resolved single seed so a
+                        # list-valued seed never reaches generate_subsample_pair.
+                        sanity_spec = {**self.config.transform_spec, "synthesize": True, "seed": seeds[0]}
                         scratch_factory = DataFactory(self.config)
                         tier_dataset, tier_target = scratch_factory.generate_subsample_pair(
                             None, sanity_spec
@@ -570,22 +585,34 @@ class HyperparamOptimizer:
                 align_result = AlignmentStage(self.config).run(tier_dataset, tier_target, merged)
                 stage_input = align_result.aligned_cloud
 
+            # Phase 59 NUM-04 (D-01): the label-transfer direction follows
+            # config.label_source via the shared helper (the same contract
+            # EvaluationRunner uses), so paired Kobitski->Shah HPO transfers
+            # Shah labels onto the aligned Kobitski instead of the reverse.
+            lt_target = None
             if self.config.run_label_transfer:
-                label_result = LabelTransferStage(self.config).run(stage_input, tier_target, merged)
+                lt_source, lt_target = resolve_label_transfer_pair(self.config, stage_input, tier_target)
+                label_result = LabelTransferStage(self.config).run(lt_source, lt_target, merged)
 
             # Argument assembly — mirrors eval_runner._run_single exactly (Phase 30 Pitfall 4 rename)
-            # Pitfall 4 — target_pos avoids shadowing tier_dataset/tier_target parameters
             source_sorted_keys = sorted(tier_dataset.keys())
             target_sorted_keys = sorted(tier_target.keys())
-            # chamfer/hausdorff no longer use source_pos/target_pos directly — they are
-            # computed per-frame from stage_input/tier_target inside compute_stage_metrics.
-            # target_pos is still needed here as the knn_consistency point cloud below.
-            target_pos = tier_target[target_sorted_keys[-1]]["pos"]
             warp_path = align_result.warp_path if align_result else []
             transforms: list = []
 
+            # Phase 59 NUM-04: F1 is undefined when the labels flow onto a side
+            # without ground truth (paired + label_source="target"). Skip the
+            # GT read entirely and zero-fill F1 below so every trial carries the
+            # same constant F1 (does not bias ranking).
+            f1_reason = f1_unavailable_reason(self.config)
+            if f1_reason is not None and not self._f1_unavailable_logged:
+                _log.warning("%s (HPO objective)", f1_reason)
+                self._f1_unavailable_logged = True
+
             # GT selection — branches on pipeline_mode (Phase 31 MODE-03, D-08/D-09)
-            if self.config.pipeline_mode == "synthetic":
+            if f1_reason is not None:
+                y_true = None
+            elif self.config.pipeline_mode == "synthetic":
                 if self._is_subsample_pair_mode():
                     # Phase 57 GT-06: correspondence-based extraction (not
                     # positional) for both tiers — subsample_pair's
@@ -622,13 +649,24 @@ class HyperparamOptimizer:
                         f"No ground-truth labels in field '{gt_key}' for sanity tier dataset."
                     )
             if label_result is not None:
-                # Label keys are TARGET frames per Plan 30-01 LabelTransferStage contract
-                # Use last key actually present in transferred_labels (= last paired target
-                # frame) — guards against KeyError when |source| < |target| (CR-01).
+                # Label keys are RECEIVER frames per the LabelTransferStage contract.
+                # Use last key actually present in transferred_labels — guards
+                # against KeyError when |provider| < |receiver| (CR-01).
                 transferred_keys = sorted(label_result.transferred_labels.keys())
                 y_pred = label_result.transferred_labels[transferred_keys[-1]]
+                # kNN consistency pairs the transferred labels with the receiver's
+                # positions for the same frame (Phase 59 NUM-04, Pitfall 1).
+                knn_points = lt_target[transferred_keys[-1]]["pos"]
             else:
-                y_pred = torch.zeros_like(y_true)
+                knn_points = tier_target[target_sorted_keys[-1]]["pos"]
+                if y_true is not None:
+                    y_pred = torch.zeros_like(y_true)
+                else:
+                    y_pred = torch.zeros(knn_points.shape[0], dtype=torch.long)
+
+            if y_true is None:
+                # F1 unavailable: shape-compatible placeholder, zero-filled below.
+                y_true = y_pred.clone()
 
             # WR-01: truncate to min length when source and target have different point counts
             # (heterogeneous paired datasets). compute_f1 validates shape equality strictly.
@@ -644,10 +682,13 @@ class HyperparamOptimizer:
                 transforms,
                 y_true,
                 y_pred,
-                target_pos,
+                knn_points,
                 y_pred,
                 k_neighbours=merged.get("k_neighbours", 10),
             )
+            if f1_reason is not None:
+                metrics = metrics.model_copy(update={"f1_score": 0.0})
+                metrics = metrics.model_copy(update={"normalized": self._engine.normalize(metrics)})
             score = self._engine.compute_score(metrics)
 
             trial_obj = Trial(
@@ -682,6 +723,13 @@ class HyperparamOptimizer:
         ``_correspondence_idx``/``_synthetic_target``/``_source_dataset`` are
         single-slot instance attributes that would otherwise be clobbered
         between seeds within the same trial (T-57-11).
+
+        Each seed is scored on the aligned per-frame dict (``stage_input``,
+        i.e. ``AlignmentStage``'s ``aligned_cloud`` when alignment runs)
+        against the per-frame ``target_view`` dict through
+        ``MetricsEngine.compute_stage_metrics``, exactly like ``_objective``
+        (Phase 59 NUM-02, U1-1/U5-1). The label transfer follows the shared
+        ``resolve_label_transfer_pair`` direction contract.
 
         Parameters
         ----------
@@ -749,23 +797,28 @@ class HyperparamOptimizer:
                 )
                 stage_input = align_result.aligned_cloud
 
+            lt_target = None
             if self.config.run_label_transfer:
+                # Phase 59 NUM-04: same direction contract as _objective. EvalConfig
+                # rejects label_source="target" in synthetic mode, so this always
+                # resolves to (stage_input, target_view) here.
+                lt_source, lt_target = resolve_label_transfer_pair(self.config, stage_input, target_view)
                 label_result = LabelTransferStage(self.config).run(
-                    stage_input, target_view, merged
+                    lt_source, lt_target, merged
                 )
 
             source_sorted_keys = sorted(source_view.keys())
             target_sorted_keys = sorted(target_view.keys())
-            source_pos = source_view[source_sorted_keys[0]]["pos"]
-            target_pos = target_view[target_sorted_keys[-1]]["pos"]
             warp_path = align_result.warp_path if align_result else []
 
             y_true = scratch_factory.get_synthetic_ground_truth()[source_sorted_keys[-1]]
             if label_result is not None:
                 transferred_keys = sorted(label_result.transferred_labels.keys())
                 y_pred = label_result.transferred_labels[transferred_keys[-1]]
+                knn_points = lt_target[transferred_keys[-1]]["pos"]
             else:
                 y_pred = torch.zeros_like(y_true)
+                knn_points = target_view[target_sorted_keys[-1]]["pos"]
 
             # WR-01: truncate to min length when source and target have
             # different point counts.
@@ -774,14 +827,18 @@ class HyperparamOptimizer:
                 y_true = y_true[:min_len]
                 y_pred = y_pred[:min_len]
 
+            # Phase 59 NUM-02 (U1-1/U5-1): score the ALIGNED per-frame dict
+            # against the target dict. Passing raw tensors of the unaligned
+            # source view made chamfer/hausdorff identical for aligned and
+            # misaligned pairs (0.0 at 6c1c37f, inf after the NUM-05 guard).
             metrics = self._engine.compute_stage_metrics(
-                source_pos,
-                target_pos,
+                stage_input,
+                target_view,
                 warp_path,
                 [],
                 y_true,
                 y_pred,
-                target_pos,
+                knn_points,
                 y_pred,
                 k_neighbours=merged.get("k_neighbours", 10),
             )
@@ -835,23 +892,49 @@ class HyperparamOptimizer:
             return generate_labels(traj, n_labels=4, seed=42)
         elif tier == "dev":
             # Phase 57 GT-06: subsample_pair mode — _subsample_source_view is
-            # only non-None after run()'s pre-populate step has run for this
-            # tier ceiling (tier != "sanity"); _tier_dataset("dev") is only
-            # ever called from within that same tier loop, so no None-dereference
-            # risk exists (see T-57-07).
+            # only non-None after run()'s pre-populate step (T-57-07). Phase 59
+            # NUM-03: never return None — raise naming the missing step, so a
+            # skipped pre-populate cannot surface as a swallowed TypeError.
             if self._is_subsample_pair_mode():
-                return self._factory._subsample_source_view
+                return self._prepopulated_subsample_view(tier)
             # Use real data if available, otherwise fall back to synthetic
             data_path = Path(self.config.data_path) if self.config.data_path else None
             if data_path and data_path.exists():
                 return self._factory.load_real()
             return self._factory.generate_synthetic()
         else:
-            # Phase 57 GT-06: subsample_pair mode — see "dev" branch comment above.
+            # Phase 57 GT-06 / Phase 59 NUM-03: see "dev" branch comment above.
             if self._is_subsample_pair_mode():
-                return self._factory._subsample_source_view
+                return self._prepopulated_subsample_view(tier)
             # full tier — full real dataset
             return self._factory.load_real()
+
+    def _prepopulated_subsample_view(self, tier: str) -> dict:
+        """Return the pre-populated subsample_pair source view or raise.
+
+        Parameters
+        ----------
+        tier : str
+            Tier name, used only in the error message.
+
+        Returns
+        -------
+        dict[int, zRegPointCloud]
+            ``self._factory._subsample_source_view``.
+
+        Raises
+        ------
+        RuntimeError
+            If ``run()``'s pre-populate step has not produced the view yet
+            (Phase 59 NUM-03: previously this returned ``None``).
+        """
+        view = self._factory._subsample_source_view
+        if view is None:
+            raise RuntimeError(
+                "subsample_pair source view not pre-populated: run() must call "
+                f"generate_subsample_pair before tier '{tier}' (pre-populate step)"
+            )
+        return view
 
     def _is_subsample_pair_mode(self) -> bool:
         """Return True when the current config targets subsample_pair generation.

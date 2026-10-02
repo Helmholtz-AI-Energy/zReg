@@ -205,6 +205,12 @@ class StageMetrics(BaseModel):
         ``"f1"``, ``"knn_consistency"``.  These keys match
         ``EvalConfig.metric_weights`` so ``compute_score`` is a clean dot
         product.
+    coverage_flags : list[str]
+        Human-readable frame-coverage problems found while computing
+        chamfer/hausdorff (no shared frame keys, non-dict inputs, partial
+        key overlap, skipped degenerate frames); reported by
+        ``MetricsEngine.sanity_check``.  Every entry starts with
+        ``"frame coverage:"``.  Default empty list.
 
     Attributes
     ----------
@@ -215,6 +221,9 @@ class StageMetrics(BaseModel):
     f1_score : float
     knn_consistency : float
     normalized : dict[str, float]
+    coverage_flags : list[str]
+        Human-readable frame-coverage problems found while computing
+        chamfer/hausdorff; reported by ``MetricsEngine.sanity_check``.
     """
 
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
@@ -226,6 +235,7 @@ class StageMetrics(BaseModel):
     f1_score: float
     knn_consistency: float
     normalized: dict[str, float] = Field(default_factory=dict)
+    coverage_flags: list[str] = Field(default_factory=list)
 
 
 class Trial(BaseModel):

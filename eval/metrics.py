@@ -116,8 +116,11 @@ units — the raw values are what actually carries physical meaning.
 """
 
 # stdlib first
+import logging
 import math
 import statistics
+from collections.abc import Mapping
+from typing import NamedTuple
 
 # zreg.metrics MUST precede import torch (libomp SIGABRT lesson from Phase 12;
 # enforced in tests/conftest.py:20-24 and eval/data_factory.py:18-35).
@@ -140,7 +143,36 @@ import torch
 from eval.config import EvalConfig
 from eval.types import AlignResult, LabelResult, StageMetrics
 
-__all__ = ["MetricsEngine"]
+__all__ = ["FrameAverage", "MetricsEngine"]
+
+_log = logging.getLogger(__name__)
+
+
+class FrameAverage(NamedTuple):
+    """Frame-averaged chamfer/hausdorff plus frame-coverage information.
+
+    Returned by ``MetricsEngine._frame_averaged_chamfer_hausdorff``.
+
+    Parameters
+    ----------
+    chamfer : float
+        Mean per-frame Chamfer distance over the scored frames, or
+        ``+inf`` when no frame could be scored.
+    hausdorff : float
+        Mean per-frame Hausdorff distance over the scored frames, or
+        ``+inf`` when no frame could be scored.
+    n_scored : int
+        Number of frames that contributed to the means.
+    flags : list[str]
+        Frame-coverage problems (each starting with ``"frame coverage:"``):
+        non-dict inputs, no shared frame keys, partial key overlap, or
+        skipped degenerate frames.  Empty for fully healthy input.
+    """
+
+    chamfer: float
+    hausdorff: float
+    n_scored: int
+    flags: list[str]
 
 
 class MetricsEngine:
@@ -358,6 +390,9 @@ class MetricsEngine:
            → ``"all-sentinel labels: compute_f1 returns 0"`` (first occurrence)
         5. ``metrics`` field is NaN or Inf
            → ``"non-finite metric: {field}={value}"`` (per field)
+        6. ``metrics.coverage_flags`` (frame-coverage problems recorded by
+           ``compute_stage_metrics``) are appended verbatim; each starts
+           with ``"frame coverage:"``.
         """
         flags: list[str] = []
         if align is not None:
@@ -400,23 +435,20 @@ class MetricsEngine:
                 value = getattr(metrics, name)
                 if not math.isfinite(value):
                     flags.append(f"non-finite metric: {name}={value}")
+            flags.extend(metrics.coverage_flags)
         return flags
 
     def _frame_averaged_chamfer_hausdorff(
         self,
         aligned_cloud: dict[int, zRegPointCloud],
         target: dict[int, zRegPointCloud],
-    ) -> tuple[float, float]:
+    ) -> FrameAverage:
         """Mean Chamfer and Hausdorff distance across every shared frame.
 
         Computes ``chamfer``/``hausdorff`` once per frame key present in
-        *both* ``aligned_cloud`` and ``target`` (the ``AlignResult`` contract
-        guarantees ``aligned_cloud.keys() == target.keys()``, but the
-        intersection is used defensively rather than assuming it), then
-        averages each metric across frames.  This replaces the previous
-        single-frame-pair behaviour (first source frame vs. last target
-        frame, on the *unaligned* input) with a per-frame measurement of the
-        alignment stage's actual output.
+        *both* ``aligned_cloud`` and ``target`` and averages each metric
+        across the frames that could be scored.  Every coverage problem is
+        recorded as a flag instead of being silently absorbed (NUM-05).
 
         Parameters
         ----------
@@ -430,23 +462,89 @@ class MetricsEngine:
 
         Returns
         -------
-        tuple[float, float]
-            ``(mean_chamfer, mean_hausdorff)``.  ``(0.0, 0.0)`` if
-            ``aligned_cloud`` and ``target`` share no frame keys.
-        """
-        common_keys = sorted(set(aligned_cloud) & set(target))
-        if not common_keys:
-            return 0.0, 0.0
+        FrameAverage
+            ``chamfer`` / ``hausdorff``: means over the scored frames, or
+            ``+inf`` when no frame could be scored (non-dict inputs, no
+            shared keys, every shared frame degenerate).
+            ``n_scored``: number of frames that contributed to the means.
+            ``flags``: one ``"frame coverage: ..."`` string per problem —
+            non-dict inputs, no shared frame keys, partial key overlap
+            (also logged as a warning), or a skipped degenerate frame
+            (empty / non-finite / otherwise rejected by ``chamfer`` or
+            ``hausdorff``, or a non-finite result).
 
-        chamfer_vals = []
-        hausdorff_vals = []
-        for key in common_keys:
+        Notes
+        -----
+        ``+inf`` rather than ``nan`` is the "no score" sentinel because
+        ``StageMetrics.chamfer_distance`` / ``hausdorff_distance`` are
+        ``Field(ge=0)`` and pydantic rejects ``nan``, whereas ``inf`` is
+        accepted, reported by ``sanity_check`` as a non-finite metric and
+        normalises to ``1 / (1 + inf) = 0.0`` (worst).  The former ``0.0``
+        fallback normalised to ``1.0`` — a fake perfect score.
+        """
+        inf = float("inf")
+        flags: list[str] = []
+        if not isinstance(aligned_cloud, Mapping) or not isinstance(
+            target, Mapping
+        ):
+            flags.append(
+                "frame coverage: inputs are not per-frame dicts (got "
+                f"{type(aligned_cloud).__name__}, {type(target).__name__}); "
+                "chamfer/hausdorff set to inf"
+            )
+            return FrameAverage(inf, inf, 0, flags)
+
+        aligned_keys = set(aligned_cloud)
+        target_keys = set(target)
+        shared = sorted(aligned_keys & target_keys)
+        if not shared:
+            flags.append(
+                "frame coverage: no shared frame keys between aligned cloud "
+                "and target; chamfer/hausdorff set to inf"
+            )
+            return FrameAverage(inf, inf, 0, flags)
+
+        aligned_only = sorted(aligned_keys - target_keys)
+        target_only = sorted(target_keys - aligned_keys)
+        if aligned_only or target_only:
+            msg = (
+                f"frame coverage: partial overlap — scored {len(shared)} of "
+                f"{len(aligned_keys | target_keys)} frames (aligned-only keys: "
+                f"{aligned_only}, target-only keys: {target_only})"
+            )
+            flags.append(msg)
+            _log.warning(msg)
+
+        chamfer_vals: list[float] = []
+        hausdorff_vals: list[float] = []
+        for key in shared:
             src_pos = aligned_cloud[key]["pos"]
             tgt_pos = target[key]["pos"]
-            chamfer_vals.append(chamfer(src_pos, tgt_pos).item())  # Pitfall 5: .item()
-            hausdorff_vals.append(hausdorff(src_pos, tgt_pos).item())  # Pitfall 5
+            try:
+                c = chamfer(src_pos, tgt_pos).item()  # Pitfall 5: .item()
+                h = hausdorff(src_pos, tgt_pos).item()  # Pitfall 5
+            except ValueError as exc:
+                flags.append(
+                    f"frame coverage: skipped degenerate frame {key}: {exc}"
+                )
+                continue
+            if not (math.isfinite(c) and math.isfinite(h)):
+                flags.append(
+                    f"frame coverage: skipped degenerate frame {key}: "
+                    f"non-finite result (chamfer={c}, hausdorff={h})"
+                )
+                continue
+            chamfer_vals.append(c)
+            hausdorff_vals.append(h)
 
-        return statistics.mean(chamfer_vals), statistics.mean(hausdorff_vals)
+        if not chamfer_vals:
+            return FrameAverage(inf, inf, 0, flags)
+        return FrameAverage(
+            statistics.mean(chamfer_vals),
+            statistics.mean(hausdorff_vals),
+            len(chamfer_vals),
+            flags,
+        )
 
     def compute_stage_metrics(
         self,
@@ -500,25 +598,28 @@ class MetricsEngine:
         Returns
         -------
         StageMetrics
-            A new ``StageMetrics`` instance with all six raw fields populated
-            and ``normalized`` pre-computed via ``self.normalize``.
+            A new ``StageMetrics`` instance with all six raw fields populated,
+            ``normalized`` pre-computed via ``self.normalize`` and
+            ``coverage_flags`` carrying the ``FrameAverage.flags`` of the
+            chamfer/hausdorff computation.  When no frame could be scored,
+            ``chamfer_distance`` / ``hausdorff_distance`` are ``+inf``
+            (normalised ``0.0``), never ``0.0``.
 
         Notes
         -----
         Called by ``EvaluationRunner._run_single`` (Phase 21) and
         ``HyperparamOptimizer._objective`` (Phase 22).
         """
-        chamfer_mean, hausdorff_mean = self._frame_averaged_chamfer_hausdorff(
-            aligned_cloud, target
-        )
+        fa = self._frame_averaged_chamfer_hausdorff(aligned_cloud, target)
         sm = StageMetrics(
-            chamfer_distance=chamfer_mean,
-            hausdorff_distance=hausdorff_mean,
+            chamfer_distance=fa.chamfer,
+            hausdorff_distance=fa.hausdorff,
             path_smoothness=path_smoothness(warp_path),  # already float
             temporal_stability=temporal_stability(transforms).item(),  # Pitfall 5
             f1_score=compute_f1(y_true, y_pred),  # already float
             knn_consistency=knn_consistency(
                 points_for_knn, labels_for_knn, k=k_neighbours
             ),
+            coverage_flags=list(fa.flags),
         )
         return sm.model_copy(update={"normalized": self.normalize(sm)})

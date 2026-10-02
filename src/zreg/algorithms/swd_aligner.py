@@ -150,11 +150,13 @@ class SlicedWassersteinAligner:
         2. Compute ONE shared scalar bounds pair (lo, hi) over both clouds
         3. Normalise both clouds with it: 2 * (cloud - lo) / (hi - lo) - 1
            (shared bounds keep the rigid result rigid after denormalisation)
-        4. Initialize rotation (identity 3×3) and translation (zero 3D vector)
+        4. Centre both clouds on their centroids (seeds the centroid offset)
+           and initialize rotation (identity 3×3) and residual translation
+           (zero 3D vector)
         5. Instantiate SWD metric based on variant selection
         6. Run gradient descent optimization loop:
-           - Transform source by current rotation + translation
-           - Compute SWD loss between transformed source and target
+           - Transform centred source by current rotation + translation
+           - Compute SWD loss between transformed source and centred target
            - Backward pass to update rotation/translation gradients
            - Enforce SO(3) orthogonality via SVD projection (every 10 iters)
         7. Compute composite D_inv @ T @ D, where D and D_inv come from
@@ -193,7 +195,18 @@ class SlicedWassersteinAligner:
         device = src_norm.device
         dtype = src_norm.dtype
 
-        # Initialize rotation (identity) and translation (zero)
+        # Optimise about the centroids. Shared bounds no longer pre-centre each
+        # cloud, so starting from a zero translation would leave SWD to learn
+        # the whole inter-cloud offset at ~lr per Adam step (a 50-step budget
+        # recovers only a fraction of it). Centring both clouds seeds the
+        # centroid offset exactly and decouples rotation from translation:
+        #   x' = R (x - mu_src) + t + mu_tgt,  with t a residual (init 0).
+        src_mean = src_norm.mean(0).detach()
+        tgt_mean = tgt_norm.mean(0).detach()
+        src_centred = src_norm - src_mean
+        tgt_centred = tgt_norm - tgt_mean
+
+        # Initialize rotation (identity) and residual translation (zero)
         rotation = torch.eye(3, device=device, dtype=dtype)
         translation = torch.zeros(3, device=device, dtype=dtype)
 
@@ -219,13 +232,13 @@ class SlicedWassersteinAligner:
         for step in range(self.num_iterations):
             optimizer.zero_grad()
 
-            # Transform source: x_transformed = x_norm @ R^T + t
+            # Transform centred source: x_transformed = x_c @ R^T + t
             # (rotation applied first, then translation)
-            src_transformed = src_norm @ rotation.T + translation
+            src_transformed = src_centred @ rotation.T + translation
 
             # Compute SWD loss
             # SWD metric will add batch dimension automatically (nobatchdim=True by default)
-            loss = swd_metric(src_transformed, tgt_norm)
+            loss = swd_metric(src_transformed, tgt_centred)
 
             # Backward pass
             loss.backward()
@@ -239,10 +252,15 @@ class SlicedWassersteinAligner:
                 U, _, Vt = torch.linalg.svd(rotation.detach())
                 rotation.data = U @ Vt
 
+        # Fold the centring back into one affine map in the shared normalised
+        # frame: x' = R x + (t + mu_tgt - R mu_src).
+        rotation_final = rotation.detach()
+        translation_final = translation.detach() + tgt_mean - rotation_final @ src_mean
+
         # Compute denormalized transformation matrix
         T_denorm = self._compute_composite_transform(
-            rotation.detach(),
-            translation.detach(),
+            rotation_final,
+            translation_final,
             lo,
             hi,
         )

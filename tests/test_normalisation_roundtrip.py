@@ -221,3 +221,22 @@ def test_helpers_on_cuda():
     d_inv_cpu = denormalization_matrix(lo, hi, dtype=torch.float64, device="cpu")
     assert d_cpu.device.type == "cpu" and d_inv_cpu.device.type == "cpu"
     assert torch.allclose(d_inv_cpu @ d_cpu, torch.eye(4, dtype=torch.float64), atol=1e-12)
+
+
+def test_swd_recovers_translation_with_different_bounds():
+    """CR-01: SWD must recover a pure translation in original coordinates.
+
+    Shared bounds no longer pre-centre each cloud, so SWD has to start from the
+    centroid offset; from a zero-translation start the 50-step Adam budget at
+    lr=1e-3 recovered only a fraction of the offset.
+    """
+    torch.manual_seed(1)
+    src = torch.rand(200, 3) * 10
+    tgt = src + torch.tensor([5.0, -3.0, 2.0])
+    torch.manual_seed(0)
+    aligner = SlicedWassersteinAligner(**SWD_PARAMS)
+    m = aligner.register(zRegPointCloud(pos=src), zRegPointCloud(pos=tgt)).transform.matrix
+    residual = (_apply(m, src) - tgt.double()).abs().max().item()
+    assert residual < 0.5, residual
+    t = m[:3, 3].double()
+    assert torch.allclose(t, torch.tensor([5.0, -3.0, 2.0], dtype=torch.float64), atol=0.5), t

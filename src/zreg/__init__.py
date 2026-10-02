@@ -41,9 +41,15 @@ from . import utils as utils  # noqa: E402
 from . import config as config  # noqa: E402
 from . import label_transfer as label_transfer  # noqa: E402
 
-# Backward-compatibility shims: expose sub-modules at the old top-level paths so
-# that existing code / tests using e.g. ``zreg.dtw`` still works.
-dtw = algorithms.dtw  # zreg.dtw → zreg.algorithms.dtw
+# Backward-compatibility shim: ``zreg.dtw`` → ``zreg.algorithms.dtw``.  It is a
+# real module alias (registered in sys.modules), not only an attribute, so that
+# ``from zreg.dtw import X`` and ``importlib.import_module("zreg.dtw")`` work.
+# No other dropped top-level module is aliased.
+import sys as _sys  # noqa: E402
+
+dtw = algorithms.dtw
+_sys.modules[__name__ + ".dtw"] = algorithms.dtw
+del _sys
 # zreg.models is intentionally NOT eagerly imported here.  Its transitive import
 # of torch_geometric initialises a second libomp copy on macOS ARM and causes a
 # SIGABRT / SIGSEGV when open3d is later loaded by algorithms.icp.  Callers that

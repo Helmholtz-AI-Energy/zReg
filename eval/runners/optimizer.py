@@ -413,6 +413,14 @@ class HyperparamOptimizer:
         elsewhere, eval/search_strategies.py ~505-526), so the merge adds no
         duplicates there.
 
+        **Rank abort (WR-03):** the pre-populate step and the tier loop run
+        in ``_run_tiers`` inside ``try/except BaseException``.  With a
+        communicator, a rank that raises still joins the reduction and passes
+        its abort reason; afterwards it re-raises its own exception and every
+        other rank raises ``RuntimeError`` naming the aborted rank(s), instead
+        of blocking in ``gather`` until walltime.  Collectives *inside* a
+        strategy (Propulate) cannot be rescued this way.
+
         **Known limitation (Phase 61, MPI robustness):** grid / random /
         sobol / bayesian under ``mpirun -n N`` run the same search on every
         rank, so the merged history can contain the same params evaluated by
@@ -427,9 +435,108 @@ class HyperparamOptimizer:
         # instance reports only its own outcomes.
         self._failed_trials = []
         self._n_succeeded = 0
+        self._aborted_ranks: list[tuple[int, str]] = []
         # Resolved lazily so constructing an optimizer does not initialise MPI.
         if self._comm is None:
             self._comm = _mpi_world_comm()
+
+        # WR-03: an exception raised on one rank before the outcome reduction
+        # (pre-populate / load_real() I/O, _tier_dataset, an Optuna storage
+        # error, ...) must not leave the other ranks blocked in gather. With a
+        # communicator, every rank still reaches _reduce_trial_outcomes and
+        # reports whether it aborted; afterwards every rank raises.
+        all_history: list[Trial] = []
+        abort_exc: BaseException | None = None
+        try:
+            all_history = self._run_tiers(output_dir)
+        except BaseException as exc:
+            if self._comm is None:
+                raise
+            abort_exc = exc
+            _log.error(
+                "HPO aborted on MPI rank %d before the outcome reduction",
+                self._comm.Get_rank(),
+                exc_info=True,
+            )
+
+        # Phase 59 NUM-05: global outcome reduction. Called unconditionally by
+        # every rank, before any rank-dependent branch (collective-order
+        # contract, see _reduce_trial_outcomes).
+        merged_history, failed_records, n_ok, n_fail, n_hist = self._reduce_trial_outcomes(
+            all_history, aborted=None if abort_exc is None else repr(abort_exc)
+        )
+        if abort_exc is not None:
+            raise abort_exc
+        if self._aborted_ranks:
+            detail = "; ".join(f"rank {r}: {msg}" for r, msg in self._aborted_ranks)
+            raise RuntimeError(f"HPO aborted on other MPI rank(s): {detail}")
+
+        # Construct SearchResult from the merged all-rank history. Every trial
+        # in merged_history has a finite score (_merge_trial_histories filter),
+        # so a failed (-inf) or NaN trial can never be selected as best.
+        if not merged_history:
+            result = SearchResult(
+                best_params={},
+                best_score=0.0,
+                history=[],
+                tier=self.config.tier,
+                failed_trials=list(failed_records),
+            )
+        else:
+            best_trial = max(merged_history, key=lambda t: t.score)
+            result = SearchResult(
+                best_params=dict(best_trial.params),
+                best_score=best_trial.score,
+                history=list(merged_history),
+                tier=self.config.tier,
+                failed_trials=list(failed_records),
+            )
+
+        # Raise rule — identical on every rank because n_ok / n_fail / n_hist
+        # come from rank 0's broadcast. Zero attempted trials (n_ok + n_fail
+        # == 0) keeps the old empty-result behaviour.
+        if n_hist == 0 and (n_ok + n_fail) > 0:
+            if self._is_rank_zero():
+                with open(output_dir / "failed_trials.json", "w") as f:
+                    json.dump(failed_records, f, indent=2)
+            if n_fail > 0:
+                if self._failed_trials:
+                    first = self._failed_trials[0]
+                    detail = f"first local failure: {first['error_type']}: {first['error']}"
+                else:
+                    detail = f"see {output_dir / 'failed_trials.json'} on rank 0"
+                raise RuntimeError(
+                    f"All {n_fail} HPO trials failed across all ranks "
+                    f"(no successful trial to select best params from); {detail}"
+                )
+            raise RuntimeError(
+                f"No successful HPO trial reached rank 0 although {n_ok} trial(s) "
+                "succeeded; the merged history is empty."
+            )
+
+        # Only rank 0 writes results: it holds the merged history of every
+        # rank (non-zero ranks get an empty merged_history from the reduction)
+        # and concurrent writes from many ranks would corrupt best_params.json.
+        if self._is_rank_zero():
+            self.save_best_params(result, output_dir)
+        return result
+
+    def _run_tiers(self, output_dir: Path) -> list[Trial]:
+        """Pre-populate the synthetic target and run every tier up to the ceiling.
+
+        Extracted from ``run()`` (WR-03) so ``run()`` can catch an exception
+        raised here and still take part in the MPI outcome reduction.
+
+        Parameters
+        ----------
+        output_dir : Path
+            Resolved output directory (Bayesian / Propulate storage).
+
+        Returns
+        -------
+        list[Trial]
+            This rank's successful trials (``all_history``).
+        """
 
         # Synthetic mode: pre-populate _synthetic_target so dev/full tiers can access it.
         # Must be done before the tier loop because _objective reads _factory._synthetic_target
@@ -576,63 +683,10 @@ class HyperparamOptimizer:
             if all_history:
                 warm_start = self.prune_candidates(all_history, keep_top_k=3)
 
-        # Phase 59 NUM-05: global outcome reduction. Called unconditionally by
-        # every rank, before any rank-dependent branch (collective-order
-        # contract, see _reduce_trial_outcomes).
-        merged_history, failed_records, n_ok, n_fail, n_hist = self._reduce_trial_outcomes(all_history)
-
-        # Construct SearchResult from the merged all-rank history. Every trial
-        # in merged_history has a finite score (_merge_trial_histories filter),
-        # so a failed (-inf) or NaN trial can never be selected as best.
-        if not merged_history:
-            result = SearchResult(
-                best_params={},
-                best_score=0.0,
-                history=[],
-                tier=self.config.tier,
-                failed_trials=list(failed_records),
-            )
-        else:
-            best_trial = max(merged_history, key=lambda t: t.score)
-            result = SearchResult(
-                best_params=dict(best_trial.params),
-                best_score=best_trial.score,
-                history=list(merged_history),
-                tier=self.config.tier,
-                failed_trials=list(failed_records),
-            )
-
-        # Raise rule — identical on every rank because n_ok / n_fail / n_hist
-        # come from rank 0's broadcast. Zero attempted trials (n_ok + n_fail
-        # == 0) keeps the old empty-result behaviour.
-        if n_hist == 0 and (n_ok + n_fail) > 0:
-            if self._is_rank_zero():
-                with open(output_dir / "failed_trials.json", "w") as f:
-                    json.dump(failed_records, f, indent=2)
-            if n_fail > 0:
-                if self._failed_trials:
-                    first = self._failed_trials[0]
-                    detail = f"first local failure: {first['error_type']}: {first['error']}"
-                else:
-                    detail = f"see {output_dir / 'failed_trials.json'} on rank 0"
-                raise RuntimeError(
-                    f"All {n_fail} HPO trials failed across all ranks "
-                    f"(no successful trial to select best params from); {detail}"
-                )
-            raise RuntimeError(
-                f"No successful HPO trial reached rank 0 although {n_ok} trial(s) "
-                "succeeded; the merged history is empty."
-            )
-
-        # Only rank 0 writes results: it holds the merged history of every
-        # rank (non-zero ranks get an empty merged_history from the reduction)
-        # and concurrent writes from many ranks would corrupt best_params.json.
-        if self._is_rank_zero():
-            self.save_best_params(result, output_dir)
-        return result
+        return all_history
 
     def _reduce_trial_outcomes(
-        self, local_history: list[Trial]
+        self, local_history: list[Trial], aborted: str | None = None
     ) -> tuple[list[Trial], list[dict[str, Any]], int, int, int]:
         """Merge trial outcomes of all MPI ranks on rank 0 (Phase 59 NUM-05).
 
@@ -640,6 +694,12 @@ class HyperparamOptimizer:
         ----------
         local_history : list[Trial]
             This rank's successful trials (``run()``'s ``all_history``).
+        aborted : str or None, optional
+            ``repr`` of the exception that aborted this rank's search before
+            the reduction (WR-03), or ``None``.  Every rank's abort reason is
+            gathered and broadcast; afterwards ``self._aborted_ranks`` holds
+            the global ``[(rank, reason), ...]`` list on every rank so
+            ``run()`` raises everywhere instead of leaving ranks blocked.
 
         Returns
         -------
@@ -682,8 +742,10 @@ class HyperparamOptimizer:
             "failures": [dict(r, rank=rank) for r in self._failed_trials],
             "history": [t.model_dump() for t in local_history],
             "n_ok": self._n_succeeded,
+            "aborted": aborted,
         }
         if comm is None:
+            self._aborted_ranks = [] if aborted is None else [(rank, aborted)]
             merged, bad = _merge_trial_histories([payload["history"]], start_rank=rank)
             failures = payload["failures"] + bad
             return merged, failures, self._n_succeeded, len(failures), len(merged)
@@ -692,12 +754,16 @@ class HyperparamOptimizer:
         if rank == 0:
             merged, bad = _merge_trial_histories([p["history"] for p in gathered], start_rank=0)
             failures = [rec for p in gathered for rec in p["failures"]] + bad
-            summary = (sum(p["n_ok"] for p in gathered), len(failures), len(merged))
+            aborted_ranks = [
+                (r, p["aborted"]) for r, p in enumerate(gathered) if p.get("aborted") is not None
+            ]
+            summary = (sum(p["n_ok"] for p in gathered), len(failures), len(merged), aborted_ranks)
         else:
             merged = []
             failures = payload["failures"]
             summary = None
-        n_ok, n_fail, n_hist = comm.bcast(summary, root=0)
+        n_ok, n_fail, n_hist, aborted_ranks = comm.bcast(summary, root=0)
+        self._aborted_ranks = [tuple(a) for a in aborted_ranks]
         return merged, failures, n_ok, n_fail, n_hist
 
     def _objective(

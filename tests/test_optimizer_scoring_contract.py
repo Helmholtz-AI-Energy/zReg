@@ -628,6 +628,37 @@ def test_run_threads_all_ranks_failed_raise_consistently(tmp_path) -> None:
     assert {r["rank"] for r in failed} == {0, 1}
 
 
+def test_run_threads_rank_abort_before_reduction_raises_everywhere(tmp_path) -> None:
+    """WR-03: a rank raising outside _objective still joins the reduction; all ranks raise.
+
+    Before the fix the healthy rank blocked in ``gather`` forever (the barrier
+    timeout here would surface that as a ``BrokenBarrierError``).
+    """
+    hub, opts, _ = _rank_optimizers(tmp_path, [[_OK_K], [_OK_K]])
+
+    def _boom(_output_dir):
+        raise OSError("load_real failed on rank 1")
+
+    opts[1]._run_tiers = _boom
+    _, errors = _run_in_rank_threads(hub, [opts[0].run, opts[1].run])
+    assert isinstance(errors[1], OSError), errors
+    assert isinstance(errors[0], RuntimeError), errors
+    assert "rank 1" in str(errors[0]) and "load_real failed" in str(errors[0])
+    assert opts[0]._comm.calls == opts[1]._comm.calls == ["gather", "bcast"]
+
+
+def test_run_without_comm_reraises_directly(tmp_path) -> None:
+    """WR-03: single-process runs re-raise the original exception without collectives."""
+    opt = HyperparamOptimizer(_num05_cfg(tmp_path, [_OK_K]))
+
+    def _boom(_output_dir):
+        raise OSError("disk gone")
+
+    opt._run_tiers = _boom
+    with pytest.raises(OSError, match="disk gone"):
+        opt.run()
+
+
 class _ContractPropulateSearch:
     """Stand-in for the uninstalled propulate library (dependency, not unit under test).
 

@@ -10,16 +10,27 @@ patching).  Unequal point counts and disjoint label sets make a wrong
 transfer direction observable.
 """
 
+import csv
+import json
+from pathlib import Path
+
 # zreg.* before torch before eval.* (macOS-ARM libomp SIGABRT rule)
 from zreg.core.dataset import zRegPointCloud
 
+import matplotlib
+
+matplotlib.use("Agg")
+
+import numpy as np
 import pytest
 import torch
 
+from eval import viz
 from eval.config import EvalConfig
 from eval.data_factory import DataFactory
 from eval.runners import EvaluationRunner
 from eval.runners._label_direction import f1_unavailable_reason, resolve_label_transfer_pair
+from eval.tracking import export_trajectory
 
 
 def _cfg(tmp_path, **kwargs):
@@ -203,3 +214,141 @@ def test_run_single_target_direction_label_transfer_disabled(tmp_path):
     assert result["label_provider"] is None and result["label_receiver"] is None
     assert result["metrics"].f1_score == 0.0
     assert any(f.startswith("stage unavailable: label transfer") for f in result["sanity_flags"])
+
+
+# ---------------------------------------------------------------------------
+# Plan 59-05 Task 2: export_trajectory / plot_trajectory read the provider's
+# labels and the receiver's positions and frame keys (review MEDIUM 59-05)
+# ---------------------------------------------------------------------------
+
+
+def _read_label_csv(path):
+    rows_per_frame = {}
+    positions = {}
+    with open(path, newline="") as f:
+        for row in csv.DictReader(f):
+            fk = int(row["frame_idx"])
+            rows_per_frame[fk] = rows_per_frame.get(fk, 0) + 1
+            positions.setdefault(fk, []).append([float(row["x"]), float(row["y"]), float(row["z"])])
+    return rows_per_frame, positions
+
+
+def _target_direction_result(tmp_path, source, target):
+    config = _paired_cfg(tmp_path, label_source="target")
+    runner = _runner(config)
+    return config, runner._run_single(source, target, runner.params)
+
+
+def test_export_trajectory_target_direction_positions(tmp_path, kobitski_like, shah_like):
+    """Label CSV rows pair transferred labels with the receiver's positions."""
+    config, result = _target_direction_result(tmp_path, kobitski_like, shah_like)
+    export_trajectory(result, kobitski_like, config, tmp_path / "exp", target=shah_like)
+    rows, positions = _read_label_csv(tmp_path / "exp" / "label_trajectory.csv")
+    assert rows == {0: N_SOURCE, 1: N_SOURCE, 2: N_SOURCE}
+    for fk, pos in positions.items():
+        expected = result["label_receiver"][fk]["pos"]
+        assert torch.allclose(torch.tensor(pos), expected, atol=1e-6), fk
+
+
+def test_export_trajectory_label_metadata_follows_receiver(tmp_path, shah_like):
+    """Label metadata describes the transferred (receiver) frames and the direction."""
+    source = _labelled_traj(N_SOURCE, SOURCE_CLASSES, range(5), seed=1)  # 5 frames vs 3 on the provider
+    config, result = _target_direction_result(tmp_path, source, shah_like)
+    export_trajectory(result, source, config, tmp_path / "exp", target=shah_like)
+    with open(tmp_path / "exp" / "label_metadata.json") as f:
+        meta = json.load(f)
+    assert meta["frame_count"] == 3
+    assert meta["frame_indices"] == [0, 1, 2]
+    assert meta["label_source"] == "target"
+    assert meta["label_provider_data_path"] == config.target_data_path
+    assert meta["label_receiver_data_path"] == config.data_path
+
+
+def test_export_trajectory_default_direction_unchanged(tmp_path, kobitski_like, shah_like):
+    """label_source='source': the receiver is the target (40 points per frame)."""
+    config = _paired_cfg(tmp_path)
+    runner = _runner(config)
+    result = runner._run_single(kobitski_like, shah_like, runner.params)
+    export_trajectory(result, kobitski_like, config, tmp_path / "exp", target=shah_like)
+    rows, _ = _read_label_csv(tmp_path / "exp" / "label_trajectory.csv")
+    assert set(rows.values()) == {N_TARGET}
+    with open(tmp_path / "exp" / "label_metadata.json") as f:
+        meta = json.load(f)
+    assert meta["label_source"] == "source"
+    assert meta["label_provider_data_path"] == config.data_path
+    assert meta["label_receiver_data_path"] == config.target_data_path
+
+
+def test_label_figure_data_uses_provider_labels(tmp_path, kobitski_like, shah_like):
+    """Source figure shows the provider's labels; transferred figure uses receiver positions."""
+    _, result = _target_direction_result(tmp_path, kobitski_like, shah_like)
+    color_for_label, src_pos, src_cols, tgt_pos, tgt_cols = viz._label_figure_data(
+        result["label"],
+        [0, 1, 2],
+        dataset=kobitski_like,
+        target=shah_like,
+        align_result=None,
+        label_provider=result["label_provider"],
+        label_receiver=result["label_receiver"],
+    )
+    assert set(color_for_label) <= PROVIDER_CLASSES
+    allowed = {color_for_label[v] for v in color_for_label}
+    for fk in (0, 1, 2):
+        assert src_pos[fk].shape[0] == N_TARGET
+        assert set(src_cols[fk]) <= allowed
+        assert tgt_pos[fk].shape[0] == N_SOURCE
+        assert len(tgt_cols[fk]) == N_SOURCE
+
+
+def test_label_figure_data_receiver_length_mismatch_raises(tmp_path, kobitski_like, shah_like):
+    """A receiver frame inconsistent with the transferred labels raises instead of truncating."""
+    _, result = _target_direction_result(tmp_path, kobitski_like, shah_like)
+    bad_receiver = dict(result["label_receiver"])
+    bad_receiver[1] = zRegPointCloud(pos=torch.rand(N_SOURCE + 5, 3))
+    with pytest.raises(ValueError, match="frame 1"):
+        viz._label_figure_data(
+            result["label"],
+            [0, 1, 2],
+            dataset=kobitski_like,
+            target=shah_like,
+            align_result=None,
+            label_provider=result["label_provider"],
+            label_receiver=bad_receiver,
+        )
+
+
+def test_label_figure_data_legacy_path_unchanged(tmp_path, kobitski_like, shah_like):
+    """Without provider/receiver: dataset supplies source labels, target-first positions."""
+    config = _paired_cfg(tmp_path)
+    runner = _runner(config)
+    result = runner._run_single(kobitski_like, shah_like, runner.params)
+    color_for_label, src_pos, src_cols, tgt_pos, tgt_cols = viz._label_figure_data(
+        result["label"], [0, 1, 2], dataset=kobitski_like, target=shah_like, align_result=None
+    )
+    assert set(color_for_label) <= SOURCE_CLASSES
+    for fk in (0, 1, 2):
+        assert np.allclose(src_pos[fk], kobitski_like[fk]["pos"].numpy())
+        assert src_cols[fk] == [color_for_label[int(v)] for v in kobitski_like[fk]["label"].tolist()]
+        assert np.allclose(tgt_pos[fk], shah_like[fk]["pos"].numpy())
+        assert tgt_cols[fk] == [
+            color_for_label[int(v)] for v in result["label"].transferred_labels[fk].tolist()
+        ]
+
+
+def test_plot_trajectory_accepts_provider_and_receiver(tmp_path, kobitski_like, shah_like):
+    """plot_trajectory takes the provider/receiver kwargs and writes both label figures."""
+    _, result = _target_direction_result(tmp_path, kobitski_like, shah_like)
+    out = tmp_path / "plots"
+    out.mkdir()
+    paths = viz.plot_trajectory(
+        None,
+        result["label"],
+        kobitski_like,
+        None,
+        out,
+        target=shah_like,
+        label_provider=result["label_provider"],
+        label_receiver=result["label_receiver"],
+    )
+    assert len(paths) == 4
+    assert all(Path(p).exists() for p in paths)

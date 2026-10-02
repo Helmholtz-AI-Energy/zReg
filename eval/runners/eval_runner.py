@@ -255,6 +255,10 @@ class EvaluationRunner:
                     self.config.label_names,
                     output_dir_path,
                     target=target,
+                    # Phase 59 D-01: original labels from the provider, transferred
+                    # labels at the receiver's positions.
+                    label_provider=result.get("label_provider"),
+                    label_receiver=result.get("label_receiver"),
                 )
             )
             summary_path = output_dir_path / "metrics_summary.pdf"

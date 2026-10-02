@@ -279,6 +279,146 @@ def _write_label_figure(
     _save_fig(fig, Path(output_dir) / stem, paths, bbox_inches=None)
 
 
+def _label_figure_data(
+    label_result: "LabelResult",
+    label_frame_indices: "list[int]",
+    *,
+    dataset: "dict[int, zRegPointCloud]",
+    target: "dict[int, zRegPointCloud] | None",
+    align_result: "AlignResult | None",
+    label_provider: "dict[int, zRegPointCloud] | None" = None,
+    label_receiver: "dict[int, zRegPointCloud] | None" = None,
+) -> tuple:
+    """Prepare palette and per-frame position/colour maps for the label figures.
+
+    Pure data preparation for the label branch of ``plot_trajectory`` (no
+    figure I/O), so the provider/receiver semantics are unit-testable.
+
+    Parameters
+    ----------
+    label_result : LabelResult
+        Label-transfer result; ``transferred_labels`` is keyed by the
+        receiver's frames.
+    label_frame_indices : list[int]
+        Frames to render (keys of ``transferred_labels``).
+    dataset : dict[int, zRegPointCloud]
+        Original source dataset.  Supplies the original labels only when
+        ``label_provider`` is ``None`` (legacy behaviour).
+    target : dict[int, zRegPointCloud] or None
+        Target dataset (legacy position source for transferred labels).
+    align_result : AlignResult or None
+        Alignment result (legacy fallback position source).
+    label_provider : dict[int, zRegPointCloud] or None, keyword-only
+        Trajectory whose labels were transferred (Phase 59 D-01).  When
+        given, the "source" figure shows its positions and labels.
+    label_receiver : dict[int, zRegPointCloud] or None, keyword-only
+        Trajectory that received the labels.  When given, transferred labels
+        are drawn at its positions and a point-count mismatch raises.
+
+    Returns
+    -------
+    tuple
+        ``(color_for_label, source_pos_map, source_colors_map,
+        target_pos_map, target_colors_map)``.
+
+    Raises
+    ------
+    ValueError
+        If a ``label_receiver`` frame's point count differs from its
+        transferred labels (no silent truncation when a receiver is given).
+    KeyError
+        Legacy path only: a label frame is missing from target, aligned cloud
+        and dataset alike.
+    """
+    original = label_provider if label_provider is not None else dataset
+
+    # 10-colour tab10 palette — supports up to 10 distinct classes before wrapping.
+    _tab10 = [matplotlib.colormaps["tab10"](i) for i in range(10)]
+    _label_palette = [
+        f"#{int(r*255):02x}{int(g*255):02x}{int(b*255):02x}"
+        for r, g, b, _ in _tab10
+    ]
+
+    # Union of all label IDs across both figures for a consistent palette.
+    # Always collect transferred labels (keyed by receiver frames); original labels
+    # are optional and only available when the frame key exists in the original side.
+    union_labels: set[int] = set()
+    for fk in label_frame_indices:
+        if fk in original:
+            src = _get_source_labels(original[fk])
+            if src is not None:
+                union_labels.update(int(v) for v in torch.unique(src).tolist())
+        union_labels.update(
+            int(v) for v in torch.unique(label_result.transferred_labels[fk]).tolist()
+        )
+    color_for_label = {
+        lab: _label_palette[i % len(_label_palette)]
+        for i, lab in enumerate(sorted(union_labels))
+    }
+
+    # "Source" figure data: the original labels (provider when known).
+    source_pos_map: dict[int, np.ndarray] = {}
+    source_colors_map: dict[int, "list[str] | None"] = {}
+    for fk in label_frame_indices:
+        if fk not in original:
+            continue
+        src_labels = _get_source_labels(original[fk])
+        raw_pos = original[fk]["pos"].detach().cpu().numpy()
+        if src_labels is not None:
+            raw_labels = src_labels.tolist()
+            n = min(len(raw_pos), len(raw_labels))
+            raw_pos = raw_pos[:n]
+            raw_labels = raw_labels[:n]
+            if n > 4000:
+                keep = np.random.default_rng(0).choice(n, 4000, replace=False)
+                raw_pos = raw_pos[keep]
+                raw_labels = [raw_labels[i] for i in keep]
+            source_pos_map[fk] = raw_pos
+            source_colors_map[fk] = [color_for_label[int(v)] for v in raw_labels]
+        else:
+            source_pos_map[fk] = _subsample(raw_pos)
+            source_colors_map[fk] = None
+
+    # Transferred-label figure data: receiver positions first, else the legacy
+    # D-07 chain (target -> aligned_cloud -> dataset).
+    target_pos_map: dict[int, np.ndarray] = {}
+    target_colors_map: dict[int, "list[str]"] = {}
+    for fk in label_frame_indices:
+        t_labels = label_result.transferred_labels[fk]
+        c_vals = [color_for_label[int(v)] for v in t_labels.tolist()]
+        if label_receiver is not None and fk in label_receiver:
+            pos = label_receiver[fk]["pos"].detach().cpu().numpy()
+            if len(pos) != len(c_vals):
+                raise ValueError(
+                    f"frame {fk}: receiver has {len(pos)} points but "
+                    f"transferred_labels has {len(c_vals)}"
+                )
+        elif target is not None and fk in target:
+            pos = target[fk]["pos"].detach().cpu().numpy()
+        elif align_result is not None and fk in align_result.aligned_cloud:
+            pos = align_result.aligned_cloud[fk]["pos"].detach().cpu().numpy()
+        else:
+            if fk not in dataset:
+                raise KeyError(
+                    f"Label frame key {fk!r} not found in dataset. "
+                    "For label-only runs, dataset must be the target trajectory."
+                )
+            pos = dataset[fk]["pos"].detach().cpu().numpy()
+        n_pts = min(len(pos), len(c_vals))
+        rng = np.random.default_rng(0)
+        if n_pts > 4000:
+            keep = rng.choice(n_pts, 4000, replace=False)
+            pos = pos[keep]
+            c_vals = [c_vals[i] for i in keep]
+        else:
+            pos = pos[:n_pts]
+            c_vals = c_vals[:n_pts]
+        target_pos_map[fk] = pos
+        target_colors_map[fk] = c_vals
+
+    return color_for_label, source_pos_map, source_colors_map, target_pos_map, target_colors_map
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -291,6 +431,9 @@ def plot_trajectory(
     label_names: "dict[int, str] | None",
     output_dir: Path,
     target: "dict[int, zRegPointCloud] | None" = None,
+    *,
+    label_provider: "dict[int, zRegPointCloud] | None" = None,
+    label_receiver: "dict[int, zRegPointCloud] | None" = None,
 ) -> list[str]:
     """Render trajectory figures for alignment and/or label-transfer stages (EXT-02).
 
@@ -306,9 +449,10 @@ def plot_trajectory(
 
     Label branch (written when ``label_result is not None``):
 
-    - ``label_source_trajectory.{pdf,png}`` — source cloud coloured by source
-      labels (``dataset[fk]["label"]``).
-    - ``label_target_trajectory.{pdf,png}`` — target/aligned cloud coloured by
+    - ``label_source_trajectory.{pdf,png}`` — the label provider's cloud
+      coloured by its original labels (``label_provider[fk]["label"]``; falls
+      back to ``dataset[fk]["label"]`` when ``label_provider`` is ``None``).
+    - ``label_target_trajectory.{pdf,png}`` — the receiver's cloud coloured by
       transferred labels (``label_result.transferred_labels``).
 
     Return value length depends on which stages ran and whether *target* is
@@ -344,6 +488,16 @@ def plot_trajectory(
     target : dict[int, zRegPointCloud] or None
         Optional target dataset.  When provided, a separate target figure
         is written and the superposed figure includes the target cloud.
+    label_provider : dict[int, zRegPointCloud] or None, keyword-only
+        Trajectory whose labels were transferred (``result["label_provider"]``
+        from ``EvaluationRunner._run_single``; Phase 59 D-01).  When given,
+        the label source figure shows its positions and labels instead of
+        ``dataset``'s.  Default ``None`` keeps the legacy behaviour.
+    label_receiver : dict[int, zRegPointCloud] or None, keyword-only
+        Trajectory that received the labels (``result["label_receiver"]``).
+        When given, transferred labels are drawn at its positions and a
+        point-count mismatch raises ``ValueError`` instead of truncating.
+        Default ``None`` keeps the legacy target -> aligned -> dataset chain.
 
     Returns
     -------
@@ -357,10 +511,10 @@ def plot_trajectory(
     D-04: Each figure uses first, middle, and last frame from the relevant
     cloud's sorted keys, deduplicated via ``_deduplicate_frames``.
 
-    D-07: Positions for the label figure use ``align_result.aligned_cloud``
-    when ``align_result is not None`` (post-alignment coordinate space,
-    consistent with label assignment); otherwise ``dataset[frame]["pos"]``
-    is used (label-only run).
+    D-07: Positions for the transferred-label figure come from
+    ``label_receiver`` when given; otherwise from ``target``, then
+    ``align_result.aligned_cloud``, then ``dataset[frame]["pos"]``
+    (label-only run).  Data preparation lives in ``_label_figure_data``.
 
     FRAME-08 mandatory rules apply: ``plt.close(fig)`` after every
     ``fig.savefig``, ``bbox_inches="tight"`` on every savefig call.
@@ -475,81 +629,21 @@ def plot_trajectory(
             label_sorted[-1],
         ])
 
-        # 10-colour tab10 palette — supports up to 10 distinct classes before wrapping.
-        _tab10 = [matplotlib.colormaps["tab10"](i) for i in range(10)]
-        _label_palette = [
-            f"#{int(r*255):02x}{int(g*255):02x}{int(b*255):02x}"
-            for r, g, b, _ in _tab10
-        ]
-
-        # Task 4: union of all label IDs across both figures for consistent palette
-        # Always collect transferred labels (keyed by target frames); source labels
-        # are optional and only available when the target key exists in the source dataset.
-        union_labels: set[int] = set()
-        for fk in label_frame_indices:
-            if fk in dataset:
-                src = _get_source_labels(dataset[fk])
-                if src is not None:
-                    union_labels.update(int(v) for v in torch.unique(src).tolist())
-            union_labels.update(
-                int(v) for v in torch.unique(label_result.transferred_labels[fk]).tolist()
-            )
-        color_for_label = {
-            lab: _label_palette[i % len(_label_palette)]
-            for i, lab in enumerate(sorted(union_labels))
-        }
-
-        # Task 3: pre-compute source figure data
-        source_pos_map: dict[int, np.ndarray] = {}
-        source_colors_map: dict[int, "list[str] | None"] = {}
-        for fk in label_frame_indices:
-            if fk not in dataset:
-                continue
-            src_labels = _get_source_labels(dataset[fk])
-            raw_pos = dataset[fk]["pos"].detach().cpu().numpy()
-            if src_labels is not None:
-                raw_labels = src_labels.tolist()
-                n = min(len(raw_pos), len(raw_labels))
-                raw_pos = raw_pos[:n]
-                raw_labels = raw_labels[:n]
-                if n > 4000:
-                    keep = np.random.default_rng(0).choice(n, 4000, replace=False)
-                    raw_pos = raw_pos[keep]
-                    raw_labels = [raw_labels[i] for i in keep]
-                source_pos_map[fk] = raw_pos
-                source_colors_map[fk] = [color_for_label[int(v)] for v in raw_labels]
-            else:
-                source_pos_map[fk] = _subsample(raw_pos)
-                source_colors_map[fk] = None
-
-        # Task 3: pre-compute target figure data (preserves D-07 position logic)
-        target_pos_map: dict[int, np.ndarray] = {}
-        target_colors_map: dict[int, "list[str]"] = {}
-        for fk in label_frame_indices:
-            if target is not None and fk in target:
-                pos = target[fk]["pos"].detach().cpu().numpy()
-            elif align_result is not None and fk in align_result.aligned_cloud:
-                pos = align_result.aligned_cloud[fk]["pos"].detach().cpu().numpy()
-            else:
-                if fk not in dataset:
-                    raise KeyError(
-                        f"Label frame key {fk!r} not found in dataset. "
-                        "For label-only runs, dataset must be the target trajectory."
-                    )
-                pos = dataset[fk]["pos"].detach().cpu().numpy()
-            t_labels = label_result.transferred_labels[fk]
-            c_vals = [color_for_label[int(v)] for v in t_labels.tolist()]
-            n_pts = min(len(pos), len(c_vals))
-            rng = np.random.default_rng(0)
-            if n_pts > 4000:
-                keep = rng.choice(n_pts, 4000, replace=False)
-                pos = pos[keep]
-                c_vals = [c_vals[i] for i in keep]
-            else:
-                pos = pos[:n_pts]
-                c_vals = c_vals[:n_pts]
-            target_pos_map[fk] = pos
-            target_colors_map[fk] = c_vals
+        (
+            color_for_label,
+            source_pos_map,
+            source_colors_map,
+            target_pos_map,
+            target_colors_map,
+        ) = _label_figure_data(
+            label_result,
+            label_frame_indices,
+            dataset=dataset,
+            target=target,
+            align_result=align_result,
+            label_provider=label_provider,
+            label_receiver=label_receiver,
+        )
 
         # Figure 1: source cloud coloured by source labels
         # Only pass frames that ended up in source_pos_map (guard for mismatched keys).

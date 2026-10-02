@@ -52,7 +52,9 @@ def export_trajectory(
     result : dict
         A dict with keys ``"align"`` and ``"label"``.  Each value is either
         ``None`` or the corresponding stage result object (``AlignResult`` /
-        ``LabelResult`` from ``eval.types``).
+        ``LabelResult`` from ``eval.types``).  May also carry
+        ``"label_receiver"`` (as returned by ``EvaluationRunner._run_single``),
+        which is then the position source for the label CSV.
     dataset : dict
         Raw dataset mapping ``frame_idx`` (int) to a ``zRegPointCloud``-like
         dict.  At minimum each value must contain a ``"pos"`` tensor of shape
@@ -73,10 +75,18 @@ def export_trajectory(
 
     Notes
     -----
-    The ``label_trajectory.csv`` position source follows decision D-07/D-08:
-    when ``result["align"]`` is not ``None``, ``x/y/z`` are taken from
-    ``result["align"].aligned_cloud[frame_idx]["pos"]``; otherwise they
-    are taken from ``dataset[frame_idx]["pos"]``.
+    The ``label_trajectory.csv`` position source (Phase 59 D-01): positions
+    come from ``result["label_receiver"][frame_idx]["pos"]`` when the result
+    carries a label receiver (the trajectory the labels were transferred
+    onto — the aligned source when ``config.label_source == "target"``, else
+    the target).  Without a receiver (legacy callers) the chain is
+    ``target`` -> ``result["align"].aligned_cloud`` -> ``dataset``.  A length
+    mismatch between positions and transferred labels raises ``ValueError``.
+
+    ``label_metadata.json`` describes the receiver frames: ``frame_count`` /
+    ``frame_indices`` are the ``transferred_labels`` keys (not the original
+    ``dataset``'s frames), and ``label_source`` plus the provider and
+    receiver data paths record the transfer direction.
 
     A single UUID ``run_id`` is generated once per call; both metadata files
     share the same UUID when both stages ran.
@@ -175,12 +185,16 @@ def export_trajectory(
         with open(label_csv_path, "w", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(["frame_idx", "point_idx", "x", "y", "z", "label"])
-            # Iterate transferred_labels keys (target space) so positions and labels
-            # come from the same dataset. When source and target differ in cell count,
-            # using source frame keys would cause a length mismatch.
+            # Iterate transferred_labels keys (receiver space) so positions and labels
+            # come from the same dataset. The receiver (Phase 59 D-01) is the aligned
+            # source when label_source == "target", else the target; reading it first
+            # keeps positions and labels consistent in both directions.
+            label_receiver = result.get("label_receiver")
             for frame_idx in sorted(label_result.transferred_labels.keys()):
                 labels = label_result.transferred_labels[frame_idx]
-                if target is not None and frame_idx in target:
+                if label_receiver is not None and frame_idx in label_receiver:
+                    pos = label_receiver[frame_idx]["pos"]
+                elif target is not None and frame_idx in target:
                     pos = target[frame_idx]["pos"]
                 elif align_result_val is not None and frame_idx in align_result_val.aligned_cloud:
                     pos = align_result_val.aligned_cloud[frame_idx]["pos"]
@@ -196,11 +210,22 @@ def export_trajectory(
                     label = int(labels[i].item())
                     writer.writerow([frame_idx, i, x, y, z, label])
 
-        # 6b. Build label metadata
+        # 6b. Build label metadata — describes the receiver frames that carry the
+        # transferred labels, plus the transfer direction (Phase 59 D-01).
+        transferred_keys = sorted(label_result.transferred_labels.keys())
+        if config.label_source == "target":
+            provider_path = config.target_data_path
+            receiver_path = config.data_path
+        else:
+            provider_path = config.data_path
+            receiver_path = config.target_data_path or config.data_path
         label_meta: dict[str, Any] = {
             "run_id": run_id,
-            "frame_count": len(dataset),
-            "frame_indices": sorted(dataset.keys()),
+            "frame_count": len(transferred_keys),
+            "frame_indices": transferred_keys,
+            "label_source": config.label_source,
+            "label_provider_data_path": provider_path,
+            "label_receiver_data_path": receiver_path,
             "data_path": config.data_path,
             "params_used": label_result.params_used,
             "tier": config.tier,

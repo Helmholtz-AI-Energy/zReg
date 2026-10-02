@@ -981,7 +981,9 @@ class TestHyperparamOptimizerCoverageGaps:
         assert isinstance(result, SearchResult)
 
     @patch("eval.runners.optimizer.DataFactory")
-    def test_auto_strategy_resolves(self, mock_factory_cls, tmp_path, synthetic_dataset):
+    def test_auto_strategy_resolves(
+        self, mock_factory_cls, tmp_path, synthetic_dataset, monkeypatch
+    ):
         """optimizer.py:235 — _detect_backend called when search_strategy='auto'."""
         mock_factory = mock_factory_cls.return_value
         mock_factory.load_real.return_value = synthetic_dataset
@@ -997,8 +999,13 @@ class TestHyperparamOptimizerCoverageGaps:
             search_space={"window_size": [3]},
         )
         import sys
-        with patch.dict(sys.modules, {"mpi4py": None}):
-            result = HyperparamOptimizer(cfg).run()
+        # Only the mpi4py key is patched. patch.dict(sys.modules, ...) would, on
+        # exit, also drop every module first imported inside the block (here
+        # optuna's sqlite RDB storage + SQLAlchemy ORM modules); their later
+        # re-import builds duplicate ORM mappings and breaks every subsequent
+        # sqlite study that enqueues trials (found by the Phase 59 NUM-05 tests).
+        monkeypatch.setitem(sys.modules, "mpi4py", None)
+        result = HyperparamOptimizer(cfg).run()
         assert isinstance(result, SearchResult)
 
     @patch("eval.runners.optimizer.DataFactory")

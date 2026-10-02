@@ -28,6 +28,64 @@ __all__ = [
 ]
 
 
+class _UniqueKeyLoader(yaml.SafeLoader):
+    """``yaml.SafeLoader`` that rejects duplicate mapping keys.
+
+    PyYAML silently keeps the last value when a key repeats in one mapping,
+    which let a config carry two conflicting ``label_source`` keys unnoticed
+    (Phase 59 RUN-01).  This loader raises
+    ``yaml.constructor.ConstructorError`` (a ``yaml.YAMLError``) instead, which
+    ``EvalConfig.from_yaml`` wraps into ``EvalConfigError``.  It subclasses
+    ``SafeLoader`` only, never ``yaml.Loader``, so no arbitrary Python objects
+    can be constructed.
+    """
+
+
+def _construct_unique_mapping(loader: _UniqueKeyLoader, node: yaml.MappingNode, deep: bool = False) -> dict:
+    """Construct a mapping, raising on the first repeated key.
+
+    Parameters
+    ----------
+    loader : _UniqueKeyLoader
+        The active loader.
+    node : yaml.MappingNode
+        The mapping node being constructed.
+    deep : bool
+        Passed through to ``construct_object``.
+
+    Returns
+    -------
+    dict
+        The constructed mapping.
+
+    Raises
+    ------
+    yaml.constructor.ConstructorError
+        If a key occurs more than once in the same mapping.
+    """
+    seen: dict = {}
+    for key_node, _value_node in node.value:
+        if key_node.tag == "tag:yaml.org,2002:merge":
+            continue  # ``<<:`` merge keys may legitimately be overridden by explicit keys
+        key = loader.construct_object(key_node, deep=deep)
+        try:
+            hash(key)
+        except TypeError:
+            continue  # SafeConstructor.construct_mapping raises its own "unhashable key" error
+        if key in seen:
+            raise yaml.constructor.ConstructorError(
+                "while constructing a mapping",
+                node.start_mark,
+                f"found duplicate key {key!r} (first defined on line {seen[key] + 1})",
+                key_node.start_mark,
+            )
+        seen[key] = key_node.start_mark.line
+    return loader.construct_mapping(node, deep=deep)
+
+
+_UniqueKeyLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _construct_unique_mapping)
+
+
 class EvalConfigError(ValueError):
     """Raised by EvalConfig.from_yaml for all configuration failure modes.
 
@@ -303,6 +361,15 @@ class EvalConfig(BaseModel):
         majority vote, existing default behaviour) or ``'cpd_weighted'``
         (CPD E-step posterior-weighted average, requires ``AlignResult.estep_results``
         for the frame pair being processed). Default ``'knn_voting'``.
+    label_source : {"source", "target"}
+        Which cloud provides the class labels that ``LabelTransferStage``
+        transfers.  ``"source"`` (default) transfers labels from the aligned
+        source onto the target (synthetic/selfcal behaviour).  ``"target"`` is
+        for Kobitski->Shah paired runs, where the target (Shah) carries the
+        3-class germ-layer labels and the unlabeled source (Kobitski) receives
+        them.  ``"target"`` is rejected when ``pipeline_mode='synthetic'``
+        (the ground truth is source-side there, so a swap would silently score
+        the wrong cloud).  Phase 59 D-01.
     data_preprocessing : DataPreprocessingConfig or None
         Per-trajectory data scaling applied after subsampling in
         ``DataFactory.load_real()`` and ``DataFactory.load_target()``.  Only
@@ -368,6 +435,16 @@ class EvalConfig(BaseModel):
         default="knn_voting",
         description="Label transfer method: 'knn_voting', 'cpd_weighted', 'pointnet2', or 'egnn'"
     )
+    label_source: Literal["source", "target"] = Field(
+        default="source",
+        description=(
+            "Which dataset provides the class labels for transfer. "
+            "'source' (default): labels come from the source trajectory (correct for synthetic/selfcal). "
+            "'target': labels come from the target trajectory (use for paired mode where the target "
+            "dataset — e.g. Shah — carries the ground-truth class labels and source — e.g. Kobitski — "
+            "is unlabeled and should receive them)."
+        ),
+    )
     label_field: str = Field(
         default="label",
         description=(
@@ -420,7 +497,9 @@ class EvalConfig(BaseModel):
         ------
         EvalConfigError
             If the file is not found (``"EvalConfig: file not found: ..."``),
-            if the file contains invalid YAML syntax, if a required field
+            if the file contains invalid YAML syntax or a duplicate mapping
+            key (rejected by ``_UniqueKeyLoader`` instead of silently keeping
+            the last value), if a required field
             (``data_path``) is missing, if an unknown field is present, or if
             a field value cannot be coerced to the declared type.  In all
             cases the raw ``pydantic.ValidationError`` is never allowed to
@@ -428,7 +507,7 @@ class EvalConfig(BaseModel):
         """
         try:
             with open(path) as f:
-                data = yaml.safe_load(f) or {}
+                data = yaml.load(f, Loader=_UniqueKeyLoader) or {}
             return cls(**data)
         except FileNotFoundError as e:
             raise EvalConfigError(f"EvalConfig: file not found: {path}") from e
@@ -572,5 +651,31 @@ class EvalConfig(BaseModel):
                 f"device='{self.device}' is incompatible with alignment_method='icp': "
                 "Open3D ICP requires CPU-resident tensors "
                 "(explicit .cpu().numpy() round-trips in icp.py:114-115, 196-197)"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_label_source_pipeline_mode(self) -> "EvalConfig":
+        """Reject ``label_source='target'`` outside paired mode (Phase 59 D-01, D-05).
+
+        The provider/receiver swap is only defined for paired real data.  In
+        synthetic mode the ground truth is source-side, so swapping would
+        silently score the wrong cloud; fail loudly instead.
+
+        Returns
+        -------
+        EvalConfig
+            The validated model instance (self).
+
+        Raises
+        ------
+        ValueError
+            If ``label_source == 'target'`` and ``pipeline_mode == 'synthetic'``.
+        """
+        if self.label_source == "target" and self.pipeline_mode == "synthetic":
+            raise ValueError(
+                "label_source='target' is only supported for pipeline_mode='paired': "
+                "in synthetic mode the ground truth lives on the source side, so taking "
+                "labels from the target would score the wrong cloud"
             )
         return self

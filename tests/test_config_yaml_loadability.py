@@ -1,0 +1,61 @@
+"""Regression tests: every experiment YAML in the repo loads through EvalConfig.
+
+Phase 59 RUN-01: the HoreKa suite could not start because five
+``configs_horeka/*/ew06_vs_shah.yaml`` files carried a ``label_source`` key that
+``EvalConfig`` (``extra="forbid"``) no longer accepted, and
+``hpo_paired/ew06_vs_shah.yaml`` silently carried a duplicate key.  These tests
+glob every YAML under ``configs/`` and ``baseline_experiments/configs*/`` and
+load each one through the canonical loader, so a config that drifts out of sync
+with the schema is caught by CI instead of at cluster submission time.
+"""
+
+from pathlib import Path
+
+import pytest
+import yaml
+
+from eval.config import EvalConfig, EvalConfigError
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+_GLOBS = ("configs/**/*.yaml", "baseline_experiments/configs*/**/*.yaml")
+
+YAMLS = sorted({p for pattern in _GLOBS for p in REPO_ROOT.glob(pattern)})
+
+# YAML files under the globbed trees that are intentionally NOT EvalConfigs.
+# Research verified every one of the 84 files is an EvalConfig, so this set is
+# empty; any future non-EvalConfig YAML must be enumerated here explicitly.
+NON_EVALCONFIG: frozenset[str] = frozenset()
+
+_IDS = [str(p.relative_to(REPO_ROOT)) for p in YAMLS]
+
+
+def test_glob_found_expected_count():
+    """Guard against an empty or truncated glob silently passing the suite."""
+    assert len(YAMLS) >= 84, f"expected >= 84 YAML configs, found {len(YAMLS)}"
+
+
+@pytest.mark.parametrize("path", YAMLS, ids=_IDS)
+def test_every_yaml_loads(path):
+    """Every experiment YAML validates through EvalConfig.from_yaml."""
+    if str(path.relative_to(REPO_ROOT)) in NON_EVALCONFIG:
+        pytest.skip("enumerated non-EvalConfig YAML")
+    cfg = EvalConfig.from_yaml(path)
+    assert isinstance(cfg, EvalConfig)
+
+
+@pytest.mark.parametrize("path", YAMLS, ids=_IDS)
+def test_no_duplicate_keys(path):
+    """No experiment YAML contains a duplicate mapping key."""
+    from eval.config import _UniqueKeyLoader  # single source of truth for the strict loader
+
+    with open(path) as f:
+        yaml.load(f, Loader=_UniqueKeyLoader)
+
+
+def test_from_yaml_rejects_duplicate_key(tmp_path):
+    """A repeated top-level key is rejected instead of silently keeping the last value."""
+    p = tmp_path / "dup.yaml"
+    p.write_text("data_path: x.tracklets\ntier: dev\ntier: dev\n")
+    with pytest.raises(EvalConfigError, match="duplicate"):
+        EvalConfig.from_yaml(p)

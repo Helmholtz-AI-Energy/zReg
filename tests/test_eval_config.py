@@ -424,3 +424,38 @@ class TestEvalConfigDeviceICPGuard:
         )
         assert config.device == "cpu"
         assert config.alignment_method == "icp"
+
+
+class TestLabelSource:
+    """Phase 59 D-01: label_source selects which cloud provides the transferred labels."""
+
+    def test_label_source_default_is_source(self, tmp_path):
+        """Default label_source is 'source' (synthetic/selfcal behaviour unchanged)."""
+        config = EvalConfig(data_path=str(tmp_path / "data.mat"))
+        assert config.label_source == "source"
+
+    def test_label_source_target_accepted(self, tmp_path):
+        """label_source='target' is accepted in paired mode."""
+        config = EvalConfig(data_path=str(tmp_path / "data.mat"), label_source="target")
+        assert config.label_source == "target"
+
+    def test_label_source_invalid_rejected(self, tmp_path):
+        """An unknown label_source value is rejected by the Literal annotation."""
+        with pytest.raises(ValidationError):
+            EvalConfig(data_path=str(tmp_path / "data.mat"), label_source="sideways")
+
+    def test_label_source_invalid_from_yaml_raises_eval_config_error(self, tmp_path):
+        """from_yaml wraps a bad label_source into EvalConfigError naming the field."""
+        yaml_path = tmp_path / "config.yaml"
+        yaml_path.write_text(f"data_path: {tmp_path / 'data.mat'}\nlabel_source: bogus\n")
+        with pytest.raises(EvalConfigError, match="label_source"):
+            EvalConfig.from_yaml(str(yaml_path))
+
+    def test_label_source_target_with_synthetic_rejected(self, tmp_path):
+        """label_source='target' is only defined for paired real data (fail loudly)."""
+        with pytest.raises(ValidationError, match="label_source"):
+            EvalConfig(
+                data_path=str(tmp_path / "data.mat"),
+                pipeline_mode="synthetic",
+                label_source="target",
+            )

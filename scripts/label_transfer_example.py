@@ -92,10 +92,15 @@ def main():
         cpd_result.sigma2, 0.0, w=0.0
     )
 
+    # expectation_step() returns pmat shaped (n_source, n_target), but the
+    # CPD-weighted transfer expects (n_target, n_source).  Pass a transposed
+    # copy (same D-04 fix as eval/stages/label_transfer.py).  The demo clouds
+    # are 4x4, so without the transpose this would silently use the wrong
+    # orientation instead of raising.
     colors_cpd = transfer_colors(
         source_pc, target_pc,
         method=ColorTransferMethod.CPD_WEIGHTED,
-        estep_result=estep_result
+        estep_result=estep_result._replace(pmat=estep_result.pmat.T)
     )
     print(f"   Transferred colors shape: {colors_cpd.shape}")
     print(f"   Sample colors: {colors_cpd[:2]}")

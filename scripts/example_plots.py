@@ -129,7 +129,7 @@ def main(tracklets_path: str = DEFAULT_TRACKLETS_PATH, device: str = "cpu") -> N
 
     pc1new = zreg_to_open3d(x1)
     pc0new = zreg_to_open3d(y1)
-    draw_registration_result(pc1new, pc0new, None)
+    draw_registration_result(pc1new, pc0new)
 
 
 if __name__ == "__main__":

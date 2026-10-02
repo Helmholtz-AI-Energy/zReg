@@ -72,8 +72,10 @@ def _proc_run(pcs, out_dir, rank, device, distance, downsampling, i, j, cpd_type
     # )
     # rots = None
     # ------------------------------------------------------------
-    # Otherwise, use this for the general CPD fitting
-    mat, rots = create_pairwise_distance_matrix(
+    # Otherwise, use this for the general CPD fitting.
+    # create_pairwise_distance_matrix returns a PairwiseResult dataclass (it
+    # used to return a (matrix, rotations) tuple).
+    result = create_pairwise_distance_matrix(
         x=testx,
         y=testy,
         window=None,
@@ -84,6 +86,7 @@ def _proc_run(pcs, out_dir, rank, device, distance, downsampling, i, j, cpd_type
         cpd_type=cpd_type,
         mpi_distribute=True,
     )
+    mat, rots = result.cost_matrix, result.rotations
     print(f"finished iteration, time required: {time.perf_counter() - t0}")
     for c, dist in enumerate(distance):
         out_file = out_dir / f"{dist}_{downsampling}_{i}_{j}.npy"

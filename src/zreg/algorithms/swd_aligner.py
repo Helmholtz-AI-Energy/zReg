@@ -147,8 +147,9 @@ class SlicedWassersteinAligner:
 
         Workflow:
         1. Extract positions from source and target zRegPointCloud dicts
-        2. Extract normalisation context (min/max per-cloud)
-        3. Normalise both clouds: (cloud - min) / (max - min) * 2 - 1
+        2. Compute ONE shared scalar bounds pair (lo, hi) over both clouds
+        3. Normalise both clouds with it: 2 * (cloud - lo) / (hi - lo) - 1
+           (shared bounds keep the rigid result rigid after denormalisation)
         4. Initialize rotation (identity 3×3) and translation (zero 3D vector)
         5. Instantiate SWD metric based on variant selection
         6. Run gradient descent optimization loop:
@@ -156,8 +157,9 @@ class SlicedWassersteinAligner:
            - Compute SWD loss between transformed source and target
            - Backward pass to update rotation/translation gradients
            - Enforce SO(3) orthogonality via SVD projection (every 10 iters)
-        7. Compute composite denormalisation: D_inv @ T @ D
-           where D is the normalisation matrix for source, T is the result
+        7. Compute composite D_inv @ T @ D, where D and D_inv come from
+           ``zreg.utils.normalization_matrix`` / ``denormalization_matrix``
+           (exact inverse pair) and T is the optimised affine matrix
         8. Return StoredTransform with composite matrix and denorm context
 
         The final matrix operates in denormalised (full-resolution) space, so it can
@@ -175,15 +177,17 @@ class SlicedWassersteinAligner:
         StoredTransform
             Cached transformation with:
             - matrix : [4, 4] composite transformation matrix (in denormalised space)
-            - src_min/src_max : source normalisation bounds (scalars)
-            - tgt_min/tgt_max : target normalisation bounds (scalars)
+            - src_min/src_max : shared normalisation bounds (scalars)
+            - tgt_min/tgt_max : shared normalisation bounds (same as src_*)
         """
         src_pos = source["pos"]
         tgt_pos = target["pos"]
 
-        # Extract normalisation context (min/max) for both clouds
-        src_norm, (src_min, src_max) = utils.normalize_point_cloud(src_pos)
-        tgt_norm, (tgt_min, tgt_max) = utils.normalize_point_cloud(tgt_pos)
+        # One shared bounds pair for both clouds: the rigid result found in the
+        # shared normalised frame stays rigid after denormalisation.
+        lo, hi = utils.shared_bounds(src_pos, tgt_pos)
+        src_norm = utils.normalize_point_cloud(src_pos, min_vals=lo, max_vals=hi)[0]
+        tgt_norm = utils.normalize_point_cloud(tgt_pos, min_vals=lo, max_vals=hi)[0]
 
         # Ensure tensors are on the same device
         device = src_norm.device
@@ -239,42 +243,30 @@ class SlicedWassersteinAligner:
         T_denorm = self._compute_composite_transform(
             rotation.detach(),
             translation.detach(),
-            src_min,
-            src_max,
-            tgt_min,
-            tgt_max,
+            lo,
+            hi,
         )
 
         return StoredTransform(
             transform=SWDTransformation(T_denorm),
-            src_min=src_min,
-            src_max=src_max,
-            tgt_min=tgt_min,
-            tgt_max=tgt_max,
+            src_min=lo,
+            src_max=hi,
+            tgt_min=lo,
+            tgt_max=hi,
         )
 
     @staticmethod
     def _compute_composite_transform(
         rotation: torch.Tensor,
         translation: torch.Tensor,
-        src_min: torch.Tensor,
-        src_max: torch.Tensor,
-        tgt_min: torch.Tensor,
-        tgt_max: torch.Tensor,
+        lo: torch.Tensor,
+        hi: torch.Tensor,
     ) -> torch.Tensor:
-        """Compute composite denormalisation matrix for SWD result.
+        """Return ``D_inv @ T_norm @ D`` in the dtype/device of ``rotation``.
 
-        Given SWD-optimized rotation (3×3) and translation (3,) in normalised space,
-        plus normalisation bounds, compute the composite matrix T that operates in
-        denormalised space: T = D_inv @ T_norm @ D
-
-        where:
-        - D normalises points: x_norm = 2 * (x - src_min) / (src_max - src_min) - 1
-        - D_inv denormalises: x = (x_norm + 1) * (src_max - src_min) / 2 + src_min
-        - T_norm is the affine matrix in normalised space
-        - T is the result (4×4) operating in denormalised space
-
-        This follows the Phase 35/39 denormalization pattern (CPD and ICP).
+        ``T_norm = [[R, t], [0, 1]]`` is the optimised affine matrix in the
+        shared normalised frame; ``D``/``D_inv`` come from the exact inverse
+        helper pair in ``zreg.utils``.
 
         Parameters
         ----------
@@ -282,49 +274,21 @@ class SlicedWassersteinAligner:
             [3, 3] rotation matrix (in normalised space).
         translation : torch.Tensor
             [3] translation vector (in normalised space).
-        src_min : torch.Tensor
-            Scalar minimum value from source normalisation.
-        src_max : torch.Tensor
-            Scalar maximum value from source normalisation.
-        tgt_min : torch.Tensor
-            Scalar minimum value from target normalisation (unused in denorm).
-        tgt_max : torch.Tensor
-            Scalar maximum value from target normalisation (unused in denorm).
+        lo, hi : torch.Tensor
+            Shared scalar normalisation bounds.
 
         Returns
         -------
         torch.Tensor
-            [4, 4] composite transformation matrix (in denormalised space).
+            [4, 4] composite transformation matrix in original coordinates.
         """
         device = rotation.device
         dtype = rotation.dtype
+        D = utils.normalization_matrix(lo, hi, dtype=dtype, device=device)
+        D_inv = utils.denormalization_matrix(lo, hi, dtype=dtype, device=device)
 
-        # Convert scalar tensors to float values
-        src_min_val = src_min.item() if src_min.numel() == 1 else src_min
-        src_max_val = src_max.item() if src_max.numel() == 1 else src_max
-
-        # Build normalisation matrix D:
-        # x_norm = 2 * (x - src_min) / (src_max - src_min) - 1
-        # In homogeneous coords: [x_norm, 1] = D @ [x, 1]
-        D = torch.eye(4, device=device, dtype=dtype)
-        scale = (src_max_val - src_min_val) / 2.0
-        D[0, 0] = D[1, 1] = D[2, 2] = 2.0 / (src_max_val - src_min_val)
-        D[0, 3] = D[1, 3] = D[2, 3] = -2.0 * src_min_val / (src_max_val - src_min_val) - 1.0
-
-        # Build denormalisation matrix D_inv:
-        # x = (x_norm + 1) * (src_max - src_min) / 2 + src_min
-        D_inv = torch.eye(4, device=device, dtype=dtype)
-        D_inv[0, 0] = D_inv[1, 1] = D_inv[2, 2] = scale
-        D_inv[0, 3] = D_inv[1, 3] = D_inv[2, 3] = src_min_val
-
-        # Build affine transformation matrix T in normalised space (4×4 homogeneous):
-        # T_norm = [[R, t],
-        #           [0, 1]]
         T_norm = torch.eye(4, device=device, dtype=dtype)
         T_norm[:3, :3] = rotation
         T_norm[:3, 3] = translation
 
-        # Composite: T_denorm = D_inv @ T_norm @ D
-        composite = D_inv @ T_norm @ D
-
-        return composite
+        return D_inv @ T_norm @ D

@@ -76,13 +76,16 @@ class ICPRegistration:
 
         Workflow:
         1. Extract positions from source and target zRegPointCloud dicts
-        2. Extract normalisation context (min/max per-cloud)
-        3. Normalise both clouds: (cloud - min) / (max - min) * 2 - 1
-        4. Run Open3D ICP on normalised tensors
-        5. Extract 4×4 transformation matrix from ICP result
-        6. Compute composite denormalisation: D_inv @ T @ D
-           where D is the normalisation matrix for source, T is ICP result
-        7. Return StoredTransform with composite matrix and denorm context
+        2. Compute ONE shared scalar bounds pair (lo, hi) over both clouds
+        3. Normalise both clouds with it: 2 * (cloud - lo) / (hi - lo) - 1
+           (shared bounds keep a rigid result rigid after denormalisation)
+        4. Hand the normalised clouds and detached bounds to the CPU
+        5. Run Open3D ICP, seeded with the normalised centroid offset
+        6. Compute composite D_inv @ T_icp @ D in CPU float64, where D and
+           D_inv come from ``zreg.utils.normalization_matrix`` /
+           ``denormalization_matrix`` (exact inverse pair)
+        7. Return StoredTransform with the composite matrix (CPU numpy
+           float32, also for CUDA inputs) and the shared bounds
 
         The final matrix operates in denormalised (full-resolution) space, so it can
         be applied directly to source frames without re-normalisation.
@@ -99,31 +102,46 @@ class ICPRegistration:
         StoredTransform
             Cached transformation with:
             - matrix : [4, 4] composite transformation matrix (in denormalised space)
-            - src_min/src_max : source normalisation bounds (scalars)
-            - tgt_min/tgt_max : target normalisation bounds (scalars)
+            - src_min/src_max : shared normalisation bounds (scalars)
+            - tgt_min/tgt_max : shared normalisation bounds (same as src_*)
         """
         src_pos = source["pos"]
         tgt_pos = target["pos"]
 
-        # Extract normalisation context (min/max) for both clouds
-        src_norm, (src_min, src_max) = utils.normalize_point_cloud(src_pos)
-        tgt_norm, (tgt_min, tgt_max) = utils.normalize_point_cloud(tgt_pos)
+        # One shared bounds pair for both clouds: a rigid ICP result in the
+        # shared normalised frame stays rigid after denormalisation, and the
+        # result is denormalised with the bounds of the frame it lives in.
+        lo, hi = utils.shared_bounds(src_pos, tgt_pos)
+        src_norm = utils.normalize_point_cloud(src_pos, min_vals=lo, max_vals=hi)[0]
+        tgt_norm = utils.normalize_point_cloud(tgt_pos, min_vals=lo, max_vals=hi)[0]
 
-        # Convert to numpy for Open3D (torch tensors not supported by o3d.core.Tensor)
-        src_norm_np = src_norm.cpu().numpy() if isinstance(src_norm, torch.Tensor) else src_norm
-        tgt_norm_np = tgt_norm.cpu().numpy() if isinstance(tgt_norm, torch.Tensor) else tgt_norm
+        # Explicit CPU hand-off: Open3D and the composite matrix live on CPU,
+        # so detach the bounds to CPU before building the float64 matrices
+        # (CUDA inputs would otherwise mix devices).
+        lo_cpu = lo.detach().cpu()
+        hi_cpu = hi.detach().cpu()
+        src_norm_cpu = src_norm.detach().cpu()
+        tgt_norm_cpu = tgt_norm.detach().cpu()
+        src_norm_np = src_norm_cpu.numpy()
+        tgt_norm_np = tgt_norm_cpu.numpy()
 
         # Convert to Open3D point clouds
         import open3d as o3d  # lazy import to avoid libomp conflict on macOS ARM
         src_cloud = o3d.t.geometry.PointCloud(o3d.core.Tensor(src_norm_np))
         tgt_cloud = o3d.t.geometry.PointCloud(o3d.core.Tensor(tgt_norm_np))
 
+        # Seed with the centroid offset: shared bounds no longer pre-centre the
+        # clouds, and starting from identity lets the relative-fitness criterion
+        # stop early on translated clouds.
+        init = np.eye(4, dtype=np.float32)
+        init[:3, 3] = (tgt_norm_cpu.mean(0) - src_norm_cpu.mean(0)).to(torch.float32).numpy()
+
         # Run ICP on normalised clouds
         icp_result = o3d.t.pipelines.registration.icp(
             source=src_cloud,
             target=tgt_cloud,
             max_correspondence_distance=float('inf'),  # No distance threshold
-            init_source_to_target=o3d.core.Tensor.eye(4, o3d.core.float32),
+            init_source_to_target=o3d.core.Tensor(init),
             criteria=o3d.t.pipelines.registration.ICPConvergenceCriteria(
                 relative_fitness=self.tolerance,
                 relative_rmse=self.tolerance,
@@ -132,85 +150,46 @@ class ICPRegistration:
             estimation_method=o3d.t.pipelines.registration.TransformationEstimationPointToPoint(),
         )
 
-        # Extract 4×4 transformation matrix from ICP result (normalised space)
-        icp_matrix_norm = icp_result.transformation.numpy().astype('float32')
-
-        # Compute composite denormalisation matrix:
-        # Points are normalised as: x_norm = 2 * (x - src_min) / (src_max - src_min) - 1
-        # ICP operates in normalised space: x_norm_reg = T_icp @ x_norm
-        # We need to return T such that x_reg = T @ x (in denormalised space)
-        #
-        # Denormalisation reverses the scaling:
-        # x = (x_norm + 1) * (src_max - src_min) / 2 + src_min
-        #
-        # Composite: T = D_inv @ T_icp @ D
-        # where D is the normalisation matrix (4×4 homogeneous)
-        T_denorm = self._compute_composite_transform(
-            icp_matrix_norm,
-            src_min,
-            src_max,
+        # 4x4 ICP result in the shared normalised frame, as CPU float64
+        icp_matrix_norm = torch.as_tensor(
+            icp_result.transformation.cpu().numpy(), dtype=torch.float64
         )
 
-        # Ensure matrix is float32 for consistency
-        final_matrix = T_denorm.astype(np.float32)
+        # Composite in original coordinates: D_inv @ T_icp @ D (CPU float64)
+        composite = self._compute_composite_transform(icp_matrix_norm, lo_cpu, hi_cpu)
+
+        # Keep the numpy float32 return contract (also for CUDA inputs)
+        final_matrix = composite.cpu().numpy().astype(np.float32)
 
         return StoredTransform(
             transform=ICPTransformation(final_matrix),
-            src_min=src_min,
-            src_max=src_max,
-            tgt_min=tgt_min,
-            tgt_max=tgt_max,
+            src_min=lo,
+            src_max=hi,
+            tgt_min=lo,
+            tgt_max=hi,
         )
 
     @staticmethod
     def _compute_composite_transform(
-        icp_matrix: 'numpy.ndarray',
-        src_min: torch.Tensor,
-        src_max: torch.Tensor,
-    ) -> 'numpy.ndarray':
-        """Compute composite denormalisation matrix for ICP result.
-
-        Given ICP transformation in normalised space T_icp and normalisation
-        bounds, compute the composite matrix T that operates in denormalised space:
-        T = D_inv @ T_icp @ D
-
-        where D normalises points and D_inv denormalises.
+        icp_matrix: torch.Tensor,
+        lo: torch.Tensor,
+        hi: torch.Tensor,
+    ) -> torch.Tensor:
+        """Return ``D_inv @ T_icp @ D`` in CPU float64.
 
         Parameters
         ----------
-        icp_matrix : numpy.ndarray
-            [4, 4] ICP transformation matrix (in normalised space).
-        src_min : torch.Tensor
-            Scalar minimum value from normalisation.
-        src_max : torch.Tensor
-            Scalar maximum value from normalisation.
+        icp_matrix : torch.Tensor
+            [4, 4] ICP transformation in the shared normalised frame.
+        lo, hi : torch.Tensor
+            Shared scalar normalisation bounds (moved to CPU by the helpers).
 
         Returns
         -------
-        numpy.ndarray
-            [4, 4] composite transformation matrix (in denormalised space).
+        torch.Tensor
+            [4, 4] CPU float64 composite transformation in original coordinates.
         """
-        import numpy as np
-
-        # Convert tensors to numpy for matrix operations
-        src_min_np = src_min.item() if src_min.numel() == 1 else src_min.cpu().numpy()
-        src_max_np = src_max.item() if src_max.numel() == 1 else src_max.cpu().numpy()
-
-        # Build normalisation matrix D:
-        # x_norm = 2 * (x - src_min) / (src_max - src_min) - 1
-        # In homogeneous coords: [x_norm, 1] = D @ [x, 1]
-        scale = (src_max_np - src_min_np) / 2.0
-        D = np.eye(4, dtype=np.float32)
-        D[0, 0] = D[1, 1] = D[2, 2] = 2.0 / (src_max_np - src_min_np)
-        D[0, 3] = D[1, 3] = D[2, 3] = -2.0 * src_min_np / (src_max_np - src_min_np) - 1.0
-
-        # Build inverse denormalisation matrix D_inv:
-        # x = (x_norm + 1) * (src_max - src_min) / 2 + src_min
-        D_inv = np.eye(4, dtype=np.float32)
-        D_inv[0, 0] = D_inv[1, 1] = D_inv[2, 2] = scale
-        D_inv[0, 3] = D_inv[1, 3] = D_inv[2, 3] = src_min_np
-
-        # Composite: T = D_inv @ T_icp @ D
-        composite = D_inv @ icp_matrix @ D
-
-        return composite
+        D = utils.normalization_matrix(lo, hi, dtype=torch.float64, device="cpu")
+        D_inv = utils.denormalization_matrix(lo, hi, dtype=torch.float64, device="cpu")
+        T = torch.as_tensor(icp_matrix, dtype=torch.float64).cpu()
+        return D_inv @ T @ D

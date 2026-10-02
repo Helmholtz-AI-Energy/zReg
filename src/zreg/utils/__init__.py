@@ -9,6 +9,9 @@ __all__ = [
     "normalize_point_cloud",
     "normalize_to_pc_w_most_points",
     "undo_normalize",
+    "shared_bounds",
+    "normalization_matrix",
+    "denormalization_matrix",
 ]
 
 
@@ -361,6 +364,125 @@ def undo_normalize(points: "torch.Tensor", maxvals: "torch.Tensor", minvals: "to
             [2.5000, 7.5000,  6.2500]])
     """
     return (points + 1) * (maxvals - minvals) * 0.5 + minvals
+
+
+def shared_bounds(*clouds: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """Return one scalar bounds pair covering every given point cloud.
+
+    Registration wrappers (ICP, SWD) normalise source and target with the
+    same bounds so that a rigid transform found in the normalised frame stays
+    rigid after denormalisation.
+
+    Parameters
+    ----------
+    *clouds : torch.Tensor
+        One or more ``(N, D)`` point tensors, all on the same device.
+
+    Returns
+    -------
+    tuple[torch.Tensor, torch.Tensor]
+        ``(lo, hi)`` as 0-d tensors: the minimum and maximum coordinate over
+        all clouds and all axes. They live on the clouds' device and dtype.
+
+    Examples
+    --------
+    >>> import torch
+    >>> lo, hi = shared_bounds(torch.tensor([[0.0, 1.0]]), torch.tensor([[-2.0, 5.0]]))
+    >>> lo.item(), hi.item()
+    (-2.0, 5.0)
+    """
+    if not clouds:
+        raise ValueError("shared_bounds requires at least one point cloud")
+    lo = torch.stack([c.min() for c in clouds]).min()
+    hi = torch.stack([c.max() for c in clouds]).max()
+    return lo, hi
+
+
+def _bounds_on(lo, hi, dtype, device):
+    """Convert ``lo``/``hi`` to detached tensors on one device and dtype."""
+    if device is None:
+        device = lo.device if isinstance(lo, torch.Tensor) else torch.device("cpu")
+    lo_t = torch.as_tensor(lo).detach().to(device=device, dtype=dtype)
+    hi_t = torch.as_tensor(hi).detach().to(device=device, dtype=dtype)
+    rng = torch.clamp(hi_t - lo_t, min=torch.finfo(dtype).eps)
+    return lo_t, rng, device
+
+
+def normalization_matrix(
+    lo, hi, *, dtype: torch.dtype = torch.float32, device=None
+) -> torch.Tensor:
+    """Build the 4x4 homogeneous matrix of ``normalize_point_cloud``.
+
+    Maps ``x`` to ``2 * (x - lo) / (hi - lo) - 1`` on every axis. The range is
+    clamped to ``torch.finfo(dtype).eps`` exactly like ``normalize_point_cloud``
+    so the matrix cannot diverge from the applied normalisation.
+
+    Parameters
+    ----------
+    lo, hi : float or torch.Tensor
+        Scalar lower and upper bound (e.g. from ``shared_bounds``).
+    dtype : torch.dtype, default torch.float32
+        dtype of the returned matrix.
+    device : torch.device or str, optional
+        Device of the returned matrix. ``None`` means the device of ``lo`` if
+        it is a tensor, else CPU. ``lo``/``hi`` are detached and moved here, so
+        every operand lives on one device.
+
+    Returns
+    -------
+    torch.Tensor
+        ``[4, 4]`` matrix ``D`` with ``[x_norm, 1] = D @ [x, 1]``.
+
+    Examples
+    --------
+    >>> import torch
+    >>> D = normalization_matrix(2.0, 10.0)
+    >>> (D @ torch.tensor([2.0, 6.0, 10.0, 1.0]))[:3]
+    tensor([-1.,  0.,  1.])
+    """
+    lo_t, rng, device = _bounds_on(lo, hi, dtype, device)
+    m = torch.eye(4, dtype=dtype, device=device)
+    idx = torch.arange(3, device=device)
+    m[idx, idx] = 2.0 / rng
+    m[:3, 3] = -2.0 * lo_t / rng - 1.0
+    return m
+
+
+def denormalization_matrix(
+    lo, hi, *, dtype: torch.dtype = torch.float32, device=None
+) -> torch.Tensor:
+    """Build the exact inverse of ``normalization_matrix`` (matrix form of ``undo_normalize``).
+
+    Maps ``x_norm`` to ``(x_norm + 1) * (hi - lo) / 2 + lo``, i.e. scale
+    ``range / 2`` and translation ``lo + range / 2``.
+
+    Parameters
+    ----------
+    lo, hi : float or torch.Tensor
+        Scalar lower and upper bound used for the normalisation.
+    dtype : torch.dtype, default torch.float32
+        dtype of the returned matrix.
+    device : torch.device or str, optional
+        Device of the returned matrix (same rules as ``normalization_matrix``).
+
+    Returns
+    -------
+    torch.Tensor
+        ``[4, 4]`` matrix ``D_inv`` with ``D_inv @ normalization_matrix(lo, hi) == I``.
+
+    Examples
+    --------
+    >>> import torch
+    >>> D_inv = denormalization_matrix(2.0, 10.0)
+    >>> (D_inv @ torch.tensor([-1.0, 0.0, 1.0, 1.0]))[:3]
+    tensor([ 2.,  6., 10.])
+    """
+    lo_t, rng, device = _bounds_on(lo, hi, dtype, device)
+    m = torch.eye(4, dtype=dtype, device=device)
+    idx = torch.arange(3, device=device)
+    m[idx, idx] = rng / 2.0
+    m[:3, 3] = lo_t + rng / 2.0
+    return m
 
 
 def generate_random_rotation_matrix(angles=None):

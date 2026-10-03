@@ -20,8 +20,11 @@ Notes
 2. ``plt.close(fig)`` is mandatory after every ``fig.savefig`` call
    (RESEARCH Matplotlib Agg Patterns).  Without it, matplotlib accumulates
    open figure handles that are never freed.
-3. ``bbox_inches="tight"`` is enforced on every ``fig.savefig`` call per
-   FRAME-08 mandatory rules.
+3. The 2-D metrics figure is saved with ``bbox_inches="tight"``.  Figures
+   with 3-D axes are saved with ``bbox_inches=None`` at their declared
+   figsize (commit 13ee2f8: a tight bbox on 3-D axes can exceed Agg's 2^16
+   pixel limit); their legends and titles are placed inside the canvas with
+   ``subplots_adjust`` and in-canvas anchors instead (VIZ-01).
 4. PDF + PNG output; both files are written per figure.
 5. mathtext only — no system TeX dependencies.
 """
@@ -461,6 +464,77 @@ def _label_figure_data(
     return color_for_label, source_pos_map, source_colors_map, target_pos_map, target_colors_map
 
 
+# Normalised metric key -> raw StageMetrics field (IN-10).
+_METRIC_FIELDS: dict[str, str] = {
+    "chamfer": "chamfer_distance",
+    "hausdorff": "hausdorff_distance",
+    "path_smoothness": "path_smoothness",
+    "temporal_stability": "temporal_stability",
+    "f1": "f1_score",
+    "knn_consistency": "knn_consistency",
+}
+
+# Flag prefix -> metric keys it marks as never computed (IN-10).  Flags come
+# from EvaluationRunner._run_single ("stage unavailable: ...") and
+# eval.runners._label_direction ("f1 unavailable: ...").  "metric unavailable:"
+# flags (eval.metrics) name their metric and are parsed separately.
+_UNAVAILABLE_FLAG_PREFIXES: dict[str, tuple[str, ...]] = {
+    "stage unavailable: alignment disabled": (
+        "chamfer", "hausdorff", "path_smoothness", "temporal_stability",
+    ),
+    "stage unavailable: label transfer disabled": ("f1", "knn_consistency"),
+    "f1 unavailable:": ("f1",),
+}
+
+
+def _unavailable_metric_keys(report: EvalReport) -> set[str]:
+    """Return the normalised metric keys that were never computed (IN-10).
+
+    A key is unavailable when any of the following holds:
+
+    - a sanity flag (``report.sanity_flags`` or ``report.metrics.coverage_flags``)
+      starts with one of ``_UNAVAILABLE_FLAG_PREFIXES``;
+    - a ``"metric unavailable: <name> ..."`` flag names the metric (short key
+      or raw field name), e.g. ``temporal_stability`` from
+      ``MetricsEngine.compute_stage_metrics``;
+    - its raw ``report.metrics`` value is non-finite (unavailable stages
+      report ``+inf``);
+    - it is missing from ``report.metrics.normalized`` or its normalised value
+      is non-finite (no score to draw).
+
+    Parameters
+    ----------
+    report : EvalReport
+        Report whose metrics and flags are inspected.
+
+    Returns
+    -------
+    set[str]
+        Subset of the 6 canonical short-name metric keys.
+    """
+    metrics = report.metrics
+    flags = list(report.sanity_flags) + list(getattr(metrics, "coverage_flags", []) or [])
+    unavailable: set[str] = set()
+    for flag in flags:
+        for prefix, keys in _UNAVAILABLE_FLAG_PREFIXES.items():
+            if flag.startswith(prefix):
+                unavailable.update(keys)
+        if flag.startswith("metric unavailable:"):
+            rest = flag[len("metric unavailable:"):].strip()
+            name = rest.split()[0].strip(",;:()") if rest else ""
+            for key, field in _METRIC_FIELDS.items():
+                if name in (key, field):
+                    unavailable.add(key)
+    for key, field in _METRIC_FIELDS.items():
+        raw = getattr(metrics, field, None)
+        if raw is None or not np.isfinite(raw):
+            unavailable.add(key)
+        norm = metrics.normalized.get(key)
+        if norm is None or not np.isfinite(norm):
+            unavailable.add(key)
+    return unavailable
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -558,8 +632,14 @@ def plot_trajectory(
     ``align_result.aligned_cloud``, then ``dataset[frame]["pos"]``
     (label-only run).  Data preparation lives in ``_label_figure_data``.
 
-    FRAME-08 mandatory rules apply: ``plt.close(fig)`` after every
-    ``fig.savefig``, ``bbox_inches="tight"`` on every savefig call.
+    VIZ-02: the source panel for a plotted target frame shows exactly the
+    source frame ``AlignmentStage._build_aligned_cloud`` paired with it,
+    ``sorted(dataset)[::step][src_sub]`` with ``step`` taken from
+    ``align_result.params_used`` (default 1).
+
+    FRAME-08 rules: ``plt.close(fig)`` after every ``fig.savefig``.  All
+    figures here have 3-D axes and are saved with ``bbox_inches=None`` at
+    their declared size (13ee2f8); legends are kept inside the canvas.
     """
     paths: list[str] = []
 
@@ -717,7 +797,7 @@ def plot_trajectory(
 def plot_metrics(report: EvalReport, path: Union[str, Path]) -> list[str]:
     """Render a horizontal bar chart of 6 normalised metric scores to PDF + PNG.
 
-    Produces a single horizontal bar chart with 6 bars, one per canonical
+    Produces a single horizontal bar chart with 6 rows, one per canonical
     short-name metric key from ``StageMetrics.normalized``, grouped and
     colour-coded by which pipeline stage they measure — alignment vs. label
     transfer — with a legend identifying the two groups and an axis label
@@ -734,8 +814,13 @@ def plot_metrics(report: EvalReport, path: Union[str, Path]) -> list[str]:
         ``"chamfer"``, ``"hausdorff"``, ``"path_smoothness"``,
         ``"temporal_stability"``, ``"f1"``, ``"knn_consistency"``.
 
-        Missing keys default to ``0.0`` via ``.get(k, 0.0)`` — the function
-        will always render 6 bars regardless of dict completeness.
+        Every key keeps its row.  A metric that was never computed is shown
+        as an "n/a (not computed)" row without a bar, so it cannot be read as
+        a score of zero (IN-10).  A metric is unavailable when a
+        ``"stage unavailable: ..."``, ``"f1 unavailable: ..."`` or
+        ``"metric unavailable: <name>"`` flag names it, when its raw value
+        is non-finite, or when its key is missing from (or non-finite in)
+        ``metrics.normalized``.
 
     path : str or Path
         Destination path.  The suffix is replaced: a PDF and a PNG are written
@@ -804,15 +889,23 @@ def plot_metrics(report: EvalReport, path: Union[str, Path]) -> list[str]:
     LABEL_TRANSFER_COLOR = "#eb6834"
 
     labels = [display_names[k] for k in metric_keys]
-    values = [report.metrics.normalized.get(k, 0.0) for k in metric_keys]
+    # IN-10: never-computed metrics get no bar (a zero bar would read as
+    # "scored zero") and an "n/a" annotation instead.
+    unavailable = _unavailable_metric_keys(report)
+    y_pos = list(range(len(labels)))
+    bar_rows = [i for i, k in enumerate(metric_keys) if k not in unavailable]
+    values = [report.metrics.normalized[metric_keys[i]] for i in bar_rows]
     colors = [
-        ALIGNMENT_COLOR if k in alignment_keys else LABEL_TRANSFER_COLOR
-        for k in metric_keys
+        ALIGNMENT_COLOR if metric_keys[i] in alignment_keys else LABEL_TRANSFER_COLOR
+        for i in bar_rows
     ]
 
     fig, ax = plt.subplots(figsize=(6.5, 3.6))
-    y_pos = list(range(len(labels)))
-    ax.barh(y_pos, values, color=colors, height=0.6, zorder=3)
+    ax.barh(bar_rows, values, color=colors, height=0.6, zorder=3)
+    for i, k in enumerate(metric_keys):
+        if k in unavailable:
+            ax.text(0.01, i, "n/a (not computed)", va="center", fontsize=8,
+                    color="#76746e", zorder=3)
     ax.set_yticks(y_pos)
     ax.set_yticklabels(labels, fontsize=9)
     ax.invert_yaxis()  # first metric on top

@@ -287,3 +287,68 @@ def test_source_panel_matches_aligned_frame_with_step_2(captured, tmp_path: Path
             np.asarray(ax.collections[1]._offsets3d[0]),
             err_msg=f"{ax.get_title()}: superposed source != aligned",
         )
+
+
+# ---------------------------------------------------------------------------
+# IN-10 — unavailable metrics are not drawn as zero bars
+# ---------------------------------------------------------------------------
+
+
+def test_plot_metrics_alignment_unavailable_rows_are_na(captured, tmp_path: Path) -> None:
+    """Alignment disabled: its 4 rows have no filled bar and an n/a annotation."""
+    normalized = dict(FULL_NORMALIZED, chamfer=0.0, hausdorff=0.0,
+                      path_smoothness=0.0, temporal_stability=0.0)
+    report = _report(
+        normalized,
+        ["stage unavailable: alignment disabled (run_alignment=false); "
+         "chamfer_distance, hausdorff_distance, path_smoothness, temporal_stability "
+         "not computed (reported as inf, normalised 0.0)"],
+        chamfer_distance=float("inf"),
+        hausdorff_distance=float("inf"),
+        path_smoothness=float("inf"),
+        temporal_stability=float("inf"),
+    )
+    viz.plot_metrics(report, tmp_path / "m.pdf")
+    filled, na = _metrics_rows(captured)
+    assert na == {0, 1, 2, 3}
+    assert filled == {4, 5}
+
+
+def test_plot_metrics_f1_unavailable_row_is_na(captured, tmp_path: Path) -> None:
+    """An "f1 unavailable:" flag marks only the f1 row as n/a."""
+    report = _report(
+        dict(FULL_NORMALIZED, f1=0.0),
+        ["f1 unavailable: pipeline_mode='paired' with label_source='target' has no ground truth"],
+        f1_score=0.0,
+    )
+    viz.plot_metrics(report, tmp_path / "m.pdf")
+    filled, na = _metrics_rows(captured)
+    assert na == {4}
+    assert filled == {0, 1, 2, 3, 5}
+
+
+def test_plot_metrics_fully_available_has_no_na(captured, tmp_path: Path) -> None:
+    """All metrics computed: 6 filled bars and no n/a annotation."""
+    viz.plot_metrics(_report(dict(FULL_NORMALIZED), []), tmp_path / "m.pdf")
+    filled, na = _metrics_rows(captured)
+    assert na == set()
+    assert filled == {0, 1, 2, 3, 4, 5}
+
+
+def test_plot_metrics_nonfinite_raw_without_flag_is_na(captured, tmp_path: Path) -> None:
+    """A non-finite raw metric is unavailable even without a sanity flag."""
+    report = _report(dict(FULL_NORMALIZED, temporal_stability=0.0), [],
+                     temporal_stability=float("inf"))
+    viz.plot_metrics(report, tmp_path / "m.pdf")
+    filled, na = _metrics_rows(captured)
+    assert na == {3}
+    assert filled == {0, 1, 2, 4, 5}
+
+
+def test_plot_metrics_missing_normalized_key_is_unavailable(captured, tmp_path: Path) -> None:
+    """LOW-8: a key missing from metrics.normalized is n/a, not a zero bar."""
+    normalized = {k: v for k, v in FULL_NORMALIZED.items() if k != "knn_consistency"}
+    viz.plot_metrics(_report(normalized, []), tmp_path / "m.pdf")
+    filled, na = _metrics_rows(captured)
+    assert na == {5}
+    assert filled == {0, 1, 2, 3, 4}

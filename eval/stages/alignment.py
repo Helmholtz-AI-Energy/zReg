@@ -1,9 +1,9 @@
 """AlignmentStage: thin DTW + CPD wrapper for FRAME-05 evaluation framework.
 
 This module implements ``AlignmentStage(PipelineStage)``, a thin orchestration
-layer over ``zreg.dtw.DynamicTimeWarping``.  No DTW or CPD logic is
+layer over ``zreg.algorithms.dtw.DynamicTimeWarping``.  No DTW or CPD logic is
 reimplemented here — all numerical computation delegates to the existing
-``zreg.dtw.*`` package (FRAME-05 explicit constraint).
+``zreg.algorithms.dtw.*`` package (FRAME-05 explicit constraint).
 
 Hyperparam mapping (D-07):
 
@@ -471,8 +471,8 @@ class AlignmentStage(PipelineStage):
                             log_freq=-1,
                         )
 
-                    # CR-01: use registration() return value — NonRigidCPD does not set
-                    # self.transformation (overrides maximization_step without super() call)
+                    # CR-01: use the registration() return value because it is the canonical
+                    # result; every CPD variant also sets .transformation after registration (CPD-04).
                     reg_result = cpd_obj.registration(matched_target_frame["pos"], w=0.0, maxiter=1000, tol=1e-5)
                     matched_source_frame["pos"] = reg_result.transformation.transform(matched_source_frame["pos"])
 

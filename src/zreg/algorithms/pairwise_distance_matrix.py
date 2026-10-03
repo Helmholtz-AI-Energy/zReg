@@ -74,7 +74,7 @@ def create_pairwise_distance_matrix(
         The distance metric(s) to use for the calculation. Accepts string identifiers
         ('swd', 'euclidean', 'manhattan', 'minkowski', 'cpd', 'aswd', 'oswd', 'gswd', 'pswd')
         or any callable conforming to the `DistanceMetric` protocol
-        (``zreg.distances.DistanceMetric``). Can be a single value or a list of values.
+        (``zreg.distance_metrics.DistanceMetric``). Can be a single value or a list of values.
         By default, "swd".
     distance_kwargs : list[dict] | dict | None, optional
         Keyword arguments to pass to the distance function(s). If `distance_metric` is a list, this should be a list of
@@ -256,7 +256,7 @@ def create_pairwise_distance_matrix(
                 #
                 # cpd_type == "nonrigid" is excluded from caching: NonRigidTransformation
                 # retains a dense (n_points, n_points) RBF kernel matrix (see
-                # zreg.transforms.nonrigid.NonRigidTransformation.g). With real, full-resolution
+                # zreg.core.transforms.nonrigid.NonRigidTransformation.g). With real, full-resolution
                 # point clouds (tens of thousands of points/frame) and a windowed sweep touching
                 # thousands of (i, j) pairs, retaining one of these per pair grows this dict
                 # unboundedly into the hundreds of GB, exhausting memory/swap well before the

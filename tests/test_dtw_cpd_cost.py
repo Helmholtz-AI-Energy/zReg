@@ -20,6 +20,9 @@ once per ``cpd_type`` on 2x2-frame trajectories of 40 points.
 """
 
 from copy import deepcopy
+from pathlib import Path
+import importlib
+import re
 
 import pytest
 
@@ -173,3 +176,39 @@ class TestCpdTypeValidation:
             x, y, distance_metric=metric, cpd_type=cpd_type, downsample_method=None
         )
         assert torch.isfinite(res.cost_matrix).all()
+
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+_STALE_TRANSFORMS = re.compile(r"(?<!core\.)zreg\.transforms")
+
+
+class TestStalePaths:
+    """CPD-09 (U2-13): docstrings/comments name real module paths."""
+
+    @pytest.mark.parametrize(
+        "rel_path",
+        [
+            "src/zreg/algorithms/dtw/core.py",
+            "src/zreg/algorithms/pairwise_distance_matrix.py",
+            "src/zreg/distance_metrics/_protocol.py",
+        ],
+    )
+    def test_stale_paths_absent_in_zreg_sources(self, rel_path):
+        text = (REPO_ROOT / rel_path).read_text()
+        assert "zreg.distances" not in text
+        assert not _STALE_TRANSFORMS.search(text)
+
+    def test_stale_paths_alignment_comments(self):
+        text = (REPO_ROOT / "eval" / "stages" / "alignment.py").read_text()
+        # The baseline CR-01 comment wraps after "does not set", so match the line fragment.
+        assert "NonRigidCPD does not set" not in text
+        assert "``zreg.dtw." not in text
+
+    def test_stale_paths_types_names_real_classes(self):
+        text = (REPO_ROOT / "src/zreg/core/types.py").read_text()
+        assert "RigidCPDTransformation" not in text
+
+    def test_stale_paths_distance_metric_protocol_resolves(self):
+        """Consistency guard: the path the docstrings now name exists."""
+        mod = importlib.import_module("zreg.distance_metrics")
+        assert hasattr(mod, "DistanceMetric")

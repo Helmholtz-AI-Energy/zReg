@@ -157,7 +157,7 @@ class DynamicTimeWarping:
         Distance metric(s) for point cloud comparison. Accepts string identifiers
         ('swd', 'euclidean', 'manhattan', 'minkowski', 'cpd', 'aswd', 'oswd', 'gswd',
         'pswd') or any callable conforming to the `DistanceMetric` protocol
-        (``zreg.distances.DistanceMetric``). Default: 'swd'.
+        (``zreg.distance_metrics.DistanceMetric``). Default: 'swd'.
     distance_kwargs : list[dict] | dict | None, optional
         Additional kwargs for distance functions. Default: None.
     downsample_method : str | None, optional

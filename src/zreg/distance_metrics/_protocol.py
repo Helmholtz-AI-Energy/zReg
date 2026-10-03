@@ -14,7 +14,7 @@ class DistanceMetric(Protocol):
     satisfy this protocol.
 
     This protocol is part of the public API and can be imported from
-    `zreg.distances`.
+    `zreg.distance_metrics`.
     """
 
     def __call__(self, x: torch.Tensor, y: torch.Tensor, **kwargs) -> torch.Tensor:

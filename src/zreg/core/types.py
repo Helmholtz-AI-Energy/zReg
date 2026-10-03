@@ -23,8 +23,8 @@ class StoredTransform:
     Attributes
     ----------
     transform : object
-        The CPD transformation object — one of RigidCPDTransformation,
-        AffineCPDTransformation, or NonRigidCPDTransformation. Typed as ``object``
+        The CPD transformation object — one of RigidTransformation,
+        AffineTransformation, or NonRigidTransformation (zreg.core.transforms). Typed as ``object``
         to avoid circular imports with the cpd subpackage.
     src_min : torch.Tensor
         0-dimensional scalar tensor: global minimum returned by

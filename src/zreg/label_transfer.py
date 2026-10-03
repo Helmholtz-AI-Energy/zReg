@@ -259,6 +259,38 @@ def _weighted_colours_from_repair(repair: PmatRowRepair, source_colors: torch.Te
     return transferred[:, 0] if squeeze else transferred
 
 
+def _validate_pmat_repair(repair: PmatRowRepair, n_source: int, device: torch.device) -> None:
+    """Consistency checks on a caller-supplied repair (62-REVIEW WR-09).
+
+    Shapes of ``pmat`` and ``bad_rows`` are checked by the caller.  Raises
+    ``ValueError`` when ``bad_rows`` is not boolean, ``fallback_idx`` /
+    ``n_bad`` disagree with ``bad_rows``, a fallback index lies outside
+    ``[-1, n_source)``, or the repair's tensors are not on ``device``.
+    """
+    for name in ("pmat", "bad_rows", "fallback_idx"):
+        t = getattr(repair, name)
+        if t.device != device:
+            raise ValueError(
+                f"pmat_repair.{name} is on {t.device} but source_colors is on {device}"
+            )
+    if repair.bad_rows.dtype != torch.bool:
+        raise ValueError(f"pmat_repair.bad_rows must be bool, got {repair.bad_rows.dtype}")
+    n_bad_mask = int(repair.bad_rows.sum().item())
+    if tuple(repair.fallback_idx.shape) != (n_bad_mask,) or int(repair.n_bad) != n_bad_mask:
+        raise ValueError(
+            f"pmat_repair is inconsistent: bad_rows marks {n_bad_mask} row(s), n_bad="
+            f"{repair.n_bad}, fallback_idx has shape {tuple(repair.fallback_idx.shape)}"
+        )
+    if repair.fallback_idx.numel() > 0:
+        lo = int(repair.fallback_idx.min().item())
+        hi = int(repair.fallback_idx.max().item())
+        if lo < -1 or hi >= n_source:
+            raise ValueError(
+                f"pmat_repair.fallback_idx values must lie in [-1, {n_source}), "
+                f"got range [{lo}, {hi}]"
+            )
+
+
 class LabelTransferMethod(Enum):
     """Enumeration of available label transfer methods."""
     NEAREST_NEIGHBOR = "nearest_neighbor"
@@ -530,6 +562,7 @@ def _transfer_labels_cpd_weighted(
                 f"pmat_repair.bad_rows has shape {tuple(pmat_repair.bad_rows.shape)} but "
                 f"expected ({n_target},)"
             )
+        _validate_pmat_repair(pmat_repair, n_source, source_colors.device)
         # RD-1b: the caller already repaired and reported this frame.
         return _weighted_colours_from_repair(pmat_repair, source_colors)
 

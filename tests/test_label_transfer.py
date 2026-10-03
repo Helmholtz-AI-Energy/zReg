@@ -995,6 +995,43 @@ def test_cpd_weighted_pmat_repair_shape_mismatch_raises():
         )
 
 
+def _bad_row_repair():
+    pmat = _uniform_pmat()
+    pmat[1] = 0.0
+    return repair_pmat_rows(pmat, _PROVIDER4, _RECEIVER4)
+
+
+@pytest.mark.parametrize(
+    "field, value, match",
+    [
+        ("fallback_idx", torch.tensor([0, 1]), "inconsistent"),
+        ("n_bad", 2, "inconsistent"),
+        ("fallback_idx", torch.tensor([4]), r"\[-1, 4\)"),
+        ("fallback_idx", torch.tensor([-2]), r"\[-1, 4\)"),
+        ("bad_rows", torch.tensor([0, 1, 0, 0]), "bool"),
+    ],
+)
+def test_cpd_weighted_pmat_repair_inconsistent_raises(field, value, match):
+    """62-REVIEW WR-09: a mismatched caller repair raises a clear ValueError."""
+    repair = _bad_row_repair()._replace(**{field: value})
+    with pytest.raises(ValueError, match=match):
+        transfer_labels(
+            _PROVIDER4, _RECEIVER4, method="cpd_weighted", source_colors=_COLOURS4,
+            pmat_repair=repair,
+        )
+
+
+def test_cpd_weighted_pmat_repair_device_mismatch_raises():
+    """62-REVIEW WR-09: repair tensors must sit on the source_colors device."""
+    repair = _bad_row_repair()
+    repair = repair._replace(fallback_idx=repair.fallback_idx.to("meta"))
+    with pytest.raises(ValueError, match="pmat_repair.fallback_idx is on meta"):
+        transfer_labels(
+            _PROVIDER4, _RECEIVER4, method="cpd_weighted", source_colors=_COLOURS4,
+            pmat_repair=repair,
+        )
+
+
 def test_label_transfer_all_exports_repair_api():
     import zreg.label_transfer as lt
 

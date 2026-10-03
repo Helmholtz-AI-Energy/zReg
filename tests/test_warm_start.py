@@ -477,6 +477,60 @@ def test_propulate_next_tier_seeds_use_global_population(tmp_path, monkeypatch) 
     assert [t.params for t in real_dev[:2]] == [{"k_neighbours": 4}, {"k_neighbours": 3}]
 
 
+def _prune_stub(returned):
+    """Stand-in ``self`` for ``_prune_propulate_global`` (only reads ``_propulate_returned``)."""
+    from types import SimpleNamespace
+
+    return SimpleNamespace(_propulate_returned=list(returned))
+
+
+def _local_trial(params: dict, score: float, tier: str):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(params=dict(params), score=score, tier=tier)
+
+
+def test_propulate_prune_ignores_individuals_restored_from_previous_tier() -> None:
+    """63-REVIEW iter-2 WR-01: restored sanity individuals keep sanity scores and must not compete in dev."""
+    stub = _prune_stub([
+        # sanity tier: Propulate's population after the sanity search
+        ("sanity", {"k": 1}, 0.95),
+        ("sanity", {"k": 2}, 0.90),
+        # dev tier: the same two individuals, restored from the sanity checkpoint
+        ("dev", {"k": 1}, 0.95),
+        ("dev", {"k": 2}, 0.90),
+        # dev tier: individuals actually evaluated on the dev dataset
+        ("dev", {"k": 3}, 0.60),
+        ("dev", {"k": 4}, 0.55),
+        ("dev", {"k": 5}, 0.50),
+    ])
+    got = HyperparamOptimizer._prune_propulate_global(stub, [], "dev", keep_top_k=3)
+    assert got == [{"k": 3}, {"k": 4}, {"k": 5}]
+
+
+def test_propulate_prune_keeps_rescored_seeds_and_drops_earlier_local_trials() -> None:
+    """63-REVIEW iter-2 WR-01: a seed rank 0 re-scored in dev competes; its sanity trial does not."""
+    stub = _prune_stub([
+        ("sanity", {"k": 1}, 0.95),
+        ("dev", {"k": 1}, 0.95),  # restored, stale sanity score
+        ("dev", {"k": 3}, 0.60),
+    ])
+    history = [
+        _local_trial({"k": 1}, 0.95, "sanity"),
+        _local_trial({"k": 9}, 0.99, "sanity"),  # never evaluated in dev
+        _local_trial({"k": 1}, 0.40, "dev"),  # rank 0's dev re-score of the seed
+    ]
+    got = HyperparamOptimizer._prune_propulate_global(stub, history, "dev", keep_top_k=3)
+    assert got == [{"k": 3}, {"k": 1}]
+
+
+def test_propulate_prune_first_tier_keeps_all_returned_pairs() -> None:
+    """With no earlier tier, every returned pair of the tier is a candidate."""
+    stub = _prune_stub([("sanity", {"k": 1}, 0.2), ("sanity", {"k": 2}, 0.8)])
+    got = HyperparamOptimizer._prune_propulate_global(stub, [], "sanity", keep_top_k=3)
+    assert got == [{"k": 2}, {"k": 1}]
+
+
 # Two thread-simulated ranks (copied from tests/test_optimizer_scoring_contract.py,
 # owned by Phase 62-05; only the MPI transport is simulated).
 

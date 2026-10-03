@@ -1626,14 +1626,35 @@ class HyperparamOptimizer:
         Pruning ``history`` alone made rank 0's next-tier seeds the top-k of
         about ``1/world_size`` of the trials.  Candidates are de-duplicated by
         params (key as in ``_propulate_placeholders``); a real local trial
-        wins over a returned pair with the same params.  A returned pair can
-        be a checkpoint-restored individual with a stale score; that only
-        affects which candidates are re-evaluated as next-tier seeds, never
-        ``best_params.json``.  Only rank 0 uses the result.
+        wins over a returned pair with the same params.  Only rank 0 uses the
+        result.
+
+        63-REVIEW (iteration 2) WR-01: only evaluations of ``tier_name`` compete.
+        All tiers share one ``output_dir``, so each tier's Propulator reloads
+        the previous tier's checkpoint and returns those individuals, tagged
+        with the current tier but still carrying their previous-tier score
+        (a different dataset, so a different scale).  A returned pair whose
+        ``(params, score)`` an earlier tier already produced (returned by
+        Propulate or evaluated locally) is such a restored individual and is
+        dropped; local trials of earlier tiers are excluded via
+        ``Trial.tier``.  This relies on ``run()`` executing the tiers in
+        order, so that at prune time ``self._propulate_returned`` and
+        ``history`` hold only this tier and earlier ones.  Rank 0's re-scored
+        seeds are local trials of this tier and therefore still compete.
         """
+        earlier: set[tuple[str, float]] = {
+            (_trial_key(p), float(s))
+            for tn, p, s in self._propulate_returned
+            if tn != tier_name
+        }
+        earlier.update(
+            (_trial_key(t.params), float(t.score))
+            for t in history
+            if t.tier != tier_name
+        )
         candidates: dict[str, tuple[dict, float]] = {}
         for t in history:
-            if math.isfinite(t.score):
+            if t.tier == tier_name and math.isfinite(t.score):
                 key = _trial_key(t.params)
                 if key not in candidates or t.score > candidates[key][1]:
                     candidates[key] = (t.params, t.score)
@@ -1641,6 +1662,9 @@ class HyperparamOptimizer:
             if tn != tier_name or not math.isfinite(score):
                 continue
             key = _trial_key(params)
+            if (key, float(score)) in earlier:
+                # restored from the previous tier's checkpoint, not evaluated here
+                continue
             if key not in candidates:
                 candidates[key] = (dict(params), score)
         ranked = sorted(candidates.values(), key=lambda c: c[1], reverse=True)

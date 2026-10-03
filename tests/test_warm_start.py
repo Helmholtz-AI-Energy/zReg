@@ -772,3 +772,19 @@ def test_propulate_loss_hint_for_individual_missing_a_new_key(tmp_path, monkeypa
             {"k_neighbours": [3, 4], "window_size": [5]}, lambda p: 0.5, n_trials=2, output_dir=str(tmp_path)
         )
     assert isinstance(excinfo.value.__cause__, KeyError)
+
+
+def test_main_reports_stale_checkpoints_as_one_line_error(tmp_path, monkeypatch, capsys) -> None:
+    """63-REVIEW IN-08: main() prints the stale-checkpoint error and returns 1 (no traceback)."""
+    run_all = _import_run_all()
+
+    def _stale(*args, **kwargs):
+        raise run_all.StaleCheckpointError("[t] checkpoints from another search space; ZREG_CLEAR_CHECKPOINTS=1")
+
+    monkeypatch.setattr(run_all, "_build_phase_lists", lambda configs_dir: {})
+    monkeypatch.setattr(run_all, "run_phase", _stale)
+    monkeypatch.chdir(tmp_path)
+    assert run_all.main(["--phase", "selfcal", "--configs-dir", str(tmp_path)]) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("Error: [t] checkpoints from another search space")
+    assert issubclass(run_all.StaleCheckpointError, RuntimeError)

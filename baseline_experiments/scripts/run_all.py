@@ -169,6 +169,14 @@ def _propulate_checkpoint_files(output_dir: Path) -> list[Path]:
 # written under (63-REVIEW WR-03).
 SEARCH_SPACE_FINGERPRINT = "search_space_fingerprint.json"
 
+
+class StaleCheckpointError(RuntimeError):
+    """Propulate checkpoints were written under another search space (63-REVIEW WR-03).
+
+    ``main()`` reports it as a one-line ``Error:`` instead of a traceback on
+    every rank (63-REVIEW IN-08).
+    """
+
 _CLEAR_HINT = (
     "to discard them and restart this HPO run, re-submit with ZREG_CLEAR_CHECKPOINTS=1 "
     "(or pass --clear-checkpoints to run_all.py)"
@@ -430,7 +438,7 @@ def run_optimize_then_eval(name: str, config_path: Path, force: bool, dry_run: b
     if COMM is not None:
         skip, error = COMM.bcast((skip, error), root=0)
     if error is not None:
-        raise RuntimeError(f"[{name}] {error}")
+        raise StaleCheckpointError(f"[{name}] {error}")
     if skip:
         return
 
@@ -603,7 +611,7 @@ def main(argv=None) -> int:
         for phase in phases:
             log.info("=== phase: %s ===", phase)
             run_phase(phase, phases_map, configs_dir, force=args.force, dry_run=args.dry_run, clear_checkpoints=args.clear_checkpoints)
-    except (EvalConfigError, FileNotFoundError) as e:
+    except (EvalConfigError, FileNotFoundError, StaleCheckpointError) as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
 

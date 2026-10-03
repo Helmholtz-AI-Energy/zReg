@@ -28,8 +28,8 @@ Merge rule (documented, deterministic — no hidden tie-breaking):
   directly (nothing to merge against).
 
 `defaults` is consulted ONLY for conflict resolution and, at the very end of
-:func:`merge_selfcal_params`, to fill any key still missing after combining
-all three real sources — it is never unioned into intermediate merge steps
+:func:`merge_selfcal_params` / :func:`merge_combined_params`, to fill any key
+still missing after combining all real sources — it is never unioned into intermediate merge steps
 (`merge_two`'s key set is `set(a) | set(b)` only). Earlier versions unioned
 `defaults` in at every stage, which meant Shah's calibrated label-transfer
 keys (absent from the two alignment-only dicts) got a defaults-sourced
@@ -140,12 +140,17 @@ def merge_combined_params(
 ) -> dict:
     """Merge all five HPO sources — selfcal (3 runs) + ground_truth (2 runs) — into one dict.
 
-    Calls :func:`merge_selfcal_params` and :func:`merge_groundtruth_params` independently,
-    then averages their results via :func:`merge_two`. Both intermediate merges fill every
-    key (including defaults) before the final pass, so the final :func:`merge_two` sees a
-    fully-populated key union. For calibrated numeric keys the result is the arithmetic mean
-    of the two merged calibration estimates; for keys that came from defaults in both regimes
-    the average equals the default.
+    Calibrated values are merged first; defaults fill only keys no calibration
+    provides (Phase 63 D-02). The selfcal regime (three runs) and the ground-truth
+    regime (two runs, with ``shah_gt_both`` serving as both the alignment and the
+    label-transfer contributor) are each merged with :func:`_merge_selfcal_raw`,
+    which never fills defaults. The two raw regime merges are then combined via
+    :func:`merge_two` and only the result is completed from ``defaults``.
+
+    Consequences: a key calibrated by both regimes is averaged (numeric) or kept
+    if equal / resolved to its default on a categorical conflict; a key calibrated
+    by only one regime keeps that regime's value (it is NOT averaged with, or
+    reverted to, its default); a key calibrated by no run takes its default.
 
     Parameters
     ----------
@@ -162,9 +167,29 @@ def merge_combined_params(
     defaults : dict or None
         Fallback values (typically the pair config's default_params).
     """
-    selfcal = merge_selfcal_params(kobitski_sc_alignment, shah_sc_alignment, shah_sc_label_transfer, defaults)
-    gt = merge_groundtruth_params(kobitski_gt_alignment, shah_gt_both, defaults)
-    return merge_two(selfcal, gt, defaults)
+    defaults = defaults or {}
+    raw_selfcal = _merge_selfcal_raw(
+        kobitski_sc_alignment, shah_sc_alignment, shah_sc_label_transfer, defaults
+    )
+    # Same argument mapping as merge_groundtruth_params (shah_gt_both twice).
+    raw_gt = _merge_selfcal_raw(kobitski_gt_alignment, shah_gt_both, shah_gt_both, defaults)
+    return {**defaults, **merge_two(raw_selfcal, raw_gt, defaults)}
+
+
+def _merge_selfcal_raw(
+    kobitski_alignment: dict,
+    shah_alignment: dict,
+    shah_label_transfer: dict,
+    defaults: dict,
+) -> dict:
+    """Merge three calibration dicts WITHOUT filling missing keys from defaults.
+
+    ``defaults`` is consulted only by :func:`merge_two` for categorical
+    conflict resolution. The returned dict contains exactly the keys that at
+    least one of the three inputs calibrated.
+    """
+    alignment_merged = merge_two(kobitski_alignment, shah_alignment, defaults)
+    return merge_two(alignment_merged, shah_label_transfer, defaults)
 
 
 def merge_selfcal_params(
@@ -206,6 +231,5 @@ def merge_selfcal_params(
         them.
     """
     defaults = defaults or {}
-    alignment_merged = merge_two(kobitski_alignment, shah_alignment, defaults)
-    combined = merge_two(alignment_merged, shah_label_transfer, defaults)
+    combined = _merge_selfcal_raw(kobitski_alignment, shah_alignment, shah_label_transfer, defaults)
     return {**defaults, **combined}

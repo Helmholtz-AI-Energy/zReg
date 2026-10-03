@@ -245,3 +245,20 @@ class TestMergeCombinedParams:
         result = self._run(kobitski_sc, shah_sc_align, shah_sc_lt,
                            kobitski_gt, shah_gt, defaults)
         assert result["step"] == 8
+
+    def test_uncalibrated_selfcal_key_takes_ground_truth_value(self):
+        # Phase 63 D-02 (U7-3): n_breakpoints is calibrated only on ground
+        # truth. It must not be averaged with its default (round((5+12)/2) = 8).
+        defaults = {"n_breakpoints": 5, "cpd_penalty": "rigid", "step": 8}
+        result = self._run({}, {}, {}, {"n_breakpoints": 12},
+                           {"cpd_penalty": "affine"}, defaults)
+        assert result["n_breakpoints"] == 12
+        assert result["step"] == 8
+
+    def test_ground_truth_categorical_not_reverted_to_default(self):
+        # Phase 63 D-02 (U7-3): cpd_penalty is calibrated only on ground truth.
+        # It must not "conflict" with the selfcal-side default and revert.
+        defaults = {"n_breakpoints": 5, "cpd_penalty": "rigid"}
+        result = self._run({}, {}, {}, {"n_breakpoints": 12},
+                           {"cpd_penalty": "affine"}, defaults)
+        assert result["cpd_penalty"] == "affine"

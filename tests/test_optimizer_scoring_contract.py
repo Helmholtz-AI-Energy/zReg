@@ -1249,6 +1249,28 @@ def test_propulate_placeholders_score_mismatch_is_not_placeholder() -> None:
     assert out == []
 
 
+def test_propulate_placeholders_match_numpy_typed_params() -> None:
+    """62-REVIEW WR-11: numpy-typed / tuple params of a real trial match the decoded plain values."""
+    import numpy as np
+
+    merged = [
+        Trial(params={"k_neighbours": np.int64(3), "w": np.float32(0.5), "axis": (0.0, 0.0, 1.0)},
+              score=0.4, metrics=_zero_metrics(), tier="sanity"),
+    ]
+    returned = [("sanity", {"k_neighbours": 3, "w": 0.5, "axis": [0.0, 0.0, 1.0]}, 0.4)]
+    assert optimizer_module._propulate_placeholders(merged, returned) == []
+
+
+def test_trial_key_distinguishes_different_values() -> None:
+    """62-REVIEW WR-11: normalisation does not merge genuinely different params."""
+    import numpy as np
+
+    key = optimizer_module._trial_key
+    assert key({"k": np.int64(3)}) == key({"k": 3})
+    assert key({"k": np.int64(3)}) != key({"k": 4})
+    assert key({"v": np.array([1, 2])}) == key({"v": [1, 2]})
+
+
 class _StaleCheckpointSearch:
     """Propulate stand-in: evaluates every combo, then also returns a stale checkpoint pair."""
 

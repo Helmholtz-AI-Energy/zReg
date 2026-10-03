@@ -249,15 +249,31 @@ def _merge_trial_histories(
     return merged, bad
 
 
+def _to_builtin(value: Any) -> Any:
+    """JSON fallback that maps numpy / torch values to plain Python (62-REVIEW WR-11).
+
+    numpy and torch scalars become ``int``/``float``/``bool`` via ``item()``,
+    arrays and tensors become lists via ``tolist()``; anything else falls back
+    to ``repr``.
+    """
+    if hasattr(value, "item") and getattr(value, "ndim", 0) == 0:
+        return value.item()
+    if hasattr(value, "tolist"):
+        return value.tolist()
+    return repr(value)
+
+
 def _trial_key(params: dict[str, Any]) -> str:
     """Identity of one individual for Propulate reconciliation (Phase 62 RD-6).
 
     Keyed on the params only (62-REVIEW CR-01): a returned pair whose params
     match a real trial of this run is that trial, whatever score Propulate
     reports for it (a checkpoint-restored individual may carry a stale score
-    from an earlier configuration).
+    from an earlier configuration).  Values are normalised to plain Python
+    first (62-REVIEW WR-11), so ``np.int64(5)`` and ``5``, or a tuple and a
+    list after a pickle round-trip, give the same key.
     """
-    return json.dumps(params, sort_keys=True, default=repr)
+    return json.dumps(params, sort_keys=True, default=_to_builtin)
 
 
 def _propulate_placeholders(
@@ -284,7 +300,7 @@ def _propulate_placeholders(
     Notes
     -----
     Phase 62 RD-6.  The key is ``json.dumps(params, sort_keys=True,
-    default=repr)`` and ignores the tier and the score: the next tier's
+    default=_to_builtin)`` and ignores the tier and the score: the next tier's
     Propulator reloads the checkpoint the previous tier wrote to the same
     ``output_dir``, so a pair of an earlier tier would otherwise be duplicated
     under the wrong tier, and a checkpoint-restored individual with the params

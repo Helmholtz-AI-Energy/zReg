@@ -142,3 +142,75 @@ class TestRigidQ:
         sigma2 = float(res.sigma2)
         expected = resid / (2 * sigma2) + n * 3 / 2 * math.log(sigma2)
         assert math.isclose(float(res.q), expected, rel_tol=1e-9)
+
+
+class TestConvergence:
+    """CPD-01: convergence is tested only on four chronological real q values.
+
+    Baseline (6c1c37f) seeded the window with ``torch.arange(4)`` and compared
+    values in ring-buffer storage order, so ``abs().diff().mean()`` could pass
+    at iteration 0 or 1 and a 0.1% change of input scale flipped n_iters from
+    12 to 1.
+    """
+
+    def test_convergence_predicate_rejects_oscillation(self):
+        """A signed endpoint statistic would cancel to 0 on [0, 10, -10, 0]."""
+        from zreg.algorithms.cpd.base import _q_window_converged
+
+        window = collections.deque([0.0, 10.0, -10.0, 0.0], maxlen=4)
+        assert _q_window_converged(window, 1.0) is False
+
+    def test_convergence_predicate_basic(self):
+        from zreg.algorithms.cpd.base import _q_window_converged
+
+        def dq(values):
+            return collections.deque(values, maxlen=4)
+
+        assert _q_window_converged(dq([5.0, 5.0, 5.0, 5.0]), 1e-9) is True
+        assert _q_window_converged(dq([5.0, 5.0, 5.0]), 1e-9) is False
+        assert _q_window_converged(dq([5.0, math.nan, 5.0, 5.0]), 1e-9) is False
+        assert _q_window_converged(dq([math.inf] * 4), 1e-9) is False
+        assert _q_window_converged(dq([0.0, 1.0, 2.0, 3.0]), 1.0) is False
+        assert _q_window_converged(dq([0.0, 1.0, 2.0, 3.0]), 1.01) is True
+
+    @pytest.mark.parametrize(
+        "cls", [cpd.RigidCPD, cpd.AffineCPD, cpd.NonRigidCPD], ids=lambda c: c.__name__
+    )
+    def test_convergence_waits_for_four_q_values(self, cls):
+        """With an infinite tolerance the loop still runs four iterations (baseline 1)."""
+        torch.manual_seed(0)
+        src = torch.randn(60, 3)
+        r = cls(src, log_freq=-1).registration(src.clone(), maxiter=50, tol=1e9)
+        assert r.n_iters == 4
+
+    def test_convergence_scale_invariance_reviewer_case(self):
+        """A 0.1% input-scale change must not change n_iters (baseline 12 vs 1)."""
+        results = {}
+        for s in (1.828, 1.830):
+            torch.manual_seed(0)
+            src = torch.randn(60, 3) * s
+            tgt = src + 0.02 * torch.randn(60, 3)
+            r = cpd.NonRigidCPD(src, log_freq=-1).registration(tgt)
+            results[s] = r
+        n1, n2 = results[1.828].n_iters, results[1.830].n_iters
+        assert n1 == n2
+        assert n1 >= 4 and n2 >= 4
+        for r in results.values():
+            assert float(r.sigma2) < 1e-2
+
+    def test_convergence_maxiter_below_window(self):
+        """maxiter below the window size runs exactly maxiter iterations."""
+        torch.manual_seed(0)
+        src = torch.randn(60, 3)
+        r = cpd.AffineCPD(src, log_freq=-1).registration(
+            src.clone(), maxiter=2, tol=1e9
+        )
+        assert r.n_iters == 2
+        obj = cpd.AffineCPD(src, log_freq=-1)
+        init = obj._initialize(src.clone()).transformation
+        r0 = cpd.AffineCPD(src, log_freq=-1).registration(
+            src.clone(), maxiter=0, tol=1e9
+        )
+        assert r0.n_iters == 0
+        assert torch.equal(r0.transformation.b, init.b)
+        assert torch.equal(r0.transformation.t, init.t)

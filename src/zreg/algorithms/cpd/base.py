@@ -1,8 +1,10 @@
 """Abstract base class for Coherent Point Drift algorithm."""
 
 from abc import ABC, abstractmethod
+from collections import deque
 from collections.abc import Callable
 import logging
+import math
 
 import torch
 
@@ -13,6 +15,42 @@ from ...utils import squared_kernel_sum
 __all__ = ["CoherentPointDrift"]
 
 log = logging.getLogger(__name__)
+
+
+def _q_window_converged(q_window: deque, tol: float) -> bool:
+    """Return True if a full window of q values has converged.
+
+    The window is chronological (a ``deque`` with ``maxlen``; the oldest value
+    is at the left). The criterion is the mean absolute successive change,
+    ``mean(|q_k - q_(k-1)|) < tol``. Taking the absolute value of each delta
+    makes the statistic non-cancelling: an oscillation such as
+    ``[0, 10, -10, 0]`` is not converged, although its signed endpoint
+    difference is 0. Only the deltas are made absolute, never the q values
+    themselves, because the M&S objective q may cross zero.
+
+    Non-finite q never counts as converged, so a NaN or Inf run proceeds to
+    ``maxiter`` (as before) instead of stopping or raising.
+
+    Parameters
+    ----------
+    q_window : collections.deque
+        Chronological q values with ``maxlen`` set (4 in ``registration``).
+    tol : float
+        Convergence tolerance on the mean absolute successive change.
+
+    Returns
+    -------
+    bool
+        True only if the window is full, every value is finite and the mean
+        absolute successive change is below ``tol``.
+    """
+    if q_window.maxlen is None or len(q_window) != q_window.maxlen:
+        return False
+    values = list(q_window)
+    if len(values) < 2 or not all(math.isfinite(v) for v in values):
+        return False
+    total = sum(abs(b - a) for a, b in zip(values[:-1], values[1:]))
+    return total / (len(values) - 1) < tol
 
 
 class CoherentPointDrift(ABC):
@@ -344,7 +382,9 @@ class CoherentPointDrift(ABC):
         eps = torch.finfo(target.dtype).eps
         n_iters = 0
 
-        running_avg = torch.arange(4, dtype=target.dtype, device=target.device)
+        # Chronological window of the last four real q values (D-01); the
+        # convergence check is skipped until it is full.
+        q_window: deque[float] = deque(maxlen=4)
         for i in range(maxiter):
             t_source = res.transformation.transform(self._source)
             estep_res = self.expectation_step(
@@ -389,9 +429,9 @@ class CoherentPointDrift(ABC):
             if self.log_freq > 0 and i % self.log_freq == self.log_freq - 1:
                 log.info(f"Registering: iteration {i}/{maxiter}, criteria: {res.q:.4f}")
 
-            running_avg[i % running_avg.shape[0]] = res.q
+            q_window.append(float(res.q))
 
-            if running_avg.abs().diff().mean().abs() < tol:
+            if _q_window_converged(q_window, tol):
                 if self.log_freq > 0:
                     log.info(
                         f"Hit tolerance in iteration {i} (criteria: {res.q:.4f}), exiting."

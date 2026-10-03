@@ -229,7 +229,9 @@ def temporal_stability(
     Raises
     ------
     TypeError
-        If any element is not a RigidTransformation or AffineTransformation.
+        If any element is not a RigidTransformation/AffineTransformation, or
+        if the transforms do not share one device and one dtype (mixed dtypes
+        are rejected rather than promoted, per Phase 62 D-03).
 
     Notes
     -----
@@ -249,6 +251,19 @@ def temporal_stability(
         return torch.tensor(0.0)
 
     matrices = [_to_matrix(tf) for tf in transforms]
+
+    ref_device = matrices[0].device
+    ref_dtype = matrices[0].dtype
+    if any(m.device != ref_device for m in matrices):
+        raise TypeError(
+            "temporal_stability: all transforms must be on the same device, "
+            f"got {sorted({str(m.device) for m in matrices})}"
+        )
+    if any(m.dtype != ref_dtype for m in matrices):
+        raise TypeError(
+            "temporal_stability: all transforms must have the same dtype, "
+            f"got {sorted({str(m.dtype) for m in matrices})}"
+        )
 
     norms = []
     for i in range(1, len(matrices)):

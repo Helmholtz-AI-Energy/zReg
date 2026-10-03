@@ -211,3 +211,64 @@ class TestKnnConsistencySelfExclusion:
         result = knn_consistency(points, labels, k=1)
         assert isinstance(result, float)
         assert result == pytest.approx(0.5, abs=1e-12)
+
+
+class TestTemporalStabilityMixedInputs:
+    """temporal_stability raises TypeError for mixed device/dtype lists (LT-04 U1-9)."""
+
+    def test_mixed_device_raises_type_error(self):
+        from zreg.core.transforms import RigidTransformation
+        from zreg.evaluation.label_transfer import temporal_stability
+
+        transforms = [
+            RigidTransformation(),
+            RigidTransformation(device=torch.device("meta")),
+        ]
+        with pytest.raises(TypeError, match="device"):
+            temporal_stability(transforms)
+
+    def test_mixed_dtype_raises_type_error(self):
+        from zreg.core.transforms import RigidTransformation
+        from zreg.evaluation.label_transfer import temporal_stability
+
+        transforms = [
+            RigidTransformation(dtype=torch.float32),
+            RigidTransformation(dtype=torch.float64),
+        ]
+        with pytest.raises(TypeError, match="dtype"):
+            temporal_stability(transforms)
+
+    def test_homogeneous_rigid_and_affine_unchanged(self):
+        from zreg.core.transforms import AffineTransformation, RigidTransformation
+        from zreg.evaluation.label_transfer import temporal_stability
+
+        rigid = RigidTransformation(dtype=torch.float32)
+        affine = AffineTransformation(
+            b=2.0 * torch.eye(3, dtype=torch.float32),
+            t=torch.zeros(3, dtype=torch.float32),
+        )
+        result = temporal_stability([rigid, affine])
+        # Difference of the 4x4 matrices is diag(1, 1, 1, 0) -> Frobenius sqrt(3).
+        assert result.dtype == torch.float32
+        assert result.item() == pytest.approx(3.0 ** 0.5, abs=1e-6)
+
+    def test_single_and_empty_lists_unchanged(self):
+        from zreg.core.transforms import RigidTransformation
+        from zreg.evaluation.label_transfer import temporal_stability
+
+        assert temporal_stability([]).item() == 0.0
+        single = temporal_stability([RigidTransformation(dtype=torch.float64)])
+        assert single.item() == 0.0
+        assert single.dtype == torch.float64
+
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+    def test_cpu_and_cuda_mix_raises_type_error(self):
+        from zreg.core.transforms import RigidTransformation
+        from zreg.evaluation.label_transfer import temporal_stability
+
+        transforms = [
+            RigidTransformation(),
+            RigidTransformation(device=torch.device("cuda")),
+        ]
+        with pytest.raises(TypeError, match="device"):
+            temporal_stability(transforms)

@@ -209,11 +209,13 @@ class RigidCPD(CoherentPointDrift):
         t = mu_x - scale * torch.matmul(rot, mu_y)
         tr_xp1x = torch.trace(torch.matmul(target_hat.T * pt1, target_hat))
 
-        # Update variance (Eq. 23 from Myronenko & Song 2010)
+        # Update variance (Eq. 23 from Myronenko & Song 2010). With the
+        # optimal scale, s*tr(Y'P1Y) == tr(A'R) and the s^2 term collapses;
+        # with a fixed scale s = 1 all three trace terms remain.
         if update_scale:
             sigma2 = (tr_xp1x - scale * tr_atr) / (n_p * dim)
         else:
-            sigma2 = (tr_xp1x + tr_yp1y - scale * tr_atr) / (n_p * dim)
+            sigma2 = (tr_xp1x - 2.0 * tr_atr + tr_yp1y) / (n_p * dim)
         sigma2 = torch.clamp(sigma2, min=torch.finfo(a.dtype).eps)
 
         # Objective function

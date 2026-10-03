@@ -268,6 +268,11 @@ class Trial(BaseModel):
         trial.
     tier : str
         Search-tier label: one of ``"sanity"``, ``"dev"``, ``"full"``.
+    flags : list[str], optional
+        Label-transfer problems handled locally during the trial, copied
+        from ``LabelResult.flags`` (e.g. cpd_weighted nearest-neighbour
+        fallbacks). Multiseed trials prefix each with ``'seed {s}: '``
+        (59-REVIEW IN-09b). Default: empty list.
 
     Attributes
     ----------
@@ -275,6 +280,8 @@ class Trial(BaseModel):
     score : float
     metrics : StageMetrics
     tier : str
+    flags : list[str]
+        Label-transfer flags of this trial (see Parameters).
     """
 
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
@@ -283,6 +290,7 @@ class Trial(BaseModel):
     score: float
     metrics: StageMetrics
     tier: str
+    flags: list[str] = Field(default_factory=list)
 
 
 class SearchResult(BaseModel):

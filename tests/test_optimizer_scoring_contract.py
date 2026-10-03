@@ -8,7 +8,20 @@ score raw tensors against the *unaligned* source view (chamfer 0.0 for a 0 deg
 and a 90 deg pair alike) without any test noticing.
 
 The only stub allowed here is data loading (``DataFactory.load_target``) in the
-paired-mode test, because the paired path would otherwise need real files.
+paired-mode tests, because the paired path would otherwise need real files.
+
+Allowed dependency substitutions (Phase 62, LT-02 / 59-REVIEW IN-09b/c):
+  - ``_FlaggingLabelTransferStage``: a subclass of the real
+    ``LabelTransferStage`` that runs ``super().run`` unchanged and appends one
+    known flag to the returned ``LabelResult.flags``. Used only where no
+    cpd_weighted posterior exists (multiseed knn_voting flag-prefix test).
+  - ``_injected_alignment_stage``: ``_injected_alignment_stage`` is an allowed
+    dependency substitution: it runs the real AlignmentStage and only fixes the
+    posterior values handed to the real LabelTransferStage; it does not mock the
+    unit under test. It zeroes the first ``n_zero`` receiver columns of every
+    frame's CPD posterior so the fallback / fraction-bound policy of
+    ``repair_pmat_rows`` is reached deterministically (a displaced real point
+    cannot produce a zero-mass row: sigma2 grows with the displacement).
 
 Covers:
   - NUM-02: multi-seed HPO scores the aligned per-frame dict against the target
@@ -57,7 +70,8 @@ _OPT_LOGGER = "eval.runners.optimizer"
 
 
 def _cfg(
-    tmp_path, *, rot=0.0, seed=None, tier="full", search_space=None, search_strategy="grid"
+    tmp_path, *, rot=0.0, seed=None, tier="full", search_space=None, search_strategy="grid",
+    **extra,
 ) -> EvalConfig:
     """Synthetic subsample_pair config used by the multi-seed / list-seed tests."""
     if seed is None:
@@ -86,6 +100,7 @@ def _cfg(
         n_trials=1,
         search_strategy=search_strategy,
         search_space=search_space,
+        **extra,
     )
 
 
@@ -909,3 +924,237 @@ def test_mpi_world_comm_probe(monkeypatch) -> None:
     assert _mpi_world_comm() is None
     monkeypatch.setitem(sys.modules, "mpi4py", None)  # import mpi4py -> ImportError
     assert _mpi_world_comm() is None
+
+
+# ---------------------------------------------------------------------------
+# LT-02 (Phase 62): cpd_weighted runs inside HPO (align_result wired) and its
+# label-transfer flags reach the Trial record (59-REVIEW IN-09b); over-bound
+# fallback frames fail the trial (IN-09c).
+# ---------------------------------------------------------------------------
+
+from eval.stages import AlignmentStage, LabelTransferStage  # noqa: E402
+
+_TEST_FLAG = "test flag: dependency wrapper"
+
+
+class _FlaggingLabelTransferStage(LabelTransferStage):
+    """Real LabelTransferStage whose result carries one extra known flag."""
+
+    def run(self, source, target, params, align_result=None):
+        result = super().run(source, target, params, align_result=align_result)
+        return result.model_copy(update={"flags": [*result.flags, _TEST_FLAG]})
+
+
+def _injected_alignment_stage(n_zero: int):
+    """Real AlignmentStage whose posterior has its first ``n_zero`` receiver columns zeroed.
+
+    ``estep_results[tk].pmat`` has shape ``(n_aligned_source, n_target)``; with
+    the default ``label_source="source"`` the target points are the receivers
+    (the stage transposes), so zeroing columns zeroes receiver rows.
+    """
+
+    class _InjectedAlignmentStage(AlignmentStage):
+        def run(self, source, target, params):
+            result = super().run(source, target, params)
+            injected = {}
+            for tk, est in result.estep_results.items():
+                pmat = est.pmat.clone()
+                pmat[:, :n_zero] = 0.0
+                injected[tk] = est._replace(pmat=pmat)
+            return result.model_copy(update={"estep_results": injected})
+
+    return _InjectedAlignmentStage
+
+
+_CENTRES = torch.tensor([[0.0, 0.0, 0.0], [10.0, 0.0, 0.0], [0.0, 10.0, 0.0]])
+_PROVIDER_CLASSES = (10, 11, 12)
+
+_CPD_WEIGHTED_PARAMS = {
+    "window_size": 3,
+    "step": 1,
+    "cpd_penalty": "rigid",
+    "dtw_dist_fn": "euclidean",
+    "n_breakpoints": 5,
+    "alignment_method": "cpd",
+    "k_neighbours": 3,
+    "dist_metric": "euclidean",
+    "smoothing": 0.0,
+    "threshold": 0.5,
+}
+
+
+def _clustered(per_cluster: int, seed: int) -> zRegPointCloud:
+    """Labelled points around the three _CENTRES (copied from test_cpd_weighted_direction)."""
+    gen = torch.Generator().manual_seed(seed)
+    cluster = torch.arange(3).repeat_interleave(per_cluster)
+    pos = _CENTRES[cluster] + 0.5 * torch.randn(cluster.numel(), 3, generator=gen)
+    return zRegPointCloud(pos=pos, label=torch.tensor(_PROVIDER_CLASSES)[cluster], id=None)
+
+
+def _cpd_weighted_trajectories() -> tuple[dict, dict]:
+    """3 frames, 42 labelled points each on both sides."""
+    source = {k: _clustered(14, 300 + 2 * k) for k in range(3)}
+    target = {k: _clustered(14, 301 + 2 * k) for k in range(3)}
+    return source, target
+
+
+def _cpd_weighted_paired_cfg(tmp_path) -> EvalConfig:
+    return EvalConfig(
+        data_path=str(tmp_path / "source.mat"),
+        target_data_path=str(tmp_path / "target.csv"),
+        output_dir=str(tmp_path / "out"),
+        pipeline_mode="paired",
+        run_alignment=True,
+        alignment_method="cpd",
+        run_label_transfer=True,
+        label_transfer_method="cpd_weighted",
+        search_strategy="grid",
+        search_space={"cpd_penalty": ["rigid"]},
+        save_plots=False,
+    )
+
+
+def _run_cpd_weighted_objective(tmp_path, monkeypatch, caplog):
+    source, target = _cpd_weighted_trajectories()
+    opt = HyperparamOptimizer(_cpd_weighted_paired_cfg(tmp_path))
+    monkeypatch.setattr(opt._factory, "load_target", lambda: target)
+    hist: list = []
+    with caplog.at_level(logging.WARNING, logger=_OPT_LOGGER):
+        score = opt._objective(dict(_CPD_WEIGHTED_PARAMS), source, "dev", hist)
+    return opt, hist, score
+
+
+def test_objective_cpd_weighted_runs_in_hpo(tmp_path, monkeypatch, caplog) -> None:
+    """cpd_weighted gets the alignment posterior inside HPO (no 'requires align_result')."""
+    opt, hist, score = _run_cpd_weighted_objective(tmp_path, monkeypatch, caplog)
+    assert opt._failed_trials == []
+    assert _trial_failed_records(caplog) == []
+    assert len(hist) == 1
+    assert math.isfinite(score)
+    assert math.isfinite(hist[0].metrics.f1_score)
+
+
+def test_multiseed_cpd_weighted_runs_in_hpo(tmp_path, caplog) -> None:
+    """The multiseed path wires align_result too (synthetic subsample pair, rigid CPD)."""
+    params = {"cpd_penalty": "rigid", "window_size": 3, "k_neighbours": 3}
+    cfg = _cfg(
+        tmp_path,
+        search_space={"cpd_penalty": ["rigid"], "window_size": [3], "k_neighbours": [3]},
+        alignment_method="cpd",
+        label_transfer_method="cpd_weighted",
+    )
+    opt = HyperparamOptimizer(cfg)
+    hist: list = []
+    with caplog.at_level(logging.WARNING, logger=_OPT_LOGGER):
+        score = opt._objective(params, {}, "full", hist)
+    assert opt._failed_trials == []
+    assert _trial_failed_records(caplog) == []
+    assert len(hist) == 1
+    assert math.isfinite(score)
+    assert math.isfinite(hist[0].metrics.f1_score)
+
+
+def test_trial_flags_default_and_round_trip() -> None:
+    """Trial.flags defaults to [] and survives model_dump/model_validate."""
+    assert _trial(3, 0.4).flags == []
+    flagged = Trial(
+        params={"k_neighbours": 3}, score=0.4, metrics=_zero_metrics(), tier="sanity",
+        flags=["frame 0: a", "frame 1: b"],
+    )
+    restored = Trial.model_validate(flagged.model_dump())
+    assert restored.flags == ["frame 0: a", "frame 1: b"]
+
+
+def test_objective_cpd_weighted_fallback_flag_on_trial(tmp_path, monkeypatch, caplog) -> None:
+    """One zero-mass receiver row per frame: the real stage fallback flags reach the Trial."""
+    monkeypatch.setattr(optimizer_module, "AlignmentStage", _injected_alignment_stage(1))
+    opt, hist, score = _run_cpd_weighted_objective(tmp_path, monkeypatch, caplog)
+    assert opt._failed_trials == []
+    assert _trial_failed_records(caplog) == []
+    assert len(hist) == 1
+    assert math.isfinite(score)
+    flags = hist[0].flags
+    assert len(flags) == 3
+    for k in range(3):
+        assert f"frame {k}" in flags[k]
+        assert "1 of 42" in flags[k]
+    # what save_best_params writes to search_history.json
+    dumped = hist[0].model_dump()
+    assert dumped["flags"] == flags
+    assert json.loads(json.dumps(dumped["flags"])) == flags
+
+
+def test_multiseed_flags_prefixed_by_seed(tmp_path, monkeypatch) -> None:
+    """Multiseed trials carry every seed's flags, prefixed 'seed {s}: ', in seed order."""
+    monkeypatch.setattr(optimizer_module, "LabelTransferStage", _FlaggingLabelTransferStage)
+    opt = HyperparamOptimizer(_cfg(tmp_path))
+    hist: list = []
+    opt._score_subsample_pair_multiseed({}, dict(opt._default_params), "full", [1, 2], hist)
+    assert len(hist) == 1
+    assert hist[0].flags == [f"seed 1: {_TEST_FLAG}", f"seed 2: {_TEST_FLAG}"]
+
+
+def test_multiseed_flags_empty_without_flags(tmp_path) -> None:
+    """Without label-transfer flags the multiseed Trial has flags == []."""
+    opt = HyperparamOptimizer(_cfg(tmp_path))
+    hist: list = []
+    opt._score_subsample_pair_multiseed({}, dict(opt._default_params), "full", [1, 2], hist)
+    assert hist[0].flags == []
+
+
+_RANK1_FLAGS = ["seed 1: frame 7: x", "frame 2: y"]
+
+
+def _flagged_trial() -> Trial:
+    return Trial(
+        params={"k_neighbours": 5}, score=0.6, metrics=_zero_metrics(), tier="sanity",
+        flags=list(_RANK1_FLAGS),
+    )
+
+
+def test_reduce_trial_outcomes_keeps_flags_across_ranks(tmp_path) -> None:
+    """Non-empty Trial.flags of rank 1 reach rank 0's merged history unchanged (pickle transport)."""
+    hub, opts, _ = _rank_optimizers(tmp_path, [[_OK_K], [_OK_K]])
+    local = [[_trial(3, 0.4)], [_flagged_trial()]]
+    results, errors = _run_in_rank_threads(
+        hub, [lambda r=r: opts[r]._reduce_trial_outcomes(local[r]) for r in range(2)]
+    )
+    assert errors == [None, None]
+    merged0 = {t.params["k_neighbours"]: t for t in results[0][0]}
+    assert set(merged0) == {3, 5}
+    assert merged0[5].flags == _RANK1_FLAGS
+    assert merged0[3].flags == []
+
+
+def test_reduce_trial_outcomes_keeps_flags_single_process(tmp_path) -> None:
+    """The single-process reduction keeps non-empty Trial.flags."""
+    opt = HyperparamOptimizer(_num05_cfg(tmp_path, [_OK_K]))
+    merged = opt._reduce_trial_outcomes([_flagged_trial()])[0]
+    assert merged[0].flags == _RANK1_FLAGS
+
+
+def test_objective_cpd_weighted_fallback_bound_fails_trial(tmp_path, monkeypatch, caplog) -> None:
+    """IN-09c: 32 of 42 receiver rows bad (> 50%) -> the real stage raises, the trial fails (-inf)."""
+    monkeypatch.setattr(optimizer_module, "AlignmentStage", _injected_alignment_stage(32))
+    opt, hist, score = _run_cpd_weighted_objective(tmp_path, monkeypatch, caplog)
+    assert score == float("-inf")
+    assert hist == []
+    assert opt._n_succeeded == 0
+    assert len(opt._failed_trials) == 1
+    record = opt._failed_trials[0]
+    assert record["error_type"] == "ValueError"
+    assert "max_fallback_fraction" in record["error"]
+    assert "0.5" in record["error"]
+    assert "frame 0" in record["error"]
+
+
+def test_objective_cpd_weighted_all_bad_fails_trial(tmp_path, monkeypatch, caplog) -> None:
+    """Every receiver row bad -> the real stage raises its all-bad error, the trial fails."""
+    monkeypatch.setattr(optimizer_module, "AlignmentStage", _injected_alignment_stage(42))
+    opt, hist, score = _run_cpd_weighted_objective(tmp_path, monkeypatch, caplog)
+    assert score == float("-inf")
+    assert hist == []
+    assert len(opt._failed_trials) == 1
+    assert opt._failed_trials[0]["error_type"] == "ValueError"
+    assert "every receiver point" in opt._failed_trials[0]["error"]
+    assert "frame 0" in opt._failed_trials[0]["error"]

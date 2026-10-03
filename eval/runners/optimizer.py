@@ -910,7 +910,10 @@ class HyperparamOptimizer:
             lt_target = None
             if self.config.run_label_transfer:
                 lt_source, lt_target = resolve_label_transfer_pair(self.config, stage_input, tier_target)
-                label_result = LabelTransferStage(self.config).run(lt_source, lt_target, merged)
+                # LT-02 (Phase 62): cpd_weighted needs the alignment posterior.
+                label_result = LabelTransferStage(self.config).run(
+                    lt_source, lt_target, merged, align_result=align_result
+                )
 
             # Argument assembly — mirrors eval_runner._run_single exactly (Phase 30 Pitfall 4 rename)
             source_sorted_keys = sorted(tier_dataset.keys())
@@ -1014,6 +1017,8 @@ class HyperparamOptimizer:
                 score=score,
                 metrics=metrics,
                 tier=tier_name,
+                # 59-REVIEW IN-09b: label-transfer fallbacks reach the record.
+                flags=list(label_result.flags) if label_result is not None else [],
             )
             history_out.append(trial_obj)
             self._n_succeeded += 1
@@ -1182,6 +1187,8 @@ class HyperparamOptimizer:
 
         scores: list[float] = []
         last_metrics: StageMetrics | None = None
+        # 59-REVIEW IN-09b: every seed's label-transfer flags, seed-prefixed.
+        trial_flags: list[str] = []
 
         for s in seeds:
             per_seed_spec = {**self.config.transform_spec, "seed": s}
@@ -1208,9 +1215,11 @@ class HyperparamOptimizer:
                 # rejects label_source="target" in synthetic mode, so this always
                 # resolves to (stage_input, target_view) here.
                 lt_source, lt_target = resolve_label_transfer_pair(self.config, stage_input, target_view)
+                # LT-02 (Phase 62): cpd_weighted needs the alignment posterior.
                 label_result = LabelTransferStage(self.config).run(
-                    lt_source, lt_target, merged
+                    lt_source, lt_target, merged, align_result=align_result
                 )
+                trial_flags.extend(f"seed {s}: {flag}" for flag in label_result.flags)
 
             source_sorted_keys = sorted(source_view.keys())
             target_sorted_keys = sorted(target_view.keys())
@@ -1262,6 +1271,7 @@ class HyperparamOptimizer:
             score=avg_score,
             metrics=last_metrics,
             tier=tier_name,
+            flags=trial_flags,
         )
         history_out.append(trial_obj)
         return avg_score

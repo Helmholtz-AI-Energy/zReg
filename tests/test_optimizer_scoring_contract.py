@@ -126,7 +126,7 @@ def test_multiseed_scores_alignment_quality(tmp_path) -> None:
     assert m90.chamfer_distance > m0.chamfer_distance
     assert m90.hausdorff_distance > m0.hausdorff_distance
     assert m90.normalized["chamfer"] < m0.normalized["chamfer"] < 1.0
-    assert m0.coverage_flags == []
+    assert [f for f in m0.coverage_flags if f.startswith("frame coverage:")] == []
 
     # (b) the averaged objective the search actually ranks on.
     assert math.isfinite(returned_0)

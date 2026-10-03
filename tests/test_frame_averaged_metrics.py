@@ -225,11 +225,23 @@ class TestStageMetricsCoverage:
         fa = engine._frame_averaged_chamfer_hausdorff(aligned, target)
         m = _stage(engine, aligned, target, labels, aligned[0]["pos"])
 
-        assert m.coverage_flags == fa.flags
-        assert len(m.coverage_flags) == 1
+        frame_flags = [f for f in m.coverage_flags if f.startswith("frame coverage:")]
+        assert frame_flags == fa.flags
+        assert len(frame_flags) == 1
         flags = engine.sanity_check(metrics=m)
         for f in fa.flags:
             assert f in flags
+
+    def test_no_transforms_temporal_stability_unavailable(self, engine, labels):
+        """WR-06: empty transforms never read as a perfect temporal_stability."""
+        aligned = {k: _cloud(k) for k in (0, 1)}
+        m = _stage(engine, aligned, aligned, labels, aligned[0]["pos"])
+
+        assert m.temporal_stability == math.inf
+        assert m.normalized["temporal_stability"] == 0.0
+        assert "metric unavailable: temporal_stability (no per-frame transforms)" in m.coverage_flags
+        flags = engine.sanity_check(metrics=m)
+        assert "non-finite metric: temporal_stability=inf" in flags
 
     def test_stage_metrics_coverage_flags_default_empty(self):
         sm = StageMetrics(

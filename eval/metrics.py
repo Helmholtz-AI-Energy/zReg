@@ -606,7 +606,10 @@ class MetricsEngine:
             ``coverage_flags`` carrying the ``FrameAverage.flags`` of the
             chamfer/hausdorff computation.  When no frame could be scored,
             ``chamfer_distance`` / ``hausdorff_distance`` are ``+inf``
-            (normalised ``0.0``), never ``0.0``.
+            (normalised ``0.0``), never ``0.0``.  When ``transforms`` is
+            empty, ``temporal_stability`` is ``+inf`` (normalised ``0.0``)
+            and a ``"metric unavailable: temporal_stability ..."`` flag is
+            added (WR-06) instead of the former fake-perfect ``0.0``.
 
         Notes
         -----
@@ -614,15 +617,26 @@ class MetricsEngine:
         ``HyperparamOptimizer._objective`` (Phase 22).
         """
         fa = self._frame_averaged_chamfer_hausdorff(aligned_cloud, target)
+        flags = list(fa.flags)
+        if len(transforms) == 0:
+            # WR-06: temporal_stability([]) is 0.0, which normalises to 1.0
+            # ("perfect") although nothing was measured.  Report it as
+            # unavailable (+inf -> normalised 0.0) with an explicit flag.
+            ts = float("inf")
+            flags.append(
+                "metric unavailable: temporal_stability (no per-frame transforms)"
+            )
+        else:
+            ts = temporal_stability(transforms).item()  # Pitfall 5
         sm = StageMetrics(
             chamfer_distance=fa.chamfer,
             hausdorff_distance=fa.hausdorff,
             path_smoothness=path_smoothness(warp_path),  # already float
-            temporal_stability=temporal_stability(transforms).item(),  # Pitfall 5
+            temporal_stability=ts,
             f1_score=compute_f1(y_true, y_pred),  # already float
             knn_consistency=knn_consistency(
                 points_for_knn, labels_for_knn, k=k_neighbours
             ),
-            coverage_flags=list(fa.flags),
+            coverage_flags=flags,
         )
         return sm.model_copy(update={"normalized": self.normalize(sm)})

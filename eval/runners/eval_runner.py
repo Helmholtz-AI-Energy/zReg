@@ -33,8 +33,10 @@ Key design decisions implemented here:
 Notes
 -----
 **AlignResult has no ``transforms`` field.**
-``compute_stage_metrics`` is called with ``transforms=[]``; the underlying
-``temporal_stability([])`` function returns 0.0 (RESEARCH Pitfall 3).
+``compute_stage_metrics`` is called with ``transforms=[]``; it then reports
+``temporal_stability`` as unavailable (``+inf``, normalised ``0.0``, plus a
+``"metric unavailable: ..."`` flag) instead of the fake-perfect 0.0 that
+``temporal_stability([])`` returns (WR-06).
 
 **``params`` must contain only JSON-primitive values** (int, float, str, bool,
 None) for ``save_report`` to succeed.  If any value is a ``torch.Tensor``,
@@ -328,7 +330,8 @@ class EvaluationRunner:
         Notes
         -----
         **``transforms=[]``:** ``AlignResult`` has no transforms field.
-        ``temporal_stability([])`` returns 0.0 — intentional (RESEARCH Pitfall 3).
+        ``compute_stage_metrics`` reports ``temporal_stability`` as
+        unavailable (``+inf`` plus a ``"metric unavailable: ..."`` flag, WR-06).
 
         **Chamfer/Hausdorff frame coverage:** ``chamfer_distance`` and
         ``hausdorff_distance`` are computed per-frame between ``stage_input``
@@ -392,7 +395,7 @@ class EvaluationRunner:
         source_sorted_keys = sorted(source.keys())
 
         warp_path = align_result.warp_path if align_result else []
-        transforms = []  # AlignResult has no transform objects — temporal_stability([]) returns 0.0
+        transforms = []  # AlignResult has no transform objects — temporal_stability reported unavailable (WR-06)
 
         if label_result is not None:
             # Label keys are RECEIVER frames (LabelTransferStage contract).  Use the

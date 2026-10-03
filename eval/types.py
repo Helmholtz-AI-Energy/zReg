@@ -216,8 +216,10 @@ class StageMetrics(BaseModel):
         Human-readable frame-coverage problems found while computing
         chamfer/hausdorff (no shared frame keys, non-dict inputs, partial
         key overlap, skipped degenerate frames); reported by
-        ``MetricsEngine.sanity_check``.  Every entry starts with
-        ``"frame coverage:"``.  Default empty list.
+        ``MetricsEngine.sanity_check``.  Entries start with
+        ``"frame coverage:"``, or ``"metric unavailable:"`` for a metric
+        that could not be measured (e.g. ``temporal_stability`` without
+        per-frame transforms, WR-06).  Default empty list.
 
     Attributes
     ----------

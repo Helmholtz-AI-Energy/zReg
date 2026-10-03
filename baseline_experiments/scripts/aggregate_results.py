@@ -31,6 +31,11 @@ METRIC_FIELDS = [
     "knn_consistency",
 ]
 
+# Phase 63 IN-01: eval_report.json is strict JSON; a metric that was not
+# computed (unavailable stage, +inf in memory) is written as null and listed in
+# the report's non_finite_fields. It is rendered as NA in both summaries.
+NA = "n/a"
+
 # Scoped to a single pair (ew06_vs_shah) for baseline_no_hpo/baseline_with_combined
 # — see run_all.py's BASELINE_NO_HPO comment for why.
 RUNS = [
@@ -85,7 +90,11 @@ def write_csv(rows: list[dict], path: Path) -> None:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         for row in rows:
-            writer.writerow({k: row.get(k, "") for k in fieldnames})
+            out = {k: row.get(k, "") for k in fieldnames}
+            for field in METRIC_FIELDS:
+                if out[field] is None:
+                    out[field] = NA
+            writer.writerow(out)
 
 
 def write_markdown(rows: list[dict], path: Path) -> None:
@@ -95,7 +104,9 @@ def write_markdown(rows: list[dict], path: Path) -> None:
         cells = []
         for h in headers:
             v = row.get(h, "")
-            if isinstance(v, float):
+            if v is None and h in METRIC_FIELDS:
+                v = NA
+            elif isinstance(v, float):
                 v = f"{v:.4f}"
             cells.append(str(v))
         lines.append("| " + " | ".join(cells) + " |")

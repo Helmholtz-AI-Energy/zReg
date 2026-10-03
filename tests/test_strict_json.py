@@ -238,3 +238,116 @@ def test_benchmark_report_strict_json(tmp_path):
     assert data["results"][0]["latency_seconds"] is None
     assert data["results"][0]["knn_consistency"] == 0.9
     assert data["non_finite_fields"] == ["results[0].f1_score", "results[0].latency_seconds"]
+
+
+# ---------------------------------------------------------------------------
+# Null-tolerant readers (aggregate_results.py, create_comparison_pdf.py)
+# ---------------------------------------------------------------------------
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _load_by_path(rel: str, name: str):
+    """Import a repo script by path without running its ``__main__`` block."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(name, _REPO_ROOT / rel)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _report_with_null_metrics() -> dict:
+    return {
+        "params": {"k_neighbours": 3},
+        "metrics": {
+            "chamfer_distance": None,
+            "hausdorff_distance": None,
+            "path_smoothness": 0.5,
+            "temporal_stability": None,
+            "f1_score": 0.75,
+            "knn_consistency": 0.8,
+        },
+        "non_finite_fields": [
+            "metrics.chamfer_distance", "metrics.hausdorff_distance", "metrics.temporal_stability",
+        ],
+    }
+
+
+def test_aggregate_results_renders_null_as_na(tmp_path, monkeypatch):
+    """Strict-JSON nulls render as n/a in summary.md and summary.csv (not 'None')."""
+    agg = _load_by_path("baseline_experiments/scripts/aggregate_results.py", "_agg_results_under_test")
+    run_dir = tmp_path / "experiments" / "selfcal" / "shah_alignment"
+    run_dir.mkdir(parents=True)
+    (run_dir / "eval_report.json").write_text(json.dumps(_report_with_null_metrics()))
+    monkeypatch.setattr(agg, "EXPERIMENTS_ROOT", tmp_path / "experiments")
+
+    rows = agg.build_summary()
+    assert len(rows) == 1
+    md_path, csv_path = tmp_path / "summary.md", tmp_path / "summary.csv"
+    agg.write_markdown(rows, md_path)
+    agg.write_csv(rows, csv_path)
+
+    md_row = md_path.read_text().splitlines()[2]
+    cells = [c.strip() for c in md_row.strip().strip("|").split("|")]
+    headers = ["phase", "name", *agg.METRIC_FIELDS, "had_hpo", "best_score"]
+    by_header = dict(zip(headers, cells))
+    assert by_header["chamfer_distance"] == "n/a"
+    assert by_header["temporal_stability"] == "n/a"
+    assert by_header["f1_score"] == "0.7500"
+    assert "None" not in md_row
+
+    import csv as _csv
+
+    with open(csv_path, newline="") as f:
+        (csv_row,) = list(_csv.DictReader(f))
+    assert csv_row["chamfer_distance"] == "n/a"
+    assert csv_row["f1_score"] == "0.75"
+    assert "None" not in csv_path.read_text()
+
+
+def test_create_comparison_pdf_fmt_metric():
+    """New helper contract: None -> n/a, float -> 6 significant digits, else str."""
+    cmp_pdf = _load_by_path("create_comparison_pdf.py", "_cmp_pdf_under_test")
+    assert cmp_pdf._fmt_metric(None) == "n/a"
+    assert cmp_pdf._fmt_metric(0.123456789) == "0.123457"
+    assert cmp_pdf._fmt_metric("N/A") == "N/A"
+    assert cmp_pdf._fmt_metric(3) == "3"
+
+
+def test_create_comparison_pdf_renders_null_as_na(tmp_path, monkeypatch):
+    """End to end: the metrics rows of the comparison table show n/a for null metrics."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.axes
+    import yaml
+
+    cmp_pdf = _load_by_path("create_comparison_pdf.py", "_cmp_pdf_under_test")
+    run_dirs = []
+    reports = [_report_with_null_metrics(), {"metrics": {"chamfer_distance": 0.25}}]
+    for i, report in enumerate(reports):
+        d = tmp_path / f"run{i}"
+        d.mkdir()
+        (d / "run_config.yaml").write_text(yaml.safe_dump({"k_neighbours": 3}))
+        (d / "eval_report.json").write_text(json.dumps(report))
+        run_dirs.append(d)
+
+    captured = {}
+    real_table = matplotlib.axes.Axes.table
+
+    def _spy_table(self, *args, **kwargs):  # records the cell text, then draws for real
+        captured["cellText"] = kwargs.get("cellText")
+        return real_table(self, *args, **kwargs)
+
+    monkeypatch.setattr(matplotlib.axes.Axes, "table", _spy_table)
+    out = tmp_path / "cmp.pdf"
+    cmp_pdf.create_comparison_pdf(run_dirs[0], run_dirs[1], "A", "B", out)
+
+    assert out.exists()
+    rows = {r[0]: r for r in captured["cellText"]}
+    assert rows["chamfer_distance"] == ["chamfer_distance", "n/a", "0.25"]
+    assert rows["temporal_stability"][1] == "n/a"
+    assert rows["f1_score"][1] == "0.75"
+    metric_cells = [c for r in captured["cellText"] for c in r[1:]]
+    assert "None" not in metric_cells

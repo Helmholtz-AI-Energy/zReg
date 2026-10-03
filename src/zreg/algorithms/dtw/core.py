@@ -686,10 +686,14 @@ class DynamicTimeWarping:
         Security: only load trusted files. With ``resolve_metric=True`` (the default),
         restoring a saved callable ``distance_metric`` reference imports the named
         module, and importing a module executes its top-level code; the
-        ``.transforms.pkl`` companion is unpickled and has the same requirement.
-        ``weights_only=True`` protects only the tensor payload. Pass
-        ``resolve_metric=False`` to read the tensors and config without importing
-        anything; the reference can be resolved later with :meth:`resolve_metric`.
+        ``.transforms.pkl`` companion is unpickled (``pickle`` imports modules and can
+        run code) and has the same requirement. ``weights_only=True`` protects only
+        the tensor payload. Pass ``resolve_metric=False`` to read the tensors and
+        config without importing or unpickling anything: only the ``weights_only``
+        payload is read, the companion is not opened and ``stored_transforms`` is
+        empty. The reference can be resolved later with :meth:`resolve_metric` and
+        the companion loaded with :meth:`load_stored_transforms`, both of which
+        require a trusted file.
 
         Parameters
         ----------
@@ -697,13 +701,17 @@ class DynamicTimeWarping:
             Path to the saved results (.pt file).
         resolve_metric : bool
             If True (default), restore a saved callable ``distance_metric`` reference
-            to the callable. If False, ``config["distance_metric"]`` keeps the stored
-            reference (``{"callable": "module:qualname"}``) and no module is imported.
+            to the callable and unpickle the ``.transforms.pkl`` companion. If False,
+            ``config["distance_metric"]`` keeps the stored reference
+            (``{"callable": "module:qualname"}``), no module is imported and the
+            companion is not unpickled (``stored_transforms`` is ``{}``).
 
         Returns
         -------
         DTWResult
-            The loaded DTW results. ``config`` holds the saved configuration, with the
+            The loaded DTW results. ``stored_transforms`` holds the companion's
+            transforms (empty if there is none or ``resolve_metric`` is False).
+            ``config`` holds the saved configuration, with the
             ``distance_metric`` reference restored when ``resolve_metric`` is True and
             the reference resolves, or None for files without a config. If the
             reference is malformed or does not resolve (for example the function was
@@ -715,12 +723,11 @@ class DynamicTimeWarping:
         # a list, and primitives — no arbitrary pickle objects.
         data = torch.load(path, weights_only=True)
 
-        # Load companion transforms file if it exists (written by save()).
-        transforms_path = Path(str(path) + ".transforms.pkl")
+        # The companion transforms file (written by save()) is a plain pickle,
+        # which imports modules and can run code; the safe mode skips it.
         stored_transforms: dict = {}
-        if transforms_path.exists():
-            with open(transforms_path, "rb") as f:
-                stored_transforms = pickle.load(f)  # noqa: S301
+        if resolve_metric:
+            stored_transforms = cls.load_stored_transforms(path)
 
         config = data.get("config")
         if isinstance(config, dict):
@@ -749,6 +756,31 @@ class DynamicTimeWarping:
 
         log.info(f"Loaded DTW results from {path}")
         return result
+
+    @staticmethod
+    def load_stored_transforms(path: str | Path) -> dict:
+        """Unpickle the ``.transforms.pkl`` companion written by :meth:`save`.
+
+        Security: ``pickle.load`` imports the modules named in the file and can run
+        arbitrary code; only call this for trusted files. :meth:`load` calls it
+        unless ``resolve_metric=False``.
+
+        Parameters
+        ----------
+        path : str | Path
+            Path to the saved results (.pt file); the companion is
+            ``path + ".transforms.pkl"``.
+
+        Returns
+        -------
+        dict
+            The stored transforms, or ``{}`` if the companion does not exist.
+        """
+        transforms_path = Path(str(path) + ".transforms.pkl")
+        if not transforms_path.exists():
+            return {}
+        with open(transforms_path, "rb") as f:
+            return pickle.load(f)  # noqa: S301
 
     @staticmethod
     def resolve_metric(ref):

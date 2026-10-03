@@ -11,7 +11,9 @@ not resolve back to the same object are rejected with ``TypeError`` before any f
 written. ``load()`` is for trusted files only (importing a module executes code).
 """
 
+import importlib
 import os
+import pickle
 import subprocess
 import sys
 import types
@@ -273,6 +275,56 @@ class TestLoadMetricResolution:
         fn = DynamicTimeWarping.resolve_metric(loaded.config["distance_metric"])
         assert mod_name in sys.modules
         assert fn is sys.modules[mod_name].metric
+        monkeypatch.delitem(sys.modules, mod_name, raising=False)
+
+    def test_resolve_metric_false_does_not_unpickle_companion(
+        self, small_trajectory_pair, tmp_path, monkeypatch
+    ):
+        """WR-02 (iteration 2): the safe mode also skips the ``.transforms.pkl``.
+
+        Before, ``load(path, resolve_metric=False)`` still unpickled the companion,
+        so a crafted ``__reduce__`` ran code although the docstring promised that
+        nothing is imported.
+        """
+        x, y = small_trajectory_pair
+        mod_dir = tmp_path / "mods"
+        mod_dir.mkdir()
+        mod_name = "zreg_wr02_pickle_payload_mod"
+        marker = tmp_path / "payload_ran"
+        (mod_dir / f"{mod_name}.py").write_text(
+            "import pathlib\n\n\n"
+            "def mark(p):\n"
+            "    pathlib.Path(p).write_text('ran')\n"
+            "    return {}\n\n\n"
+            "class Payload:\n"
+            "    def __init__(self, p):\n"
+            "        self.p = p\n\n"
+            "    def __reduce__(self):\n"
+            "        return (mark, (self.p,))\n"
+        )
+        monkeypatch.syspath_prepend(str(mod_dir))
+        monkeypatch.delitem(sys.modules, mod_name, raising=False)
+        path = tmp_path / "r.pt"
+        _computed(x, y, euclidean_distance).save(path)
+        mod = importlib.import_module(mod_name)
+        Path(str(path) + ".transforms.pkl").write_bytes(
+            pickle.dumps(mod.Payload(str(marker)))
+        )
+        del mod
+        monkeypatch.delitem(sys.modules, mod_name, raising=False)
+
+        loaded = DynamicTimeWarping.load(path, resolve_metric=False)
+        assert not marker.exists()
+        assert mod_name not in sys.modules
+        assert loaded.stored_transforms == {}
+        assert loaded.warping_path[0] == (0, 0)
+
+        # The trusted paths still unpickle the companion.
+        assert DynamicTimeWarping.load_stored_transforms(path) == {}
+        assert marker.exists()
+        marker.unlink()
+        DynamicTimeWarping.load(path)
+        assert marker.exists()
         monkeypatch.delitem(sys.modules, mod_name, raising=False)
 
     def test_default_load_still_restores_callable(self, small_trajectory_pair, tmp_path):

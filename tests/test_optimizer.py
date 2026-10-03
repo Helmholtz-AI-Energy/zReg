@@ -1287,10 +1287,15 @@ class TestHyperparamOptimizerCoverageGaps:
             n_trials=2,
             search_space={"window_size": [3]},
         )
+        # The mock returns a pair without evaluating it, i.e. only a
+        # checkpoint-restored placeholder: 62-REVIEW iteration 2 WR-01 raises
+        # instead of writing an empty best_params.json.
         with patch("eval.runners.optimizer.PropulateSearch") as mock_propulate:
             mock_propulate.return_value.search.return_value = [({"window_size": 3}, 0.5)]
-            result = HyperparamOptimizer(cfg).run()
-        assert isinstance(result, SearchResult)
+            with pytest.raises(RuntimeError, match="checkpoint-restored"):
+                HyperparamOptimizer(cfg).run()
+        mock_propulate.return_value.search.assert_called_once()
+        assert not (tmp_path / "out" / "best_params.json").exists()
 
     @patch("eval.runners.optimizer.LabelTransferStage")
     @patch("eval.runners.optimizer.AlignmentStage")

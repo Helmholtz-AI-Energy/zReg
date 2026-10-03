@@ -1322,6 +1322,42 @@ def test_propulate_stale_score_for_real_params_not_duplicated(tmp_path, monkeypa
     assert result.best_score < 0.99
 
 
+class _OnlyStaleCheckpointSearch:
+    """Propulate stand-in: evaluates nothing and returns only a stale checkpoint pair."""
+
+    def search(self, search_space, objective_fn, n_trials, output_dir, warm_start=None):
+        return [({"k_neighbours": 7}, 0.99)]
+
+
+def test_propulate_only_placeholders_raises(tmp_path, monkeypatch) -> None:
+    """62-REVIEW iteration 2 WR-01: no evaluation + stale pairs raises, writes nothing."""
+    cfg = _num05_cfg(tmp_path, [_OK_K], strategy="propulate")
+    monkeypatch.setattr(optimizer_module, "PropulateSearch", _OnlyStaleCheckpointSearch)
+    with pytest.raises(RuntimeError, match="1 checkpoint-restored individual"):
+        HyperparamOptimizer(cfg).run()
+    out = Path(cfg.output_dir).resolve()
+    assert not (out / "best_params.json").exists()
+    assert not (out / "search_history.json").exists()
+
+
+def test_run_threads_propulate_only_placeholders_raises_on_every_rank(
+    tmp_path, monkeypatch
+) -> None:
+    """62-REVIEW iteration 2 WR-01: the placeholder count is broadcast, so every rank raises
+    after the same gather + bcast, although placeholders exist only on rank 0."""
+    hub, opts, cfgs = _rank_optimizers(tmp_path, [[_OK_K], [_OK_K]], strategy="propulate")
+    hub.population.append(({"k_neighbours": 7}, -0.99))  # checkpoint-restored, not evaluated
+    monkeypatch.setattr(_ContractPropulateSearch, "hub", hub)
+    monkeypatch.setattr(_ContractPropulateSearch, "idle_ranks", (0, 1))
+    monkeypatch.setattr(optimizer_module, "PropulateSearch", _ContractPropulateSearch)
+    _, errors = _run_in_rank_threads(hub, [opts[0].run, opts[1].run])
+    for err in errors:
+        assert isinstance(err, RuntimeError)
+        assert "checkpoint-restored" in str(err)
+    assert opts[0]._comm.calls == opts[1]._comm.calls == ["gather", "bcast"]
+    assert not (Path(cfgs[0].output_dir).resolve() / "best_params.json").exists()
+
+
 def test_propulate_placeholder_flag_is_public() -> None:
     """RD-8: the flag constant is public API; the helper stays private."""
     assert "PROPULATE_PLACEHOLDER_FLAG" in optimizer_module.__all__

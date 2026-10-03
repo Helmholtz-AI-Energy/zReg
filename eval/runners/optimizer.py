@@ -491,10 +491,14 @@ class HyperparamOptimizer:
         SearchResult
             Frozen pydantic model with ``best_params``, ``best_score``,
             ``history`` (the finite-score successful ``Trial`` objects of all
-            tiers and, on rank 0, of all MPI ranks), ``tier`` (the ceiling tier
-            from ``config.tier``) and ``failed_trials`` (failure records; on
-            rank 0 those of every rank).  Non-zero MPI ranks return an empty
-            result and never write to disk.
+            tiers and, on rank 0, of all MPI ranks; under Propulate also the
+            checkpoint-restored pairs as placeholders flagged with
+            ``PROPULATE_PLACEHOLDER_FLAG``, which are never selected as best),
+            ``tier`` (the ceiling tier from ``config.tier``) and
+            ``failed_trials`` (failure records; on rank 0 those of every
+            rank).  ``best_params`` is ``{}`` and ``best_score`` ``0.0`` only
+            when no trial was attempted and no placeholder exists.  Non-zero
+            MPI ranks return an empty result and never write to disk.
 
         Raises
         ------
@@ -502,6 +506,10 @@ class HyperparamOptimizer:
             On every rank, when at least one trial was attempted on some rank
             but the merged (all-rank) history holds no successful trial.
             Rank 0 writes ``failed_trials.json`` before raising.
+        RuntimeError
+            On every rank, when the merged history holds no real trial but
+            Propulate placeholders exist (checkpoint-restored individuals, no
+            evaluation in this run).  Nothing is written to ``output_dir``.
 
         Notes
         -----
@@ -544,6 +552,7 @@ class HyperparamOptimizer:
         self._n_succeeded = 0
         self._propulate_returned = []
         self._aborted_ranks: list[tuple[int, str]] = []
+        self._n_placeholders = 0
         # Resolved lazily so constructing an optimizer does not initialise MPI.
         if self._comm is None:
             self._comm = _mpi_world_comm()
@@ -640,6 +649,22 @@ class HyperparamOptimizer:
             raise RuntimeError(
                 f"No successful HPO trial reached rank 0 although {n_ok} trial(s) "
                 "succeeded; the merged history is empty."
+            )
+
+        # 62-REVIEW iteration 2 WR-01: Propulate returned only
+        # checkpoint-restored individuals (placeholders) and evaluated nothing
+        # in this run, e.g. a resume whose generation budget is already used
+        # up. Best is never chosen from placeholders (CR-01), so writing an
+        # empty best_params.json would look like a successful run. Raise on
+        # every rank (n_hist, n_ok, n_fail and _n_placeholders all come from
+        # rank 0's broadcast) and leave output_dir untouched, so the previous
+        # run's artefacts are not overwritten.
+        if n_hist == 0 and self._n_placeholders > 0:
+            raise RuntimeError(
+                f"Propulate returned {self._n_placeholders} checkpoint-restored "
+                "individual(s) but evaluated no trial in this run; refusing to "
+                "select a best from stale scores (clear or change output_dir "
+                f"{output_dir}, or raise the generation budget)."
             )
 
         # Only rank 0 writes results: it holds the merged history of every
@@ -849,8 +874,11 @@ class HyperparamOptimizer:
         individuals).  ``n_hist`` counts only the real merged trials
         (62-REVIEW CR-01), so a run in which every real trial failed still
         raises even when placeholders exist; ``n_ok`` counts only real
-        successful evaluations.  This is local to rank 0 and adds no
-        collective.
+        successful evaluations.  The placeholders are built on rank 0 only;
+        their count travels in the existing broadcast summary (no extra
+        collective) and is stored in ``self._n_placeholders`` on every rank,
+        so ``run()`` can apply the placeholders-only raise rule (62-REVIEW
+        iteration 2 WR-01) identically everywhere.
 
         Without a communicator (no mpi4py, or a world of size 1) the same
         merge runs on local data with no collectives.
@@ -867,7 +895,9 @@ class HyperparamOptimizer:
             self._aborted_ranks = [] if aborted is None else [(rank, aborted)]
             merged, bad = _merge_trial_histories([payload["history"]], start_rank=rank)
             n_hist_real = len(merged)
-            merged = merged + _propulate_placeholders(merged, self._propulate_returned)
+            placeholders = _propulate_placeholders(merged, self._propulate_returned)
+            self._n_placeholders = len(placeholders)
+            merged = merged + placeholders
             failures = payload["failures"] + bad
             return merged, failures, self._n_succeeded, len(failures), n_hist_real
 
@@ -875,18 +905,26 @@ class HyperparamOptimizer:
         if rank == 0:
             merged, bad = _merge_trial_histories([p["history"] for p in gathered], start_rank=0)
             n_hist_real = len(merged)
-            merged = merged + _propulate_placeholders(merged, self._propulate_returned)
+            placeholders = _propulate_placeholders(merged, self._propulate_returned)
+            merged = merged + placeholders
             failures = [rec for p in gathered for rec in p["failures"]] + bad
             aborted_ranks = [
                 (r, p["aborted"]) for r, p in enumerate(gathered) if p.get("aborted") is not None
             ]
-            summary = (sum(p["n_ok"] for p in gathered), len(failures), n_hist_real, aborted_ranks)
+            summary = (
+                sum(p["n_ok"] for p in gathered),
+                len(failures),
+                n_hist_real,
+                len(placeholders),
+                aborted_ranks,
+            )
         else:
             merged = []
             failures = payload["failures"]
             summary = None
-        n_ok, n_fail, n_hist, aborted_ranks = comm.bcast(summary, root=0)
+        n_ok, n_fail, n_hist, n_placeholders, aborted_ranks = comm.bcast(summary, root=0)
         self._aborted_ranks = [tuple(a) for a in aborted_ranks]
+        self._n_placeholders = n_placeholders
         return merged, failures, n_ok, n_fail, n_hist
 
     def _objective(
@@ -1521,7 +1559,10 @@ class HyperparamOptimizer:
         -----
         ``best_params.json`` stays a flat dict and ``search_history.json`` a
         list of ``Trial`` dicts (downstream scripts parse both); the history
-        holds the finite-score successful trials of all ranks.  Failures
+        holds the finite-score successful trials of all ranks and, under
+        Propulate, the placeholders flagged with ``PROPULATE_PLACEHOLDER_FLAG``
+        (never selected as best; ``run()`` raises instead of writing an empty
+        best when only placeholders exist).  Failures
         (Phase 59 NUM-05) go to ``failed_trials.json`` as a list of records.
 
         Uses ``model_dump()`` + ``json.dump()``.  The JSON shortcut raises

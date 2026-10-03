@@ -848,17 +848,17 @@ class TestCPDRegistrationFunctionAdditional:
         assert result.transformation is not None
 
     def test_use_color_path_in_cpd_registration(self):
-        """cpd_registration with use_color=True executes the pos+color concat (lines 103-104).
+        """cpd_registration rejects use_color=True with NotImplementedError (CPD-05).
 
-        The registration itself fails because target_colors is never forwarded through
-        cpd_registration; the TypeError is expected and the lines are still covered.
+        cpd_registration cannot forward colours, so use_color=True is rejected
+        before any computation. Colour-assisted rigid CPD is done by
+        constructing RigidCPD directly.
         """
         from zreg.core.dataset import zRegPointCloud
         n = 20
         source = zRegPointCloud(pos=torch.randn(n, 3), label=torch.rand(n, 3), id=torch.arange(n))
         target = zRegPointCloud(pos=torch.randn(n, 3), label=torch.rand(n, 3), id=torch.arange(n))
-        # Lines 103-104 execute before the TypeError is raised
-        with pytest.raises(TypeError):
+        with pytest.raises(NotImplementedError, match="use_color"):
             cpd.cpd_registration(
                 source, target, tf_type_name="rigid",
                 use_color=True, maxiter=1, log_freq=-1,
@@ -887,17 +887,17 @@ class TestAbstractMethodBodies:
 
 
 class TestRigidCPDBranchCoverage:
-    """Branch coverage for rigid.py lines 86->95 and 99->exit."""
+    """Branch coverage for RigidCPD.reset_transform and the pre-set-transformation guard."""
 
     def test_reset_transform_when_transformation_is_none(self):
-        """reset_transform when transformation=None takes the False branch (line 99->exit)."""
+        """reset_transform when transformation=None is a no-op."""
         source = torch.randn(20, 3)
         cpd_obj = cpd.RigidCPD(source=source, log_freq=-1)
         assert cpd_obj.transformation is None
         cpd_obj.reset_transform()  # must not raise; False branch (transformation is None)
 
     def test_registration_skips_rot_init_when_transformation_preset(self):
-        """_initialize skips rotation assignment when transformation already exists (line 86->95)."""
+        """_initialize keeps a pre-set transformation instead of building the default identity."""
         source = torch.randn(20, 3)
         target = source + torch.randn(20, 3) * 0.05
         cpd_obj = cpd.RigidCPD(source=source, log_freq=-1)
@@ -908,21 +908,20 @@ class TestRigidCPDBranchCoverage:
 
 
 class TestInitCPDFromExistingUseColor:
-    """Test init_cpd_from_existing with use_color (cpd/_registration.py:185, 189)."""
+    """init_cpd_from_existing rejects use_color=True (CPD-05)."""
 
     def test_init_from_rigid_with_use_color(self):
-        """init_cpd_from_existing with use_color=True executes the pos+color concat (line 189).
+        """init_cpd_from_existing with use_color=True raises NotImplementedError.
 
-        The CPD constructor then raises ValueError because source_colors is not forwarded;
-        the ValueError is expected and line 189 is still covered.
+        The function cannot forward colours, so use_color=True is rejected before
+        any CPD object is built.
         """
         from zreg.core.dataset import zRegPointCloud
         n = 20
         source = zRegPointCloud(pos=torch.randn(n, 3), label=torch.rand(n, 3), id=torch.arange(n))
         target = zRegPointCloud(pos=torch.randn(n, 3), label=torch.rand(n, 3), id=torch.arange(n))
         tf = transforms.RigidTransformation(device="cpu", dtype=torch.float32)
-        # Line 189 executes before ValueError is raised in the CPD constructor
-        with pytest.raises(ValueError, match="source_colors"):
+        with pytest.raises(NotImplementedError, match="use_color"):
             cpd.init_cpd_from_existing(tf, source, target, use_color=True, log_freq=-1)
 
 

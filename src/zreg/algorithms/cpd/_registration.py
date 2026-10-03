@@ -7,8 +7,6 @@ away the class instantiation details.
 from typing import Any
 from collections.abc import Callable
 
-import torch
-
 from ._types import MstepResult
 from .rigid import RigidCPD
 from .affine import AffineCPD
@@ -64,7 +62,10 @@ def cpd_registration(
     callbacks : list[Callable] | None
         Functions called after each iteration with the transformation.
     use_color : bool
-        Use color information if available.
+        Not supported; must be False. ``True`` raises NotImplementedError.
+        For colour-assisted rigid CPD construct
+        ``RigidCPD(source, source_colors=..., use_color=True)`` directly and
+        call ``registration(target, target_colors=...)``.
     log_freq : int
         Log frequency during registration (-1 to disable).
     **kwargs
@@ -84,6 +85,8 @@ def cpd_registration(
 
     Raises
     ------
+    NotImplementedError
+        If ``use_color`` is True (colours are not forwarded by this function).
     ValueError
         If tf_type_name is not a recognized transformation type.
 
@@ -96,6 +99,12 @@ def cpd_registration(
     """
     if callbacks is None:
         callbacks = []
+    if use_color:
+        raise NotImplementedError(
+            "use_color=True is not supported by cpd_registration/init_cpd_from_existing; "
+            "for colour-assisted rigid CPD construct RigidCPD(source, source_colors=..., "
+            "use_color=True) and call registration(target, target_colors=...)"
+        )
 
     o3d, _has_open3d = _get_open3d()
     # Convert from Open3D if necessary
@@ -104,23 +113,20 @@ def cpd_registration(
     if _has_open3d and isinstance(target, o3d.t.geometry.PointCloud):
         target = open3d_to_zreg(target)
 
-    # Prepare point data
-    if use_color:
-        sourcei = torch.cat([source["pos"], source["label"]], dim=1)
-        targeti = torch.cat([target["pos"], target["label"]], dim=1)
-    else:
-        sourcei = source["pos"]
-        targeti = target["pos"]
+    # Prepare point data (xyz only; the "label" field holds class indices,
+    # not colours)
+    sourcei = source["pos"]
+    targeti = target["pos"]
 
     # Instantiate appropriate CPD class
     if tf_type_name == "rigid":
-        cpd = RigidCPD(sourcei, use_color=use_color, log_freq=log_freq, **kwargs)
+        cpd = RigidCPD(sourcei, log_freq=log_freq, **kwargs)
     elif tf_type_name == "affine":
-        cpd = AffineCPD(sourcei, use_color=use_color, log_freq=log_freq, **kwargs)
+        cpd = AffineCPD(sourcei, log_freq=log_freq, **kwargs)
     elif tf_type_name == "nonrigid":
-        cpd = NonRigidCPD(sourcei, use_color=use_color, log_freq=log_freq, **kwargs)
+        cpd = NonRigidCPD(sourcei, log_freq=log_freq, **kwargs)
     elif tf_type_name == "nonrigid_constrained":
-        cpd = ConstrainedNonRigidCPD(sourcei, use_color=use_color, log_freq=log_freq, **kwargs)
+        cpd = ConstrainedNonRigidCPD(sourcei, log_freq=log_freq, **kwargs)
     else:
         raise ValueError(f"Unknown transformation type: {tf_type_name}")
 
@@ -161,7 +167,10 @@ def init_cpd_from_existing(
     callbacks : list[Callable] | None
         Functions called after each iteration.
     use_color : bool
-        Use color information if available.
+        Not supported; must be False. ``True`` raises NotImplementedError.
+        For colour-assisted rigid CPD construct
+        ``RigidCPD(source, source_colors=..., use_color=True)`` directly and
+        call ``registration(target, target_colors=...)``.
     log_freq : int
         Log frequency during registration.
 
@@ -172,6 +181,8 @@ def init_cpd_from_existing(
 
     Raises
     ------
+    NotImplementedError
+        If ``use_color`` is True (colours are not forwarded by this function).
     TypeError
         If transform is not a RigidTransformation or AffineTransformation.
 
@@ -183,6 +194,12 @@ def init_cpd_from_existing(
     """
     if callbacks is None:
         callbacks = []
+    if use_color:
+        raise NotImplementedError(
+            "use_color=True is not supported by cpd_registration/init_cpd_from_existing; "
+            "for colour-assisted rigid CPD construct RigidCPD(source, source_colors=..., "
+            "use_color=True) and call registration(target, target_colors=...)"
+        )
 
     o3d, _has_open3d = _get_open3d()
     # Convert from Open3D if necessary
@@ -191,11 +208,9 @@ def init_cpd_from_existing(
     if _has_open3d and isinstance(target, o3d.t.geometry.PointCloud):
         target = open3d_to_zreg(target)
 
-    # Prepare point data
-    if use_color:
-        sourcei = torch.cat([source["pos"], source["label"]], dim=1)
-    else:
-        sourcei = source["pos"]
+    # Prepare point data (xyz only; the "label" field holds class indices,
+    # not colours)
+    sourcei = source["pos"]
 
     # Create CPD object based on transform type
     if isinstance(transform, tf.RigidTransformation):
@@ -205,7 +220,6 @@ def init_cpd_from_existing(
         }
         cpdobj = RigidCPD(
             sourcei,
-            use_color=use_color,
             tf_init_params=tf_init_params,
             log_freq=log_freq,
         )
@@ -217,7 +231,6 @@ def init_cpd_from_existing(
         }
         cpdobj = AffineCPD(
             sourcei,
-            use_color=use_color,
             tf_init_params=tf_init_params,
             log_freq=log_freq,
         )

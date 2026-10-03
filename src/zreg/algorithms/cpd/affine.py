@@ -25,7 +25,8 @@ class AffineCPD(CoherentPointDrift):
         The default start is the identity (``b = I``, ``t = 0``), built in the
         dtype and device of the source. The dict is copied, never mutated.
     use_color : bool
-        Use color information if True.
+        Not supported; must be False. ``True`` raises NotImplementedError
+        (colour-assisted CPD requires RigidCPD).
     use_cuda : bool
         Use CUDA for computations if True.
     log_freq : int
@@ -40,6 +41,8 @@ class AffineCPD(CoherentPointDrift):
         use_cuda: bool = False,
         log_freq: int = 100,
     ) -> None:
+        if use_color:
+            raise NotImplementedError("use_color=True is only supported by RigidCPD")
         super().__init__(source, use_color=use_color, use_cuda=use_cuda, log_freq=log_freq)
         if tf_init_params is None:
             tf_init_params = {}

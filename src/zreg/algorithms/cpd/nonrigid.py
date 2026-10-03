@@ -26,7 +26,8 @@ class NonRigidCPD(CoherentPointDrift):
     lmd : float
         Regularization parameter controlling deformation smoothness.
     use_color : bool
-        Use color information if True.
+        Not supported; must be False. ``True`` raises NotImplementedError
+        (colour-assisted CPD requires RigidCPD).
     use_cuda : bool
         Use CUDA for computations if True.
     log_freq : int
@@ -42,6 +43,8 @@ class NonRigidCPD(CoherentPointDrift):
         use_cuda: bool = False,
         log_freq: int = 100,
     ) -> None:
+        if use_color:
+            raise NotImplementedError("use_color=True is only supported by RigidCPD")
         super().__init__(source, use_color=use_color, use_cuda=use_cuda, log_freq=log_freq)
         self._tf_type = tf.NonRigidTransformation
         self._beta = beta
@@ -198,7 +201,8 @@ class ConstrainedNonRigidCPD(CoherentPointDrift):
         Degree of reliability of priors. Range: 1e-8 (highly reliable)
         to 1 (highly unreliable).
     use_color : bool
-        Use color information if True.
+        Not supported; must be False. ``True`` raises NotImplementedError
+        (colour-assisted CPD requires RigidCPD).
     use_cuda : bool
         Use CUDA for computations if True.
     idx_source : torch.Tensor | None
@@ -221,6 +225,8 @@ class ConstrainedNonRigidCPD(CoherentPointDrift):
         idx_target: torch.Tensor | None = None,
         log_freq: int = 100,
     ) -> None:
+        if use_color:
+            raise NotImplementedError("use_color=True is only supported by RigidCPD")
         super().__init__(source, use_color=use_color, use_cuda=use_cuda, log_freq=log_freq)
         self._tf_type = tf.NonRigidTransformation
         self._beta = beta

@@ -164,3 +164,47 @@ class TestConstrainedNonRigid:
         assert torch.allclose(
             obj.transformation.transform(src), res.transformation.transform(src)
         )
+
+
+# ---------------------------------------------------------------------------
+# CPD-05: use_color=True is rejected where it cannot work
+# ---------------------------------------------------------------------------
+
+
+def _labelled_pair(n: int = 20):
+    """Source/target dicts with xyz positions and 1-D class labels."""
+    src = {"pos": torch.randn(n, 3), "label": torch.randint(0, 3, (n,))}
+    tgt = {"pos": torch.randn(n, 3), "label": torch.randint(0, 3, (n,))}
+    return src, tgt
+
+
+class TestUseColorEntryPoints:
+    """use_color=True raises NotImplementedError outside direct RigidCPD use."""
+
+    @pytest.mark.parametrize(
+        "tf_type_name", ["rigid", "affine", "nonrigid", "nonrigid_constrained"]
+    )
+    def test_use_color_cpd_registration_rejected(self, tf_type_name):
+        """cpd_registration(use_color=True) is rejected (baseline: ValueError/RuntimeError)."""
+        pc_s, pc_t = _labelled_pair()
+        with pytest.raises(NotImplementedError, match="use_color"):
+            cpd.cpd_registration(
+                pc_s, pc_t, tf_type_name=tf_type_name, use_color=True, log_freq=-1
+            )
+
+    def test_use_color_init_cpd_from_existing_rejected(self):
+        """init_cpd_from_existing(use_color=True) is rejected."""
+        pc_s, pc_t = _labelled_pair()
+        with pytest.raises(NotImplementedError, match="use_color"):
+            cpd.init_cpd_from_existing(
+                transforms.RigidTransformation(), pc_s, pc_t, use_color=True, log_freq=-1
+            )
+
+    @pytest.mark.parametrize(
+        "cls_name", ["AffineCPD", "NonRigidCPD", "ConstrainedNonRigidCPD"]
+    )
+    def test_use_color_constructors_rejected(self, cls_name):
+        """Affine / non-rigid constructors reject use_color=True (baseline: ValueError)."""
+        cls = getattr(cpd, cls_name)
+        with pytest.raises(NotImplementedError, match="use_color"):
+            cls(torch.randn(20, 3), use_color=True, log_freq=-1)

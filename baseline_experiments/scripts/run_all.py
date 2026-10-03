@@ -155,6 +155,74 @@ def _already_done(output_dir: Path) -> bool:
     return (output_dir / "eval_report.json").exists()
 
 
+def _propulate_checkpoint_files(output_dir: Path) -> list[Path]:
+    """Propulate checkpoint files in ``output_dir`` (``*.pkl``, ``*.pickle``, ``*.bkp``)."""
+    if not output_dir.exists():
+        return []
+    return [f for pattern in ("*.pkl", "*.pickle", "*.bkp") for f in output_dir.glob(pattern)]
+
+
+# Records the search space the Propulate checkpoints in an output_dir were
+# written under (63-REVIEW WR-03).
+SEARCH_SPACE_FINGERPRINT = "search_space_fingerprint.json"
+
+_CLEAR_HINT = (
+    "to discard them and restart this HPO run, re-submit with ZREG_CLEAR_CHECKPOINTS=1 "
+    "(or pass --clear-checkpoints to run_all.py)"
+)
+
+
+def _search_space_fingerprint(search_space: dict) -> str:
+    return json.dumps(search_space, sort_keys=True, default=str)
+
+
+def _checkpoint_search_space_error(output_dir: Path, search_space: dict) -> str | None:
+    """Compare the checkpoints' recorded search space with the current one (rank 0).
+
+    Propulate checkpoints written under a different search space break the
+    resumed run inside ``_decode_param`` (e.g. a ``dtw_dist_fn: cosine``
+    individual after Phase 63 D-08). Checkpoints are never deleted here; the
+    operator decides (63-REVIEW WR-03).
+
+    - No checkpoints: the current search space is recorded in
+      ``SEARCH_SPACE_FINGERPRINT`` (a fresh or freshly cleared run).
+    - Checkpoints and a matching record: ``None`` (normal resume).
+    - Checkpoints and a different record: an error message that names
+      ``ZREG_CLEAR_CHECKPOINTS=1`` / ``--clear-checkpoints``.
+    - Checkpoints without a record (written before this check existed): a
+      WARNING with the same hint, and the resume proceeds. No record is
+      written, so it never vouches for those checkpoints.
+
+    Returns
+    -------
+    str or None
+        The error message, or ``None`` when the run may proceed.
+    """
+    record = output_dir / SEARCH_SPACE_FINGERPRINT
+    current = _search_space_fingerprint(search_space)
+    if not _propulate_checkpoint_files(output_dir):
+        output_dir.mkdir(parents=True, exist_ok=True)
+        record.write_text(current)
+        return None
+    if not record.exists():
+        log.warning(
+            "[checkpoints] %s holds Propulate checkpoints without a recorded search space; "
+            "resuming from them. If the search space changed since they were written (e.g. "
+            "Phase 63 D-08), the resume fails while decoding old individuals; %s.",
+            output_dir,
+            _CLEAR_HINT,
+        )
+        return None
+    recorded = record.read_text()
+    if recorded != current:
+        return (
+            f"{output_dir}: the Propulate checkpoints were written under a different search space "
+            f"({recorded}) than the current config ({current}), so resuming from them would fail "
+            f"while decoding old individuals; {_CLEAR_HINT}."
+        )
+    return None
+
+
 def _clear_propulate_checkpoints(output_dir: Path) -> None:
     """Delete propulate checkpoint files from output_dir (rank-0 only).
 
@@ -164,13 +232,7 @@ def _clear_propulate_checkpoints(output_dir: Path) -> None:
     between runs (e.g. a param that allowed None is later fixed to a single value).
     This removes only checkpoint files; eval_report.json and other outputs are kept.
     """
-    if not output_dir.exists():
-        return
-    removed = [
-        f
-        for pattern in ("*.pkl", "*.pickle", "*.bkp")
-        for f in output_dir.glob(pattern)
-    ]
+    removed = _propulate_checkpoint_files(output_dir)
     for f in removed:
         f.unlink()
     if removed:
@@ -308,6 +370,7 @@ def run_optimize_then_eval(name: str, config_path: Path, force: bool, dry_run: b
     output_dir = Path(config.output_dir)
 
     skip = False
+    error: str | None = None
     if RANK == 0:
         if not force and _already_done(output_dir):
             log.info("[%s] SKIP (eval_report.json already exists at %s)", name, output_dir)
@@ -319,13 +382,18 @@ def run_optimize_then_eval(name: str, config_path: Path, force: bool, dry_run: b
             else:
                 if clear_checkpoints:
                     _clear_propulate_checkpoints(output_dir)
-                _write_run_config(config_path, output_dir)
+                error = _checkpoint_search_space_error(output_dir, config.search_space)
+                if error is None:
+                    _write_run_config(config_path, output_dir)
 
-    # Broadcast skip decision so every rank agrees before the collective call.
-    # Without this, rank-0 returning early leaves other ranks deadlocked on
-    # the internal comm.Barrier() inside HyperparamOptimizer.run().
+    # Broadcast the skip decision (and a stale-checkpoint error) so every rank
+    # agrees before the collective call. Without this, rank-0 returning early
+    # leaves other ranks deadlocked on the internal comm.Barrier() inside
+    # HyperparamOptimizer.run().
     if COMM is not None:
-        skip = COMM.bcast(skip, root=0)
+        skip, error = COMM.bcast((skip, error), root=0)
+    if error is not None:
+        raise RuntimeError(f"[{name}] {error}")
     if skip:
         return
 

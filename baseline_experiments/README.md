@@ -262,6 +262,13 @@ now uses ~46 of Kobitski's 370 frames / ~53 of Shah's 420.
   before the Propulate search starts, and one WARNING per tier says that
   Propulate's population itself is not seeded. The seed's score competes
   for `best_params.json`, but the evolutionary search does not start from it.
+- HoreKa launchers resume unfinished HPO from its Propulate checkpoints.
+  `run_all.py` records the search space next to the checkpoints
+  (`search_space_fingerprint.json`). If the checkpoints were written under a
+  different search space, the run stops before any trial with an error that
+  asks for `ZREG_CLEAR_CHECKPOINTS=1`. Checkpoints from before this record
+  existed resume with a WARNING; if the search space changed since (e.g.
+  Phase 63 D-08), re-submit once with `ZREG_CLEAR_CHECKPOINTS=1`.
 - `ZREG_CLEAR_CHECKPOINTS=1` / `--clear-checkpoints` only removes Propulate
   checkpoint files; it does not delete best_params.json. After a
   search-space change such as Phase 63 D-08 (`cosine` removed from

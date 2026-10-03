@@ -19,6 +19,8 @@
 #          HPO resumes from Propulate checkpoints. Set ZREG_CLEAR_CHECKPOINTS=1 for one
 #          submission to drop stale checkpoints (e.g. after a search-space change such as
 #          Phase 63 D-08):  ZREG_CLEAR_CHECKPOINTS=1 sbatch <this script>
+#          run_all.py records the search space next to the checkpoints and stops with an
+#          error naming ZREG_CLEAR_CHECKPOINTS=1 if they were written under another one.
 # Env:     ZREG_VENV      venv to activate (default: $HOME/regvenv_horeka)
 #          ZREG_REPO_DIR  repo checkout to cd into
 #                         (default: /home/hk-project-starter-p0024807/uitog/BA/zReg)

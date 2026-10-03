@@ -504,7 +504,17 @@ class PropulateSearch:
         # D-08: closure inverts sign because Propulate minimises; framework maximises
         def _loss(ind) -> float:
             # Use explicit comprehension — Individual is not a dict subclass (Pitfall 1)
-            params = {k: _decode_param(k, ind[k]) for k in search_space}
+            try:
+                params = {k: _decode_param(k, ind[k]) for k in search_space}
+            except (ValueError, IndexError) as e:
+                # 63-REVIEW WR-03: an individual bred from a checkpoint written
+                # under an older search space; say how to recover.
+                raise ValueError(
+                    f"Propulate individual {dict(ind)} does not fit the current search space; "
+                    f"the checkpoints in {output_dir} were probably written under an older one. "
+                    "Discard them with ZREG_CLEAR_CHECKPOINTS=1 (HoreKa launchers) or "
+                    "--clear-checkpoints (run_all.py)."
+                ) from e
             return -objective_fn(params)
 
         # Per-rank reproducibility: deterministic seed offset keeps ranks independent

@@ -228,6 +228,45 @@ def test_project_to_search_space_snaps_off_grid_values() -> None:
     assert run_all._project_to_search_space(on_grid, space) == (on_grid, {})
 
 
+def test_stale_checkpoint_search_space_fails_with_clear_hint(tmp_path) -> None:
+    """63-REVIEW WR-03: checkpoints from another search space stop the run with a recovery hint."""
+    run_all = _import_run_all()
+    out = tmp_path / "hpo"
+    # A finished earlier run under k_neighbours [3, 4] that left a checkpoint.
+    assert run_all._checkpoint_search_space_error(out, {"k_neighbours": [3, 4]}) is None
+    assert (out / run_all.SEARCH_SPACE_FINGERPRINT).exists()
+    ckpt = out / "island_0_ckpt.pickle"
+    ckpt.write_bytes(b"x")
+    assert run_all._checkpoint_search_space_error(out, {"k_neighbours": [3, 4]}) is None
+
+    cfg_path = _write_yaml(tmp_path / "cfg.yaml", _cfg_dict(out, strategy="grid", default_params=_SEED))  # [3, 4, 5]
+    with pytest.raises(RuntimeError, match="ZREG_CLEAR_CHECKPOINTS=1") as excinfo:
+        run_all.run_optimize_then_eval("t", cfg_path, force=True, dry_run=False)
+    assert "--clear-checkpoints" in str(excinfo.value)
+    assert ckpt.exists(), "checkpoints must never be deleted without the opt-in"
+    assert not (out / "run_config.yaml").exists()
+
+    # The opt-in clears them and records the new search space.
+    run_all.run_optimize_then_eval("t", cfg_path, force=True, dry_run=False, clear_checkpoints=True)
+    assert not ckpt.exists()
+    assert (out / "search_history.json").exists()
+    assert (out / run_all.SEARCH_SPACE_FINGERPRINT).read_text() == run_all._search_space_fingerprint(
+        {"k_neighbours": [3, 4, 5]}
+    )
+
+
+def test_unrecorded_checkpoints_resume_with_warning(tmp_path, caplog) -> None:
+    """Checkpoints from before the record existed resume, with a WARNING naming the opt-in."""
+    run_all = _import_run_all()
+    out = tmp_path / "hpo"
+    out.mkdir()
+    (out / "island_0_ckpt.pickle").write_bytes(b"x")
+    with caplog.at_level(logging.WARNING, logger="run_all"):
+        assert run_all._checkpoint_search_space_error(out, {"k_neighbours": [3]}) is None
+    assert "ZREG_CLEAR_CHECKPOINTS=1" in caplog.text
+    assert not (out / run_all.SEARCH_SPACE_FINGERPRINT).exists()
+
+
 def test_run_all_bayesian_off_grid_merged_seed_is_projected(tmp_path, caplog) -> None:
     """CR-01: an averaged merge no longer crashes BayesianSearch; the seed is snapped."""
     run_all = _import_run_all()

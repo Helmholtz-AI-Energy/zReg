@@ -16,10 +16,16 @@ class NonRigidCPD(CoherentPointDrift):
 
     Uses a Gaussian RBF kernel to model smooth non-rigid deformations.
 
+    Sources and targets may have more than 3 columns (N, D >= 3): only the
+    xyz columns are registered and deformed; extra columns are carried
+    through unchanged by the transformation and do not affect the
+    correspondences, the kernel or the fit. Fewer than 3 columns or non-2-D
+    input raise ValueError.
+
     Parameters
     ----------
     source : torch.Tensor | None
-        Source point cloud data with shape (N, D).
+        Source point cloud data with shape (N, D), D >= 3.
     beta : float
         RBF kernel bandwidth. Larger values produce smoother deformations.
     lmd : float
@@ -32,6 +38,11 @@ class NonRigidCPD(CoherentPointDrift):
     log_freq : int
         Log frequency during registration.
     """
+
+    # 3 or more columns are accepted: the M-step uses xyz only and the
+    # transformation passes extra columns through; fewer than 3 columns are
+    # still rejected by _check_point_shape (CPD-09).
+    _ACCEPTS_EXTRA_COLUMNS = True
 
     def __init__(
         self,
@@ -51,7 +62,9 @@ class NonRigidCPD(CoherentPointDrift):
         self._normalized_source = None
         self._tf_obj = None
         if self._source is not None:
-            self._normalized_source, _ = normalize_point_cloud(self._source)
+            self._check_point_shape(self._source, "source")
+            # Kernel on xyz only; extra columns are carried through (CPD-09).
+            self._normalized_source, _ = normalize_point_cloud(self._source[:, : self._N_DIM])
             self._tf_obj = self._tf_type(None, self._normalized_source, self._beta)
 
     def set_source(self, source: torch.Tensor, source_colors: torch.Tensor | None = None) -> None:
@@ -63,12 +76,19 @@ class NonRigidCPD(CoherentPointDrift):
             Source point cloud.
         source_colors : torch.Tensor | None
             Source color information.
+
+        Raises
+        ------
+        ValueError
+            If ``source`` is not 2-D or has fewer than 3 columns.
         """
+        self._check_point_shape(source, "source")
         _validate_tensors(source, names=["source"])
         if source_colors is not None:
             _validate_tensors(source, source_colors, names=["source", "source_colors"])
         self._source = source
-        self._normalized_source, _ = normalize_point_cloud(self._source)
+        # Kernel on xyz only; extra columns are carried through (CPD-09).
+        self._normalized_source, _ = normalize_point_cloud(self._source[:, : self._N_DIM])
         self._tf_obj = self._tf_type(None, self._normalized_source, self._beta)
 
     def _initialize(self, target: torch.Tensor) -> MstepResult:
@@ -87,7 +107,7 @@ class NonRigidCPD(CoherentPointDrift):
         dim = self._N_DIM
         sigma2 = squared_kernel_sum(self._source[:, :dim], target[:, :dim])
         q = 1.0 + target.shape[0] * dim * 0.5 * torch.log(sigma2)
-        self._tf_obj.w = torch.zeros_like(self._source)
+        self._tf_obj.w = torch.zeros_like(self._source[:, : self._N_DIM])
         return MstepResult(self._tf_obj, sigma2, q)
 
     def maximization_step(
@@ -186,6 +206,12 @@ class ConstrainedNonRigidCPD(CoherentPointDrift):
     Incorporates prior knowledge about correspondence between specific
     points in source and target point clouds.
 
+    Sources and targets may have more than 3 columns (N, D >= 3): only the
+    xyz columns are registered and deformed; extra columns are carried
+    through unchanged by the transformation and do not affect the
+    correspondences, the kernel or the fit. Fewer than 3 columns or non-2-D
+    input raise ValueError.
+
     See: https://people.mpi-inf.mpg.de/~golyanik/04_DRAFTS/ECPD2016.pdf
 
     Parameters
@@ -212,6 +238,11 @@ class ConstrainedNonRigidCPD(CoherentPointDrift):
         Log frequency during registration.
     """
 
+    # 3 or more columns are accepted: the M-step uses xyz only and the
+    # transformation passes extra columns through; fewer than 3 columns are
+    # still rejected by _check_point_shape (CPD-09).
+    _ACCEPTS_EXTRA_COLUMNS = True
+
     def __init__(
         self,
         source: torch.Tensor | None = None,
@@ -236,7 +267,9 @@ class ConstrainedNonRigidCPD(CoherentPointDrift):
         self.idx_source = idx_source
         self.idx_target = idx_target
         if self._source is not None:
-            self._normalized_source, _ = normalize_point_cloud(self._source)
+            self._check_point_shape(self._source, "source")
+            # Kernel on xyz only; extra columns are carried through (CPD-09).
+            self._normalized_source, _ = normalize_point_cloud(self._source[:, : self._N_DIM])
             self._tf_obj = self._tf_type(None, self._normalized_source, self._beta)
 
     def set_source(self, source: torch.Tensor, source_colors: torch.Tensor | None = None) -> None:
@@ -248,12 +281,19 @@ class ConstrainedNonRigidCPD(CoherentPointDrift):
             Source point cloud.
         source_colors : torch.Tensor | None
             Source color information.
+
+        Raises
+        ------
+        ValueError
+            If ``source`` is not 2-D or has fewer than 3 columns.
         """
+        self._check_point_shape(source, "source")
         _validate_tensors(source, names=["source"])
         if source_colors is not None:
             _validate_tensors(source, source_colors, names=["source", "source_colors"])
         self._source = source
-        self._normalized_source, _ = normalize_point_cloud(self._source)
+        # Kernel on xyz only; extra columns are carried through (CPD-09).
+        self._normalized_source, _ = normalize_point_cloud(self._source[:, : self._N_DIM])
         self._tf_obj = self._tf_type(None, self._normalized_source, self._beta)
 
     def _initialize(self, target: torch.Tensor) -> MstepResult:
@@ -272,14 +312,14 @@ class ConstrainedNonRigidCPD(CoherentPointDrift):
         dim = self._N_DIM
         sigma2 = squared_kernel_sum(self._source[:, :dim], target[:, :dim])
         q = 1.0 + target.shape[0] * dim * 0.5 * torch.log(sigma2)
-        self._tf_obj.w = torch.zeros_like(self._source)
+        self._tf_obj.w = torch.zeros_like(self._source[:, : self._N_DIM])
         self.p_tilde = torch.zeros(
             (self._source.shape[0], target.shape[0]), dtype=target.dtype, device=target.device
         )
         if self.idx_source is not None and self.idx_target is not None:
             self.p_tilde[self.idx_source, self.idx_target] = 1
         self.p1_tilde = torch.sum(self.p_tilde, dim=1)
-        self.px_tilde = torch.matmul(self.p_tilde, target)
+        self.px_tilde = torch.matmul(self.p_tilde, target[:, : self._N_DIM])
         return MstepResult(self._tf_obj, sigma2, q)
 
     def maximization_step(

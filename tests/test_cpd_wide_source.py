@@ -183,3 +183,81 @@ class TestRejectBadShape:
                 _randn(20, gen=gen), _randn(25, 3, gen=gen),
                 sigma2=sigma2, sigma2_c=0.0, w=0.0,
             )
+
+
+# ---------------------------------------------------------------------------
+# Task 2: non-rigid variants register wide sources end to end
+# ---------------------------------------------------------------------------
+
+_NONRIGID = {
+    "NonRigidCPD": {},
+    "ConstrainedNonRigidCPD": {"idx_source": [0, 1], "idx_target": [0, 1]},
+}
+
+
+def _make_nonrigid(cls_name, src):
+    return getattr(cpd, cls_name)(src, log_freq=-1, **_NONRIGID[cls_name])
+
+
+class TestWideSourceNonRigid:
+    """NonRigidCPD / ConstrainedNonRigidCPD accept (N, >3) input."""
+
+    @staticmethod
+    def _pair(seed=0):
+        gen = _gen(seed)
+        src = _randn(20, 4, gen=gen)
+        tgt = src + 0.05 * _randn(20, 4, gen=gen)
+        return src, tgt
+
+    def test_wide_source_nonrigid(self):
+        src, tgt = self._pair()
+        obj = _make_nonrigid("NonRigidCPD", src)
+        obj.registration(tgt, maxiter=10)
+        out = obj.transformation.transform(src)
+        assert out.shape == (20, 4)
+        assert torch.equal(out[:, 3], src[:, 3])
+        assert torch.isfinite(out).all()
+
+    def test_wide_source_constrained(self):
+        src, tgt = self._pair()
+        obj = _make_nonrigid("ConstrainedNonRigidCPD", src)
+        obj.registration(tgt, maxiter=10)
+        out = obj.transformation.transform(src)
+        assert out.shape == (20, 4)
+        assert torch.equal(out[:, 3], src[:, 3])
+        assert torch.isfinite(out).all()
+        assert obj.px_tilde.shape == (20, 3)
+
+    @pytest.mark.parametrize("cls_name", list(_NONRIGID))
+    def test_wide_source_extra_column_does_not_change_registration(self, cls_name):
+        gen = _gen(1)
+        src3 = _randn(20, 3, gen=gen)
+        tgt3 = src3 + 0.05 * _randn(20, 3, gen=gen)
+        col_a_src, col_a_tgt = 10 * _randn(20, 1, gen=gen), 10 * _randn(20, 1, gen=gen)
+        col_b_src, col_b_tgt = 10 * _randn(20, 1, gen=gen), 10 * _randn(20, 1, gen=gen)
+
+        def run(src, tgt):
+            obj = _make_nonrigid(cls_name, src)
+            obj.registration(tgt, maxiter=20)
+            return obj.transformation.transform(src)[:, :3]
+
+        out_a = run(torch.cat([src3, col_a_src], 1), torch.cat([tgt3, col_a_tgt], 1))
+        out_b = run(torch.cat([src3, col_b_src], 1), torch.cat([tgt3, col_b_tgt], 1))
+        out_3 = run(src3, tgt3)
+        assert torch.allclose(out_a, out_b, atol=1e-6, rtol=0)
+        assert torch.allclose(out_a, out_3, atol=1e-6, rtol=0)
+
+
+class TestRejectBadShapeNonRigid:
+    """Non-rigid variants still reject non-2-D and fewer-than-3-column input."""
+
+    @pytest.mark.parametrize("case", _BAD_CASES)
+    @pytest.mark.parametrize("cls_name", list(_NONRIGID))
+    def test_wide_source_bad_shape_rejected_nonrigid(self, cls_name, case):
+        src, tgt, match = _bad_case(case)
+        with pytest.raises(ValueError, match=match):
+            _make_nonrigid(cls_name, src).registration(tgt, maxiter=3)
+        if case in ("short_source", "flat_source"):
+            obj = _make_nonrigid(cls_name, None)
+            with pytest.raises(ValueError, match=match):
+                obj.set_source(src)

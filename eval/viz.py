@@ -26,6 +26,7 @@ Notes
 5. mathtext only — no system TeX dependencies.
 """
 
+import math
 from pathlib import Path
 from typing import Union
 
@@ -138,6 +139,37 @@ def _save_fig(fig, base: Path, paths: list[str], bbox_inches: "str | None" = "ti
         plt.close(fig)
 
 
+# Legend anchor just inside the right edge of the figure canvas (VIZ-01).
+_LEGEND_ANCHOR = (0.995, 0.5)
+# Label legends wrap into extra columns beyond this many rows (VIZ-01).
+_LEGEND_MAX_ROWS = 10
+
+
+def _reserve_legend_space(fig, legend, pad: float = 0.04) -> None:
+    """Shrink the subplot area so *legend* fits inside the fixed canvas.
+
+    The legend is anchored at the right edge of the figure
+    (``loc="center right"``, ``bbox_to_anchor=_LEGEND_ANCHOR``); its rendered
+    width is measured and the subplots' right edge is moved left of it.  The
+    figure size is not changed: 3-D figures are saved with
+    ``bbox_inches=None`` (commit 13ee2f8), so anything outside the declared
+    canvas would be cut off.
+
+    Parameters
+    ----------
+    fig : matplotlib.figure.Figure
+        Figure that owns *legend*.
+    legend : matplotlib.legend.Legend
+        Figure-level legend placed at ``_LEGEND_ANCHOR``.
+    pad : float
+        Gap between subplots and legend, in figure-width fractions; leaves
+        room for the 3-D z-axis tick labels, which extend past the axes box.
+    """
+    renderer = fig.canvas.get_renderer()
+    width = legend.get_window_extent(renderer).width / fig.bbox.width
+    fig.subplots_adjust(right=max(0.5, 1.0 - (1.0 - _LEGEND_ANCHOR[0]) - width - pad))
+
+
 def _write_single_cloud_figure(
     frame_indices: list[int],
     per_frame_pos: dict[int, np.ndarray],
@@ -219,7 +251,10 @@ def _write_superposed_figure(
     # "Target" when at least one subplot actually drew target scatter points.
     has_target = tgt_pos_map is not None and any(fk in tgt_pos_map for fk in frame_indices)
     legend_labels = ["Source", "Aligned"] + (["Target"] if has_target else [])
-    fig.legend(legend_labels, loc="center right", bbox_to_anchor=(1.12, 0.5))
+    # VIZ-01 / 13ee2f8: tight bbox on 3-D axes exceeded Agg's 2^16 px limit;
+    # legend kept inside the fixed canvas instead.
+    legend = fig.legend(legend_labels, loc="center right", bbox_to_anchor=_LEGEND_ANCHOR)
+    _reserve_legend_space(fig, legend)
     _save_fig(fig, Path(output_dir) / "alignment_superposed_trajectory", paths, bbox_inches=None)
 
 
@@ -275,7 +310,14 @@ def _write_label_figure(
         for lab in sorted(color_for_label)
     ]
     if patches:
-        fig.legend(handles=patches, loc="center right", bbox_to_anchor=(1.15, 0.5))
+        # VIZ-01 / 13ee2f8: tight bbox on 3-D axes exceeded Agg's 2^16 px limit;
+        # legend kept inside the fixed canvas instead (extra columns for many labels).
+        legend = fig.legend(
+            handles=patches, loc="center right", bbox_to_anchor=_LEGEND_ANCHOR,
+            ncol=math.ceil(len(patches) / _LEGEND_MAX_ROWS),
+            fontsize=7 if len(patches) > _LEGEND_MAX_ROWS else None,
+        )
+        _reserve_legend_space(fig, legend)
     _save_fig(fig, Path(output_dir) / stem, paths, bbox_inches=None)
 
 
@@ -863,7 +905,10 @@ def render_dataset_triptych(
     MAX_PTS = 4_000
 
     fig = plt.figure(figsize=(13, 4.2))
-    fig.suptitle(name, fontsize=12, fontweight="bold", y=1.01)
+    # VIZ-01 / 13ee2f8: tight bbox on 3-D axes exceeded Agg's 2^16 px limit;
+    # suptitle kept inside the fixed canvas instead (y < 1, axes moved down).
+    fig.suptitle(name, fontsize=12, fontweight="bold", y=0.98)
+    fig.subplots_adjust(top=0.86)
 
     for col, (t, label) in enumerate(
         [(t_first, "first"), (t_mid, "mid"), (t_last, "last")]

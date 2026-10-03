@@ -498,11 +498,12 @@ class DynamicTimeWarping:
         Parameters
         ----------
         trajectory : dict[int, zRegPointCloud]
-            The trajectory to resample. Should be either x or y.
+            The trajectory to resample: y for ``reference="x"``, x for ``reference="y"``.
+            Its frames are taken in sorted-key order, so any integer key layout works.
         reference : str, optional
             Which trajectory to use as reference for the new time indices.
-            "x" means the output will have the same time indices as x.
-            "y" means the output will have the same time indices as y.
+            "x" means the output will have the same time indices (keys) as x.
+            "y" means the output will have the same time indices (keys) as y.
             Default: "x".
 
         Returns
@@ -515,7 +516,8 @@ class DynamicTimeWarping:
         RuntimeError
             If `compute()` has not been called yet.
         ValueError
-            If reference is not "x" or "y".
+            If reference is not "x" or "y", or if ``trajectory`` has fewer frames than
+            the warping path references.
         """
         if self.result is None:
             raise RuntimeError("DTW has not been computed yet. Call compute() first.")
@@ -525,17 +527,31 @@ class DynamicTimeWarping:
 
         x_indices, y_indices = self.get_aligned_indices()
 
+        # Warping-path entries are sorted-key POSITIONS (the cost-matrix sweep indexes
+        # frames by sorted key position), not dict keys. Translate them back to keys so
+        # non-zero-based or gapped layouts resolve the right frames (WR-02). For keys
+        # 0..n-1 this is the identity.
+        ref_keys = sorted(self.x) if reference == "x" else sorted(self.y)
+        traj_keys = sorted(trajectory)
+        src_positions = y_indices if reference == "x" else x_indices
+        if src_positions and max(src_positions) >= len(traj_keys):
+            raise ValueError(
+                f"trajectory has {len(traj_keys)} frames but the warping path references position "
+                f"{max(src_positions)}; pass the {'y' if reference == 'x' else 'x'} trajectory "
+                f"(or one with the same number of frames)"
+            )
+
         aligned = {}
         if reference == "x":
             # Map y's time points to x's time indices
             for x_idx, y_idx in zip(x_indices, y_indices):
-                if x_idx not in aligned:  # Take first match if multiple
-                    aligned[x_idx] = trajectory[y_idx]
+                if ref_keys[x_idx] not in aligned:  # Take first match if multiple
+                    aligned[ref_keys[x_idx]] = trajectory[traj_keys[y_idx]]
         else:
             # Map x's time points to y's time indices
             for x_idx, y_idx in zip(x_indices, y_indices):
-                if y_idx not in aligned:
-                    aligned[y_idx] = trajectory[x_idx]
+                if ref_keys[y_idx] not in aligned:
+                    aligned[ref_keys[y_idx]] = trajectory[traj_keys[x_idx]]
 
         return aligned
 

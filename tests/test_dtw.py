@@ -930,6 +930,45 @@ class TestAlignTrajectoryDuplicateIndex:
         assert aligned[0] is x[0]
 
 
+class TestAlignTrajectoryKeyLayouts:
+    """get_aligned_trajectory maps warping-path positions to dict keys (61 WR-02)."""
+
+    def _dtw(self, x, y, path):
+        dtw_obj = DynamicTimeWarping(x, y, distance_metric="euclidean")
+        cost = torch.ones(len(x), len(y))
+        acc = torch.cumsum(torch.cumsum(cost, dim=0), dim=1)
+        dtw_obj.result = DTWResult(
+            cost_matrix=cost, accumulated_cost=acc, warping_path=path,
+            distance=float(acc[-1, -1]), rotations=None,
+        )
+        return dtw_obj
+
+    @pytest.mark.parametrize("x_keys, y_keys", [((0, 2, 4), (1, 3, 5)), ((5, 6, 7), (10, 11, 12))],
+                             ids=["gapped", "offset"])
+    def test_positions_resolve_to_keys(self, x_keys, y_keys):
+        x = {k: zRegPointCloud(pos=torch.randn(5, 3)) for k in x_keys}
+        y = {k: zRegPointCloud(pos=torch.randn(5, 3)) for k in y_keys}
+        dtw_obj = self._dtw(x, y, [(0, 0), (1, 2), (2, 2)])
+
+        by_x = dtw_obj.get_aligned_trajectory(y, reference="x")
+        assert list(by_x) == list(x_keys)
+        assert by_x[x_keys[0]] is y[y_keys[0]]
+        assert by_x[x_keys[1]] is y[y_keys[2]]
+        assert by_x[x_keys[2]] is y[y_keys[2]]
+
+        by_y = dtw_obj.get_aligned_trajectory(x, reference="y")
+        assert list(by_y) == [y_keys[0], y_keys[2]]
+        assert by_y[y_keys[0]] is x[x_keys[0]]
+        assert by_y[y_keys[2]] is x[x_keys[1]]
+
+    def test_too_short_trajectory_raises(self):
+        x = {k: zRegPointCloud(pos=torch.randn(5, 3)) for k in range(3)}
+        y = {k: zRegPointCloud(pos=torch.randn(5, 3)) for k in range(3)}
+        dtw_obj = self._dtw(x, y, [(0, 0), (1, 1), (2, 2)])
+        with pytest.raises(ValueError, match="warping path references position 2"):
+            dtw_obj.get_aligned_trajectory({0: y[0], 1: y[1]}, reference="x")
+
+
 class TestPlotAlignmentNoMatplotlib:
     """Tests for plot_alignment when matplotlib is unavailable (lines 447-451)."""
 

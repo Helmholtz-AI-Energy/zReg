@@ -549,10 +549,12 @@ class AlignmentStage(PipelineStage):
     def _degenerate_registration_reason(source: zRegPointCloud, target: zRegPointCloud) -> str | None:
         """Return why ICP/SWD cannot register this pair, or None if it can (61 WR-04).
 
-        Runs the same validation as the aligners (``zreg.utils.registration_bounds``), so
-        only the documented degenerate-input ``ValueError`` (mis-shaped, empty, non-finite
-        or zero-extent cloud) is turned into a skip; any other error from ``register()``
-        still propagates.
+        Only per-frame data degeneracies are turned into a skip: an empty, non-finite
+        (NaN/inf) or zero-extent (all points coincide) cloud, as reported by the aligners'
+        own validation (``zreg.utils.registration_bounds``). Systemic misconfiguration
+        that would hit every frame -- a cloud not shaped ``(N, 3)`` or the two clouds on
+        different devices -- returns None, so ``register()`` raises and the stage fails
+        loudly instead of silently returning only unregistered frames.
 
         Parameters
         ----------
@@ -562,8 +564,14 @@ class AlignmentStage(PipelineStage):
         Returns
         -------
         str | None
-            The validation message, or None if the pair is registrable.
+            The validation message, or None if the pair is registrable or the error is
+            systemic (shape/device) and must propagate from ``register()``.
         """
+        src_pos, tgt_pos = source["pos"], target["pos"]
+        if any(c.dim() != 2 or c.shape[1] != 3 for c in (src_pos, tgt_pos)):
+            return None  # mis-shaped clouds: systemic, let register() raise
+        if src_pos.device != tgt_pos.device:
+            return None  # device mismatch: systemic, let register() raise
         try:
             utils.registration_bounds(source["pos"], target["pos"])
         except ValueError as exc:

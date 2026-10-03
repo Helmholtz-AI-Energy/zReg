@@ -1306,3 +1306,40 @@ class TestBuildAlignedCloudDegenerateFrames:
         assert AlignmentStage._degenerate_registration_reason(a, b) is None
         empty = zRegPointCloud(pos=torch.empty(0, 3))
         assert "empty" in AlignmentStage._degenerate_registration_reason(empty, b)
+
+    def test_non_finite_frame_has_reason(self):
+        a = zRegPointCloud(pos=torch.rand(5, 3))
+        a["pos"][0, 0] = float("nan")
+        b = zRegPointCloud(pos=torch.rand(5, 3))
+        assert AlignmentStage._degenerate_registration_reason(a, b) is not None
+
+    @pytest.mark.parametrize("bad_shape", [(5, 2), (5, 6)])
+    def test_mis_shaped_cloud_is_not_skipped(self, bad_shape):
+        """61 review iter 2 WR-01: a (N, k!=3) cloud is systemic, not a per-frame skip."""
+        a, b = zRegPointCloud(pos=torch.rand(*bad_shape)), zRegPointCloud(pos=torch.rand(5, 3))
+        assert AlignmentStage._degenerate_registration_reason(a, b) is None
+        assert AlignmentStage._degenerate_registration_reason(b, a) is None
+
+    def test_device_mismatch_is_not_skipped(self):
+        """61 review iter 2 WR-01: a device mismatch is systemic and must propagate."""
+        a = zRegPointCloud(pos=torch.rand(5, 3))
+        b = zRegPointCloud(pos=torch.empty(5, 3, device="meta"))
+        assert AlignmentStage._degenerate_registration_reason(a, b) is None
+
+    @pytest.mark.parametrize("method", ["icp", "swd"])
+    def test_mis_shaped_cloud_raises_from_stage(self, method):
+        """The stage fails loudly on mis-shaped clouds instead of returning unregistered frames."""
+        torch.manual_seed(0)
+        source_sub = {0: zRegPointCloud(pos=torch.rand(10, 2))}
+        target = {0: zRegPointCloud(pos=torch.rand(10, 3))}
+        with pytest.raises(ValueError, match=r"shape \(N, 3\)"):
+            AlignmentStage._build_aligned_cloud(
+                source=source_sub,
+                target=target,
+                source_sub=source_sub,
+                target_sub=target,
+                warp_path=[(0, 0)],
+                cpd_penalty=None,
+                alignment_method=method,
+                swd_num_iterations=2,
+            )

@@ -5,7 +5,8 @@ point cloud to a target point cloud after spatial alignment.
 """
 
 from enum import Enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
+import math
 import torch
 import torch.nn as nn
 import logging
@@ -19,6 +20,8 @@ if TYPE_CHECKING:
     from .models.pointnet2 import PointNet2LabelTransfer
 
 log = logging.getLogger(__name__)
+
+_PMAT_LAYOUTS = ("receiver_provider", "provider_receiver")
 
 __all__ = ["transfer_labels", "LabelTransferMethod"]
 
@@ -41,6 +44,7 @@ def transfer_labels(
     target_colors: torch.Tensor | None = None,
     estep_result: EstepResult | None = None,
     model: "nn.Module | None" = None,
+    pmat_layout: Literal["receiver_provider", "provider_receiver"] | None = None,
     **kwargs
 ) -> torch.Tensor:
     """Transfer labels from source to target point cloud.
@@ -58,12 +62,21 @@ def transfer_labels(
         Default: 'nearest_neighbor'.
     source_colors : torch.Tensor, optional
         Source labels of shape (n_points, n_label_channels). Required if source
-        is torch.Tensor. If source is zRegPointCloud, uses source['label'].
+        is torch.Tensor. If source is a zRegPointCloud, an explicit
+        ``source_colors`` wins; otherwise ``source['label']`` is used, and a
+        ``ValueError`` is raised when neither is available.
     target_colors : torch.Tensor, optional
         Target labels of shape (m_points, n_label_channels). Not used in current methods.
     estep_result : EstepResult, optional
         Result from CPD E-step containing posterior probabilities. Required for
         'cpd_weighted' method.
+    pmat_layout : {"receiver_provider", "provider_receiver"}, optional
+        Orientation of ``estep_result.pmat``; required for 'cpd_weighted' and
+        never inferred from the shape (a square pmat would be ambiguous).
+        ``"receiver_provider"``: pmat shaped ``(n_target, n_source)``, used as is.
+        ``"provider_receiver"``: pmat shaped ``(n_source, n_target)`` -- the raw
+        ``expectation_step`` output when the provider (source) is the CPD
+        moving set -- transposed internally.
     model : nn.Module, optional
         Pre-loaded EGNNLabelTransfer or PointNet2LabelTransfer instance.
         Required for method="egnn" or method="pointnet2".
@@ -84,7 +97,11 @@ def transfer_labels(
     # Extract positions and labels
     if isinstance(source, zRegPointCloud):
         source_pos = source["pos"]
-        source_colors = source["label"]
+        # U6-5: an explicit source_colors argument wins over source['label'].
+        if source_colors is None:
+            source_colors = source.get("label")
+        if source_colors is None:
+            raise ValueError("source labels missing: pass source_colors or provide source['label']")
     else:
         source_pos = source
         if source_colors is None:
@@ -117,7 +134,9 @@ def transfer_labels(
     elif method == LabelTransferMethod.CPD_WEIGHTED:
         if estep_result is None:
             raise ValueError("estep_result is required for CPD-weighted method")
-        return _transfer_labels_cpd_weighted(source_pos, target_pos, source_colors, estep_result)
+        return _transfer_labels_cpd_weighted(
+            source_pos, target_pos, source_colors, estep_result, pmat_layout
+        )
     elif method == LabelTransferMethod.KNN_VOTING:
         k = kwargs.get('k', 5)
         return _transfer_labels_knn_voting(source_pos, target_pos, source_colors, k)
@@ -181,7 +200,8 @@ def _transfer_labels_cpd_weighted(
     source_pos: torch.Tensor,
     target_pos: torch.Tensor,
     source_colors: torch.Tensor,
-    estep_result: "EstepResult"
+    estep_result: "EstepResult",
+    pmat_layout: str | None = None,
 ) -> torch.Tensor:
     """Transfer labels using CPD posterior probabilities.
 
@@ -198,33 +218,46 @@ def _transfer_labels_cpd_weighted(
         Source labels of shape (n_points, n_label_channels).
     estep_result : EstepResult
         Result from CPD E-step containing posterior probabilities.
+    pmat_layout : {"receiver_provider", "provider_receiver"}
+        Declared orientation of ``estep_result.pmat`` (see ``transfer_labels``).
+        The exact expected shape of the declared layout is checked; the
+        orientation is never inferred from the shape.
 
     Returns
     -------
     torch.Tensor
         Transferred labels of shape (m_points, n_label_channels).
+
+    Raises
+    ------
+    ValueError
+        If ``pmat_layout`` is missing or unknown, or the pmat shape does not
+        match the declared layout.
     """
     log.debug(f"Transferring labels using CPD weights: {source_pos.shape[0]} -> {target_pos.shape[0]} points")
 
-    # Extract probability matrix from E-step result
-    # pmat should be (n_target, n_source) - probability of each target point belonging to each source
-    pmat = estep_result.pmat
+    if pmat_layout is None:
+        raise ValueError(
+            "pmat_layout is required for cpd_weighted: pass 'receiver_provider' "
+            "(pmat shaped (n_target, n_source)) or 'provider_receiver' "
+            "(pmat shaped (n_source, n_target), the raw expectation_step output)"
+        )
+    if pmat_layout not in _PMAT_LAYOUTS:
+        raise ValueError(
+            f"unknown pmat_layout {pmat_layout!r}; expected one of {_PMAT_LAYOUTS}"
+        )
 
+    pmat = estep_result.pmat
     n_target = target_pos.shape[0]
     n_source = source_pos.shape[0]
-
-    if pmat.shape == (n_target, n_source):
-        prob_matrix = pmat
-    elif pmat.shape == (n_source, n_target):
+    expected = (n_target, n_source) if pmat_layout == "receiver_provider" else (n_source, n_target)
+    if tuple(pmat.shape) != expected:
         raise ValueError(
-            f"pmat has shape {pmat.shape} which looks transposed. "
-            f"Expected (n_target={n_target}, n_source={n_source})"
+            f"pmat has shape {tuple(pmat.shape)} but pmat_layout={pmat_layout!r} expected "
+            f"{expected} (n_target={n_target}, n_source={n_source})"
         )
-    else:
-        raise ValueError(
-            f"pmat has shape {pmat.shape} but expected "
-            f"(n_target={n_target}, n_source={n_source})"
-        )
+    # Orientation is declared, never inferred (U6-9): a square pmat is ambiguous.
+    prob_matrix = pmat if pmat_layout == "receiver_provider" else pmat.T
 
     # Normalize probabilities (should already be normalized, but ensure)
     prob_matrix = prob_matrix / prob_matrix.sum(dim=1, keepdim=True)
@@ -309,23 +342,34 @@ def _transfer_labels_gaussian_kernel(
     source_colors : torch.Tensor
         Source labels of shape (n_points, n_label_channels).
     sigma : float
-        Standard deviation of the Gaussian kernel.
+        Standard deviation of the Gaussian kernel; must be finite and > 0.
 
     Returns
     -------
     torch.Tensor
         Transferred labels of shape (m_points, n_label_channels).
+
+    Notes
+    -----
+    The weights are ``softmax(-d^2 / (2 sigma^2))`` over source points, which
+    equals ``exp(...) / sum(exp(...))`` but cannot underflow to ``0/0`` when
+    every source point is far from a target point (U6-3): the nearest source
+    then dominates instead of the row becoming NaN.
     """
+    try:
+        sigma_f = float(sigma)
+    except (TypeError, ValueError):
+        raise ValueError(f"sigma must be a finite float > 0; got {sigma!r}") from None
+    if not math.isfinite(sigma_f) or sigma_f <= 0.0:
+        raise ValueError(f"sigma must be a finite float > 0; got {sigma!r}")
     log.debug(f"Transferring labels using Gaussian kernel (sigma={sigma}): {source_pos.shape[0]} -> {target_pos.shape[0]} points")
 
     # Compute pairwise distances
     distances = torch.cdist(target_pos, source_pos, p=2)  # (m_points, n_points)
 
-    # Compute Gaussian weights
-    weights = torch.exp(-distances**2 / (2 * sigma**2))  # (m_points, n_points)
-
-    # Normalize weights to sum to 1 for each target point
-    weights = weights / weights.sum(dim=1, keepdim=True)
+    # Gaussian weights normalised per target point; softmax is the numerically
+    # stable form of exp(.) / sum(exp(.)) (U6-3).
+    weights = torch.softmax(-distances**2 / (2 * sigma_f**2), dim=1)  # (m_points, n_points)
 
     # Compute weighted average of labels
     transferred_colors = torch.matmul(weights, source_colors.float())  # (m_points, n_label_channels)

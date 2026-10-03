@@ -524,6 +524,7 @@ class LabelTransferStage(PipelineStage):
                     method=ColorTransferMethod.CPD_WEIGHTED,
                     source_colors=one_hot,
                     estep_result=oriented,
+                    pmat_layout="receiver_provider",
                 )
                 frame_labels = soft_scores.argmax(dim=1)
                 if n_bad > 0:

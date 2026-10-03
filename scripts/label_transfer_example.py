@@ -100,7 +100,9 @@ def main():
     colors_cpd = transfer_colors(
         source_pc, target_pc,
         method=ColorTransferMethod.CPD_WEIGHTED,
-        estep_result=estep_result._replace(pmat=estep_result.pmat.T)
+        estep_result=estep_result._replace(pmat=estep_result.pmat.T),
+        # The transposed pmat is (n_target, n_source): declare it, never inferred.
+        pmat_layout="receiver_provider",
     )
     print(f"   Transferred colors shape: {colors_cpd.shape}")
     print(f"   Sample colors: {colors_cpd[:2]}")

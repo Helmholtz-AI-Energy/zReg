@@ -136,7 +136,7 @@ def apply_rigid(
 
     Examples
     --------
-    >>> from zreg.transforms import RigidTransformation
+    >>> from zreg.core.transforms import RigidTransformation
     >>> traj = generate_trajectory(50, 3, seed=0)
     >>> result = apply_rigid(traj, RigidTransformation())  # identity
     """
@@ -169,9 +169,9 @@ def apply_affine(
     Examples
     --------
     >>> import torch
-    >>> from zreg.transforms import AffineTransformation
+    >>> from zreg.core.transforms import AffineTransformation
     >>> traj = generate_trajectory(50, 3, seed=0)
-    >>> tf = AffineTransformation(t=torch.zeros(3))  # true identity affine
+    >>> tf = AffineTransformation(t=torch.zeros(3))  # identity (also the default)
     >>> result = apply_affine(traj, tf)
     """
     M = _affine_to_matrix(tf)

@@ -31,7 +31,8 @@ class TPSTransformation(TransformBase):
     a : torch.Tensor
         Affine parameters, shape (d+1, d) where d is dimension.
     v : torch.Tensor
-        Kernel weights, shape (n_control, d).
+        Kernel weights in the null-space basis of the control points,
+        shape (n_control - d - 1, d).
     control_pts : torch.Tensor
         Control points, shape (n_control, d).
     kernel : callable, optional
@@ -47,7 +48,7 @@ class TPSTransformation(TransformBase):
     Examples
     --------
     >>> a = torch.randn(4, 3)  # Affine parameters
-    >>> v = torch.randn(10, 3)  # Kernel weights
+    >>> v = torch.randn(6, 3)  # Kernel weights, (n_control - d - 1, d) = (10 - 3 - 1, 3)
     >>> control_pts = torch.randn(10, 3)  # Control points
     >>> tf = TPSTransformation(a=a, v=v, control_pts=control_pts)
     >>> points = torch.randn(50, 3)
@@ -73,7 +74,8 @@ class TPSTransformation(TransformBase):
         a : torch.Tensor
             Affine parameters, shape (d+1, d).
         v : torch.Tensor
-            Kernel weights, shape (n_control, d).
+            Kernel weights in the null-space basis of the control points,
+            shape (n_control - d - 1, d).
         control_pts : torch.Tensor
             Control points, shape (n_control, d).
         kernel : callable, optional

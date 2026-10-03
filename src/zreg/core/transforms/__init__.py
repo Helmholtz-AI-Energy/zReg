@@ -35,7 +35,7 @@ Examples
 Rigid transformation:
 
     >>> import torch
-    >>> from zreg.transforms import RigidTransformation
+    >>> from zreg.core.transforms import RigidTransformation
     >>> tf = RigidTransformation(t=torch.tensor([1., 0., 0.]))
     >>> points = torch.randn(100, 3)
     >>> transformed = tf.transform(points)
@@ -48,7 +48,7 @@ Composition:
 
 Non-rigid transformation:
 
-    >>> from zreg.transforms import NonRigidTransformation
+    >>> from zreg.core.transforms import NonRigidTransformation
     >>> points = torch.randn(50, 3)
     >>> w = torch.randn(50, 3) * 0.01
     >>> tf = NonRigidTransformation(w=w, points=points, beta=2.0)
@@ -56,8 +56,8 @@ Non-rigid transformation:
 
 Homogeneous coordinates:
 
-    >>> from zreg.transforms import transform_points_homogeneous
-    >>> from zreg.dataset import zRegPointCloud
+    >>> from zreg.core.transforms import transform_points_homogeneous
+    >>> from zreg.core.dataset import zRegPointCloud
     >>> pc = zRegPointCloud(pos=torch.randn(10, 3))
     >>> T = torch.eye(4)
     >>> result = transform_points_homogeneous(pc, T)

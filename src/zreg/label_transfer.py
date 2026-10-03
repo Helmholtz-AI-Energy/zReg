@@ -87,8 +87,9 @@ def repair_pmat_rows(
     Policy:
 
     - A receiver row is *bad* when its posterior mass is zero, negative or
-      non-finite (e.g. float underflow far from every provider point), or
-      when the receiver position is non-finite.
+      non-finite (e.g. float underflow far from every provider point), when
+      any of its entries is negative (62-REVIEW WR-04: normalising it would
+      give negative weights), or when the receiver position is non-finite.
     - Every row bad -> ``ValueError`` ("CPD posterior has zero or non-finite
       mass for every receiver point ... in {context}").
     - ``n_bad / n_receiver > max_fallback_fraction`` (strictly greater) ->
@@ -177,7 +178,8 @@ def repair_pmat_rows(
     n_receiver = receiver_pos.shape[0]
     row_mass = pmat.sum(dim=1)
     nonfinite_pos = ~torch.isfinite(receiver_pos).all(dim=1)
-    bad_rows = ~torch.isfinite(row_mass) | (row_mass <= 0) | nonfinite_pos
+    negative_entry = (pmat < 0).any(dim=1)  # 62-REVIEW WR-04
+    bad_rows = ~torch.isfinite(row_mass) | (row_mass <= 0) | negative_entry | nonfinite_pos
     n_bad = int(bad_rows.sum().item())
     where = f" in {context}" if context else ""
 

@@ -687,6 +687,26 @@ def test_repair_pmat_rows_nan_row_treated_as_zero_row():
     assert bool(torch.isfinite(repair.pmat).all())
 
 
+def test_repair_pmat_rows_negative_entry_is_bad_row():
+    """62-REVIEW WR-04: a row with a negative entry but positive sum is bad, not normalised."""
+    pmat = _uniform_pmat()
+    pmat[1] = torch.tensor([-5.0, 10.0, 0.5, 0.5])
+    repair = repair_pmat_rows(pmat, _PROVIDER4, _RECEIVER4, context="frame 3")
+    assert repair.bad_rows.tolist() == [False, True, False, False]
+    nearest = torch.cdist(_RECEIVER4[1:2], _PROVIDER4, p=2).argmin().item()
+    assert repair.fallback_idx.tolist() == [nearest]
+
+
+def test_cpd_weighted_negative_entry_never_gives_negative_scores():
+    """62-REVIEW WR-04: soft scores stay in [0, 1] for one-hot colours."""
+    pmat = _uniform_pmat()
+    pmat[1] = torch.tensor([-5.0, 10.0, 0.5, 0.5])
+    with pytest.warns(RuntimeWarning):
+        out = _cpd(pmat)
+    assert bool((out >= 0).all())
+    torch.testing.assert_close(out[1], _COLOURS4[1])
+
+
 def test_repair_pmat_rows_nonfinite_receiver_position_gets_minus_one():
     """IN-09a: a NaN receiver position is a bad row even with positive mass; no argmin over NaN."""
     receiver = _RECEIVER4.clone()

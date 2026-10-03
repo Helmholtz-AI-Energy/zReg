@@ -26,7 +26,13 @@
 #          run's eval_report.json instead (the error for a stale best_params.json names it).
 # Env:     ZREG_VENV      venv to activate (default: $HOME/regvenv_horeka)
 #          ZREG_REPO_DIR  repo checkout to cd into
-#                         (default: /home/hk-project-starter-p0024807/uitog/BA/zReg)
+#                         (default: /home/hk-project-starter-p0024807/uitog/BA/zReg).
+#                         #SBATCH lines cannot expand env vars, so the --output log
+#                         path below stays in the default checkout. With another
+#                         checkout, override it at submission (the directory must
+#                         already exist; Slurm does not create it):
+#                           ZREG_REPO_DIR=$PWD sbatch \
+#                             --output=$PWD/baseline_experiments/logs/slurm-%j.out <this script>
 
 #SBATCH --job-name=zreg-baseline-eval
 #SBATCH --partition=accelerated

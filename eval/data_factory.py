@@ -767,6 +767,14 @@ class DataFactory:
         Dispatch order: sigma → n_outliers → scale_factor → rotation_deg →
         dropout_fraction → n_new_points.
 
+        Correspondence tracking (Phase 56 D-03, Phase 62 D-02):
+        ``n_outliers``, ``dropout_fraction`` and ``n_new_points`` change the
+        per-frame point count, so each of them updates
+        ``self._correspondence_idx`` (outliers and new points map to ``-1``,
+        dropout composes the retained indices).  This keeps
+        :meth:`get_synthetic_ground_truth` aligned with the target for any
+        combination of the three.
+
         Missing keys skip the corresponding step.  An empty dict (or a dict
         containing only ``"augment_seed"``) is a no-op and returns the input
         dataset unchanged.
@@ -795,12 +803,17 @@ class DataFactory:
             result = add_gaussian_noise(result, sigma=params["sigma"], seed=augment_seed)
         # Step 2: outlier injection
         if "n_outliers" in params:
+            before_outliers = result
             result = add_outliers(
                 result,
                 n_outliers=params["n_outliers"],
                 scale=params.get("scale", 3.0),
                 seed=augment_seed,
             )
+            # Phase 62 D-02 (U4-5): outliers are appended at the end of every
+            # frame and have no source point — track them as -1 so a later
+            # drop_points/sample_new_points composes against the right map.
+            self._extend_correspondence_with_sentinels(before_outliers, params["n_outliers"])
         # Step 3: uniform scaling
         if "scale_factor" in params:
             result = self.scale(result, params["scale_factor"])
@@ -926,13 +939,15 @@ class DataFactory:
         For rigid, affine, and noise transforms the correspondence between
         source and target is identity: ``source[k][i]`` maps to
         ``target[k][i]``, so the source-frame field values are returned
-        unchanged.  When ``dropout_fraction``/``n_new_points`` were applied
-        (tracked via ``self._correspondence_idx``, populated by
+        unchanged.  When ``n_outliers``/``dropout_fraction``/``n_new_points``
+        were applied (tracked via ``self._correspondence_idx``, populated by
+        :meth:`augment` for outliers and by
         :meth:`drop_points`/:meth:`sample_new_points`), the returned tensor
         is instead **gathered** by that tracked correspondence so its length
         matches the target's actual (post-dropout/new-points) per-frame
-        point count — points with no original-source correspondence (newly
-        added by ``sample_new_points``) receive a ``-1`` sentinel label,
+        point count — points with no original-source correspondence
+        (injected outliers, points added by ``sample_new_points``) receive a
+        ``-1`` sentinel label,
         which ``zreg.evaluation.label_transfer.compute_f1`` already excludes
         from scoring (Phase 56 D-03/D-04, GT-02).
 
@@ -988,21 +1003,27 @@ class DataFactory:
         field = self.config.ground_truth_field
         result: dict[int, torch.Tensor] = {}
         for k, pc in self._source_dataset.items():
+            # Phase 62 D-01 (U4-3): every buffer follows the source frame's
+            # pos device, so a cuda (or meta) run never mixes devices here.
+            dev = pc["pos"].device
             field_values = pc[field]
             if field_values is not None:
-                base = field_values.to(torch.long)  # D-04 + D-06: cast to torch.long
+                base = field_values.to(device=dev, dtype=torch.long)  # D-04 + D-06: cast to torch.long
             else:
-                base = torch.arange(pc["pos"].shape[0], dtype=torch.long)  # D-05 + D-06: ordinal fallback
+                base = torch.arange(pc["pos"].shape[0], dtype=torch.long, device=dev)  # D-05 + D-06: ordinal fallback
 
             if self._correspondence_idx is not None and k in self._correspondence_idx:
                 # Phase 56 D-03/D-04 (GT-02): gather by tracked correspondence
                 # instead of returning positionally — produces a tensor
                 # already sized to match the target's actual point count.
-                corr = self._correspondence_idx[k]
-                gathered = torch.full((corr.shape[0],), -1, dtype=torch.long)
-                valid = corr >= 0
-                gathered[valid] = base[corr[valid]]
-                result[k] = gathered
+                # Phase 62 D-01: torch.where instead of a boolean-mask
+                # assignment (data-dependent shapes have no meta support).
+                corr = self._correspondence_idx[k].to(device=dev, dtype=torch.long)
+                sentinel = torch.full_like(corr, -1)
+                if base.numel() == 0:
+                    result[k] = sentinel
+                else:
+                    result[k] = torch.where(corr >= 0, base[corr.clamp(min=0)], sentinel)
             else:
                 result[k] = base
         return result
@@ -1237,12 +1258,10 @@ class DataFactory:
         per-frame map from retained-position to original-source-position,
         composed with any prior correspondence from an earlier
         ``drop_points``/``sample_new_points`` call in the same
-        ``augment()``/``generate_target()`` chain. Note (out of scope,
-        D-03): if ``add_outliers`` (the ``"n_outliers"`` augment key,
-        dispatched BEFORE ``dropout_fraction``/``n_new_points``) was applied
-        earlier in the same chain, outlier-injected points are
-        indistinguishable from genuine source points here — correspondence
-        tracking is scoped to drop_points/sample_new_points only.
+        ``augment()``/``generate_target()`` chain. Outliers injected earlier
+        in the same chain by :meth:`augment` (the ``"n_outliers"`` key) are
+        already in that prior map as ``-1`` entries (Phase 62 D-02), so a
+        retained outlier keeps its ``-1`` sentinel here.
         """
         torch.manual_seed(seed)
         result: dict[int, zRegPointCloud] = {}
@@ -1309,7 +1328,6 @@ class DataFactory:
         """
         torch.manual_seed(seed)
         result: dict[int, zRegPointCloud] = {}
-        new_corr: dict[int, torch.Tensor] = {}
         for i, pc in dataset.items():
             pos = pc["pos"]
             bbox_min = pos.min(dim=0).values
@@ -1332,14 +1350,45 @@ class DataFactory:
                 id=_extend(pc["id"]),
             )
             result[i]["fps-idx"] = _extend(pc["fps-idx"])
-            # Phase 56 D-03: compose with prior correspondence, or start fresh
-            # from an identity map over the PRE-extension point count.
+        # Phase 56 D-03: compose with prior correspondence, or start fresh
+        # from an identity map over the PRE-extension point count.
+        self._extend_correspondence_with_sentinels(dataset, n_extra)
+        return result
+
+    def _extend_correspondence_with_sentinels(
+        self,
+        dataset_before: dict[int, zRegPointCloud],
+        n_extra: int,
+    ) -> None:
+        """Append ``n_extra`` ``-1`` sentinels per frame to ``self._correspondence_idx``.
+
+        Shared by :meth:`augment` (after ``add_outliers``, Phase 62 D-02 /
+        U4-5) and :meth:`sample_new_points`: both append points with no
+        source correspondence at the END of every frame.
+
+        For every frame ``i`` of ``dataset_before`` (the dataset BEFORE the
+        points were appended), the prior map ``self._correspondence_idx[i]``
+        is used when present, otherwise an identity map
+        ``arange(n_before)`` on that frame's ``pos`` device; ``n_extra``
+        ``-1`` entries are appended on the same device.  The map is replaced
+        by one covering exactly the frames of ``dataset_before`` (same
+        semantics as :meth:`drop_points`).  No RNG is consumed.
+
+        Parameters
+        ----------
+        dataset_before : dict[int, zRegPointCloud]
+            Frames before the extension (only ``pos`` shape/device are read).
+        n_extra : int
+            Number of appended points per frame.
+        """
+        new_corr: dict[int, torch.Tensor] = {}
+        for i, pc in dataset_before.items():
+            pos = pc["pos"]
             if self._correspondence_idx is not None and i in self._correspondence_idx:
                 base = self._correspondence_idx[i]
             else:
                 base = torch.arange(pos.shape[0], dtype=torch.long, device=pos.device)
             new_corr[i] = torch.cat(
-                [base, torch.full((n_extra,), -1, dtype=torch.long, device=pos.device)]
+                [base, torch.full((n_extra,), -1, dtype=torch.long, device=base.device)]
             )
         self._correspondence_idx = new_corr
-        return result

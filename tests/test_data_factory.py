@@ -1943,3 +1943,276 @@ class TestDataFactoryDeviceGuard:
         with patch("torch.cuda.is_available", return_value=True):
             factory = DataFactory(cfg)
         assert factory.config.device == "cuda"
+
+
+# ---------------------------------------------------------------------------
+# Phase 62 (DATA-01 U4-3, DATA-02 U4-5): device-following GT gather,
+# outlier correspondence tracking, rotation device contract
+# ---------------------------------------------------------------------------
+
+_CUDA = pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
+
+
+def _make_labelled_ds(n=20, n_frames=2, seed=1234):
+    """Frames with pos ~ U[0,1)^3 and label = arange(n) (label == source index)."""
+    g = torch.Generator().manual_seed(seed)
+    ds = {}
+    for i in range(n_frames):
+        pc = zRegPointCloud(pos=torch.rand(n, 3, generator=g), label=torch.arange(n), id=None)
+        pc["fps-idx"] = None
+        ds[i] = pc
+    return ds
+
+
+def _ds_to(ds, device):
+    out = {}
+    for k, pc in ds.items():
+        new = zRegPointCloud(
+            pos=pc["pos"].to(device),
+            label=pc["label"].to(device) if pc["label"] is not None else None,
+            id=pc["id"].to(device) if pc["id"] is not None else None,
+        )
+        new["fps-idx"] = None
+        out[k] = new
+    return out
+
+
+class TestGetSyntheticGroundTruthDevice:
+    """U4-3 / D-01: the GT gather builds every buffer on the source frame's pos device."""
+
+    def _inject(self, factory, ds, corr):
+        factory._source_dataset = ds
+        factory._synthetic_target = ds
+        factory._correspondence_idx = corr
+
+    def test_meta_device_with_correspondence_and_sentinels(self):
+        meta = torch.device("meta")
+        factory = DataFactory(EvalConfig(data_path="x", device="cpu"))
+        pc = zRegPointCloud(
+            pos=torch.empty(10, 3, device=meta),
+            label=torch.empty(10, dtype=torch.long, device=meta),
+            id=None,
+        )
+        corr = torch.empty(7, dtype=torch.long, device=meta)  # values unknown (may be -1)
+        self._inject(factory, {0: pc}, {0: corr})
+        gt = factory.get_synthetic_ground_truth()
+        assert gt[0].device.type == "meta"
+        assert gt[0].dtype == torch.long
+        assert gt[0].shape == (7,)
+
+    def test_meta_device_ordinal_fallback(self):
+        meta = torch.device("meta")
+        factory = DataFactory(EvalConfig(data_path="x", device="cpu"))
+        pc = zRegPointCloud(pos=torch.empty(10, 3, device=meta), label=None, id=None)
+        corr = torch.empty(4, dtype=torch.long, device=meta)
+        self._inject(factory, {0: pc}, {0: corr})
+        gt = factory.get_synthetic_ground_truth()
+        assert gt[0].device.type == "meta"
+        assert gt[0].dtype == torch.long
+        assert gt[0].shape == (4,)
+
+    def test_meta_device_without_correspondence_ordinal_fallback(self):
+        meta = torch.device("meta")
+        factory = DataFactory(EvalConfig(data_path="x", device="cpu"))
+        pc = zRegPointCloud(pos=torch.empty(10, 3, device=meta), label=None, id=None)
+        self._inject(factory, {0: pc}, None)
+        gt = factory.get_synthetic_ground_truth()
+        assert gt[0].device.type == "meta"
+        assert gt[0].shape == (10,)
+
+    def test_cpu_gather_values_with_sentinel(self):
+        factory = DataFactory(EvalConfig(data_path="x"))
+        pc = zRegPointCloud(pos=torch.rand(5, 3), label=torch.arange(5) * 10, id=None)
+        self._inject(factory, {0: pc}, {0: torch.tensor([2, -1, 0, 4])})
+        gt = factory.get_synthetic_ground_truth()
+        assert torch.equal(gt[0], torch.tensor([20, -1, 0, 40]))
+        assert gt[0].dtype == torch.long
+
+    def test_empty_source_frame_all_sentinel(self):
+        factory = DataFactory(EvalConfig(data_path="x"))
+        pc = zRegPointCloud(pos=torch.empty(0, 3), label=torch.empty(0, dtype=torch.long), id=None)
+        self._inject(factory, {0: pc}, {0: torch.full((3,), -1, dtype=torch.long)})
+        gt = factory.get_synthetic_ground_truth()
+        assert torch.equal(gt[0], torch.full((3,), -1, dtype=torch.long))
+
+    @_CUDA
+    def test_cuda_dropout_new_points_gt_on_cuda(self):
+        from zreg.evaluation.label_transfer import compute_f1
+
+        factory = DataFactory(EvalConfig(data_path="x", device="cuda"))
+        ds = _ds_to(_make_labelled_ds(), "cuda")
+        factory.generate_target(ds, {"dropout_fraction": 0.3, "n_new_points": 3})
+        gt = factory.get_synthetic_ground_truth()
+        for k in ds:
+            assert gt[k].device.type == "cuda"
+            assert gt[k].dtype == torch.long
+            compute_f1(gt[k], gt[k])
+
+
+class TestAugmentCorrespondence:
+    """U4-5 / D-02: outlier injection is tracked in the correspondence map."""
+
+    # Pre-fix (HEAD f5523a0) correspondence for _make_labelled_ds() with
+    # {"n_outliers": 5, "dropout_fraction": 0.3}: drop_points retained these
+    # positions of the 25-point (20 + 5 outliers) frames. Positions >= 20
+    # are outliers and must now map to -1; the retained subset itself (and
+    # therefore the RNG stream) must be unchanged.
+    _PRE_FIX_RETAINED = {
+        0: [0, 1, 2, 3, 6, 8, 9, 10, 12, 16, 17, 18, 19, 20, 21, 22, 23, 24],
+        1: [0, 1, 3, 6, 8, 9, 10, 11, 12, 13, 14, 15, 18, 19, 20, 21, 23, 24],
+    }
+    # sha256 of the target pos bytes (frames in key order) at HEAD f5523a0.
+    _PRE_FIX_POS_SHA256 = "abed7ecf18f4e8f795ba4cdde9c49cbfdb2d70ff7b77da835252bc5aa19b7f93"
+
+    def _assert_gt_points_match(self, ds, tgt, gt):
+        for k in ds:
+            assert gt[k].shape[0] == tgt[k]["pos"].shape[0]
+            for j in torch.nonzero(gt[k] >= 0).flatten().tolist():
+                assert torch.equal(tgt[k]["pos"][j], ds[k]["pos"][gt[k][j]])
+
+    def test_outliers_plus_dropout_gt_valid(self):
+        n, n_out = 20, 5
+        factory = DataFactory(EvalConfig(data_path="x"))
+        ds = _make_labelled_ds(n=n)
+        tgt = factory.generate_target(ds, {"n_outliers": n_out, "dropout_fraction": 0.3})
+        gt = factory.get_synthetic_ground_truth()
+        self._assert_gt_points_match(ds, tgt, gt)
+        for k in ds:
+            expected = torch.tensor(
+                [p if p < n else -1 for p in self._PRE_FIX_RETAINED[k]], dtype=torch.long
+            )
+            assert torch.equal(gt[k], expected)
+            assert torch.equal(factory._correspondence_idx[k], expected)
+
+    def test_outliers_plus_dropout_rng_unchanged(self):
+        import hashlib
+
+        factory = DataFactory(EvalConfig(data_path="x"))
+        tgt = factory.generate_target(
+            _make_labelled_ds(), {"n_outliers": 5, "dropout_fraction": 0.3}
+        )
+        h = hashlib.sha256()
+        for k in sorted(tgt):
+            h.update(tgt[k]["pos"].contiguous().numpy().tobytes())
+        assert h.hexdigest() == self._PRE_FIX_POS_SHA256
+
+    def test_outlier_only_gt_length_and_sentinels(self):
+        n, n_out = 20, 5
+        factory = DataFactory(EvalConfig(data_path="x"))
+        ds = _make_labelled_ds(n=n)
+        tgt = factory.generate_target(ds, {"n_outliers": n_out})
+        gt = factory.get_synthetic_ground_truth()
+        for k in ds:
+            assert gt[k].shape[0] == n + n_out == tgt[k]["pos"].shape[0]
+            assert torch.equal(gt[k][:n], torch.arange(n))
+            assert torch.all(gt[k][n:] == -1)
+        self._assert_gt_points_match(ds, tgt, gt)
+
+    def test_outliers_plus_new_points(self):
+        n, n_out, n_new = 20, 5, 4
+        factory = DataFactory(EvalConfig(data_path="x"))
+        ds = _make_labelled_ds(n=n)
+        tgt = factory.generate_target(ds, {"n_outliers": n_out, "n_new_points": n_new})
+        gt = factory.get_synthetic_ground_truth()
+        for k in ds:
+            assert gt[k].shape[0] == n + n_out + n_new
+            assert torch.all(gt[k][n:] == -1)
+        self._assert_gt_points_match(ds, tgt, gt)
+
+    def test_outliers_dropout_new_points(self):
+        factory = DataFactory(EvalConfig(data_path="x"))
+        ds = _make_labelled_ds(n=30)
+        tgt = factory.generate_target(
+            ds, {"n_outliers": 6, "dropout_fraction": 0.4, "n_new_points": 3}
+        )
+        gt = factory.get_synthetic_ground_truth()
+        self._assert_gt_points_match(ds, tgt, gt)
+        for k in ds:
+            assert torch.all(gt[k][-3:] == -1)
+
+    def test_sample_new_points_map_unchanged(self):
+        """sample_new_points still appends n_extra -1 sentinels to an identity map."""
+        factory = DataFactory(EvalConfig(data_path="x"))
+        ds = _make_labelled_ds(n=6)
+        factory._correspondence_idx = None
+        factory.sample_new_points(ds, 2, seed=0)
+        for k in ds:
+            assert torch.equal(
+                factory._correspondence_idx[k], torch.tensor([0, 1, 2, 3, 4, 5, -1, -1])
+            )
+
+
+class TestAugmentRotationDevice:
+    """Review cycle 2 MEDIUM: the rotation step follows the input device.
+
+    augment step 4 builds R on the CPU; _apply_matrix (zreg.data_generation.
+    transforms) casts it to each frame's pos dtype/device. These tests pin
+    that contract.
+    """
+
+    _ROT = {"rotation_deg": 30.0, "rotation_axis": [0.0, 0.0, 1.0]}
+
+    def test_meta_rotation_stays_on_meta(self):
+        meta = torch.device("meta")
+        factory = DataFactory(EvalConfig(data_path="x", augmentation_params=dict(self._ROT)))
+        ds = {}
+        for i in range(2):
+            pc = zRegPointCloud(
+                pos=torch.empty(10, 3, device=meta),
+                label=torch.empty(10, dtype=torch.long, device=meta),
+                id=None,
+            )
+            pc["fps-idx"] = None
+            ds[i] = pc
+        out = factory.augment(ds)
+        for k in ds:
+            assert out[k]["pos"].device.type == "meta"
+            assert out[k]["pos"].dtype == torch.float32
+
+    @_CUDA
+    def test_cuda_rotation_matches_cpu(self):
+        ds_cpu = _make_labelled_ds()
+        ds_cuda = _ds_to(ds_cpu, "cuda")
+        out_cpu = DataFactory(
+            EvalConfig(data_path="x", augmentation_params=dict(self._ROT))
+        ).augment(ds_cpu)
+        out_cuda = DataFactory(
+            EvalConfig(data_path="x", device="cuda", augmentation_params=dict(self._ROT))
+        ).augment(ds_cuda)
+        for k in ds_cpu:
+            assert out_cuda[k]["pos"].device.type == "cuda"
+            assert torch.allclose(out_cuda[k]["pos"].cpu(), out_cpu[k]["pos"], atol=1e-5)
+
+    @_CUDA
+    def test_cuda_rotation_dropout_new_points_gt(self):
+        ds_cpu = _make_labelled_ds()
+        ds = _ds_to(ds_cpu, "cuda")
+        factory = DataFactory(EvalConfig(data_path="x", device="cuda"))
+        tgt = factory.generate_target(
+            ds, {"rotation_deg": 30.0, "dropout_fraction": 0.3, "n_new_points": 3}
+        )
+        gt = factory.get_synthetic_ground_truth()
+        rotated = DataFactory(
+            EvalConfig(data_path="x", device="cuda", augmentation_params=dict(self._ROT))
+        ).augment(ds)
+        for k in ds:
+            assert tgt[k]["pos"].device.type == "cuda"
+            assert gt[k].device.type == "cuda"
+            for j in torch.nonzero(gt[k] >= 0).flatten().tolist():
+                assert torch.allclose(tgt[k]["pos"][j], rotated[k]["pos"][gt[k][j]], atol=1e-5)
+
+    def test_cpu_rotation_dropout_new_points_gt(self):
+        """CPU twin of the CUDA test above (runs everywhere)."""
+        ds = _make_labelled_ds()
+        factory = DataFactory(EvalConfig(data_path="x"))
+        tgt = factory.generate_target(
+            ds, {"rotation_deg": 30.0, "dropout_fraction": 0.3, "n_new_points": 3}
+        )
+        gt = factory.get_synthetic_ground_truth()
+        rotated = DataFactory(
+            EvalConfig(data_path="x", augmentation_params={"rotation_deg": 30.0})
+        ).augment(ds)
+        for k in ds:
+            assert gt[k].shape[0] == tgt[k]["pos"].shape[0]
+            for j in torch.nonzero(gt[k] >= 0).flatten().tolist():
+                assert torch.allclose(tgt[k]["pos"][j], rotated[k]["pos"][gt[k][j]], atol=1e-5)

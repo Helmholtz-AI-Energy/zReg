@@ -17,16 +17,69 @@ __all__ = ["CoherentPointDrift"]
 log = logging.getLogger(__name__)
 
 
+def _mstep_accumulation_dtype(dtype: torch.dtype) -> torch.dtype:
+    """Return the dtype the rigid/affine M-step reductions run in.
+
+    The rigid and affine sigma2 is a small difference of large trace terms
+    (``tr(X'P1X) - s*tr(A'R)``); the ratio is the signal-to-noise variance,
+    often 1e3 or more. Reduced in float32, that cancellation leaves a relative
+    error of about 1e-3 in sigma2 and a q that jitters by several units at
+    the fixed point, so no realistic ``tol`` is ever met. Reducing in float64
+    and casting the results back costs O(N * D^2), negligible next to the
+    O(N * M) E-step, and makes float32 inputs converge like float64 ones.
+
+    Parameters
+    ----------
+    dtype : torch.dtype
+        Dtype of the source point cloud.
+
+    Returns
+    -------
+    torch.dtype
+        ``torch.float64`` for floating dtypes narrower than float64, else
+        ``dtype`` unchanged.
+    """
+    if dtype.is_floating_point and torch.finfo(dtype).bits < 64:
+        return torch.float64
+    return dtype
+
+
+def _upcast_estep(estep_res: EstepResult, dtype: torch.dtype) -> EstepResult:
+    """Cast the vector fields of an E-step result to ``dtype``.
+
+    The dense posterior matrix (last field) is not used by the rigid/affine
+    M-step and is passed through uncast to avoid an O(N * M) copy.
+    """
+    pt1, p1, px, n_p, pmat = estep_res
+
+    def cast(x):
+        return x.to(dtype) if isinstance(x, torch.Tensor) else x
+
+    return EstepResult(cast(pt1), cast(p1), cast(px), cast(n_p), pmat)
+
+
 def _q_window_converged(q_window: deque, tol: float) -> bool:
     """Return True if a full window of q values has converged.
 
     The window is chronological (a ``deque`` with ``maxlen``; the oldest value
     is at the left). The criterion is the mean absolute successive change,
-    ``mean(|q_k - q_(k-1)|) < tol``. Taking the absolute value of each delta
-    makes the statistic non-cancelling: an oscillation such as
-    ``[0, 10, -10, 0]`` is not converged, although its signed endpoint
+    relative to the magnitude of the newest q:
+    ``mean(|q_k - q_(k-1)|) < tol * max(|q_last|, 1)``. Taking the absolute
+    value of each delta makes the statistic non-cancelling: an oscillation
+    such as ``[0, 10, -10, 0]`` is not converged, although its signed endpoint
     difference is 0. Only the deltas are made absolute, never the q values
     themselves, because the M&S objective q may cross zero.
+
+    The threshold is scale-aware because the rigid and affine objective is
+    extensive in the number of source points (about
+    ``N_P * D / 2 * (1 + log sigma2)`` at convergence, e.g. -2.5e4 for
+    N_P = 2000). An absolute ``tol`` such as 1e-5 is then below one float32
+    ulp of q, so round-off jitter alone kept the absolute deltas above
+    ``tol`` and EM ran to ``maxiter``. Relative to ``|q|`` this matches the
+    ``|dL| / |L|`` test of Myronenko & Song's reference implementation. The
+    floor of 1 keeps ``tol`` absolute for ``|q| <= 1`` (for example the
+    non-rigid variants, whose q is sigma2) and avoids dividing by a q that
+    crosses zero.
 
     Non-finite q never counts as converged, so a NaN or Inf run proceeds to
     ``maxiter`` (as before) instead of stopping or raising.
@@ -36,13 +89,14 @@ def _q_window_converged(q_window: deque, tol: float) -> bool:
     q_window : collections.deque
         Chronological q values with ``maxlen`` set (4 in ``registration``).
     tol : float
-        Convergence tolerance on the mean absolute successive change.
+        Relative convergence tolerance on the mean absolute successive change
+        (absolute when ``|q_last| <= 1``).
 
     Returns
     -------
     bool
         True only if the window is full, every value is finite and the mean
-        absolute successive change is below ``tol``.
+        absolute successive change is below ``tol * max(|q_last|, 1)``.
     """
     if q_window.maxlen is None or len(q_window) != q_window.maxlen:
         return False
@@ -50,7 +104,8 @@ def _q_window_converged(q_window: deque, tol: float) -> bool:
     if len(values) < 2 or not all(math.isfinite(v) for v in values):
         return False
     total = sum(abs(b - a) for a, b in zip(values[:-1], values[1:]))
-    return total / (len(values) - 1) < tol
+    scale = max(abs(values[-1]), 1.0)
+    return total / (len(values) - 1) < tol * scale
 
 
 class CoherentPointDrift(ABC):
@@ -420,7 +475,10 @@ class CoherentPointDrift(ABC):
         maxiter : int
             Maximum number of iterations.
         tol : float
-            Tolerance for convergence.
+            Convergence tolerance: stop once the mean absolute change of the
+            last four q values is below ``tol * max(|q|, 1)``, i.e. relative
+            to ``|q|`` for the extensive rigid/affine objective and absolute
+            for ``|q| <= 1`` (see ``_q_window_converged``).
         target_colors : torch.Tensor | None
             Target color information.
 

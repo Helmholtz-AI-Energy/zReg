@@ -170,8 +170,16 @@ class TestConvergence:
         assert _q_window_converged(dq([5.0, 5.0, 5.0]), 1e-9) is False
         assert _q_window_converged(dq([5.0, math.nan, 5.0, 5.0]), 1e-9) is False
         assert _q_window_converged(dq([math.inf] * 4), 1e-9) is False
-        assert _q_window_converged(dq([0.0, 1.0, 2.0, 3.0]), 1.0) is False
-        assert _q_window_converged(dq([0.0, 1.0, 2.0, 3.0]), 1.01) is True
+        # |q_last| <= 1: tol is absolute.
+        assert _q_window_converged(dq([0.0, 0.1, 0.2, 0.3]), 0.099) is False
+        assert _q_window_converged(dq([0.0, 0.1, 0.2, 0.3]), 0.101) is True
+        # |q_last| > 1: tol is relative to |q_last| (here 1003).
+        assert _q_window_converged(dq([1000.0, 1001.0, 1002.0, 1003.0]), 9e-4) is False
+        assert _q_window_converged(dq([1000.0, 1001.0, 1002.0, 1003.0]), 1e-3) is True
+        # The scale uses |q|, so a negative extensive q behaves the same.
+        assert (
+            _q_window_converged(dq([-1000.0, -1001.0, -1002.0, -1003.0]), 1e-3) is True
+        )
 
     @pytest.mark.parametrize(
         "cls", [cpd.RigidCPD, cpd.AffineCPD, cpd.NonRigidCPD], ids=lambda c: c.__name__
@@ -197,6 +205,59 @@ class TestConvergence:
         assert n1 >= 4 and n2 >= 4
         for r in results.values():
             assert float(r.sigma2) < 1e-2
+
+    @pytest.mark.parametrize(
+        "cls,n,extent,noise,rotate",
+        [
+            (cpd.RigidCPD, 2000, 1.0, 0.01, True),
+            (cpd.RigidCPD, 2000, 1.0, 0.01, False),
+            (cpd.AffineCPD, 2000, 1.0, 0.01, False),
+            (cpd.RigidCPD, 500, 10.0, 0.05, True),
+            (cpd.AffineCPD, 500, 10.0, 0.05, True),
+        ],
+        ids=["rigid-rot", "rigid-noise", "affine-noise", "rigid-x10", "affine-x10"],
+    )
+    def test_float32_noisy_pair_converges_like_float64(
+        self, cls, n, extent, noise, rotate
+    ):
+        """CR-01: float32 noisy pairs stop like float64 ones at tol=1e-5.
+
+        The rigid/affine q is extensive (about -2.5e4 for N=2000), so one
+        float32 ulp of q (about 2e-3) exceeds an absolute tol of 1e-5 and
+        round-off jitter alone kept EM running to maxiter=1000 (rigid: 1000
+        iterations, affine: 861). The tolerance is now relative to |q|, and
+        the M-step reduces in float64: for the x10 cases the float32
+        cancellation in sigma2 alone made q jitter by about 5e-4 relative,
+        so even a relative tol ran rigid CPD to maxiter.
+        """
+        g = torch.Generator().manual_seed(0)
+        src = extent * torch.rand(n, 3, generator=g, dtype=torch.float64)
+        tgt = src @ _rot_zyx(10.0, 0.0, 0.0).T if rotate else src.clone()
+        tgt = tgt + noise * torch.randn(n, 3, generator=g, dtype=torch.float64)
+        r32 = cls(src.float(), log_freq=-1).registration(
+            tgt.float(), maxiter=1000, tol=1e-5
+        )
+        r64 = cls(src, log_freq=-1).registration(tgt, maxiter=1000, tol=1e-5)
+        assert r64.n_iters < 200
+        assert r32.n_iters < 200
+        assert abs(r32.n_iters - r64.n_iters) <= 5
+        # Same fit as float64: sigma2 at the injected noise level.
+        assert float(r32.sigma2) == pytest.approx(float(r64.sigma2), rel=1e-2)
+        assert float(r32.sigma2) < 2 * noise**2
+        assert r32.transformation.t.dtype == torch.float32
+        assert r32.sigma2.dtype == torch.float32
+
+    @pytest.mark.parametrize("cls", [cpd.RigidCPD, cpd.AffineCPD])
+    def test_float32_m_step_returns_source_dtype(self, cls):
+        """The float64 M-step reduction casts every result back to float32."""
+        y, x = _hand_pair()
+        y32, x32 = y.float(), x.float()
+        res = cls._maximization_step(y32, x32, _identity_estep(x32), None)
+        res64 = cls._maximization_step(y, x, _identity_estep(x), None)
+        assert res.sigma2.dtype == torch.float32
+        assert res.q.dtype == torch.float32
+        assert res.transformation.t.dtype == torch.float32
+        assert float(res.sigma2) == pytest.approx(float(res64.sigma2), rel=1e-4)
 
     def test_convergence_maxiter_below_window(self):
         """maxiter below the window size runs exactly maxiter iterations."""

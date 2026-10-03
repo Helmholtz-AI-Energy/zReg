@@ -2,7 +2,7 @@
 
 import torch
 
-from .base import CoherentPointDrift
+from .base import CoherentPointDrift, _mstep_accumulation_dtype, _upcast_estep
 from ._types import MstepResult, EstepResult
 from ...core import transforms as tf
 from ...utils import squared_kernel_sum
@@ -211,7 +211,12 @@ class RigidCPD(CoherentPointDrift):
         MstepResult
             Optimal rotation, translation, scale, and updated variance.
         """
-        pt1, p1, px, n_p, _ = estep_res
+        # Reduce in float64 for float32 input and cast the results back
+        # (see _mstep_accumulation_dtype): sigma2 is a cancelling difference.
+        out_dtype = source.dtype
+        acc = _mstep_accumulation_dtype(out_dtype)
+        source, target = source.to(acc), target.to(acc)
+        pt1, p1, px, n_p, _ = _upcast_estep(estep_res, acc)
         dim = CoherentPointDrift._N_DIM
 
         # Calculate means
@@ -259,4 +264,10 @@ class RigidCPD(CoherentPointDrift):
         q = (tr_xp1x - 2.0 * scale * tr_atr + (scale**2) * tr_yp1y) / (2.0 * sigma2)
         q += dim * n_p * 0.5 * torch.log(sigma2)
 
-        return MstepResult(tf.RigidTransformation(rot, t, scale), sigma2, q)
+        if isinstance(scale, torch.Tensor):
+            scale = scale.to(out_dtype)
+        return MstepResult(
+            tf.RigidTransformation(rot.to(out_dtype), t.to(out_dtype), scale),
+            sigma2.to(out_dtype),
+            q.to(out_dtype),
+        )

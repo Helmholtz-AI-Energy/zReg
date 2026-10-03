@@ -166,6 +166,12 @@ def knn_consistency(
 
     The query point is excluded by index, so coincident points with
     different labels are counted correctly.
+
+    **Sentinel masking (62-REVIEW WR-06):** points labelled ``-1`` ("no
+    label") are not scored, and ``-1`` neighbours are excluded from a point's
+    fraction (its denominator is the number of labelled neighbours among the
+    k nearest).  A point whose k neighbours are all ``-1`` is not scored.
+    Returns ``0.0`` when no point can be scored.
     """
     if points.ndim != 2 or points.shape[1] != 3:
         raise ValueError(
@@ -204,7 +210,18 @@ def knn_consistency(
     is_self[self_missing, -1] = True
     neigh = idx[~is_self].reshape(n, k)
 
-    scores = (labels_np[neigh] == labels_np[:, None]).mean(axis=1)
+    # 62-REVIEW WR-06: -1 is the "no label" sentinel (as in compute_f1):
+    # unlabelled query points are not scored and unlabelled neighbours are
+    # left out of each point's fraction.  Without -1 this is exactly the
+    # plain mean over the k neighbours.
+    neigh_labels = labels_np[neigh]
+    valid_neigh = neigh_labels != -1
+    n_valid = valid_neigh.sum(axis=1)
+    scored = (labels_np != -1) & (n_valid > 0)
+    if not scored.any():
+        return 0.0
+    agree = ((neigh_labels == labels_np[:, None]) & valid_neigh).sum(axis=1)
+    scores = agree[scored] / n_valid[scored]
     return float(scores.mean())
 
 

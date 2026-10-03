@@ -272,3 +272,37 @@ class TestTemporalStabilityMixedInputs:
         ]
         with pytest.raises(TypeError, match="device"):
             temporal_stability(transforms)
+
+
+class TestKnnConsistencySentinel:
+    """62-REVIEW WR-06: -1 ("no label") is masked like in compute_f1."""
+
+    _POINTS = torch.tensor(
+        [[0.0, 0.0, 0.0], [0.1, 0.0, 0.0], [0.2, 0.0, 0.0],
+         [10.0, 0.0, 0.0], [10.1, 0.0, 0.0], [10.2, 0.0, 0.0]],
+        dtype=torch.float64,
+    )
+
+    def test_unlabelled_points_neither_scored_nor_neighbours(self):
+        # Cluster A: 0, 0, -1; cluster B: 1, 1, 1 (k=2, neighbours stay in-cluster).
+        labels = torch.tensor([0, 0, -1, 1, 1, 1])
+        # Point 0: neighbours {1, 2} -> labelled {1} matches -> 1.0
+        # Point 1: neighbours {0, 2} -> labelled {0} matches -> 1.0
+        # Point 2: unlabelled -> not scored; cluster B: 1.0 each.
+        assert knn_consistency(self._POINTS, labels, k=2) == pytest.approx(1.0, abs=1e-12)
+
+    def test_unlabelled_cluster_does_not_count_as_agreement(self):
+        labels = torch.tensor([-1, -1, -1, 1, 2, 1])
+        # Only cluster B is scored: point 3 sees {4, 5} -> 1/2, point 4 sees {3, 5} -> 0,
+        # point 5 sees {4, 3} -> 1/2.  Mean = 1/3.  Unmasked, the -1 cluster would score 1.0.
+        assert knn_consistency(self._POINTS, labels, k=2) == pytest.approx(1 / 3, abs=1e-12)
+
+    def test_all_unlabelled_returns_zero(self):
+        labels = torch.full((6,), -1)
+        assert knn_consistency(self._POINTS, labels, k=2) == 0.0
+
+    def test_without_sentinel_unchanged(self):
+        labels = torch.tensor([0, 0, 1, 1, 1, 2])
+        # Point 0: {1,2} -> 1/2; 1: {0,2} -> 1/2; 2: {1,0} -> 0;
+        # 3: {4,5} -> 1/2; 4: {3,5} -> 1/2; 5: {4,3} -> 0. Mean = 2/6.
+        assert knn_consistency(self._POINTS, labels, k=2) == pytest.approx(2 / 6, abs=1e-12)

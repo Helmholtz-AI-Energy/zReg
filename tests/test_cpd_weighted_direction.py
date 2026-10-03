@@ -339,14 +339,13 @@ def _zero_mass_frame():
 
 
 def _bypass_pre_transfer_chamfer(monkeypatch):
-    """Skip the stage's pre-transfer Chamfer check, which rejects NaN positions.
+    """Skip the stage's pre-transfer check, which rejects non-finite positions.
 
-    ``LabelTransferStage.run`` validates every frame pair through
-    ``zreg.evaluation.chamfer`` before any transfer, so a NaN receiver
-    position currently fails loudly there (see
+    ``LabelTransferStage.run`` rejects any paired frame with a non-finite
+    position in ``_check_alignment`` before any transfer (62-REVIEW WR-05, see
     ``test_stage_nonfinite_receiver_position_rejected_before_transfer``).  The
     cpd_weighted -1 sentinel (IN-09a) is the defence-in-depth behind that
-    check; these tests reach it by replacing only the Chamfer diagnostic.
+    check; these tests reach it by replacing only that pre-check.
     The posterior and the transfer itself stay unmocked.
     """
     monkeypatch.setattr(
@@ -355,13 +354,31 @@ def _bypass_pre_transfer_chamfer(monkeypatch):
 
 
 def test_stage_nonfinite_receiver_position_rejected_before_transfer(tmp_path):
-    """A NaN receiver position fails loudly in the pre-transfer Chamfer check (never mislabelled)."""
+    """62-REVIEW WR-05: a NaN receiver position is rejected explicitly before transfer."""
     provider, receiver, _, estep = _nan_receiver_frame()
     stage = LabelTransferStage(_stage_cfg(tmp_path, "target"))
-    with pytest.raises(ValueError, match="finite"):
+    with pytest.raises(
+        ValueError, match=r"target frame 7 has 1 point\(s\) with a non-finite position"
+    ):
         stage.run(
             {7: provider}, {7: receiver}, dict(LT_PARAMS),
             align_result=_align_result({7: receiver}, {7: estep}),
+        )
+
+
+def test_stage_nonfinite_provider_position_rejected_before_transfer(tmp_path):
+    """62-REVIEW WR-05: the explicit check covers the source side of every paired frame."""
+    provider, receiver, _, estep = _nan_receiver_frame()
+    bad_provider = zRegPointCloud(**dict(provider))
+    pos = bad_provider["pos"].clone()
+    pos[3, 2] = float("inf")
+    bad_provider["pos"] = pos
+    finite_receiver = zRegPointCloud(pos=torch.nan_to_num(receiver["pos"]))
+    stage = LabelTransferStage(_stage_cfg(tmp_path, "target"))
+    with pytest.raises(ValueError, match=r"source frame 7 has 1 point\(s\)"):
+        stage.run(
+            {7: bad_provider}, {7: finite_receiver}, dict(LT_PARAMS),
+            align_result=_align_result({7: finite_receiver}, {7: estep}),
         )
 
 

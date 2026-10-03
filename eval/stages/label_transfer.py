@@ -58,9 +58,12 @@ CPD-posterior-weighted-average math, fixing two call-site bugs so
   ``zreg.label_transfer.repair_pmat_rows``): a receiver point whose
   posterior row sums to zero (or is non-finite), e.g. through float
   underflow far from every provider point, gets the label of its nearest
-  provider point instead of a NaN-derived label; a receiver point whose
-  position is non-finite gets ``-1`` (no label).  The frame and count are
-  logged once and recorded in ``LabelResult.flags``.  A frame raises
+  provider point instead of a NaN-derived label.  The frame and count are
+  logged once and recorded in ``LabelResult.flags``.  Non-finite positions
+  in any paired frame are rejected with ``ValueError`` before any transfer
+  (``_check_alignment``, 62-REVIEW WR-05); the ``-1`` (no label) sentinel the
+  repair assigns to a non-finite receiver position is defence in depth only
+  and is not reachable through ``run()``.  A frame raises
   ``ValueError`` when *every* receiver row is bad or when more than
   ``MAX_PMAT_FALLBACK_FRACTION`` (0.5) of its rows would fall back.
 - **categorical one-hot/argmax (D-05):** a literal weighted average of
@@ -303,6 +306,14 @@ class LabelTransferStage(PipelineStage):
         pairs are evaluated.
 
         Returns 0.0 when there are no paired frames.
+
+        Raises
+        ------
+        ValueError
+            If a paired source or target frame has a non-finite position
+            (62-REVIEW WR-05).  Label transfer, the Chamfer diagnostic and
+            the downstream kNN consistency all require finite positions, so
+            such a frame is rejected here with a frame-specific message.
         """
         source_keys = sorted(source.keys())
         target_keys = sorted(target.keys())
@@ -313,6 +324,14 @@ class LabelTransferStage(PipelineStage):
         for k in range(n_pairs):
             src_pos = source[source_keys[k]]["pos"]
             tgt_pos = target[target_keys[k]]["pos"]
+            for side, key, pos in (("source", source_keys[k], src_pos),
+                                   ("target", target_keys[k], tgt_pos)):
+                n_bad = int((~torch.isfinite(pos).all(dim=1)).sum().item()) if pos.numel() else 0
+                if n_bad > 0:
+                    raise ValueError(
+                        f"LabelTransferStage: {side} frame {key} has {n_bad} point(s) with a "
+                        "non-finite position; label transfer requires finite positions"
+                    )
             if src_pos.shape[0] == 0 or tgt_pos.shape[0] == 0:
                 continue  # skip empty frames — chamfer(empty) returns nan
             dist = chamfer(src_pos, tgt_pos)
@@ -373,9 +392,10 @@ class LabelTransferStage(PipelineStage):
             zero or non-finite mass (Phase 59 D-05), or when more than
             ``MAX_PMAT_FALLBACK_FRACTION`` (0.5) of a frame's rows are bad
             (Phase 62 RD-3); isolated bad rows fall back to the nearest
-            provider label (``-1`` for a non-finite receiver position) and
-            are recorded in ``LabelResult.flags``.  See ``validate_params``
-            for the other ``ValueError`` cases.
+            provider label and are recorded in ``LabelResult.flags``.  Also
+            raised, before any transfer, when a paired source or target frame
+            has a non-finite position (62-REVIEW WR-05).  See
+            ``validate_params`` for the other ``ValueError`` cases.
 
         Notes
         -----
@@ -528,7 +548,8 @@ class LabelTransferStage(PipelineStage):
                 )
                 frame_labels = soft_scores.argmax(dim=1)
                 if repair.n_bad > 0:
-                    # RD-2: nearest provider label, or -1 (no label) for a
+                    # RD-2: nearest provider label, or -1 (no label, defence in
+                    # depth: _check_alignment rejects non-finite positions) for a
                     # receiver whose position is non-finite.
                     idx = repair.fallback_idx
                     provider_labels = labels_tensor.long().to(idx.device)

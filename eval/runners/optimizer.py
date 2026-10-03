@@ -36,9 +36,15 @@ Key design decisions implemented here:
   writes JSON at the end of ``run()``.
 - **D-04** ``_detect_backend()`` resolves ``search_strategy="auto"`` → ``"propulate"``
   (MPI world_size > 1 or SLURM_JOB_ID set) or ``"bayesian"`` (fallback). EXT-03.
-- **D-11** Propulate dispatch branch constructs ``Trial`` objects from the
-  ``(params, score)`` pairs returned by ``PropulateSearch.search()`` because
-  Propulate's loss closure does not append to ``history_out``.
+- **D-11 / Phase 62 RD-5..RD-7** The Propulate dispatch branch passes the same
+  history-bound objective as every other strategy, so the rank that evaluates
+  an individual keeps the real ``Trial`` (metrics, tier, flags) and
+  ``_reduce_trial_outcomes`` gathers it to rank 0.  The ``(params, score)``
+  pairs ``PropulateSearch.search()`` returns on rank 0 only back-fill
+  individuals without an evaluation record of this run (e.g. restored from a
+  Propulate checkpoint) as zero-metric placeholders carrying
+  ``PROPULATE_PLACEHOLDER_FLAG``; a pair matching a real trial is never
+  duplicated.
 
 Security mitigations:
 
@@ -103,7 +109,7 @@ from eval.search_strategies import BayesianSearch, GridSearch, PropulateSearch, 
 from eval.stages import AlignmentStage, LabelTransferStage
 from eval.types import SearchResult, StageMetrics, Trial
 
-__all__ = ["HyperparamOptimizer"]
+__all__ = ["HyperparamOptimizer", "PROPULATE_PLACEHOLDER_FLAG"]
 
 _log = logging.getLogger(__name__)
 
@@ -115,6 +121,13 @@ DEV_N_TRIALS: int = 20
 # to this tier only — sanity/dev tiers gracefully fall back to a single seed
 # (see _resolve_subsample_pair_seeds) rather than paying the full N-seed cost.
 SUBSAMPLE_PAIR_MULTISEED_TIER: str = "full"
+
+# Phase 62 RD-6/RD-8: flag of a search_history.json entry that Propulate returned
+# without an evaluation record of this run; its metrics are zero placeholders.
+PROPULATE_PLACEHOLDER_FLAG: str = (
+    "propulate: individual returned without an evaluation record from this run "
+    "(e.g. restored from a Propulate checkpoint); metrics are placeholders"
+)
 
 
 def _apply_transform_to_dataset(
@@ -202,12 +215,13 @@ def _merge_trial_histories(
 
     Notes
     -----
-    Phase 59 NUM-05: the Propulate branch of ``run()`` builds ``Trial`` objects
-    from the ``(params, score)`` pairs ``PropulateSearch`` returns, so a
-    non-finite score that slips past Propulate's ``loss == inf`` filter (for
-    example a NaN loss) would otherwise reach best selection.  Filtering here
-    guarantees for every strategy that no ``-inf``/``NaN`` trial is ever
-    selected as best or written to ``search_history.json``.
+    Phase 59 NUM-05: ``_objective`` records a trial whatever its score, so a
+    non-finite score (for example a NaN composite) would otherwise reach best
+    selection.  Filtering here guarantees for every strategy, Propulate
+    included (its evaluating ranks contribute their real trials since Phase 62
+    RD-5), that no ``-inf``/``NaN`` trial is ever selected as best or written
+    to ``search_history.json``.  Propulate placeholders are added after this
+    merge by ``_propulate_placeholders``, which skips non-finite scores too.
     """
     merged: list[Trial] = []
     bad: list[dict[str, Any]] = []
@@ -232,6 +246,70 @@ def _merge_trial_histories(
                 "rank": rank,
             })
     return merged, bad
+
+
+def _trial_key(params: dict[str, Any], score: float) -> tuple[str, float]:
+    """Identity of one evaluation for Propulate reconciliation (Phase 62 RD-6)."""
+    return json.dumps(params, sort_keys=True, default=repr), score
+
+
+def _propulate_placeholders(
+    merged: list[Trial],
+    returned: list[tuple[str, dict[str, Any], float]],
+) -> list[Trial]:
+    """Placeholder trials for Propulate individuals without an evaluation record.
+
+    Parameters
+    ----------
+    merged : list[Trial]
+        The real, finite-score trials of every rank (``_merge_trial_histories``).
+    returned : list[tuple[str, dict[str, Any], float]]
+        ``(tier, params, score)`` for every pair ``PropulateSearch.search``
+        returned on this rank, in return order (empty on non-zero ranks).
+
+    Returns
+    -------
+    list[Trial]
+        One ``Trial`` per returned pair whose ``(params, score)`` matches no
+        trial in ``merged``, in return order, with zero-filled metrics, the
+        returned tier and ``flags=[PROPULATE_PLACEHOLDER_FLAG]``.
+
+    Notes
+    -----
+    Phase 62 RD-6.  The key is ``(json.dumps(params, sort_keys=True,
+    default=repr), score)`` and ignores the tier: the next tier's Propulator
+    reloads the checkpoint the previous tier wrote to the same ``output_dir``,
+    so a pair of an earlier tier would otherwise be duplicated under the wrong
+    tier.  The returned score is the exact negation of the loss Propulate
+    stored, i.e. exactly the objective's return value, so equality matching
+    is reliable.  Placeholders are de-duplicated by the same key and
+    non-finite scores are skipped.  Placeholders keep checkpoint-restored
+    individuals selectable as best (Phase 63 HPC-02 resume).
+    """
+    seen = {_trial_key(t.params, t.score) for t in merged}
+    out: list[Trial] = []
+    for tier, params, score in returned:
+        if not math.isfinite(score):
+            continue
+        key = _trial_key(params, score)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(Trial(
+            params=dict(params),
+            score=score,
+            metrics=StageMetrics(
+                chamfer_distance=0.0,
+                hausdorff_distance=0.0,
+                path_smoothness=0.0,
+                temporal_stability=0.0,
+                f1_score=0.0,
+                knn_consistency=0.0,
+            ),
+            tier=tier,
+            flags=[PROPULATE_PLACEHOLDER_FLAG],
+        ))
+    return out
 
 
 def _resolve_subsample_pair_seeds(transform_spec: dict, tier_name: str) -> list[int]:
@@ -355,6 +433,9 @@ class HyperparamOptimizer:
         # Phase 59 NUM-05: per-run trial outcome bookkeeping (reset in run()).
         self._failed_trials: list[dict[str, Any]] = []
         self._n_succeeded: int = 0
+        # Phase 62 RD-6: (tier, params, score) pairs PropulateSearch returned on
+        # this rank (rank 0 only; [] elsewhere), reconciled in the reduction.
+        self._propulate_returned: list[tuple[str, dict[str, Any], float]] = []
         # MPI communicator for the outcome reduction. None => resolved lazily in
         # run() via _mpi_world_comm(); tests inject a communicator here.
         self._comm = None
@@ -407,11 +488,12 @@ class HyperparamOptimizer:
         rank 0, then broadcast of the global counts) before any
         rank-dependent branch.  The persisted result on rank 0 is built from
         the merged history of all ranks, so rank 0 writes another rank's best
-        params even if all of its own trials failed.  Under Propulate rank
-        0's ``all_history`` is already global (``PropulateSearch.search``
-        returns every rank's evaluated individuals on rank 0 and ``[]``
-        elsewhere, eval/search_strategies.py ~505-526), so the merge adds no
-        duplicates there.
+        params even if all of its own trials failed.  Under Propulate every
+        rank keeps the real trials it evaluated (Phase 62 RD-5) and the
+        gather brings them to rank 0; each individual is evaluated on exactly
+        one rank, so no duplicates arise.  Pairs ``PropulateSearch.search``
+        returns on rank 0 without an evaluation record of this run (e.g.
+        checkpoint-restored) are added as flagged placeholders (RD-6).
 
         **Rank abort (WR-03):** the pre-populate step and the tier loop run
         in ``_run_tiers`` inside ``try/except BaseException``.  With a
@@ -435,6 +517,7 @@ class HyperparamOptimizer:
         # instance reports only its own outcomes.
         self._failed_trials = []
         self._n_succeeded = 0
+        self._propulate_returned = []
         self._aborted_ranks: list[tuple[int, str]] = []
         # Resolved lazily so constructing an optimizer does not initialise MPI.
         if self._comm is None:
@@ -660,35 +743,20 @@ class HyperparamOptimizer:
                     warm_start=warm_start,
                 )
             elif strategy_name == "propulate":
-                # CR-01 fix: use a throwaway list so _objective does not append to
-                # all_history — propulate runs evaluations internally and returns the
-                # survivors via results; the explicit loop below is the single writer.
-                _propulate_sink: list[Trial] = []
-                propulate_obj = make_objective(tier_dataset, tier_name, _propulate_sink)
+                # Phase 62 RD-5 (Review cycle 1 HIGH, IN-09b): the evaluating rank's
+                # real Trial (metrics, flags) goes to all_history; _reduce_trial_outcomes
+                # gathers them; returned pairs only back-fill individuals without an
+                # evaluation record (RD-6).
                 results = PropulateSearch().search(
                     self.config.search_space,
-                    propulate_obj,
+                    obj,
                     n_trials=n_trials,
                     output_dir=str(output_dir),
                     warm_start=warm_start,  # D-09: silently ignored by PropulateSearch
                 )
-                # D-11: PropulateSearch returns (params, score) pairs; construct Trials
-                # here with zero-filled StageMetrics placeholder (Open Question 2 / option a).
-                minimal_metrics = StageMetrics(
-                    chamfer_distance=0.0,
-                    hausdorff_distance=0.0,
-                    path_smoothness=0.0,
-                    temporal_stability=0.0,
-                    f1_score=0.0,
-                    knn_consistency=0.0,
+                self._propulate_returned.extend(
+                    (tier_name, dict(p), float(sc)) for p, sc in results
                 )
-                for params, score in results:
-                    all_history.append(Trial(
-                        params=dict(params),
-                        score=score,
-                        metrics=minimal_metrics,
-                        tier=tier_name,
-                    ))
             else:
                 raise ValueError(f"Unknown search_strategy: {strategy_name!r}")
 
@@ -740,12 +808,17 @@ class HyperparamOptimizer:
         **Transport:** the payload carries ``Trial.model_dump()`` dicts (plain,
         pickle-safe data), never ``Trial`` objects.
 
-        **Propulate contract:** in the propulate branch of ``run()`` rank 0's
-        ``local_history`` already holds every rank's successful evaluations —
-        ``PropulateSearch.search`` returns them on rank 0 after Propulate's
-        final intra-island receive and ``[]`` on every other rank
-        (eval/search_strategies.py ~505-526) — so other ranks contribute empty
-        histories and the merge introduces no duplicates.
+        **Propulate contract (Phase 62 RD-5..RD-7):** every rank contributes
+        the real trials it evaluated (metrics, tier, flags), exactly like the
+        other strategies; each individual is evaluated on one rank, so the
+        merge has no duplicates.  On rank 0 (and single-process) the merged
+        history is then extended by ``_propulate_placeholders`` for the pairs
+        ``PropulateSearch.search`` returned (``self._propulate_returned``)
+        that match no merged trial (e.g. checkpoint-restored individuals),
+        before the counts are computed, so ``n_hist`` includes them and the
+        raise rule is identical on every rank; ``n_ok`` counts only real
+        successful evaluations.  This is local to rank 0 and adds no
+        collective.
 
         Without a communicator (no mpi4py, or a world of size 1) the same
         merge runs on local data with no collectives.
@@ -761,12 +834,14 @@ class HyperparamOptimizer:
         if comm is None:
             self._aborted_ranks = [] if aborted is None else [(rank, aborted)]
             merged, bad = _merge_trial_histories([payload["history"]], start_rank=rank)
+            merged = merged + _propulate_placeholders(merged, self._propulate_returned)
             failures = payload["failures"] + bad
             return merged, failures, self._n_succeeded, len(failures), len(merged)
 
         gathered = comm.gather(payload, root=0)
         if rank == 0:
             merged, bad = _merge_trial_histories([p["history"] for p in gathered], start_rank=0)
+            merged = merged + _propulate_placeholders(merged, self._propulate_returned)
             failures = [rec for p in gathered for rec in p["failures"]] + bad
             aborted_ranks = [
                 (r, p["aborted"]) for r, p in enumerate(gathered) if p.get("aborted") is not None

@@ -54,11 +54,15 @@ CPD-posterior-weighted-average math, fixing two call-site bugs so
     posterior-weighted vote of the target's labels (target -> aligned
     source).
 
-  A receiver point whose posterior row sums to zero (or is non-finite), e.g.
-  through float underflow far from every provider point, gets the label of
-  its nearest provider point instead of a NaN-derived label; the frame and
-  count are logged and recorded in ``LabelResult.flags``.  Only a frame in
-  which *every* receiver row has zero mass raises ``ValueError``.
+  Zero-row policy (Phase 62 RD-1..RD-3, shared with the library through
+  ``zreg.label_transfer.repair_pmat_rows``): a receiver point whose
+  posterior row sums to zero (or is non-finite), e.g. through float
+  underflow far from every provider point, gets the label of its nearest
+  provider point instead of a NaN-derived label; a receiver point whose
+  position is non-finite gets ``-1`` (no label).  The frame and count are
+  logged once and recorded in ``LabelResult.flags``.  A frame raises
+  ``ValueError`` when *every* receiver row is bad or when more than
+  ``MAX_PMAT_FALLBACK_FRACTION`` (0.5) of its rows would fall back.
 - **categorical one-hot/argmax (D-05):** a literal weighted average of
   raw class indices is meaningless, so source labels are one-hot encoded
   before the call and the resulting soft scores are discretized back via
@@ -87,6 +91,7 @@ from typing import Any
 # Enforced in tests/conftest.py:20-24, eval/data_factory.py:18-35,
 # eval/metrics.py:53-67, eval/types.py:48-53.
 from zreg.label_transfer import transfer_labels as transfer_colors, LabelTransferMethod as ColorTransferMethod
+from zreg.label_transfer import repair_pmat_rows
 from zreg.core.dataset import zRegPointCloud
 from zreg.evaluation import chamfer
 from zreg.models import PointNet2LabelTransfer, EGNNLabelTransfer
@@ -365,9 +370,11 @@ class LabelTransferStage(PipelineStage):
             ``cpd_penalty`` is ``None``, since the CPD posterior is only
             captured for CPD-registered frames.  Also raised when every
             receiver point of a frame has an oriented CPD posterior row with
-            zero or non-finite mass (Phase 59 D-05); isolated zero-mass rows
-            fall back to the nearest provider label instead and are recorded
-            in ``LabelResult.flags``.  See ``validate_params``
+            zero or non-finite mass (Phase 59 D-05), or when more than
+            ``MAX_PMAT_FALLBACK_FRACTION`` (0.5) of a frame's rows are bad
+            (Phase 62 RD-3); isolated bad rows fall back to the nearest
+            provider label (``-1`` for a non-finite receiver position) and
+            are recorded in ``LabelResult.flags``.  See ``validate_params``
             for the other ``ValueError`` cases.
 
         Notes
@@ -491,50 +498,41 @@ class LabelTransferStage(PipelineStage):
                     oriented = estep_result
                 else:
                     oriented = estep_result._replace(pmat=estep_result.pmat.T)
-                row_mass = oriented.pmat.sum(dim=1)
-                bad_rows = ~torch.isfinite(row_mass) | (row_mass <= 0)
-                n_bad = int(bad_rows.sum().item())
-                if n_bad > 0 and n_bad == bad_rows.numel():
-                    raise ValueError(
-                        f"method='cpd_weighted': CPD posterior has zero or non-finite mass "
-                        f"for every receiver point ({n_bad}) in frame {tk}; cannot weight "
-                        "provider labels (consider knn_voting or check alignment)"
-                    )
-                if n_bad > 0:
-                    # WR-02: a few receiver points far from every provider point
-                    # underflow to zero posterior mass at converged sigma^2. Label
-                    # them locally (nearest provider label) instead of aborting
-                    # the whole trajectory, and record it.
-                    msg = (
-                        f"cpd_weighted: {n_bad} of {bad_rows.numel()} receiver point(s) "
-                        f"in frame {tk} had zero or non-finite posterior mass; "
-                        "nearest-neighbour (k=1) fallback"
-                    )
-                    _log.warning(msg)
-                    flags.append(msg)
-                    # Placeholder rows keep the row normalisation finite; their
-                    # argmax is overwritten by the fallback below.
-                    safe_pmat = oriented.pmat.clone()
-                    safe_pmat[bad_rows] = 1.0
-                    oriented = oriented._replace(pmat=safe_pmat)
+                # Phase 62 RD-1..RD-3 (59-REVIEW IN-09a/c): one policy for all
+                # pmat consumers. The shared helper decides bad rows (zero or
+                # non-finite mass, or a non-finite receiver position) and their
+                # nearest-provider fallback, and raises when every row is bad or
+                # more than MAX_PMAT_FALLBACK_FRACTION of them would fall back.
+                # Provider = src_frame, receiver = tgt_frame, exactly as passed
+                # to transfer_colors below.
+                repair = repair_pmat_rows(
+                    oriented.pmat, src_frame["pos"], tgt_frame["pos"], context=f"frame {tk}"
+                )
+                if repair.n_bad > 0:
+                    # The only report for this frame (RD-1b): the library reuses
+                    # the repair below and neither repairs again nor warns.
+                    _log.warning(repair.message)
+                    flags.append(repair.message)
                 one_hot = torch.nn.functional.one_hot(labels_tensor.long()).float()
                 soft_scores = transfer_colors(
                     src_frame["pos"],
                     tgt_frame["pos"],
                     method=ColorTransferMethod.CPD_WEIGHTED,
                     source_colors=one_hot,
-                    estep_result=oriented,
-                    pmat_layout="receiver_provider",
+                    pmat_repair=repair,
                 )
                 frame_labels = soft_scores.argmax(dim=1)
-                if n_bad > 0:
-                    fallback = transfer_colors(
-                        src_frame["pos"],
-                        tgt_frame["pos"][bad_rows],
-                        method=ColorTransferMethod.NEAREST_NEIGHBOR,
-                        source_colors=labels_tensor.long().unsqueeze(-1),
-                    )[:, 0]
-                    frame_labels[bad_rows] = fallback.to(frame_labels.dtype)
+                if repair.n_bad > 0:
+                    # RD-2: nearest provider label, or -1 (no label) for a
+                    # receiver whose position is non-finite.
+                    idx = repair.fallback_idx
+                    provider_labels = labels_tensor.long().to(idx.device)
+                    fallback = torch.where(
+                        idx >= 0,
+                        provider_labels[idx.clamp(min=0)],
+                        torch.full_like(idx, -1),
+                    )
+                    frame_labels[repair.bad_rows] = fallback.to(frame_labels.dtype)
                 transferred[tk] = frame_labels
             elif params["method"] in ("pointnet2", "egnn"):
                 # Phase 48: joint-cloud construction MUST byte-for-byte mirror

@@ -5,8 +5,9 @@ point cloud to a target point cloud after spatial alignment.
 """
 
 from enum import Enum
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, NamedTuple
 import math
+import warnings
 import torch
 import torch.nn as nn
 import logging
@@ -23,7 +24,231 @@ log = logging.getLogger(__name__)
 
 _PMAT_LAYOUTS = ("receiver_provider", "provider_receiver")
 
-__all__ = ["transfer_labels", "LabelTransferMethod"]
+# Phase 62 RD-3 (59-REVIEW IN-09c): a frame in which more than this fraction of
+# receiver rows needs the nearest-provider fallback is no longer a
+# posterior-weighted transfer and raises instead of being scored as one.
+MAX_PMAT_FALLBACK_FRACTION: float = 0.5
+
+__all__ = [
+    "transfer_labels",
+    "LabelTransferMethod",
+    "repair_pmat_rows",
+    "PmatRowRepair",
+    "MAX_PMAT_FALLBACK_FRACTION",
+]
+
+
+class PmatRowRepair(NamedTuple):
+    """Result of :func:`repair_pmat_rows` (one frame, receiver_provider layout).
+
+    Attributes
+    ----------
+    pmat : torch.Tensor
+        Repaired copy, shape ``(n_receiver, n_provider)``: bad rows set to 1.0
+        so the row normalisation stays finite.  Their weighted value is a
+        placeholder only and must be overwritten from ``fallback_idx``.
+    bad_rows : torch.Tensor
+        Bool mask, shape ``(n_receiver,)``.
+    fallback_idx : torch.Tensor
+        Long, shape ``(n_bad,)``, aligned with ``bad_rows.nonzero()``: index of
+        the nearest provider point with a finite position, or ``-1`` when the
+        receiver position itself is non-finite (no label can be assigned).
+    n_bad : int
+        Number of bad rows.
+    n_nonfinite_pos : int
+        Number of bad rows whose receiver position is non-finite.
+    message : str
+        Human-readable report (empty when ``n_bad == 0``).
+    """
+
+    pmat: torch.Tensor
+    bad_rows: torch.Tensor
+    fallback_idx: torch.Tensor
+    n_bad: int
+    n_nonfinite_pos: int
+    message: str
+
+
+def repair_pmat_rows(
+    pmat: torch.Tensor,
+    provider_pos: torch.Tensor,
+    receiver_pos: torch.Tensor,
+    *,
+    max_fallback_fraction: float = MAX_PMAT_FALLBACK_FRACTION,
+    context: str = "",
+) -> PmatRowRepair:
+    """Apply the single zero-row policy for CPD posterior label transfer.
+
+    This is the only place that decides which posterior rows are unusable and
+    what replaces them (Phase 62 RD-1..RD-3, from the Phase 59 WR-02 stage
+    policy); the library ``cpd_weighted`` path and ``LabelTransferStage`` both
+    call it.
+
+    Policy:
+
+    - A receiver row is *bad* when its posterior mass is zero, negative or
+      non-finite (e.g. float underflow far from every provider point), or
+      when the receiver position is non-finite.
+    - Every row bad -> ``ValueError`` ("CPD posterior has zero or non-finite
+      mass for every receiver point ... in {context}").
+    - ``n_bad / n_receiver > max_fallback_fraction`` (strictly greater) ->
+      ``ValueError`` naming ``max_fallback_fraction=<value>`` and the context.
+    - Otherwise a bad row with a finite receiver position falls back to its
+      nearest provider point (Euclidean ``torch.cdist`` + first minimum, the
+      ``nearest_neighbor`` method's metric and tie-break); provider points
+      with non-finite positions are never chosen.  A bad row whose receiver
+      position is non-finite gets ``-1`` (no label).
+
+    Parameters
+    ----------
+    pmat : torch.Tensor
+        Posterior in receiver_provider layout, shape ``(n_receiver, n_provider)``;
+        columns are provider points (= source labels).  Not modified.
+    provider_pos : torch.Tensor
+        Provider positions, shape ``(n_provider, d)``.
+    receiver_pos : torch.Tensor
+        Receiver positions, shape ``(n_receiver, d)``.
+    max_fallback_fraction : float, optional
+        Upper bound in ``(0, 1]`` on the fraction of fallback rows.
+        Default :data:`MAX_PMAT_FALLBACK_FRACTION` (0.5).
+    context : str, optional
+        Location used in messages, e.g. ``"frame 7"``.
+
+    Returns
+    -------
+    PmatRowRepair
+        With zero receivers: an empty repair (``n_bad == 0``, empty message).
+
+    Raises
+    ------
+    ValueError
+        On malformed inputs (pmat not 2-D, coordinate width mismatch, shape
+        not ``(n_receiver, n_provider)``, tensors on different devices,
+        ``max_fallback_fraction`` outside ``(0, 1]``), when every row is bad,
+        when the fallback fraction exceeds the bound, or when a fallback is
+        needed but no provider position is finite.
+    """
+    if pmat.ndim != 2:
+        raise ValueError(
+            f"pmat must be 2-D (n_receiver, n_provider), got shape {tuple(pmat.shape)}"
+        )
+    if provider_pos.ndim != 2 or receiver_pos.ndim != 2:
+        raise ValueError(
+            "provider_pos and receiver_pos must be 2-D (n_points, n_coordinates), got shapes "
+            f"{tuple(provider_pos.shape)} and {tuple(receiver_pos.shape)}"
+        )
+    if provider_pos.shape[1] != receiver_pos.shape[1]:
+        raise ValueError(
+            "provider_pos and receiver_pos coordinate widths differ: "
+            f"{provider_pos.shape[1]} vs {receiver_pos.shape[1]}"
+        )
+    expected = (receiver_pos.shape[0], provider_pos.shape[0])
+    if tuple(pmat.shape) != expected:
+        raise ValueError(
+            f"pmat shape {tuple(pmat.shape)} does not match expected {expected} "
+            "(n_receiver, n_provider)"
+        )
+    if not (pmat.device == provider_pos.device == receiver_pos.device):
+        raise ValueError(
+            "pmat, provider_pos and receiver_pos must share one device, got "
+            f"{pmat.device}, {provider_pos.device}, {receiver_pos.device}"
+        )
+    try:
+        frac_bound = float(max_fallback_fraction)
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"max_fallback_fraction must be in (0, 1], got {max_fallback_fraction!r}"
+        ) from None
+    if not (0.0 < frac_bound <= 1.0):
+        raise ValueError(f"max_fallback_fraction must be in (0, 1], got {max_fallback_fraction!r}")
+
+    if receiver_pos.shape[0] == 0:
+        # Zero-receiver contract: return before the every-row-bad check, which
+        # is vacuously true on an empty mask.
+        return PmatRowRepair(
+            pmat=pmat.clone(),
+            bad_rows=torch.zeros(0, dtype=torch.bool, device=pmat.device),
+            fallback_idx=torch.zeros(0, dtype=torch.long, device=pmat.device),
+            n_bad=0,
+            n_nonfinite_pos=0,
+            message="",
+        )
+
+    n_receiver = receiver_pos.shape[0]
+    row_mass = pmat.sum(dim=1)
+    nonfinite_pos = ~torch.isfinite(receiver_pos).all(dim=1)
+    bad_rows = ~torch.isfinite(row_mass) | (row_mass <= 0) | nonfinite_pos
+    n_bad = int(bad_rows.sum().item())
+    where = f" in {context}" if context else ""
+
+    if n_bad == n_receiver:
+        raise ValueError(
+            "method='cpd_weighted': CPD posterior has zero or non-finite mass for every "
+            f"receiver point ({n_bad}){where}; cannot weight provider labels "
+            "(consider knn_voting or check alignment)"
+        )
+    if n_bad / n_receiver > frac_bound:
+        raise ValueError(
+            f"method='cpd_weighted': {n_bad} of {n_receiver} receiver point(s) "
+            f"(fraction {n_bad / n_receiver:.3f}) have zero or non-finite posterior mass "
+            f"or a non-finite position, above max_fallback_fraction={max_fallback_fraction}"
+            f"{where}; a mostly nearest-neighbour-labelled frame is not a cpd_weighted result"
+        )
+
+    bad_idx = bad_rows.nonzero(as_tuple=True)[0]
+    bad_nonfinite = nonfinite_pos[bad_idx]
+    n_nonfinite_pos = int(bad_nonfinite.sum().item())
+    fallback_idx = torch.full((n_bad,), -1, dtype=torch.long, device=pmat.device)
+    searchable = ~bad_nonfinite
+    if bool(searchable.any()):
+        provider_finite = torch.isfinite(provider_pos).all(dim=1)
+        if not bool(provider_finite.any()):
+            raise ValueError(
+                "method='cpd_weighted': no provider point has a finite position"
+                f"{where}; cannot apply the nearest-neighbour fallback"
+            )
+        query = receiver_pos[bad_idx[searchable]]
+        distances = torch.cdist(query, provider_pos, p=2)
+        distances = distances.masked_fill(~provider_finite.unsqueeze(0), float("inf"))
+        _, nearest = torch.min(distances, dim=1)
+        fallback_idx[searchable] = nearest
+
+    repaired = pmat.clone()
+    message = ""
+    if n_bad > 0:
+        repaired[bad_rows] = 1.0
+        message = (
+            f"cpd_weighted: {n_bad} of {n_receiver} receiver point(s){where} had zero or "
+            "non-finite posterior mass; nearest-neighbour (k=1) fallback"
+        )
+        if n_nonfinite_pos > 0:
+            message += f"; {n_nonfinite_pos} with non-finite position left unlabelled (-1)"
+
+    return PmatRowRepair(
+        pmat=repaired,
+        bad_rows=bad_rows,
+        fallback_idx=fallback_idx,
+        n_bad=n_bad,
+        n_nonfinite_pos=n_nonfinite_pos,
+        message=message,
+    )
+
+
+def _weighted_colours_from_repair(repair: PmatRowRepair, source_colors: torch.Tensor) -> torch.Tensor:
+    """Posterior-weighted source colours with the repair's bad rows overwritten.
+
+    Good rows: row-normalised ``repair.pmat @ source_colors``.  Bad rows: the
+    fallback provider's colour row, or an all-zero row ("no label") when the
+    fallback index is ``-1``.
+    """
+    prob_matrix = repair.pmat / repair.pmat.sum(dim=1, keepdim=True)
+    transferred = torch.matmul(prob_matrix, source_colors.float())
+    if repair.n_bad > 0:
+        idx = repair.fallback_idx
+        fill = source_colors[idx.clamp(min=0)].float().to(transferred.dtype)
+        fill = torch.where((idx >= 0).unsqueeze(1), fill, torch.zeros_like(fill))
+        transferred[repair.bad_rows] = fill
+    return transferred
 
 
 class LabelTransferMethod(Enum):
@@ -45,6 +270,8 @@ def transfer_labels(
     estep_result: EstepResult | None = None,
     model: "nn.Module | None" = None,
     pmat_layout: Literal["receiver_provider", "provider_receiver"] | None = None,
+    max_fallback_fraction: float = MAX_PMAT_FALLBACK_FRACTION,
+    pmat_repair: PmatRowRepair | None = None,
     **kwargs
 ) -> torch.Tensor:
     """Transfer labels from source to target point cloud.
@@ -77,6 +304,15 @@ def transfer_labels(
         ``"provider_receiver"``: pmat shaped ``(n_source, n_target)`` -- the raw
         ``expectation_step`` output when the provider (source) is the CPD
         moving set -- transposed internally.
+    max_fallback_fraction : float, optional
+        'cpd_weighted' only.  Bound in ``(0, 1]`` on the fraction of receiver
+        rows that may use the nearest-provider fallback; default
+        :data:`MAX_PMAT_FALLBACK_FRACTION` (0.5).  See :func:`repair_pmat_rows`.
+    pmat_repair : PmatRowRepair, optional
+        'cpd_weighted' only, mutually exclusive with ``estep_result``.  Pass it
+        when you already ran :func:`repair_pmat_rows` (receiver_provider
+        layout) and reported its message; the library then neither repairs
+        again nor warns.
     model : nn.Module, optional
         Pre-loaded EGNNLabelTransfer or PointNet2LabelTransfer instance.
         Required for method="egnn" or method="pointnet2".
@@ -93,6 +329,16 @@ def transfer_labels(
     ------
     ValueError
         If method is not supported or required parameters are missing.
+
+    Notes
+    -----
+    **cpd_weighted zero-row policy** (one policy for every pmat consumer, see
+    :func:`repair_pmat_rows`): a receiver row with zero or non-finite
+    posterior mass takes the colour row of its nearest provider point and a
+    single ``RuntimeWarning`` is emitted; an all-zero output row means no
+    label could be assigned (non-finite receiver position).  The call raises
+    when every row is bad or more than ``max_fallback_fraction`` of the rows
+    fall back.  The output never contains a NaN row.
     """
     # Extract positions and labels
     if isinstance(source, zRegPointCloud):
@@ -132,10 +378,9 @@ def transfer_labels(
     if method == LabelTransferMethod.NEAREST_NEIGHBOR:
         return _transfer_labels_nearest_neighbor(source_pos, target_pos, source_colors)
     elif method == LabelTransferMethod.CPD_WEIGHTED:
-        if estep_result is None:
-            raise ValueError("estep_result is required for CPD-weighted method")
         return _transfer_labels_cpd_weighted(
-            source_pos, target_pos, source_colors, estep_result, pmat_layout
+            source_pos, target_pos, source_colors, estep_result, pmat_layout,
+            max_fallback_fraction=max_fallback_fraction, pmat_repair=pmat_repair,
         )
     elif method == LabelTransferMethod.KNN_VOTING:
         k = kwargs.get('k', 5)
@@ -200,8 +445,10 @@ def _transfer_labels_cpd_weighted(
     source_pos: torch.Tensor,
     target_pos: torch.Tensor,
     source_colors: torch.Tensor,
-    estep_result: "EstepResult",
+    estep_result: "EstepResult | None",
     pmat_layout: str | None = None,
+    max_fallback_fraction: float = MAX_PMAT_FALLBACK_FRACTION,
+    pmat_repair: PmatRowRepair | None = None,
 ) -> torch.Tensor:
     """Transfer labels using CPD posterior probabilities.
 
@@ -216,26 +463,68 @@ def _transfer_labels_cpd_weighted(
         Target positions of shape (m_points, n_dims).
     source_colors : torch.Tensor
         Source labels of shape (n_points, n_label_channels).
-    estep_result : EstepResult
-        Result from CPD E-step containing posterior probabilities.
+    estep_result : EstepResult or None
+        Result from CPD E-step containing posterior probabilities.  Exactly
+        one of ``estep_result`` and ``pmat_repair`` must be given.
     pmat_layout : {"receiver_provider", "provider_receiver"}
         Declared orientation of ``estep_result.pmat`` (see ``transfer_labels``).
         The exact expected shape of the declared layout is checked; the
         orientation is never inferred from the shape.
+    max_fallback_fraction : float
+        Passed to :func:`repair_pmat_rows`.
+    pmat_repair : PmatRowRepair or None
+        Precomputed repair (receiver_provider layout).  Used as is: no second
+        repair and no warning (the caller owns reporting, RD-1b).
 
     Returns
     -------
     torch.Tensor
-        Transferred labels of shape (m_points, n_label_channels).
+        Transferred labels of shape (m_points, n_label_channels).  Bad rows
+        hold the nearest provider's colour row, or zeros ("no label assigned")
+        for a non-finite receiver position.
 
     Raises
     ------
     ValueError
-        If ``pmat_layout`` is missing or unknown, or the pmat shape does not
-        match the declared layout.
+        If ``pmat_layout`` is missing or unknown, the pmat shape does not
+        match the declared layout, ``source_colors`` rows do not match the
+        source points, both or neither of ``estep_result``/``pmat_repair`` are
+        given, or :func:`repair_pmat_rows` rejects the frame.
     """
     log.debug(f"Transferring labels using CPD weights: {source_pos.shape[0]} -> {target_pos.shape[0]} points")
 
+    n_target = target_pos.shape[0]
+    n_source = source_pos.shape[0]
+    if source_colors.shape[0] != n_source:
+        raise ValueError(
+            f"source_colors has {source_colors.shape[0]} rows but the source has "
+            f"{n_source} points (pmat columns are source labels)"
+        )
+
+    if pmat_repair is not None:
+        if estep_result is not None:
+            raise ValueError(
+                "pass either estep_result (with pmat_layout) or pmat_repair for "
+                "cpd_weighted, not both"
+            )
+        if tuple(pmat_repair.pmat.shape) != (n_target, n_source):
+            raise ValueError(
+                f"pmat_repair.pmat has shape {tuple(pmat_repair.pmat.shape)} but expected "
+                f"(n_target={n_target}, n_source={n_source})"
+            )
+        if tuple(pmat_repair.bad_rows.shape) != (n_target,):
+            raise ValueError(
+                f"pmat_repair.bad_rows has shape {tuple(pmat_repair.bad_rows.shape)} but "
+                f"expected ({n_target},)"
+            )
+        # RD-1b: the caller already repaired and reported this frame.
+        return _weighted_colours_from_repair(pmat_repair, source_colors)
+
+    if estep_result is None:
+        raise ValueError(
+            "estep_result is required for CPD-weighted method "
+            "(or pass a precomputed pmat_repair)"
+        )
     if pmat_layout is None:
         raise ValueError(
             "pmat_layout is required for cpd_weighted: pass 'receiver_provider' "
@@ -248,8 +537,6 @@ def _transfer_labels_cpd_weighted(
         )
 
     pmat = estep_result.pmat
-    n_target = target_pos.shape[0]
-    n_source = source_pos.shape[0]
     expected = (n_target, n_source) if pmat_layout == "receiver_provider" else (n_source, n_target)
     if tuple(pmat.shape) != expected:
         raise ValueError(
@@ -259,15 +546,14 @@ def _transfer_labels_cpd_weighted(
     # Orientation is declared, never inferred (U6-9): a square pmat is ambiguous.
     prob_matrix = pmat if pmat_layout == "receiver_provider" else pmat.T
 
-    # Normalize probabilities (should already be normalized, but ensure)
-    prob_matrix = prob_matrix / prob_matrix.sum(dim=1, keepdim=True)
-
-    # Compute weighted label average for each target point
-    # prob_matrix: (m_points, n_points), source_colors: (n_points, n_channels)
-    # Result: (m_points, n_channels)
-    transferred_colors = torch.matmul(prob_matrix, source_colors.float())
-
-    return transferred_colors
+    # Phase 62 RD-1..RD-3: the shared zero-row policy (never a NaN row).
+    repair = repair_pmat_rows(
+        prob_matrix, source_pos, target_pos,
+        max_fallback_fraction=max_fallback_fraction, context="cpd_weighted pmat",
+    )
+    if repair.n_bad > 0:
+        warnings.warn(repair.message, RuntimeWarning, stacklevel=3)
+    return _weighted_colours_from_repair(repair, source_colors)
 
 
 def _transfer_labels_knn_voting(

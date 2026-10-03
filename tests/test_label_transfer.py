@@ -743,7 +743,7 @@ def test_cpd_weighted_zero_row_falls_back_with_warning():
     """U6-7: a zero-mass row is not NaN; it takes the nearest provider's colour row."""
     pmat = _uniform_pmat()
     pmat[1] = 0.0
-    with pytest.warns(RuntimeWarning, match="zero or non-finite mass"):
+    with pytest.warns(RuntimeWarning, match="zero or non-finite posterior mass"):
         out = _cpd(pmat)
     assert bool(torch.isfinite(out).all())
     torch.testing.assert_close(out[1], _COLOURS4[1])
@@ -753,7 +753,7 @@ def test_cpd_weighted_zero_row_falls_back_with_warning():
 def test_cpd_weighted_nan_row_falls_back_with_warning():
     pmat = _uniform_pmat()
     pmat[3, 0] = float("nan")
-    with pytest.warns(RuntimeWarning, match="zero or non-finite mass"):
+    with pytest.warns(RuntimeWarning, match="zero or non-finite posterior mass"):
         out = _cpd(pmat)
     assert bool(torch.isfinite(out).all())
     torch.testing.assert_close(out[3], _COLOURS4[3])
@@ -802,7 +802,7 @@ def test_cpd_weighted_nonfinite_receiver_position_gives_zero_row():
     receiver[0] = torch.tensor([float("nan"), 0.0, 0.0])
     pmat = _uniform_pmat()
     pmat[0] = float("nan")
-    with pytest.warns(RuntimeWarning, match="zero or non-finite mass"):
+    with pytest.warns(RuntimeWarning, match="zero or non-finite posterior mass"):
         out = _cpd(pmat, receiver=receiver)
     assert bool(torch.isfinite(out).all())
     assert torch.equal(out[0], torch.zeros(3))

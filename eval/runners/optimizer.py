@@ -851,10 +851,11 @@ class HyperparamOptimizer:
                 # seeds (the external warm start in the first tier, the pruned
                 # top-k of the previous tier afterwards) are evaluated here as
                 # ordinary trials on this tier's dataset. Rank 0 only: its
-                # warm_start list is authoritative (only rank 0 holds Propulate's
-                # results, so only its prune is complete), and no new collective
-                # is added (WR-03); the other ranks go straight to PropulateSearch,
-                # whose own synchronisation waits for rank 0.
+                # warm_start list is authoritative because only rank 0 receives
+                # Propulate's gathered population, and its prune below merges
+                # that population into its local history (63-REVIEW WR-01). No
+                # new collective is added (WR-03); the other ranks go straight
+                # to PropulateSearch, whose own synchronisation waits for rank 0.
                 if warm_start and self._is_rank_zero():
                     for seed_params in warm_start:
                         obj(dict(seed_params))
@@ -885,7 +886,13 @@ class HyperparamOptimizer:
 
             # Note: _objective appends Trial objects directly to all_history
             # Prune for warm-start of next tier
-            if all_history:
+            if strategy_name == "propulate":
+                # 63-REVIEW WR-01: all_history holds only this rank's own
+                # evaluations; Propulate's gathered population (returned on
+                # rank 0 only) covers every rank, so the global top-k comes
+                # from both.
+                warm_start = self._prune_propulate_global(all_history, tier_name, keep_top_k=3) or warm_start
+            elif all_history:
                 warm_start = self.prune_candidates(all_history, keep_top_k=3)
 
         return all_history
@@ -1589,6 +1596,55 @@ class HyperparamOptimizer:
             and self.config.transform_spec is not None
             and self.config.transform_spec.get("type") == "subsample_pair"
         )
+
+    def _prune_propulate_global(
+        self, history: list[Trial], tier_name: str, keep_top_k: int
+    ) -> list[dict]:
+        """Top-k param dicts over this rank's trials and Propulate's returned population.
+
+        Parameters
+        ----------
+        history : list[Trial]
+            This rank's own trials (``run()``'s ``all_history``).
+        tier_name : str
+            Tier whose ``PropulateSearch`` results (``self._propulate_returned``)
+            are merged in.
+        keep_top_k : int
+            Number of candidates to return.
+
+        Returns
+        -------
+        list[dict]
+            Param dicts of the ``keep_top_k`` highest finite scores, best
+            first; empty when there is no candidate.
+
+        Notes
+        -----
+        63-REVIEW WR-01: under Propulate each rank's ``history`` holds only
+        the individuals that rank evaluated, while ``PropulateSearch.search``
+        returns the population of every rank on rank 0 (empty elsewhere).
+        Pruning ``history`` alone made rank 0's next-tier seeds the top-k of
+        about ``1/world_size`` of the trials.  Candidates are de-duplicated by
+        params (key as in ``_propulate_placeholders``); a real local trial
+        wins over a returned pair with the same params.  A returned pair can
+        be a checkpoint-restored individual with a stale score; that only
+        affects which candidates are re-evaluated as next-tier seeds, never
+        ``best_params.json``.  Only rank 0 uses the result.
+        """
+        candidates: dict[str, tuple[dict, float]] = {}
+        for t in history:
+            if math.isfinite(t.score):
+                key = _trial_key(t.params)
+                if key not in candidates or t.score > candidates[key][1]:
+                    candidates[key] = (t.params, t.score)
+        for tn, params, score in self._propulate_returned:
+            if tn != tier_name or not math.isfinite(score):
+                continue
+            key = _trial_key(params)
+            if key not in candidates:
+                candidates[key] = (dict(params), score)
+        ranked = sorted(candidates.values(), key=lambda c: c[1], reverse=True)
+        return [dict(p) for p, _ in ranked[:keep_top_k]]
 
     @staticmethod
     def prune_candidates(history: list[Trial], keep_top_k: int) -> list[dict]:

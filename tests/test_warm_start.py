@@ -412,6 +412,29 @@ def test_propulate_inter_tier_only_seed_single_candidate(tmp_path, monkeypatch, 
     assert len(_not_seeded_warnings(caplog)) == 2
 
 
+class _GlobalPopulationPropulateSearch:
+    """Stand-in for rank 0 of a multi-rank Propulate run.
+
+    Rank 0 evaluates only k_neighbours=3 itself; the returned population also
+    holds k_neighbours=4, evaluated "on another rank" (never seen by this
+    rank's objective) with the best score.
+    """
+
+    def search(self, search_space, objective_fn, n_trials, output_dir, warm_start=None):
+        own = {"k_neighbours": 3}
+        return [(own, objective_fn(dict(own))), ({"k_neighbours": 4}, 1e6)]
+
+
+def test_propulate_next_tier_seeds_use_global_population(tmp_path, monkeypatch) -> None:
+    """63-REVIEW WR-01: rank 0 prunes from Propulate's global population, not only its own trials."""
+    monkeypatch.setattr(optimizer_module, "PropulateSearch", _GlobalPopulationPropulateSearch)
+    cfg = _cfg(tmp_path / "hpo", strategy="propulate", tier="dev")
+    result = HyperparamOptimizer(cfg).run()
+    real_dev = [t for t in result.history if t.tier == "dev" and not t.flags]
+    # The other rank's best individual is the first dev-tier seed rank 0 evaluates.
+    assert [t.params for t in real_dev[:2]] == [{"k_neighbours": 4}, {"k_neighbours": 3}]
+
+
 # Two thread-simulated ranks (copied from tests/test_optimizer_scoring_contract.py,
 # owned by Phase 62-05; only the MPI transport is simulated).
 

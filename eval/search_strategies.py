@@ -301,6 +301,8 @@ class BayesianSearch:
 
     Warm-start params are seeded via ``study.enqueue_trial(skip_if_exists=True)``
     (D-04; Pitfall 6 — ``skip_if_exists`` REQUIRED to avoid duplicates on re-run).
+    Seed values are validated against the categorical choices first; an
+    off-choice seed raises ``ValueError`` before any trial (Phase 63 HPC-01).
     """
 
     def search(
@@ -330,7 +332,32 @@ class BayesianSearch:
         -------
         list[tuple[dict, float]]
             Each element is (params_dict, score) for every completed trial.
+
+        Raises
+        ------
+        ValueError
+            Before the study is created, if a ``warm_start`` entry holds a value
+            for a search-space key that is not one of that key's choices
+            (Phase 63 HPC-01 / D-09).  Optuna cannot enqueue such a seed and
+            would otherwise fail inside ``study.optimize`` with a message that
+            does not mention the warm start.  Seed keys outside
+            ``search_space`` are ignored (Optuna records only the
+            search-space keys; the optimizer fills the rest from
+            ``config.default_params``).
         """
+        # Phase 63 HPC-01 / D-09: validate every seed before anything is created
+        # or enqueued, so an off-choice seed fails loudly before any trial runs.
+        for i, p in enumerate(warm_start or []):
+            for key, value in p.items():
+                if key not in search_space:
+                    continue
+                choices = search_space[key]
+                if value not in choices:
+                    raise ValueError(
+                        f"warm-start seed {i}: {key}={value!r} is not one of the search-space "
+                        f"choices {choices!r} (Optuna cannot enqueue it)"
+                    )
+
         n_params = len(search_space)
         n_startup = max(10, 2 * n_params)  # FRAME-10: n_startup_trials >= 2 * N_params
 

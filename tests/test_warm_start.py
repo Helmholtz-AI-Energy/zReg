@@ -208,3 +208,64 @@ def test_run_optimize_then_eval_revalidates_warmstart(tmp_path) -> None:
         )
     assert not (out / "search_history.json").exists()
     assert not (out / "run_config.yaml").exists()
+
+
+# --- Task 2: every non-Propulate strategy evaluates the seed first ----------
+
+
+@pytest.mark.parametrize(
+    "strategy",
+    [
+        "grid",
+        "random",
+        # Sanity tier runs SANITY_N_TRIALS=5 < SOBOL_MIN_TRIALS=8 trials, so this
+        # case exercises SobolSearch's documented RandomSearch fallback, not the
+        # native Sobol path (see test_sobol_native_path_evaluates_seed_first).
+        "sobol",
+        "bayesian",
+    ],
+)
+def test_first_trial_is_seed(tmp_path, strategy) -> None:
+    """The warm-start seed is the first recorded trial for every in-process strategy."""
+    from eval.search_strategies import SOBOL_MIN_TRIALS
+
+    assert optimizer_module.SANITY_N_TRIALS < SOBOL_MIN_TRIALS
+    cfg = _cfg(tmp_path / "hpo", strategy=strategy)
+    result = HyperparamOptimizer(cfg, warm_start=[dict(_SEED)]).run()
+    first = result.history[0].params
+    assert _project(first, {"k_neighbours"}) == {"k_neighbours": 5}
+    if strategy != "bayesian":
+        assert first == _SEED
+    else:
+        # Optuna records only the search-space keys; the other keys come from
+        # config.default_params / builtins, so the seed's extra keys are accepted.
+        assert set(first) == {"k_neighbours"}
+
+
+def test_sobol_native_path_evaluates_seed_first(caplog) -> None:
+    """Native Sobol (n_trials >= SOBOL_MIN_TRIALS) evaluates the seed first, no fallback."""
+    from eval.search_strategies import SOBOL_MIN_TRIALS, SobolSearch
+
+    assert SOBOL_MIN_TRIALS == 8
+    space = {"k_neighbours": [3, 4, 5], "window_size": [3, 4, 5]}
+    seed_params = {"k_neighbours": 5, "window_size": 5}
+    seen: list[dict] = []
+
+    def objective(params: dict) -> float:
+        seen.append(dict(params))
+        return float(params["k_neighbours"])
+
+    with caplog.at_level(logging.DEBUG, logger="eval.search_strategies"):
+        SobolSearch().search(space, objective, n_trials=SOBOL_MIN_TRIALS, seed=0, warm_start=[seed_params])
+    assert seen[0] == seed_params
+    assert len(seen) >= 2
+    assert not any("RandomSearch fallback" in r.getMessage() for r in caplog.records)
+
+
+def test_bayesian_off_choice_seed_raises_up_front(tmp_path) -> None:
+    """An Optuna-incompatible seed fails before any trial with a warm-start error."""
+    out = tmp_path / "hpo"
+    cfg = _cfg(out, strategy="bayesian")
+    with pytest.raises(ValueError, match="warm-start"):
+        HyperparamOptimizer(cfg, warm_start=[{"k_neighbours": 7}]).run()
+    assert not (out / "search_history.json").exists()

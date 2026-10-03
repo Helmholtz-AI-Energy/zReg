@@ -41,6 +41,17 @@ Reproducibility
 *before* the pipeline executes (D-10 / Pitfall 6).  Failed runs still leave
 the config for post-hoc debugging.
 
+MPI (Phase 63 HPC-04)
+---------------------
+Under MPI, rank 0 chooses the run stamp and broadcasts it, so all ranks share
+one timestamped ``output_dir``; only rank 0 creates that directory, writes
+``run_config.yaml`` and runs ``EvaluationRunner``.  Rank 0 broadcasts the
+outcome of the directory setup together with the stamp; if it failed, every
+other rank raises ``RuntimeError`` instead of waiting on a collective that
+rank 0 never reaches.  ``HyperparamOptimizer`` stays collective on all ranks;
+non-root ranks return 0 right after the setup in ``eval`` mode and after the
+collective HPO in ``full`` mode.
+
 Error handling
 --------------
 Only ``EvalConfigError`` is caught; it prints a one-line message to stderr
@@ -74,6 +85,7 @@ if str(_src_root) not in sys.path:  # pragma: no cover
 
 from eval.config import EvalConfig, EvalConfigError
 from eval.runners import EvaluationRunner, HyperparamOptimizer
+from eval.runners.optimizer import _mpi_world_comm
 
 log = logging.getLogger(__name__)
 
@@ -194,6 +206,13 @@ def main(argv=None) -> int:
     -------
     int
         0 on success, 1 on ``EvalConfigError``.
+
+    Notes
+    -----
+    Under MPI, rank 0 chooses the run stamp and broadcasts it; only rank 0
+    writes run_config.yaml and runs EvaluationRunner (Phase 63 HPC-04).  A
+    rank-0 failure while creating the run directory is broadcast with the
+    stamp, and the other ranks raise ``RuntimeError`` naming it.
     """
     args = _build_parser().parse_args(argv)
 
@@ -214,15 +233,43 @@ def main(argv=None) -> int:
     if config.verbose:
         logging.basicConfig(level=logging.INFO)
 
-    # T-23-01: resolve output_dir to prevent path traversal before any write
-    run_stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    # HPC-04: under MPI every rank must share ONE run directory.  All ranks
+    # reach this point identically (config errors returned above on every
+    # rank), so no rank can skip the collective below.
+    comm = _mpi_world_comm()
+    rank = comm.Get_rank() if comm is not None else 0
+
+    # Rank 0 alone picks the stamp, creates the directory and writes
+    # run_config.yaml.  T-23-01: resolve output_dir to prevent path traversal
+    # before any write.
+    run_stamp = None
+    setup_error: Exception | None = None
+    if rank == 0:
+        run_stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        try:
+            run_dir = (Path(config.output_dir) / run_stamp).resolve()
+            run_dir.mkdir(parents=True, exist_ok=True)
+            # D-10 / Pitfall 6: write run_config.yaml BEFORE pipeline executes
+            _write_run_config(args.config, str(run_dir))
+        except Exception as exc:
+            setup_error = exc
+
+    if comm is not None:
+        # One bcast carries the stamp and the setup outcome, so a rank-0
+        # failure reaches every rank before any further collective (no hang).
+        err_msg = None if setup_error is None else f"{type(setup_error).__name__}: {setup_error}"
+        run_stamp, err_msg = comm.bcast((run_stamp, err_msg), root=0)
+        if setup_error is None and err_msg is not None:
+            raise RuntimeError(
+                f"[rank {rank}] rank 0 failed to set up the run directory: {err_msg}"
+            )
+    if setup_error is not None:
+        raise setup_error
+    if comm is not None:
+        comm.Barrier()  # run directory and run_config.yaml exist before any rank uses them
+
     resolved_output_dir = str((Path(config.output_dir) / run_stamp).resolve())
     config = config.model_copy(update={"output_dir": resolved_output_dir})
-
-    Path(config.output_dir).mkdir(parents=True, exist_ok=True)
-
-    # D-10 / Pitfall 6: write run_config.yaml BEFORE pipeline executes
-    _write_run_config(args.config, config.output_dir)
 
     # Resolve cross-job warm-start seed (EXT-04).  None when flag not provided.
     warm_start = _load_warm_start(args.warm_start_from) if args.warm_start_from else None
@@ -231,6 +278,10 @@ def main(argv=None) -> int:
     if args.mode == "optimize":
         HyperparamOptimizer(config, warm_start=warm_start).run()
     elif args.mode == "eval":
+        if rank != 0:
+            # HPC-04: a single writer for eval_report.json and plots.
+            log.debug("[rank %d] evaluation runs on rank 0 only", rank)
+            return 0
         # Prefer local best_params.json (written by a prior optimize/full run in
         # the same output_dir); fall back to the forwarded warm-start params so
         # that cross-tier forwarding (synthetic → real) works without a local file.
@@ -242,6 +293,10 @@ def main(argv=None) -> int:
     else:  # args.mode == "full"
         # Pitfall 5: optimizer writes best_params.json; read it AFTER
         HyperparamOptimizer(config, warm_start=warm_start).run()
+        if rank != 0:
+            # HPC-04: HPO is collective, evaluation has a single writer.
+            log.debug("[rank %d] participated in collective HPO; evaluation runs on rank 0", rank)
+            return 0
         params = _load_best_params(config.output_dir, fallback=config.default_params)
         EvaluationRunner(config, params).run()
 

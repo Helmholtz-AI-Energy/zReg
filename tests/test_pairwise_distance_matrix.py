@@ -884,9 +884,21 @@ class TestPairwiseDistanceMatrixCPDTypes:
     """pairwise_distance_matrix.py:185,187 — nonrigid and affine CPD paths."""
 
     def _make_small_pair(self):
-        """Two tiny 3-frame trajectories (10 points each) for fast CPD tests."""
-        x = {i: zRegPointCloud(pos=torch.randn(10, 3), label=None, id=torch.arange(10)) for i in range(3)}
-        y = {i: zRegPointCloud(pos=torch.randn(10, 3), label=None, id=torch.arange(10)) for i in range(3)}
+        """Two tiny 3-frame trajectories (10 points each) for fast CPD tests.
+
+        Seeded with a local generator: drawn from the global RNG, the points
+        depended on test order, and about 2% of draws make AffineCPD's
+        ``torch.linalg.solve`` singular on 10 random points.
+        """
+        gen = torch.Generator().manual_seed(0)
+        x = {
+            i: zRegPointCloud(pos=torch.randn(10, 3, generator=gen), label=None, id=torch.arange(10))
+            for i in range(3)
+        }
+        y = {
+            i: zRegPointCloud(pos=torch.randn(10, 3, generator=gen), label=None, id=torch.arange(10))
+            for i in range(3)
+        }
         return x, y
 
     def test_cpd_type_nonrigid(self):

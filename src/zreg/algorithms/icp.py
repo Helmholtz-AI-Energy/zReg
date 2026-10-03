@@ -104,6 +104,13 @@ class ICPRegistration:
             - matrix : [4, 4] composite transformation matrix (in denormalised space)
             - src_min/src_max : shared normalisation bounds (scalars)
             - tgt_min/tgt_max : shared normalisation bounds (same as src_*)
+
+        Raises
+        ------
+        ValueError
+            If source or target is not ``(N, 3)``, is empty, contains NaN/inf,
+            or has zero extent (all points coincide); raised by
+            ``zreg.utils.registration_bounds`` before any registration work.
         """
         src_pos = source["pos"]
         tgt_pos = target["pos"]
@@ -111,7 +118,7 @@ class ICPRegistration:
         # One shared bounds pair for both clouds: a rigid ICP result in the
         # shared normalised frame stays rigid after denormalisation, and the
         # result is denormalised with the bounds of the frame it lives in.
-        lo, hi = utils.shared_bounds(src_pos, tgt_pos)
+        lo, hi = utils.registration_bounds(src_pos, tgt_pos)
         src_norm = utils.normalize_point_cloud(src_pos, min_vals=lo, max_vals=hi)[0]
         tgt_norm = utils.normalize_point_cloud(tgt_pos, min_vals=lo, max_vals=hi)[0]
 

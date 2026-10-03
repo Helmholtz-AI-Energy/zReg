@@ -10,6 +10,7 @@ __all__ = [
     "normalize_to_pc_w_most_points",
     "undo_normalize",
     "shared_bounds",
+    "registration_bounds",
     "normalization_matrix",
     "denormalization_matrix",
 ]
@@ -396,6 +397,74 @@ def shared_bounds(*clouds: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     lo = torch.stack([c.min() for c in clouds]).min()
     hi = torch.stack([c.max() for c in clouds]).max()
     return lo, hi
+
+
+def registration_bounds(
+    source: torch.Tensor, target: torch.Tensor
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Validate a registration pair and return its shared scalar bounds.
+
+    Validating wrapper around ``shared_bounds`` used by the rigid aligners
+    (ICP, SWD). Checks, in this order, for each cloud:
+
+    1. shape is ``(N, 3)``;
+    2. the cloud is not empty;
+    3. every coordinate is finite (no NaN/inf);
+    4. the cloud has a non-zero overall extent, i.e. the largest per-axis
+       range over the points is not exactly zero. Clouds whose points all
+       coincide (including a single point) leave the rotation undefined.
+
+    Zero range on one or two axes (planar or collinear clouds) is accepted,
+    and so are small-but-nonzero clouds: there is no eps threshold.
+
+    Parameters
+    ----------
+    source, target : torch.Tensor
+        ``(N, 3)`` and ``(M, 3)`` point tensors on the same device.
+
+    Returns
+    -------
+    tuple[torch.Tensor, torch.Tensor]
+        ``(lo, hi)`` exactly as ``shared_bounds(source, target)``.
+
+    Raises
+    ------
+    ValueError
+        If a cloud is not ``(N, 3)``, is empty, contains NaN/inf, has zero
+        extent (all points coincide), or the clouds live on different devices.
+        The message names the offending cloud (``source['pos']`` or
+        ``target['pos']``).
+
+    Examples
+    --------
+    >>> import torch
+    >>> src = torch.tensor([[0.0, 1.0, 2.0], [1.0, 1.0, 2.0]])
+    >>> tgt = torch.tensor([[-2.0, 5.0, 0.0], [0.0, 0.0, 0.0]])
+    >>> lo, hi = registration_bounds(src, tgt)
+    >>> lo.item(), hi.item()
+    (-2.0, 5.0)
+    """
+    from .validation import _validate_tensors
+
+    names = ["source['pos']", "target['pos']"]
+    clouds = [source, target]
+    for c, name in zip(clouds, names):
+        if c.dim() != 2 or c.shape[1] != 3:
+            raise ValueError(
+                f"{name} must have shape (N, 3), but has shape {tuple(c.shape)}"
+            )
+    for c, name in zip(clouds, names):
+        if c.shape[0] == 0:
+            raise ValueError(f"{name} is empty (shape {tuple(c.shape)}); cannot register")
+    _validate_tensors(source, target, names=names)
+    for c, name in zip(clouds, names):
+        spread = (c.max(dim=0).values - c.min(dim=0).values).max()
+        if spread == 0:
+            raise ValueError(
+                f"{name} has zero extent ({c.shape[0]} point(s)): "
+                "all points coincide; the rotation is undefined"
+            )
+    return shared_bounds(source, target)
 
 
 def _bounds_on(lo, hi, dtype, device):

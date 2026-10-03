@@ -5,6 +5,7 @@ alignment between two sequences of point clouds.
 """
 
 from pathlib import Path
+import importlib
 import logging
 import pickle
 
@@ -20,6 +21,120 @@ from ...core.types import StoredTransform
 log = logging.getLogger(__name__)
 
 __all__ = ["DynamicTimeWarping"]
+
+
+_SAVE_HINT = (
+    "Use a metric name string (e.g. 'euclidean') or a function defined at module level in "
+    "an importable module; DTW results are saved so that they load with "
+    "torch.load(weights_only=True), which cannot unpickle arbitrary objects."
+)
+
+
+def _resolve_qualname(module_name: str, qualname: str):
+    """Import ``module_name`` and follow the dotted ``qualname`` attribute path."""
+    obj = importlib.import_module(module_name)
+    for part in qualname.split("."):
+        obj = getattr(obj, part)
+    return obj
+
+
+def _metric_to_ref(metric):
+    """Convert a distance metric into a ``weights_only``-safe reference.
+
+    Strings are returned unchanged, lists/tuples are converted element-wise (to a list),
+    and a durable callable becomes ``{"callable": "module:qualname"}``. A callable is
+    durable only if it is defined at module level in an importable module other than
+    ``__main__``, is not a lambda or local function (no ``<`` in its qualname), is not a
+    ``torch.nn.Module`` instance, and ``module:qualname`` resolves back to the identical
+    object.
+
+    Parameters
+    ----------
+    metric : str | Callable | list | tuple
+        The ``distance_metric`` given to :class:`DynamicTimeWarping`.
+
+    Returns
+    -------
+    str | dict | list
+        The serialisable reference.
+
+    Raises
+    ------
+    TypeError
+        If the metric (or a list element) is not a string or a durable callable.
+    """
+    if isinstance(metric, str):
+        return metric
+    if isinstance(metric, (list, tuple)):
+        return [_metric_to_ref(m) for m in metric]
+
+    def _reject(reason):
+        return TypeError(f"Cannot save distance_metric {metric!r}: {reason}. {_SAVE_HINT}")
+
+    if isinstance(metric, torch.nn.Module):
+        raise _reject("it is a torch.nn.Module instance (module instances are not saved)")
+    if not callable(metric):
+        raise _reject("it is neither a string nor a callable")
+    module_name = getattr(metric, "__module__", None)
+    qualname = getattr(metric, "__qualname__", None)
+    if not isinstance(module_name, str) or not isinstance(qualname, str):
+        raise _reject("it has no __module__/__qualname__ (e.g. a functools.partial or callable instance)")
+    if module_name == "__main__":
+        raise _reject("it is defined in __main__, which cannot be imported when loading")
+    if "<lambda>" in qualname or "<locals>" in qualname or "<" in qualname:
+        raise _reject("it is a lambda/local function, which cannot be imported when loading")
+    try:
+        resolved = _resolve_qualname(module_name, qualname)
+    except (ImportError, AttributeError) as exc:
+        raise _reject(f"{module_name}:{qualname} does not resolve back ({exc})") from exc
+    if resolved is not metric:
+        raise _reject(f"{module_name}:{qualname} does not resolve back to the same object")
+    return {"callable": f"{module_name}:{qualname}"}
+
+
+def _ref_to_metric(ref):
+    """Restore a distance metric from a reference written by :func:`_metric_to_ref`.
+
+    Lists are restored element-wise; ``{"callable": "module:qualname"}`` is resolved with
+    ``importlib.import_module`` and ``getattr`` (never eval/exec/pickle); anything else is
+    returned unchanged. Importing the module executes its top-level code, so only call
+    this on trusted files.
+
+    Parameters
+    ----------
+    ref : str | dict | list
+        A saved ``distance_metric`` reference.
+
+    Returns
+    -------
+    str | Callable | list
+        The restored metric.
+
+    Raises
+    ------
+    ValueError
+        If a callable reference is malformed (not exactly one ``:`` with non-empty module
+        and qualname parts), its module cannot be imported, or its qualname does not
+        resolve.
+    """
+    if isinstance(ref, list):
+        return [_ref_to_metric(r) for r in ref]
+    if isinstance(ref, dict) and set(ref) == {"callable"}:
+        value = ref["callable"]
+        if not isinstance(value, str) or value.count(":") != 1:
+            raise ValueError(
+                f"invalid callable reference {ref!r} in saved DTW config: expected 'module:qualname'"
+            )
+        module_name, qualname = value.split(":")
+        if not module_name or not qualname:
+            raise ValueError(
+                f"invalid callable reference {ref!r} in saved DTW config: empty module or qualname"
+            )
+        try:
+            return _resolve_qualname(module_name, qualname)
+        except (ImportError, AttributeError) as exc:
+            raise ValueError(f"invalid callable reference {ref!r} in saved DTW config: {exc}") from exc
+    return ref
 
 
 class DynamicTimeWarping:
@@ -513,6 +628,11 @@ class DynamicTimeWarping:
         ``path + ".transforms.pkl"`` using pickle, because they are not plain
         tensors and would be rejected by ``weights_only=True``.
 
+        A callable ``distance_metric`` is stored as ``{"callable": "module:qualname"}``
+        and restored by :meth:`load`. Only durable module-level functions qualify;
+        lambdas, local functions, ``__main__`` callables and ``nn.Module`` instances are
+        rejected before any file is written.
+
         Parameters
         ----------
         path : str | Path
@@ -522,9 +642,15 @@ class DynamicTimeWarping:
         ------
         RuntimeError
             If `compute()` has not been called yet.
+        TypeError
+            If ``distance_metric`` contains a callable that cannot be saved as a
+            ``module:qualname`` reference (nothing is written in that case).
         """
         if self.result is None:
             raise RuntimeError("DTW has not been computed yet. Call compute() first.")
+
+        # Validate/convert the metric before writing anything (CPD-07).
+        metric_ref = _metric_to_ref(self.distance_metric)
 
         path = Path(path)
         # Main tensor data — safe to load with weights_only=True.
@@ -536,7 +662,7 @@ class DynamicTimeWarping:
             "rotations": self.result.rotations,
             # Save configuration for reference
             "config": {
-                "distance_metric": self.distance_metric,
+                "distance_metric": metric_ref,
                 "downsample_method": self.downsample_method,
                 "cpd_type": self.cpd_type,
                 "window": self.window,
@@ -557,6 +683,11 @@ class DynamicTimeWarping:
     def load(cls, path: str | Path) -> DTWResult:
         """Load DTW results from disk.
 
+        Security: only load trusted files. Restoring a saved callable
+        ``distance_metric`` reference imports the named module, and importing a module
+        executes its top-level code; the ``.transforms.pkl`` companion is unpickled and
+        has the same requirement. ``weights_only=True`` protects only the tensor payload.
+
         Parameters
         ----------
         path : str | Path
@@ -565,7 +696,14 @@ class DynamicTimeWarping:
         Returns
         -------
         DTWResult
-            The loaded DTW results.
+            The loaded DTW results. ``config`` holds the saved configuration with the
+            ``distance_metric`` reference restored, or None for files without a config.
+
+        Raises
+        ------
+        ValueError
+            If the saved ``distance_metric`` contains a malformed or unresolvable
+            callable reference.
         """
         path = Path(path)
         # weights_only=True is safe because the main file contains only tensors,
@@ -579,6 +717,14 @@ class DynamicTimeWarping:
             with open(transforms_path, "rb") as f:
                 stored_transforms = pickle.load(f)  # noqa: S301
 
+        config = data.get("config")
+        if isinstance(config, dict):
+            config = dict(config)
+            if "distance_metric" in config:
+                config["distance_metric"] = _ref_to_metric(config["distance_metric"])
+        else:
+            config = None
+
         result = DTWResult(
             cost_matrix=data["cost_matrix"],
             accumulated_cost=data["accumulated_cost"],
@@ -586,6 +732,7 @@ class DynamicTimeWarping:
             distance=data["distance"],
             rotations=data.get("rotations"),
             stored_transforms=stored_transforms,
+            config=config,
         )
 
         log.info(f"Loaded DTW results from {path}")

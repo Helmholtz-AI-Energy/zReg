@@ -93,6 +93,10 @@ class DTWResult:
     stored_transforms : dict[tuple[int, int], StoredTransform]
         CPD transforms and normalisation parameters captured during pairwise distance
         computation, keyed by (i, j) index pairs. Empty when cpd_type is None.
+    config : dict | None
+        DTW configuration as saved by ``DynamicTimeWarping.save()``; ``distance_metric``
+        callables are restored by importing their module. None for results not loaded
+        from disk or files written before Phase 60.
     """
 
     cost_matrix: torch.Tensor
@@ -101,3 +105,4 @@ class DTWResult:
     distance: float
     rotations: torch.Tensor | None = None
     stored_transforms: dict[tuple[int, int], StoredTransform] = field(default_factory=dict)
+    config: dict | None = None

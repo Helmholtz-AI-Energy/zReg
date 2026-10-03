@@ -352,9 +352,10 @@ class EvaluationRunner:
 
         **Label direction (Phase 59 D-01, NUM-04):** ``config.label_source``
         decides the provider via ``resolve_label_transfer_pair``.  In paired
-        mode with ``label_source == "target"`` and no ``ground_truth_path``
-        the receiver (aligned source) has no ground truth: ``f1_score`` is
-        zero-filled and an ``"f1 unavailable: ..."`` flag is appended instead
+        mode with ``label_source == "target"`` the receiver (aligned source)
+        has no ground truth that is paired with the receiver frame (an
+        external ``ground_truth_path`` is not yet matched through the warp
+        path, WR-04): ``f1_score`` is zero-filled and an ``"f1 unavailable: ..."`` flag is appended instead
         of comparing unrelated label spaces.  In the default direction F1
         still compares the source's ground truth against the labels
         transferred onto the target positionally (Phase 63 U5-4).

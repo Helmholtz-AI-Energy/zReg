@@ -32,6 +32,11 @@ _F1_UNAVAILABLE_PAIRED_TARGET = (
     "f1 unavailable: pipeline_mode='paired' with label_source='target' has no ground truth "
     "on the receiving (aligned source) side; f1_score zero-filled"
 )
+_F1_UNAVAILABLE_PAIRED_TARGET_GT = (
+    "f1 unavailable: pipeline_mode='paired' with label_source='target' and ground_truth_path "
+    "set is not supported yet (neither scorer pairs the ground truth with the receiver frame "
+    "via the warp path); f1_score zero-filled"
+)
 
 
 def resolve_label_transfer_pair(config: EvalConfig, aligned: _T, target: _T) -> tuple[_T, _T]:
@@ -69,10 +74,17 @@ def f1_unavailable_reason(config: EvalConfig) -> str | None:
     """Explain why F1 cannot be computed for this config, or return ``None``.
 
     In paired mode with ``label_source='target'`` the labels flow onto the
-    aligned source (Kobitski), which has no ground-truth class labels.  Unless
-    an external ``ground_truth_path`` is configured, F1 is undefined; callers
-    zero-fill ``f1_score`` and record this reason as an explicit sanity flag
-    (orchestrator resolution A2/A3) instead of reporting a silently wrong F1.
+    aligned source (Kobitski), which has no ground-truth class labels, so F1
+    is undefined; callers zero-fill ``f1_score`` and record this reason as an
+    explicit sanity flag (orchestrator resolution A2/A3) instead of reporting
+    a silently wrong F1.
+
+    An external ``ground_truth_path`` does not make F1 available yet (WR-04):
+    ``EvaluationRunner`` would compare the GT of the last *source* frame with
+    labels on the DTW-matched receiver frame, and ``HyperparamOptimizer``
+    ignores ``ground_truth_path`` entirely.  Until both scorers read the GT
+    per receiver frame through the warp path, this combination is reported
+    as unavailable too.
 
     Parameters
     ----------
@@ -85,10 +97,8 @@ def f1_unavailable_reason(config: EvalConfig) -> str | None:
     str or None
         A non-empty, human-readable reason when F1 is unavailable, else ``None``.
     """
-    if (
-        config.pipeline_mode == "paired"
-        and config.label_source == "target"
-        and config.ground_truth_path is None
-    ):
+    if config.pipeline_mode == "paired" and config.label_source == "target":
+        if config.ground_truth_path is not None:
+            return _F1_UNAVAILABLE_PAIRED_TARGET_GT
         return _F1_UNAVAILABLE_PAIRED_TARGET
     return None

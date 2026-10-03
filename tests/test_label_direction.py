@@ -55,7 +55,7 @@ def test_resolve_pair_target(tmp_path):
 
 
 def test_f1_unavailable_reason(tmp_path):
-    """A reason is returned only for paired + target + no external ground truth."""
+    """A reason is returned for paired + target, with or without external ground truth (WR-04)."""
     assert f1_unavailable_reason(_cfg(tmp_path)) is None
 
     reason = f1_unavailable_reason(_cfg(tmp_path, pipeline_mode="paired", label_source="target"))
@@ -68,7 +68,10 @@ def test_f1_unavailable_reason(tmp_path):
         label_source="target",
         ground_truth_path=str(tmp_path / "gt.csv"),
     )
-    assert f1_unavailable_reason(with_gt) is None
+    # WR-04: neither scorer pairs an external GT with the receiver frame yet,
+    # so F1 stays unavailable instead of silently comparing the wrong frames.
+    gt_reason = f1_unavailable_reason(with_gt)
+    assert isinstance(gt_reason, str) and "ground_truth_path" in gt_reason
 
 
 # ---------------------------------------------------------------------------

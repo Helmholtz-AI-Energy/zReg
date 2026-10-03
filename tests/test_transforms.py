@@ -115,9 +115,8 @@ class TestAffineTransformation:
         assert tf.t.shape == (3,)
 
     def test_transform_identity(self):
-        """Test that default transform is essentially identity."""
+        """The default AffineTransformation is the identity (t defaults to zeros)."""
         tf = transforms.AffineTransformation(device="cpu", dtype=torch.float32)
-        tf.t = torch.zeros(3)  # Default is ones, set to zeros for identity
         points = torch.randn(10, 3)
         transformed = tf.transform(points)
         assert torch.allclose(points, transformed)

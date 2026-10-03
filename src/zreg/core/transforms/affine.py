@@ -21,7 +21,7 @@ class AffineTransformation(TransformBase):
     b : torch.Tensor, optional
         3×3 affine matrix. Default: identity matrix.
     t : torch.Tensor, optional
-        3D translation vector. Default: ones vector.
+        3D translation vector. Default: zero vector (identity).
     device : torch.device, optional
         Device for tensors (cpu/cuda). Default: None.
     dtype : torch.dtype, optional
@@ -59,7 +59,7 @@ class AffineTransformation(TransformBase):
         if b is None:
             b = torch.eye(3, dtype=dtype, device=device)
         if t is None:
-            t = torch.ones(3, dtype=dtype, device=device)
+            t = torch.zeros(3, dtype=dtype, device=device)
 
         if dtype is not None:
             b = b.to(dtype=dtype)

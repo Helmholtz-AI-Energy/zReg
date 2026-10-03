@@ -110,8 +110,8 @@ class TestTransformWrappers:
     def test_apply_affine_identity_preserves_pos(self):
         """AffineTransformation(t=zeros(3)) leaves pos unchanged (atol=1e-5)."""
         traj = generate_trajectory(n_points=20, n_frames=3, seed=11)
-        # CRITICAL: AffineTransformation() default t=[1,1,1] is NOT identity.
-        # Use t=torch.zeros(3) for an actual identity affine transform.
+        # AffineTransformation() defaults to the identity (t = zeros); the
+        # explicit t=torch.zeros(3) keeps the intent visible.
         result = apply_affine(traj, AffineTransformation(t=torch.zeros(3)))
         for i in traj:
             assert torch.allclose(result[i]["pos"], traj[i]["pos"], atol=1e-5)

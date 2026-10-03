@@ -850,17 +850,31 @@ def test_cpd_weighted_invalid_max_fallback_fraction_raises(bad):
         _cpd(_uniform_pmat(), max_fallback_fraction=bad)
 
 
-def test_cpd_weighted_nonfinite_receiver_position_gives_zero_row():
-    """IN-09a (library): a NaN receiver position gets an all-zero ('no label') row, others unaffected."""
+def test_cpd_weighted_nonfinite_receiver_position_gives_nan_row():
+    """IN-09a / 62-REVIEW WR-03 (library): a NaN receiver position gets an all-NaN ('no label')
+    row, never an all-zero row that argmaxes to class 0; others unaffected."""
     receiver = _RECEIVER4.clone()
     receiver[0] = torch.tensor([float("nan"), 0.0, 0.0])
     pmat = _uniform_pmat()
     pmat[0] = float("nan")
     with pytest.warns(RuntimeWarning, match="zero or non-finite posterior mass"):
         out = _cpd(pmat, receiver=receiver)
-    assert bool(torch.isfinite(out).all())
-    assert torch.equal(out[0], torch.zeros(3))
+    assert bool(torch.isnan(out[0]).all())
+    assert bool(torch.isfinite(out[1:]).all())
     torch.testing.assert_close(out[1:], _COLOURS4.mean(dim=0).expand(3, 3))
+
+
+def test_cpd_weighted_nonfinite_receiver_1d_labels_nan():
+    """62-REVIEW WR-03: the 1-D label path also marks 'no label' with NaN."""
+    receiver = _RECEIVER4.clone()
+    receiver[2, 1] = float("inf")
+    repair = repair_pmat_rows(_uniform_pmat(), _PROVIDER4, receiver)
+    out = transfer_labels(
+        _PROVIDER4, receiver, method="cpd_weighted",
+        source_colors=torch.tensor([0.0, 1.0, 2.0, 3.0]), pmat_repair=repair,
+    )
+    assert bool(torch.isnan(out[2]))
+    assert int(torch.isnan(out).sum()) == 1
 
 
 def test_cpd_weighted_1d_source_labels_with_two_repaired_rows():
@@ -934,7 +948,7 @@ def test_cpd_weighted_pmat_repair_nonfinite_position_no_warning():
             pmat_repair=repair,
         )
     assert _posterior_warnings(rec) == []
-    assert torch.equal(out[0], torch.zeros(3))
+    assert bool(torch.isnan(out[0]).all())
 
 
 def test_cpd_weighted_pmat_repair_and_estep_result_raises():

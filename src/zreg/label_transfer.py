@@ -238,8 +238,9 @@ def _weighted_colours_from_repair(repair: PmatRowRepair, source_colors: torch.Te
     """Posterior-weighted source colours with the repair's bad rows overwritten.
 
     Good rows: row-normalised ``repair.pmat @ source_colors``.  Bad rows: the
-    fallback provider's colour row, or an all-zero row ("no label") when the
-    fallback index is ``-1``.  1-D ``source_colors`` (one label channel,
+    fallback provider's colour row, or an all-NaN row ("no label") when the
+    fallback index is ``-1`` (62-REVIEW WR-03: an all-zero row would argmax
+    to class 0 and be indistinguishable from a real label).  1-D ``source_colors`` (one label channel,
     e.g. ``zRegPointCloud['label']``) give a 1-D result (62-REVIEW WR-01).
     """
     squeeze = source_colors.ndim == 1
@@ -251,7 +252,7 @@ def _weighted_colours_from_repair(repair: PmatRowRepair, source_colors: torch.Te
     if repair.n_bad > 0:
         idx = repair.fallback_idx
         fill = cols[idx.clamp(min=0)].to(dtype)
-        fill = torch.where((idx >= 0).unsqueeze(1), fill, torch.zeros_like(fill))
+        fill = torch.where((idx >= 0).unsqueeze(1), fill, torch.full_like(fill, float("nan")))
         transferred[repair.bad_rows] = fill
     return transferred[:, 0] if squeeze else transferred
 
@@ -342,10 +343,13 @@ def transfer_labels(
     **cpd_weighted zero-row policy** (one policy for every pmat consumer, see
     :func:`repair_pmat_rows`): a receiver row with zero or non-finite
     posterior mass takes the colour row of its nearest provider point and a
-    single ``RuntimeWarning`` is emitted; an all-zero output row means no
+    single ``RuntimeWarning`` is emitted; an all-NaN output row means no
     label could be assigned (non-finite receiver position).  The call raises
     when every row is bad or more than ``max_fallback_fraction`` of the rows
-    fall back.  The output never contains a NaN row.
+    fall back.  NaN rows appear only for non-finite receiver positions; a
+    zero-mass posterior row never produces NaN.  ``argmax`` on the raw
+    output is unsafe for such rows (``torch.argmax`` of an all-NaN row is
+    0): mask them with ``torch.isnan(out).any(dim=-1)`` first.
     """
     # Extract positions and labels
     if isinstance(source, zRegPointCloud):
@@ -487,8 +491,8 @@ def _transfer_labels_cpd_weighted(
     -------
     torch.Tensor
         Transferred labels of shape (m_points, n_label_channels).  Bad rows
-        hold the nearest provider's colour row, or zeros ("no label assigned")
-        for a non-finite receiver position.
+        hold the nearest provider's colour row, or NaN ("no label assigned")
+        for a non-finite receiver position (62-REVIEW WR-03).
 
     Raises
     ------

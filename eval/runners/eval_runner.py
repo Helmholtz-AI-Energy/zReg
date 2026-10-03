@@ -46,10 +46,14 @@ serialising ``report.model_dump()`` will raise ``TypeError`` (RESEARCH
 Pitfall 2).
 
 **Frame selection for ``compute_stage_metrics``.**
-Source frame = ``source[source_sorted_keys[0]]`` (source's first frame), target
-frame = ``target[target_sorted_keys[-1]]`` (target's last frame).  This gives
-maximum temporal span across two distinct trajectories — Phase 30 cross-trajectory
-interpretation of Open Q3.
+``chamfer_distance`` / ``hausdorff_distance`` are computed per frame between the
+aligned source (raw source when alignment is skipped) and every target frame it
+shares a key with, then averaged; ``path_smoothness`` uses the DTW warp path.
+F1 compares the ground truth of the source's last frame
+(``gt[source_sorted_keys[-1]]``) with the labels of the last transferred
+receiver frame (the last key of ``LabelResult.transferred_labels``), matched
+positionally; ``knn_consistency`` uses that same receiver frame's points and
+transferred labels.
 """
 
 import json
@@ -294,7 +298,8 @@ class EvaluationRunner:
         Implements the argument assembly recipe from 21-RESEARCH.md §_run_single,
         updated in Phase 30 to accept distinct source and target datasets.
         Stage execution is conditional on ``config.run_alignment`` /
-        ``config.run_label_transfer``; skipped stages are zero-filled per D-04.
+        ``config.run_label_transfer``; metrics of skipped stages are reported
+        as their worst value (Phase 59 D-05, see Notes).
 
         Parameters
         ----------
@@ -341,11 +346,14 @@ class EvaluationRunner:
         (the aligned cloud, or raw ``source`` when alignment is skipped) and
         every ``target`` frame it shares a key with, then averaged by
         ``MetricsEngine._frame_averaged_chamfer_hausdorff`` — not on a single
-        frame pair.  ``y_true``/``y_pred`` (for F1) still use the
-        source's-first-frame / target's-last-frame convention (maximum
-        temporal span across two distinct trajectories, Phase 30
-        cross-trajectory interpretation of Open Q3), since label identity is
-        only meaningfully compared at a single point in time.
+        frame pair.  ``y_true``/``y_pred`` (for F1) compare a single frame
+        pair, since label identity is only meaningfully compared at one point
+        in time: ``y_true`` is the ground truth of the source's last frame
+        (``gt[source_sorted_keys[-1]]``) and ``y_pred`` holds the labels of
+        the last transferred receiver frame (the last key of
+        ``LabelResult.transferred_labels``, which can precede the receiver's
+        global last frame when the provider is shorter).  Lengths that still
+        differ are truncated positionally (WR-01).
 
         **Unavailable stages (Phase 59 D-05, NUM-05):** metrics of a skipped
         stage are never reported as perfect.  Skipped alignment sets

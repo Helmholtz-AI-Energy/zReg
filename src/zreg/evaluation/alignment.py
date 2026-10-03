@@ -1,10 +1,10 @@
 """Alignment metric functions for zReg.
 
-Provides three pure alignment metrics:
+Provides four pure alignment metrics:
 - chamfer: bidirectional Chamfer distance between point clouds
 - hausdorff: percentile-based Hausdorff distance
 - chamfer_hausdorff: both metrics from one distance matrix
-- path_smoothness: variance of slope changes along a DTW path
+- path_smoothness: variance of the cross products of consecutive DTW path steps
 """
 
 import torch

@@ -194,8 +194,8 @@ class StageMetrics(BaseModel):
         95th-percentile Hausdorff distance.  Lower is better.  Source:
         ``zreg.metrics.hausdorff``.
     path_smoothness : float
-        Variance of slope changes along the DTW warping path.  Lower is
-        better.  Source: ``zreg.metrics.path_smoothness``.
+        Variance of the 2-D cross products of consecutive DTW warping-path
+        steps (curvature of the path).  Lower is better.  Source: ``zreg.metrics.path_smoothness``.
     temporal_stability : float
         Mean Frobenius norm of consecutive transform differences.  Lower
         is better.  Source: ``zreg.metrics.temporal_stability``.

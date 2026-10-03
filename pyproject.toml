@@ -49,7 +49,7 @@ source = ["src/zreg"]
 branch = true
 omit = [
     # Typing protocol with no runtime code (only contains ellipsis)
-    "src/zreg/distances/_protocol.py",
+    "src/zreg/distance_metrics/_protocol.py",
 ]
 
 [tool.coverage.report]

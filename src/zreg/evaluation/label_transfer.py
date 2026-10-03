@@ -71,7 +71,7 @@ def compute_f1(
     Examples
     --------
     >>> import torch
-    >>> from zreg.metrics.label_transfer import compute_f1
+    >>> from zreg.evaluation.label_transfer import compute_f1
     >>> y = torch.tensor([0, 1, 2, 0, 1])
     >>> compute_f1(y, y)  # perfect prediction
     1.0

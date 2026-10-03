@@ -1242,13 +1242,62 @@ def test_propulate_placeholders_skip_non_finite_scores() -> None:
     assert optimizer_module._propulate_placeholders([], returned) == []
 
 
-def test_propulate_placeholders_score_mismatch_is_placeholder() -> None:
-    """Equal params but a different score is not the same evaluation: placeholder."""
+def test_propulate_placeholders_score_mismatch_is_not_placeholder() -> None:
+    """62-REVIEW CR-01: equal params with a stale score is the real trial, never a second entry."""
     merged = [_real_trial(3, 0.4)]
-    out = optimizer_module._propulate_placeholders(merged, [("sanity", {"k_neighbours": 3}, 0.5)])
-    assert len(out) == 1
-    assert out[0].flags == [optimizer_module.PROPULATE_PLACEHOLDER_FLAG]
-    assert out[0].score == 0.5
+    out = optimizer_module._propulate_placeholders(merged, [("sanity", {"k_neighbours": 3}, 0.9)])
+    assert out == []
+
+
+class _StaleCheckpointSearch:
+    """Propulate stand-in: evaluates every combo, then also returns a stale checkpoint pair."""
+
+    stale: tuple = ({"k_neighbours": 7}, 0.99)
+
+    def search(self, search_space, objective_fn, n_trials, output_dir, warm_start=None):
+        keys = list(search_space)
+        out = []
+        for combo in itertools.product(*(search_space[k] for k in keys)):
+            params = dict(zip(keys, combo))
+            score = objective_fn(params)
+            if score != float("-inf"):
+                out.append((params, score))
+        stale_params, stale_score = type(self).stale
+        out.append((dict(stale_params), stale_score))
+        return out
+
+
+def test_propulate_all_failed_with_stale_placeholder_still_raises(tmp_path, monkeypatch) -> None:
+    """62-REVIEW CR-01: placeholders do not mask an all-failed run."""
+    cfg = _num05_cfg(tmp_path, [_FAIL_K], strategy="propulate")
+    monkeypatch.setattr(optimizer_module, "PropulateSearch", _StaleCheckpointSearch)
+    with pytest.raises(RuntimeError, match="All 1 HPO trials failed"):
+        HyperparamOptimizer(cfg).run()
+    assert not (Path(cfg.output_dir).resolve() / "best_params.json").exists()
+
+
+def test_propulate_stale_placeholder_never_selected_as_best(tmp_path, monkeypatch) -> None:
+    """62-REVIEW CR-01: a higher stale checkpoint score never becomes best_params."""
+    cfg = _num05_cfg(tmp_path, [_OK_K], strategy="propulate")
+    monkeypatch.setattr(optimizer_module, "PropulateSearch", _StaleCheckpointSearch)
+    result = HyperparamOptimizer(cfg).run()
+    assert result.best_params == {"k_neighbours": _OK_K}
+    assert result.best_score < 0.99
+    flags = [t.flags for t in result.history]
+    assert [optimizer_module.PROPULATE_PLACEHOLDER_FLAG] in flags  # kept for traceability
+    best = _read_json(Path(cfg.output_dir).resolve() / "best_params.json")
+    assert best["k_neighbours"] == _OK_K
+
+
+def test_propulate_stale_score_for_real_params_not_duplicated(tmp_path, monkeypatch) -> None:
+    """62-REVIEW CR-01: a stale score for an evaluated individual adds no second entry."""
+    cfg = _num05_cfg(tmp_path, [_OK_K], strategy="propulate")
+    monkeypatch.setattr(_StaleCheckpointSearch, "stale", ({"k_neighbours": _OK_K}, 0.99))
+    monkeypatch.setattr(optimizer_module, "PropulateSearch", _StaleCheckpointSearch)
+    result = HyperparamOptimizer(cfg).run()
+    assert len(result.history) == 1
+    assert optimizer_module.PROPULATE_PLACEHOLDER_FLAG not in result.history[0].flags
+    assert result.best_score < 0.99
 
 
 def test_propulate_placeholder_flag_is_public() -> None:

@@ -43,8 +43,9 @@ Key design decisions implemented here:
   pairs ``PropulateSearch.search()`` returns on rank 0 only back-fill
   individuals without an evaluation record of this run (e.g. restored from a
   Propulate checkpoint) as zero-metric placeholders carrying
-  ``PROPULATE_PLACEHOLDER_FLAG``; a pair matching a real trial is never
-  duplicated.
+  ``PROPULATE_PLACEHOLDER_FLAG``; a pair whose params match a real trial is
+  never duplicated.  Placeholders never count toward the all-failed raise rule
+  and are never selected as best (62-REVIEW CR-01).
 
 Security mitigations:
 
@@ -248,9 +249,15 @@ def _merge_trial_histories(
     return merged, bad
 
 
-def _trial_key(params: dict[str, Any], score: float) -> tuple[str, float]:
-    """Identity of one evaluation for Propulate reconciliation (Phase 62 RD-6)."""
-    return json.dumps(params, sort_keys=True, default=repr), score
+def _trial_key(params: dict[str, Any]) -> str:
+    """Identity of one individual for Propulate reconciliation (Phase 62 RD-6).
+
+    Keyed on the params only (62-REVIEW CR-01): a returned pair whose params
+    match a real trial of this run is that trial, whatever score Propulate
+    reports for it (a checkpoint-restored individual may carry a stale score
+    from an earlier configuration).
+    """
+    return json.dumps(params, sort_keys=True, default=repr)
 
 
 def _propulate_placeholders(
@@ -270,28 +277,30 @@ def _propulate_placeholders(
     Returns
     -------
     list[Trial]
-        One ``Trial`` per returned pair whose ``(params, score)`` matches no
-        trial in ``merged``, in return order, with zero-filled metrics, the
-        returned tier and ``flags=[PROPULATE_PLACEHOLDER_FLAG]``.
+        One ``Trial`` per returned pair whose params match no trial in
+        ``merged``, in return order, with zero-filled metrics, the returned
+        tier and ``flags=[PROPULATE_PLACEHOLDER_FLAG]``.
 
     Notes
     -----
-    Phase 62 RD-6.  The key is ``(json.dumps(params, sort_keys=True,
-    default=repr), score)`` and ignores the tier: the next tier's Propulator
-    reloads the checkpoint the previous tier wrote to the same ``output_dir``,
-    so a pair of an earlier tier would otherwise be duplicated under the wrong
-    tier.  The returned score is the exact negation of the loss Propulate
-    stored, i.e. exactly the objective's return value, so equality matching
-    is reliable.  Placeholders are de-duplicated by the same key and
-    non-finite scores are skipped.  Placeholders keep checkpoint-restored
-    individuals selectable as best (Phase 63 HPC-02 resume).
+    Phase 62 RD-6.  The key is ``json.dumps(params, sort_keys=True,
+    default=repr)`` and ignores the tier and the score: the next tier's
+    Propulator reloads the checkpoint the previous tier wrote to the same
+    ``output_dir``, so a pair of an earlier tier would otherwise be duplicated
+    under the wrong tier, and a checkpoint-restored individual with the params
+    of a real trial but a stale score must not be added next to it
+    (62-REVIEW CR-01).  Placeholders are de-duplicated by the same key and
+    non-finite scores are skipped.  Placeholders are recorded in the history
+    for traceability only: they never count toward ``n_hist`` (the raise
+    rule) and are never selected as best, because nothing ties a
+    checkpoint-restored score to the current configuration.
     """
-    seen = {_trial_key(t.params, t.score) for t in merged}
+    seen = {_trial_key(t.params) for t in merged}
     out: list[Trial] = []
     for tier, params, score in returned:
         if not math.isfinite(score):
             continue
-        key = _trial_key(params, score)
+        key = _trial_key(params)
         if key in seen:
             continue
         seen.add(key)
@@ -571,16 +580,22 @@ class HyperparamOptimizer:
         # Construct SearchResult from the merged all-rank history. Every trial
         # in merged_history has a finite score (_merge_trial_histories filter),
         # so a failed (-inf) or NaN trial can never be selected as best.
-        if not merged_history:
+        # 62-REVIEW CR-01: Propulate placeholders carry scores that nothing
+        # ties to the current configuration; best is selected among real
+        # trials only (placeholders stay in the history for traceability).
+        real_trials = [
+            t for t in merged_history if PROPULATE_PLACEHOLDER_FLAG not in t.flags
+        ]
+        if not real_trials:
             result = SearchResult(
                 best_params={},
                 best_score=0.0,
-                history=[],
+                history=list(merged_history),
                 tier=self.config.tier,
                 failed_trials=list(failed_records),
             )
         else:
-            best_trial = max(merged_history, key=lambda t: t.score)
+            best_trial = max(real_trials, key=lambda t: t.score)
             result = SearchResult(
                 best_params=dict(best_trial.params),
                 best_score=best_trial.score,
@@ -814,9 +829,10 @@ class HyperparamOptimizer:
         merge has no duplicates.  On rank 0 (and single-process) the merged
         history is then extended by ``_propulate_placeholders`` for the pairs
         ``PropulateSearch.search`` returned (``self._propulate_returned``)
-        that match no merged trial (e.g. checkpoint-restored individuals),
-        before the counts are computed, so ``n_hist`` includes them and the
-        raise rule is identical on every rank; ``n_ok`` counts only real
+        whose params match no merged trial (e.g. checkpoint-restored
+        individuals).  ``n_hist`` counts only the real merged trials
+        (62-REVIEW CR-01), so a run in which every real trial failed still
+        raises even when placeholders exist; ``n_ok`` counts only real
         successful evaluations.  This is local to rank 0 and adds no
         collective.
 
@@ -834,19 +850,21 @@ class HyperparamOptimizer:
         if comm is None:
             self._aborted_ranks = [] if aborted is None else [(rank, aborted)]
             merged, bad = _merge_trial_histories([payload["history"]], start_rank=rank)
+            n_hist_real = len(merged)
             merged = merged + _propulate_placeholders(merged, self._propulate_returned)
             failures = payload["failures"] + bad
-            return merged, failures, self._n_succeeded, len(failures), len(merged)
+            return merged, failures, self._n_succeeded, len(failures), n_hist_real
 
         gathered = comm.gather(payload, root=0)
         if rank == 0:
             merged, bad = _merge_trial_histories([p["history"] for p in gathered], start_rank=0)
+            n_hist_real = len(merged)
             merged = merged + _propulate_placeholders(merged, self._propulate_returned)
             failures = [rec for p in gathered for rec in p["failures"]] + bad
             aborted_ranks = [
                 (r, p["aborted"]) for r, p in enumerate(gathered) if p.get("aborted") is not None
             ]
-            summary = (sum(p["n_ok"] for p in gathered), len(failures), len(merged), aborted_ranks)
+            summary = (sum(p["n_ok"] for p in gathered), len(failures), n_hist_real, aborted_ranks)
         else:
             merged = []
             failures = payload["failures"]

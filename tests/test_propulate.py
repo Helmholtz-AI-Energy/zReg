@@ -25,6 +25,7 @@ import torch  # noqa: F401
 
 from eval.config import EvalConfig
 from eval.runners.optimizer import HyperparamOptimizer
+from eval.types import StageMetrics, Trial
 
 
 # ---------------------------------------------------------------------------
@@ -116,7 +117,11 @@ class TestRunDispatchPropulate:
     def test_propulate_dispatch_writes_best_params(self, tmp_path):
         # Build EvalConfig with search_strategy="propulate" and minimal search_space.
         # run_alignment=True, run_label_transfer=True keeps __init__ guard satisfied;
-        # PropulateSearch is mocked away so _objective is never actually called.
+        # PropulateSearch is mocked away; the fake search evaluates each
+        # individual through the objective (a stubbed _objective records a real
+        # Trial), as Propulate does on the evaluating rank. Since 62-REVIEW
+        # CR-01 only real trials can become best_params; returned pairs without
+        # an evaluation record are flagged placeholders.
         cfg = EvalConfig(
             data_path=str(tmp_path / "unused.mat"),
             output_dir=str(tmp_path / "out"),
@@ -130,9 +135,39 @@ class TestRunDispatchPropulate:
 
         fake_results = [({"window_size": 3}, 0.7), ({"window_size": 5}, 0.5)]
 
-        with patch("eval.runners.optimizer.PropulateSearch") as mock_cls:
-            mock_cls.return_value.search.return_value = fake_results
+        scores = {p["window_size"]: sc for p, sc in fake_results}
+
+        def fake_objective(self, params, tier_dataset, tier_name, history):
+            score = scores[params["window_size"]]
+            history.append(Trial(
+                params=dict(params),
+                score=score,
+                metrics=StageMetrics(
+                    chamfer_distance=0.0,
+                    hausdorff_distance=0.0,
+                    path_smoothness=0.0,
+                    temporal_stability=0.0,
+                    f1_score=0.0,
+                    knn_consistency=0.0,
+                ),
+                tier=tier_name,
+            ))
+            self._n_succeeded += 1
+            return score
+
+        def fake_search(search_space, objective, **kwargs):
+            for params, _ in fake_results:
+                objective(dict(params))
+            return fake_results
+
+        with patch("eval.runners.optimizer.PropulateSearch") as mock_cls, \
+                patch.object(HyperparamOptimizer, "_objective", fake_objective):
+            mock_cls.return_value.search.side_effect = fake_search
             result = HyperparamOptimizer(cfg).run()
+
+        # Both returned pairs match a real trial: no placeholders.
+        assert len(result.history) == 2
+        assert all(not t.flags for t in result.history)
 
         # Best result is the one with highest score (window_size=3, score=0.7)
         assert result.best_params == {"window_size": 3}, (

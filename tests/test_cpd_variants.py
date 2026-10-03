@@ -208,3 +208,31 @@ class TestUseColorEntryPoints:
         cls = getattr(cpd, cls_name)
         with pytest.raises(NotImplementedError, match="use_color"):
             cls(torch.randn(20, 3), use_color=True, log_freq=-1)
+
+
+# ---------------------------------------------------------------------------
+# CPD-09: rbf_kernel_matrix uses the CPD kernel convention
+# ---------------------------------------------------------------------------
+
+
+class TestRBFKernelMatrixConvention:
+    """rbf_kernel_matrix equals exp(-d^2 / (2 beta)), the kernel CPD uses."""
+
+    def test_rbf_kernel_matrix_matches_utils(self):
+        """rbf_kernel_matrix(p, beta) == utils.rbf_kernel(p, p, beta) (baseline max diff ~0.25)."""
+        from zreg.utils import rbf_kernel
+
+        torch.manual_seed(0)
+        p = torch.randn(30, 3)
+        assert torch.allclose(
+            cpd.rbf_kernel_matrix(p, 2.0), rbf_kernel(p, p, 2.0), atol=1e-6
+        )
+
+    def test_rbf_kernel_matrix_matches_cpd_kernel(self):
+        """rbf_kernel_matrix equals NonRigidCPD's kernel matrix G on normalised points."""
+        from zreg.utils import normalize_point_cloud
+
+        torch.manual_seed(1)
+        p, _ = normalize_point_cloud(torch.randn(30, 3))
+        obj = cpd.NonRigidCPD(p, beta=2.0, log_freq=-1)
+        assert torch.allclose(cpd.rbf_kernel_matrix(p, 2.0), obj._tf_obj.g, atol=1e-6)

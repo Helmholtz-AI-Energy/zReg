@@ -4,7 +4,6 @@ import torch
 
 from .base import CoherentPointDrift
 from ._types import MstepResult, EstepResult
-from .kernels import rbf_kernel_matrix
 from ...core import transforms as tf
 from ...utils import normalize_point_cloud, squared_kernel_sum
 from ...utils.validation import _validate_tensors

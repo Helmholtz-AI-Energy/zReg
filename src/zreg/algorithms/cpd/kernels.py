@@ -7,14 +7,20 @@ RBF kernel used in non-rigid registration.
 
 import torch
 
+from ...utils import rbf_kernel
+
 __all__ = ["rbf_kernel_matrix"]
 
 
 def rbf_kernel_matrix(points: torch.Tensor, beta: float) -> torch.Tensor:
     """Compute the RBF kernel matrix for non-rigid CPD.
 
-    This computes G_ij = exp(-||y_i - y_j||^2 / (2 * beta^2)) for all pairs
-    of points. Used in NonRigidCPD to model smooth deformations.
+    This computes ``G_ij = exp(-||y_i - y_j||^2 / (2 beta))`` for all pairs
+    of points, by delegating to :func:`zreg.utils.rbf_kernel`. It is the same
+    kernel matrix that NonRigidCPD uses.
+
+    zreg's ``beta`` is the variance parameter of the Gaussian, i.e. the
+    quantity written ``beta^2`` in Myronenko & Song (2010).
 
     .. note::
         Input points must be pre-normalized (e.g., via normalize_point_cloud)
@@ -25,13 +31,13 @@ def rbf_kernel_matrix(points: torch.Tensor, beta: float) -> torch.Tensor:
     points : torch.Tensor
         Point cloud data with shape (N, D). Must be pre-normalized.
     beta : float
-        Bandwidth parameter controlling kernel width. Larger values
-        produce smoother deformations.
+        Variance parameter controlling the kernel width (Myronenko & Song's
+        beta^2). Larger values produce smoother deformations.
 
     Returns
     -------
     torch.Tensor
-        Kernel matrix with shape (N, N).
+        Symmetric kernel matrix with shape (N, N).
 
     Examples
     --------
@@ -40,7 +46,4 @@ def rbf_kernel_matrix(points: torch.Tensor, beta: float) -> torch.Tensor:
     >>> G.shape
     torch.Size([100, 100])
     """
-    # Squared pairwise distances
-    diff = points.unsqueeze(0) - points.unsqueeze(1)  # (N, N, D)
-    sq_dist = (diff**2).sum(dim=2)  # (N, N)
-    return torch.exp(-sq_dist / (2.0 * beta**2))
+    return rbf_kernel(points, points, beta)

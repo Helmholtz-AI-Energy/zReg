@@ -24,7 +24,9 @@ class NonRigidTransformation(TransformBase):
     2. Deformation: transformed = points + G @ weights
        Where weights has shape (n_points, 3)
 
-    The RBF kernel is: k(x, y) = exp(-beta * ||x - y||^2)
+    The RBF kernel is: k(x, y) = exp(-||x - y||^2 / (2 beta)), where beta is
+    the variance parameter (Myronenko & Song's beta^2). This is the kernel
+    NonRigidCPD uses.
 
     Parameters
     ----------
@@ -33,8 +35,8 @@ class NonRigidTransformation(TransformBase):
     points : torch.Tensor
         Control points for kernel computation, shape (n_points, 3).
     beta : float, optional
-        Kernel bandwidth parameter. Default 2.0.
-        Smaller values = smoother deformation, larger = more local.
+        Kernel variance parameter. Default 2.0.
+        Larger values = wider kernel and smoother deformation, smaller = more local.
 
     Attributes
     ----------

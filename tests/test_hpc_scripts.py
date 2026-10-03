@@ -17,6 +17,7 @@ The scripts are copied into ``tmp_path/scripts`` so ``REPO_ROOT`` resolves to
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -195,3 +196,27 @@ def test_stage_default_slurm_log_dir_created_before_sbatch(tmp_path, script):
     ]
     assert mkdir_idx, f"no 'mkdir -p {default_dir}' recorded"
     assert mkdir_idx[0] < first_sbatch, "SLURM log dir created only after the first sbatch"
+
+
+_DEFAULT_PART_RE = re.compile(r"default\s+partition\s*:?\s*([A-Za-z0-9_-]+)", re.IGNORECASE)
+
+
+@pytest.mark.parametrize("tpl", ["exp_horeka.sbatch", "exp_juwels.sbatch"])
+def test_sbatch_partition_comment_matches_directive(tpl):
+    text = (SCRIPTS / tpl).read_text().splitlines()
+    directive = [
+        m.group(1)
+        for ln in text
+        if (m := re.match(r"#SBATCH\s+--partition=(\S+)", ln))
+    ]
+    assert len(directive) == 1, directive
+    part = directive[0]
+
+    comments = [
+        ln for ln in text
+        if ln.startswith("#") and not ln.startswith("#SBATCH") and not ln.startswith("#!")
+    ]
+    claimed = [m.group(1) for ln in comments for m in _DEFAULT_PART_RE.finditer(ln)]
+    assert claimed, f"{tpl}: header does not state the default partition"
+    for c in claimed:
+        assert c == part, f"{tpl}: header comment claims default partition {c!r}, directive is {part!r}"

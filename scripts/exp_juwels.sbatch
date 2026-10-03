@@ -3,6 +3,9 @@
 # Reads CONFIG and MODE from the environment (set via --export in orchestrator scripts).
 # Default partition: booster (GPU). Override via sbatch command line if needed.
 # Default resource profile is sized for propulate HPO (search_strategy: auto).
+# Eval-only submissions get --ntasks-per-node=1 --gres=gpu:1 (plus smaller
+# --nodes / --time) from the orchestrators; the log directory is created by the
+# orchestrators (ZREG_SLURM_LOG_DIR) and passed as --output on the command line.
 #
 # Required env vars (set by orchestrator via --export=ALL,...):
 #   CONFIG  — path to YAML config relative to repo root

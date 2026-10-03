@@ -1,9 +1,11 @@
 #!/bin/bash
 # Generic HoreKa sbatch template for zReg experiments.
 # Reads CONFIG and MODE from the environment (set via --export in orchestrator scripts).
-# Default partition: cpuonly. Override with: sbatch --partition=accelerated ...
+# Default partition: accelerated (GPU). Override with: sbatch --partition=<name> ...
 # Default resource profile is sized for propulate HPO (search_strategy: auto).
-# For eval-only runs the orchestrator passes smaller --nodes / --time overrides.
+# Eval-only submissions get --ntasks-per-node=1 --gres=gpu:1 (plus smaller
+# --nodes / --time) from the orchestrators; the log directory is created by the
+# orchestrators (ZREG_SLURM_LOG_DIR) and passed as --output on the command line.
 #
 # Required env vars (set by orchestrator via --export=ALL,...):
 #   CONFIG  — path to YAML config relative to repo root

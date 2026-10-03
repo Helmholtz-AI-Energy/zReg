@@ -114,3 +114,46 @@ def test_end_to_end_precedence_explicit_n_labels_overrides_config():
     triple = factory.generate_training_triple(seed=2, n_labels=5)
     unique_labels = torch.unique(triple.source_cloud["label"])
     assert unique_labels.numel() == 5
+
+
+# ---------------------------------------------------------------------------
+# Phase 62 DATA-03 (U4-7): degenerate label_generation values are rejected at
+# config build, not at generate_labels() call time
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("n_labels", [0, -1])
+def test_config_n_labels_below_one_rejected(n_labels):
+    """n_labels < 1 raises ValidationError naming the field."""
+    with pytest.raises(pydantic.ValidationError, match="n_labels"):
+        LabelGenerationConfig(n_labels=n_labels)
+
+
+def test_config_n_labels_one_accepted():
+    """n_labels=1 is the smallest accepted value."""
+    assert LabelGenerationConfig(n_labels=1).n_labels == 1
+
+
+def test_config_empty_label_specs_rejected():
+    """label_specs=[] raises ValidationError naming the field."""
+    with pytest.raises(pydantic.ValidationError, match="label_specs"):
+        LabelGenerationConfig(label_specs=[])
+
+
+def test_config_unknown_mode_rejected():
+    """A misspelled mode keeps raising (pins the existing Literal)."""
+    with pytest.raises(pydantic.ValidationError, match="mode"):
+        LabelGenerationConfig(n_labels=2, mode="determinstic")
+
+
+@pytest.mark.parametrize(
+    "block", ["label_generation:\n  n_labels: 0\n", "label_generation:\n  label_specs: []\n"]
+)
+def test_yaml_degenerate_label_generation_raises_eval_config_error(tmp_path, block):
+    """The same degenerate values through EvalConfig.from_yaml raise EvalConfigError."""
+    from eval.config import EvalConfigError
+
+    p = tmp_path / "cfg.yaml"
+    p.write_text("data_path: data/raw/example.mat\n" + block)
+    with pytest.raises(EvalConfigError):
+        EvalConfig.from_yaml(p)

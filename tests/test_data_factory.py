@@ -2216,3 +2216,50 @@ class TestAugmentRotationDevice:
             assert gt[k].shape[0] == tgt[k]["pos"].shape[0]
             for j in torch.nonzero(gt[k] >= 0).flatten().tolist():
                 assert torch.allclose(tgt[k]["pos"][j], rotated[k]["pos"][gt[k][j]], atol=1e-5)
+
+
+class TestGenerateSubsamplePairLabelGeneration:
+    """U4-8: the synthesize path honours config.label_generation (D-13 precedence).
+
+    explicit transform_spec n_labels/n_classes > config.label_generation >
+    6-class fallback, mirroring generate_training_triple.
+    """
+
+    _SPEC = {"synthesize": True, "seed": 3, "n_points": 150, "shape": "ball"}
+
+    def _base_labels(self, factory):
+        return factory._source_dataset[0]["label"]
+
+    def _expected(self, factory, **kwargs):
+        from zreg.data_generation import generate_labels
+
+        base = {0: zRegPointCloud(pos=factory._source_dataset[0]["pos"])}
+        return generate_labels(base, seed=3, **kwargs)[0]["label"]
+
+    def test_config_label_generation_applies(self):
+        from eval.config import LabelGenerationConfig
+
+        cfg = EvalConfig(data_path="x", label_generation=LabelGenerationConfig(n_labels=2))
+        factory = DataFactory(cfg)
+        src, tgt = factory.generate_subsample_pair(None, dict(self._SPEC))
+        for view in (src, tgt):
+            assert set(view[0]["label"].unique().tolist()) <= {0, 1}
+        assert torch.equal(
+            self._base_labels(factory),
+            self._expected(factory, n_labels=2, mode="deterministic"),
+        )
+
+    @pytest.mark.parametrize("key,value", [("n_labels", 4), ("n_classes", 3)])
+    def test_explicit_spec_value_wins(self, key, value):
+        from eval.config import LabelGenerationConfig
+
+        cfg = EvalConfig(data_path="x", label_generation=LabelGenerationConfig(n_labels=2))
+        factory = DataFactory(cfg)
+        factory.generate_subsample_pair(None, {**self._SPEC, key: value})
+        assert torch.equal(self._base_labels(factory), self._expected(factory, n_labels=value))
+        assert int(self._base_labels(factory).max()) >= 2
+
+    def test_fallback_six_classes(self):
+        factory = DataFactory(EvalConfig(data_path="x"))
+        factory.generate_subsample_pair(None, dict(self._SPEC))
+        assert torch.equal(self._base_labels(factory), self._expected(factory, n_labels=6))

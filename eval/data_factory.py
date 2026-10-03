@@ -409,6 +409,13 @@ class DataFactory:
               geometry pipeline (only consulted when ``synthesize`` is
               ``True``); mirrors :meth:`generate_training_triple`'s own
               parameters/defaults (post-merge ``n_labels`` rename).
+              Label precedence (D-13, Phase 62 U4-8): an explicit
+              ``"n_labels"``/``"n_classes"`` wins; otherwise
+              ``config.label_generation`` (``n_labels``, ``label_specs``,
+              ``mode``) is used; otherwise 6 auto-random Voronoi labels.
+              ``label_generation.seed`` is NOT used here — the per-call
+              ``"seed"`` keeps priority, as in
+              :meth:`generate_training_triple`.
             - ``"rotation_deg"``, ``"rotation_axis"``, ``"scale_factor"``,
               ``"sigma"``: optional explicit perturbation keys applied to the
               target view when ``run_alignment=True``. When none of these are
@@ -489,7 +496,7 @@ class DataFactory:
         # supplied already-loaded dataset
         synthesize = transform_spec.get("synthesize", False)
         if synthesize:
-            n_labels = transform_spec.get("n_labels", transform_spec.get("n_classes", 6))
+            explicit_n_labels = transform_spec.get("n_labels", transform_spec.get("n_classes"))
             shape = transform_spec.get("shape")
             n_points = transform_spec.get("n_points")
             geom_rng = random.Random(seed)
@@ -507,7 +514,22 @@ class DataFactory:
                     f"{shape!r}; expected 'ball' or 'bowl'"
                 )
             base_frame = {0: zRegPointCloud(pos=pos)}
-            base_dataset = generate_labels(base_frame, n_labels=n_labels, seed=seed)
+            # D-13 three-way precedence (Phase 62 U4-8, copied from
+            # generate_training_triple): explicit transform_spec
+            # n_labels/n_classes > config.label_generation > hardcoded 6.
+            if explicit_n_labels is not None:
+                base_dataset = generate_labels(base_frame, n_labels=explicit_n_labels, seed=seed)
+            elif self.config.label_generation is not None:
+                lg = self.config.label_generation
+                base_dataset = generate_labels(
+                    base_frame,
+                    n_labels=lg.n_labels,
+                    label_specs=lg.label_specs,
+                    mode=lg.mode,
+                    seed=seed,
+                )
+            else:
+                base_dataset = generate_labels(base_frame, n_labels=6, seed=seed)
         else:
             if dataset is None:
                 raise ValueError(
@@ -524,8 +546,7 @@ class DataFactory:
         # each call below MUST be preceded by an explicit reset (see Notes).
         self._correspondence_idx = None  # defensive reset (reused/non-fresh instance)
         source_view = self.drop_points(base_dataset, 1.0 - source_fraction, seed=seed)
-        source_corr = self._correspondence_idx  # capture before the next reset clears it
-        self._correspondence_idx = None  # required reset — prevents composing against source_corr
+        self._correspondence_idx = None  # required reset — prevents composing against the source view's map
         target_view = self.drop_points(base_dataset, 1.0 - target_fraction, seed=seed + 1)
         target_corr = self._correspondence_idx
 

@@ -182,10 +182,12 @@ class LabelGenerationConfig(BaseModel):
     ----------
     n_labels : int or None
         Number of auto-random Voronoi labels (simple path). Exactly one of
-        ``n_labels``/``label_specs`` must be given. Default ``None``.
+        ``n_labels``/``label_specs`` must be given. Must be ``>= 1`` when
+        set (Phase 62 U4-7). Default ``None``.
     label_specs : list[LabelSpec] or None
         Explicit label specs (full path). Exactly one of
-        ``n_labels``/``label_specs`` must be given. Default ``None``.
+        ``n_labels``/``label_specs`` must be given. Must be non-empty when
+        set (Phase 62 U4-7). Default ``None``.
     mode : {"deterministic", "probabilistic"}
         Assignment mode forwarded to ``generate_labels`` (D-12). Default
         ``"deterministic"``.
@@ -195,8 +197,8 @@ class LabelGenerationConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    n_labels: int | None = None
-    label_specs: list[LabelSpec] | None = None
+    n_labels: int | None = Field(default=None, ge=1)
+    label_specs: list[LabelSpec] | None = Field(default=None, min_length=1)
     mode: Literal["deterministic", "probabilistic"] = "deterministic"
     seed: int | None = 42
 

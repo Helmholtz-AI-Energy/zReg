@@ -290,11 +290,15 @@ def _with_params_validated(config: EvalConfig, extra_params: dict, *, source: st
         detail = f"{loc + ': ' if loc else ''}{first['msg']}"
         msg = f"{source}: invalid params for config with output_dir {config.output_dir}: {detail}."
         if phase is not None:
+            # 63-REVIEW WR-04: name a recovery the HoreKa launchers can perform.
+            report = Path(source).parent / "eval_report.json"
             msg += (
-                f" Regenerate it by re-running the '{phase}' phase with --force (the artifact "
-                "predates a config change such as Phase 63 D-08). Note: ZREG_CLEAR_CHECKPOINTS=1 / "
-                "--clear-checkpoints only removes Propulate checkpoint files; "
-                "it does not delete best_params.json."
+                f" The artifact predates a config change such as Phase 63 D-08. Regenerate it: "
+                f"delete {report} and re-run the '{phase}' phase (only this run is redone), or "
+                f"re-run the '{phase}' phase with --force (HoreKa launchers: ZREG_FORCE=1 sbatch "
+                "<launcher>; redoes every run of the phase). Add ZREG_CLEAR_CHECKPOINTS=1 / "
+                "--clear-checkpoints if the run's Propulate checkpoints predate the change too; "
+                "that only removes checkpoint files, it does not delete best_params.json."
             )
         raise ValueError(msg) from e
 

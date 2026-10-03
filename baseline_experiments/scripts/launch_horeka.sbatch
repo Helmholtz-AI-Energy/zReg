@@ -25,6 +25,9 @@
 #          Phase 63 D-08):  ZREG_CLEAR_CHECKPOINTS=1 sbatch <this script>
 #          run_all.py records the search space next to the checkpoints and stops with an
 #          error naming ZREG_CLEAR_CHECKPOINTS=1 if they were written under another one.
+# Redo:    ZREG_FORCE=1 sbatch <this script> passes --force: every run of this job is
+#          redone even if its eval_report.json exists. To redo one run only, delete that
+#          run's eval_report.json instead (the error for a stale best_params.json names it).
 # Env:     ZREG_VENV      venv to activate (default: $HOME/regvenv_horeka)
 #          ZREG_REPO_DIR  repo checkout to cd into
 #                         (default: /home/hk-project-starter-p0024807/uitog/BA/zReg)
@@ -52,6 +55,11 @@ CLEAR_FLAG=()
 if [[ "${ZREG_CLEAR_CHECKPOINTS:-0}" == "1" ]]; then
   CLEAR_FLAG=(--clear-checkpoints)
 fi
+# Re-running completed runs is opt-in too (63-REVIEW WR-04).
+FORCE_FLAG=()
+if [[ "${ZREG_FORCE:-0}" == "1" ]]; then
+  FORCE_FLAG=(--force)
+fi
 
 source "$VENV/bin/activate"
 
@@ -70,6 +78,7 @@ srun --mpi=pmix --label \
     --phase selfcal \
     --configs-dir baseline_experiments/configs_horeka \
     ${CLEAR_FLAG[@]+"${CLEAR_FLAG[@]}"} \
+    ${FORCE_FLAG[@]+"${FORCE_FLAG[@]}"} \
     --verbose
 
 # ground_truth phase: 2 HPO runs (kobitski alignment, shah alignment+LT).
@@ -79,4 +88,5 @@ srun --mpi=pmix --label \
     --phase ground_truth \
     --configs-dir baseline_experiments/configs_horeka \
     ${CLEAR_FLAG[@]+"${CLEAR_FLAG[@]}"} \
+    ${FORCE_FLAG[@]+"${FORCE_FLAG[@]}"} \
     --verbose

@@ -273,8 +273,10 @@ now uses ~46 of Kobitski's 370 frames / ~53 of Shah's 420.
   checkpoint files; it does not delete best_params.json. After a
   search-space change such as Phase 63 D-08 (`cosine` removed from
   `dtw_dist_fn`), re-run the `selfcal` and `ground_truth` phases with
-  `--force`: `baseline_with_combined` rejects a stale `best_params.json`
-  with an error that names the artifact.
+  `--force` (HoreKa launchers: `ZREG_FORCE=1 sbatch <launcher>`), or delete
+  the stale run's `eval_report.json` to redo only that run:
+  `baseline_with_combined` rejects a stale `best_params.json` with an error
+  that names the artifact and that `eval_report.json`.
 
 The `step` fix alone was still not enough: closing apps + `caffeinate` helped for
 a while, but system swap crept back up (7.2GB -> 9.2GB -> 11.3GB total

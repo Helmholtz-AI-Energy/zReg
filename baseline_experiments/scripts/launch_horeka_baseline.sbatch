@@ -21,6 +21,9 @@
 #          Phase 63 D-08):  ZREG_CLEAR_CHECKPOINTS=1 sbatch <this script>
 #          run_all.py records the search space next to the checkpoints and stops with an
 #          error naming ZREG_CLEAR_CHECKPOINTS=1 if they were written under another one.
+# Redo:    ZREG_FORCE=1 sbatch <this script> passes --force: every run of this job is
+#          redone even if its eval_report.json exists. To redo one run only, delete that
+#          run's eval_report.json instead (the error for a stale best_params.json names it).
 # Env:     ZREG_VENV      venv to activate (default: $HOME/regvenv_horeka)
 #          ZREG_REPO_DIR  repo checkout to cd into
 #                         (default: /home/hk-project-starter-p0024807/uitog/BA/zReg)
@@ -48,6 +51,11 @@ CLEAR_FLAG=()
 if [[ "${ZREG_CLEAR_CHECKPOINTS:-0}" == "1" ]]; then
   CLEAR_FLAG=(--clear-checkpoints)
 fi
+# Re-running completed runs is opt-in too (63-REVIEW WR-04).
+FORCE_FLAG=()
+if [[ "${ZREG_FORCE:-0}" == "1" ]]; then
+  FORCE_FLAG=(--force)
+fi
 
 source "$VENV/bin/activate"
 
@@ -61,6 +69,7 @@ export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
 python -u baseline_experiments/scripts/run_all.py \
   --phase baseline_no_hpo \
   --configs-dir baseline_experiments/configs_horeka \
+  ${FORCE_FLAG[@]+"${FORCE_FLAG[@]}"} \
   --verbose
 
 # baseline_with_combined: HPO on the real cross-embryo task, warm-started from the
@@ -71,4 +80,5 @@ srun --mpi=pmix --label \
     --phase baseline_with_combined \
     --configs-dir baseline_experiments/configs_horeka \
     ${CLEAR_FLAG[@]+"${CLEAR_FLAG[@]}"} \
+    ${FORCE_FLAG[@]+"${FORCE_FLAG[@]}"} \
     --verbose

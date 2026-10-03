@@ -134,6 +134,23 @@ def test_launcher_opt_in_clears_checkpoints(tmp_path: Path, script: str) -> None
     assert not missing, "ZREG_CLEAR_CHECKPOINTS=1 did not pass --clear-checkpoints\n" + _diag(proc, lines)
 
 
+@pytest.mark.parametrize("script", LAUNCHERS)
+@pytest.mark.parametrize("force", [None, "1"])
+def test_launcher_force_is_opt_in(tmp_path: Path, script: str, force: str | None, monkeypatch) -> None:
+    """63-REVIEW WR-04: ZREG_FORCE=1 passes --force to every run_all.py call; default does not."""
+    if force is None:
+        monkeypatch.delenv("ZREG_FORCE", raising=False)
+    else:
+        monkeypatch.setenv("ZREG_FORCE", force)
+    proc, lines = _run_launcher(tmp_path, script, clear=None)
+    assert proc.returncode == 0, _diag(proc, lines)
+    run_all_lines = [ln for ln in lines if "run_all.py" in ln]
+    assert run_all_lines, "precondition: no run_all.py call logged\n" + _diag(proc, lines)
+    with_force = [ln for ln in run_all_lines if "--force" in ln.split()]
+    expected = run_all_lines if force == "1" else []
+    assert with_force == expected, _diag(proc, lines)
+
+
 def test_baseline_launcher_still_runs_no_hpo_phase(tmp_path: Path) -> None:
     proc, lines = _run_launcher(tmp_path, "launch_horeka_baseline.sbatch", clear=None)
     assert proc.returncode == 0, _diag(proc, lines)

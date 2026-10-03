@@ -185,6 +185,9 @@ def test_combined_best_params_rejects_stale_cosine_artifact(tmp_path) -> None:
     assert "dtw_dist_fn" in msg
     assert "--force" in msg
     assert "does not delete best_params.json" in msg
+    # 63-REVIEW WR-04: a recovery the sbatch launchers can actually perform.
+    assert "ZREG_FORCE=1" in msg
+    assert str(stale_path.parent / "eval_report.json") in msg
 
 
 def test_combined_best_params_valid_artifacts_unchanged(tmp_path) -> None:

@@ -21,7 +21,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-VENV=~/regvenv_horeka
+VENV="${ZREG_VENV:-$HOME/regvenv_horeka}"
 N_RANKS="${1:-4}"
 SMOKE_CONFIG="${REPO_ROOT}/baseline_experiments/configs_horeka/smoke/selfcal/kobitski_ew06_alignment.yaml"
 RUN_ID="$(date +%Y%m%d_%H%M%S)"
@@ -102,10 +102,13 @@ else
     fail "best_params.json not found — optimizer did not complete"
 fi
 
-N_CKPT="$(find "${TSTAMP_DIR:-${TEST_OUT}/clean}" -name "*.pickle" -o -name "*.pkl" 2>/dev/null | wc -l)"
+# TSTAMP_DIR is empty when Test 1 wrote no best_params.json; fall back to the whole
+# clean/ dir so `find ''` cannot abort the script under set -euo pipefail.
+CKPT_DIR="${TSTAMP_DIR:-${TEST_OUT}/clean}"
+N_CKPT="$(find "${CKPT_DIR}" \( -name "*.pickle" -o -name "*.pkl" \) 2>/dev/null | wc -l)"
 if [[ "${N_CKPT}" -gt 0 ]]; then
     pass "checkpoint files present (${N_CKPT} file(s))"
-    find "${TSTAMP_DIR}" -name "*.pickle" -o -name "*.pkl" | sed 's/^/         /'
+    find "${CKPT_DIR}" \( -name "*.pickle" -o -name "*.pkl" \) | sed 's/^/         /'
 else
     fail "no checkpoint files found (*.pickle / *.pkl)"
 fi

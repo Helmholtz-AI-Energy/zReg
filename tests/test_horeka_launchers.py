@@ -31,6 +31,33 @@ echo "{name} $*" >> "$STUB_LOG"
 exit 0
 """
 
+# srun stub for test_propulate_interactive.sh: logs argv; on --output-dir <dir>
+# it fakes a Propulate run that wrote a checkpoint (and optionally best_params.json);
+# when it runs the Test 2 helper script it prints the stale-skip warning.
+_PROPULATE_SRUN_STUB = """#!/bin/bash
+echo "srun $*" >> "$STUB_LOG"
+out=""
+helper=0
+prev=""
+for a in "$@"; do
+    if [[ "$prev" == "--output-dir" ]]; then out="$a"; fi
+    if [[ "$a" == *run_direct.py ]]; then helper=1; fi
+    prev="$a"
+done
+if [[ -n "$out" ]]; then
+    mkdir -p "$out/2026-01-01_00-00-00"
+    touch "$out/2026-01-01_00-00-00/island_0_ckpt.pickle"
+    if [[ "${STUB_WRITE_BEST:-0}" == "1" ]]; then
+        echo '{"cpd_penalty": "rigid"}' > "$out/2026-01-01_00-00-00/best_params.json"
+    fi
+fi
+if [[ "$helper" == "1" ]]; then
+    echo "WARNING Skipping stale checkpoint individual"
+fi
+echo "fake srun"
+exit 0
+"""
+
 
 def _write_exec(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -113,3 +140,47 @@ def test_baseline_launcher_still_runs_no_hpo_phase(tmp_path: Path) -> None:
     py_lines = [ln for ln in lines if ln.startswith("python ") and "baseline_no_hpo" in ln]
     assert py_lines, "baseline_no_hpo python call not executed\n" + _diag(proc, lines)
     assert all("--clear-checkpoints" not in ln.split() for ln in py_lines)
+
+
+def _run_propulate_interactive(tmp_path: Path, write_best: bool) -> tuple[subprocess.CompletedProcess, list[str]]:
+    scripts = tmp_path / "baseline_experiments" / "scripts"
+    scripts.mkdir(parents=True)
+    script_copy = scripts / "test_propulate_interactive.sh"
+    shutil.copy(SCRIPTS_DIR / "test_propulate_interactive.sh", script_copy)
+    cfg = tmp_path / "baseline_experiments" / "configs_horeka" / "smoke" / "selfcal" / "kobitski_ew06_alignment.yaml"
+    cfg.parent.mkdir(parents=True)
+    cfg.write_text("search_space:\n  cpd_penalty: [null, rigid]\ndefault_params:\n  cpd_penalty: null\n")
+
+    bin_dir = _stub_bin(tmp_path, ["module", "python"])
+    _write_exec(bin_dir / "srun", _PROPULATE_SRUN_STUB)
+    _write_exec(tmp_path / "regvenv_horeka" / "bin" / "python", _LOGGING_STUB.format(name="python"))
+
+    log = tmp_path / "stub.log"
+    env = dict(os.environ)
+    env.pop("ZREG_VENV", None)
+    env.update(
+        PATH=f"{bin_dir}:{os.environ['PATH']}",
+        STUB_LOG=str(log),
+        HOME=str(tmp_path),
+        STUB_WRITE_BEST="1" if write_best else "0",
+    )
+    proc = subprocess.run(["bash", str(script_copy), "2"], env=env, capture_output=True, timeout=60, cwd=tmp_path)
+    return proc, _read_log(log)
+
+
+def test_propulate_interactive_reaches_summary_without_best_params(tmp_path: Path) -> None:
+    proc, lines = _run_propulate_interactive(tmp_path, write_best=False)
+    stdout = proc.stdout.decode(errors="replace")
+    stderr = proc.stderr.decode(errors="replace")
+    assert "=== Summary" in stdout, "script died before summary\n" + _diag(proc, lines)
+    assert proc.returncode != 0, "missing best_params.json must count as failure\n" + _diag(proc, lines)
+    assert "No such file" not in stderr, _diag(proc, lines)
+    assert "island_0_ckpt.pickle" in stdout, "checkpoint listing from fallback dir missing\n" + _diag(proc, lines)
+
+
+def test_propulate_interactive_full_pass_with_stale_skip(tmp_path: Path) -> None:
+    proc, lines = _run_propulate_interactive(tmp_path, write_best=True)
+    stdout = proc.stdout.decode(errors="replace")
+    assert "=== Summary" in stdout, "script died before summary\n" + _diag(proc, lines)
+    assert any("run_direct.py" in ln for ln in lines if ln.startswith("srun ")), _diag(proc, lines)
+    assert "0 failed" in stdout and proc.returncode == 0, _diag(proc, lines)

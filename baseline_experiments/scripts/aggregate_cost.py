@@ -90,7 +90,7 @@ OPTIMIZE_RUNS = {
 
 # Static dataset scale — the dominant cost driver (see README.md smoke-test
 # finding: Kobitski's ~4x point density vs. Shah is why it's the slow one).
-# Measured directly via zreg.dataset loaders, not estimates.
+# Measured directly via zreg.core.dataset loaders, not estimates.
 DATASET_STATS = {
     ("selfcal", "kobitski_ew06_alignment"): ("kobitski_ew06", 370, 16572),
     ("selfcal", "shah_alignment"): ("shah_sample1", 420, 4113),

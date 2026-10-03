@@ -16,7 +16,7 @@ reused unchanged across every frame (D-07).
 
 Labels are stored in ``zRegPointCloud["label"]`` as ``torch.long`` tensors of
 shape ``(N,)``, one integer label ID per point. This format is directly
-compatible with ``zreg.metrics.compute_f1`` without conversion.
+compatible with ``zreg.evaluation.compute_f1`` without conversion.
 """
 
 import copy

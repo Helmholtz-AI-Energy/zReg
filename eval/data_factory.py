@@ -17,7 +17,7 @@ import math
 import random
 from pathlib import Path  # noqa: F401  (available for future use)
 
-# zreg.dataset MUST precede import torch (libomp SIGABRT lesson from Phase 12;
+# zreg.core.dataset MUST precede import torch (libomp SIGABRT lesson from Phase 12;
 # enforced in tests/conftest.py:20-24)
 from zreg.core.dataset import (
     load_data_from_tracklets,

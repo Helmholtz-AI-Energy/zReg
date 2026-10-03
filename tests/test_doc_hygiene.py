@@ -20,6 +20,13 @@ Checks:
   no stale "first frame" claim.
 - ``test_path_smoothness_header_matches_implementation``: ``path_smoothness``
   is described as implemented (cross-product based), not by slope changes.
+- ``test_no_stale_zreg_module_references``: no ``*.py`` file under the scan
+  roots (``src/``, ``eval/``, ``scripts/``, ``baseline_experiments/scripts/``,
+  ``run_eval.py``) mentions the removed modules ``zreg.metrics``,
+  ``zreg.distances``, ``zreg.dataset`` or ``zreg.transforms``.  The live
+  ``zreg.core.transforms``, ``zreg.data_generation.transforms`` and
+  ``zreg.dtw`` do not match.  There is no per-file exclusion list;
+  ``test_stale_reference_scan_has_no_exclusions`` pins the scan roots.
 
 Out of scope by definition (not per-file exclusions):
 
@@ -39,10 +46,35 @@ import doctest
 import importlib
 import inspect
 import pkgutil
+import re
 import tomllib
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+# Fixed scan roots for the stale-reference check (directories are scanned
+# recursively for *.py, files are scanned as-is).  No per-file exclusions.
+STALE_SCAN_ROOTS = ("src", "eval", "scripts", "baseline_experiments/scripts", "run_eval.py")
+
+# Removed modules; the lookbehind keeps zreg.core.transforms and
+# zreg.data_generation.transforms (preceded by a word/dot) from matching.
+STALE_MODULE_RE = re.compile(r"(?<![\w.])zreg\.(metrics|distances|dataset|transforms)\b")
+
+
+def _stale_scan_files() -> list[Path]:
+    files: list[Path] = []
+    for root in STALE_SCAN_ROOTS:
+        path = REPO_ROOT / root
+        if path.is_file():
+            files.append(path)
+        elif path.is_dir():
+            files.extend(p for p in path.rglob("*.py") if "__pycache__" not in p.parts)
+    return sorted(set(files))
+
+
+_SCAN_FILES = _stale_scan_files()
 
 
 def test_zreg_evaluation_doctests_pass() -> None:
@@ -139,3 +171,33 @@ def test_path_smoothness_header_matches_implementation() -> None:
     assert "cross-product" in header.lower() or "cross product" in header.lower(), (
         "zreg.evaluation.alignment header must describe path_smoothness as cross-product based"
     )
+
+
+@pytest.mark.parametrize(
+    "path", _SCAN_FILES, ids=[p.relative_to(REPO_ROOT).as_posix() for p in _SCAN_FILES]
+)
+def test_no_stale_zreg_module_references(path: Path) -> None:
+    """No docstring/comment/code line names a removed zreg module."""
+    hits = [
+        f"{path.relative_to(REPO_ROOT).as_posix()}:{lineno}: {line.strip()}"
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1)
+        if STALE_MODULE_RE.search(line)
+    ]
+    assert not hits, "stale zreg module references:\n" + "\n".join(hits)
+
+
+def test_stale_reference_scan_has_no_exclusions() -> None:
+    """Guard against silently narrowing the stale-reference scan."""
+    assert STALE_SCAN_ROOTS == ("src", "eval", "scripts", "baseline_experiments/scripts", "run_eval.py")
+    rel = {p.relative_to(REPO_ROOT).as_posix() for p in _SCAN_FILES}
+    assert rel, "stale-reference scan collected no files"
+    for required in (
+        "src/zreg/core/transforms/__init__.py",
+        "src/zreg/algorithms/dtw/core.py",
+        "run_eval.py",
+    ):
+        assert required in rel, f"{required} missing from the stale-reference scan"
+    assert STALE_MODULE_RE.search("from zreg.metrics import chamfer")
+    assert not STALE_MODULE_RE.search("from zreg.core.transforms import Affine")
+    assert not STALE_MODULE_RE.search("zreg.data_generation.transforms")
+    assert not STALE_MODULE_RE.search("import zreg.dtw")

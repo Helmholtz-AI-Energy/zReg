@@ -51,7 +51,7 @@ from typing import Any, TypeAlias, Union
 
 from pydantic import BaseModel, ConfigDict, Field
 
-# zreg.dataset MUST precede import torch (libomp SIGABRT lesson from Phase 12;
+# zreg.core.dataset MUST precede import torch (libomp SIGABRT lesson from Phase 12;
 # enforced in tests/conftest.py:20-24 and eval/data_factory.py:19-35).
 from zreg.core.dataset import zRegPointCloud
 from zreg.algorithms.cpd import EstepResult
@@ -189,22 +189,24 @@ class StageMetrics(BaseModel):
     ----------
     chamfer_distance : float
         Chamfer distance between source and aligned target point clouds.
-        Lower is better.  Source: ``zreg.metrics.chamfer``.
+        Lower is better.  Source: ``zreg.evaluation.chamfer_hausdorff``
+        (per-frame, averaged by ``MetricsEngine``).
     hausdorff_distance : float
         95th-percentile Hausdorff distance.  Lower is better.  Source:
-        ``zreg.metrics.hausdorff``.
+        ``zreg.evaluation.chamfer_hausdorff`` (per-frame, averaged).
     path_smoothness : float
         Variance of the 2-D cross products of consecutive DTW warping-path
-        steps (curvature of the path).  Lower is better.  Source: ``zreg.metrics.path_smoothness``.
+        steps (curvature of the path).  Lower is better.  Source:
+        ``zreg.evaluation.path_smoothness``.
     temporal_stability : float
         Mean Frobenius norm of consecutive transform differences.  Lower
-        is better.  Source: ``zreg.metrics.temporal_stability``.
+        is better.  Source: ``zreg.evaluation.temporal_stability``.
     f1_score : float
         Weighted F1 score of transferred labels vs ground truth, already in
-        ``[0, 1]``.  Higher is better.  Source: ``zreg.metrics.compute_f1``.
+        ``[0, 1]``.  Higher is better.  Source: ``zreg.evaluation.compute_f1``.
     knn_consistency : float
         Fraction of k-NN-consistent labels, already in ``[0, 1]``.  Higher
-        is better.  Source: ``zreg.metrics.knn_consistency``.
+        is better.  Source: ``zreg.evaluation.knn_consistency``.
     normalized : dict[str, float]
         Populated by ``MetricsEngine.normalize`` (Plan 18-02).  Default
         empty dict.  Canonical short-name key set (Pitfall 4): ``"chamfer"``,

@@ -1,4 +1,4 @@
-"""MetricsEngine: stateless engine wrapping all six ``zreg.metrics.*`` primitives.
+"""MetricsEngine: stateless engine wrapping the ``zreg.evaluation`` metric primitives.
 
 ``MetricsEngine`` is the computational core of the evaluation framework
 (FRAME-03).  It takes a validated ``EvalConfig`` and exposes four pure public
@@ -31,7 +31,7 @@ methods plus one convenience helper:
   ``temporal_stability`` call site.
 
 The engine is stateless aside from ``self.config``.  Construction performs no
-I/O.  Every metric call is a one-way delegation to ``zreg.metrics.*`` — no
+I/O.  Every metric call is a one-way delegation to ``zreg.evaluation`` — no
 reimplementation (FRAME-03 explicit constraint).
 
 Notes
@@ -124,9 +124,9 @@ import statistics
 from collections.abc import Mapping
 from typing import NamedTuple
 
-# zreg.metrics MUST precede import torch (libomp SIGABRT lesson from Phase 12;
+# zreg.evaluation MUST precede import torch (libomp SIGABRT lesson from Phase 12;
 # enforced in tests/conftest.py:20-24 and eval/data_factory.py:18-35).
-# zreg.metrics transitively pulls in zreg.dataset and sklearn so it must
+# zreg.evaluation transitively pulls in zreg.core.dataset and sklearn so it must
 # precede torch on macOS-ARM.
 from zreg.evaluation import (
     chamfer_hausdorff,
@@ -177,7 +177,7 @@ class FrameAverage(NamedTuple):
 
 
 class MetricsEngine:
-    """Stateless engine wrapping all six ``zreg.metrics.*`` primitives.
+    """Stateless engine wrapping the ``zreg.evaluation`` metric primitives.
 
     Constructed from a validated ``EvalConfig``.  No I/O is performed during
     construction.  Mirrors the engine-with-config shape of

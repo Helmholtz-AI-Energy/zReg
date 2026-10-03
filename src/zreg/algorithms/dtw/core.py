@@ -680,30 +680,35 @@ class DynamicTimeWarping:
         log.info(f"Saved DTW results to {path} (transforms → {transforms_path})")
 
     @classmethod
-    def load(cls, path: str | Path) -> DTWResult:
+    def load(cls, path: str | Path, resolve_metric: bool = True) -> DTWResult:
         """Load DTW results from disk.
 
-        Security: only load trusted files. Restoring a saved callable
-        ``distance_metric`` reference imports the named module, and importing a module
-        executes its top-level code; the ``.transforms.pkl`` companion is unpickled and
-        has the same requirement. ``weights_only=True`` protects only the tensor payload.
+        Security: only load trusted files. With ``resolve_metric=True`` (the default),
+        restoring a saved callable ``distance_metric`` reference imports the named
+        module, and importing a module executes its top-level code; the
+        ``.transforms.pkl`` companion is unpickled and has the same requirement.
+        ``weights_only=True`` protects only the tensor payload. Pass
+        ``resolve_metric=False`` to read the tensors and config without importing
+        anything; the reference can be resolved later with :meth:`resolve_metric`.
 
         Parameters
         ----------
         path : str | Path
             Path to the saved results (.pt file).
+        resolve_metric : bool
+            If True (default), restore a saved callable ``distance_metric`` reference
+            to the callable. If False, ``config["distance_metric"]`` keeps the stored
+            reference (``{"callable": "module:qualname"}``) and no module is imported.
 
         Returns
         -------
         DTWResult
-            The loaded DTW results. ``config`` holds the saved configuration with the
-            ``distance_metric`` reference restored, or None for files without a config.
-
-        Raises
-        ------
-        ValueError
-            If the saved ``distance_metric`` contains a malformed or unresolvable
-            callable reference.
+            The loaded DTW results. ``config`` holds the saved configuration, with the
+            ``distance_metric`` reference restored when ``resolve_metric`` is True and
+            the reference resolves, or None for files without a config. If the
+            reference is malformed or does not resolve (for example the function was
+            renamed or its module is not installed), a warning is logged and the
+            stored reference is kept, so the tensors stay readable.
         """
         path = Path(path)
         # weights_only=True is safe because the main file contains only tensors,
@@ -720,8 +725,15 @@ class DynamicTimeWarping:
         config = data.get("config")
         if isinstance(config, dict):
             config = dict(config)
-            if "distance_metric" in config:
-                config["distance_metric"] = _ref_to_metric(config["distance_metric"])
+            if resolve_metric and "distance_metric" in config:
+                try:
+                    config["distance_metric"] = _ref_to_metric(config["distance_metric"])
+                except ValueError as exc:
+                    log.warning(
+                        "DTW load: distance_metric reference not restored (%s); "
+                        "keeping the stored reference in result.config",
+                        exc,
+                    )
         else:
             config = None
 
@@ -737,6 +749,30 @@ class DynamicTimeWarping:
 
         log.info(f"Loaded DTW results from {path}")
         return result
+
+    @staticmethod
+    def resolve_metric(ref):
+        """Resolve a ``distance_metric`` reference kept by ``load(resolve_metric=False)``.
+
+        Security: resolving a callable reference imports the named module, which
+        executes its top-level code; only resolve references from trusted files.
+
+        Parameters
+        ----------
+        ref : str | dict | list
+            A saved ``distance_metric`` reference, e.g. ``result.config["distance_metric"]``.
+
+        Returns
+        -------
+        str | Callable | list
+            The restored metric (strings are returned unchanged).
+
+        Raises
+        ------
+        ValueError
+            If a callable reference is malformed or does not resolve.
+        """
+        return _ref_to_metric(ref)
 
     def set_cost_matrix(self, cost_matrix: torch.Tensor) -> None:
         """Set a precomputed cost matrix.

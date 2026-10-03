@@ -218,3 +218,69 @@ class TestMetricRefHelpers:
 
         with pytest.raises(ValueError, match="callable reference"):
             _ref_to_metric(ref)
+
+
+class TestLoadMetricResolution:
+    """WR-02: an unresolvable metric reference does not make the result unloadable,
+    and ``resolve_metric=False`` reads the file without importing anything."""
+
+    def _save_with_ref(self, x, y, path, ref):
+        _computed(x, y, euclidean_distance).save(path)
+        data = torch.load(path, weights_only=True)
+        data["config"]["distance_metric"] = ref
+        torch.save(data, path)
+
+    def test_unresolvable_reference_keeps_tensors_and_reference(
+        self, small_trajectory_pair, tmp_path, caplog
+    ):
+        """Fails before WR-02: load() raised ValueError and the tensors were lost."""
+        x, y = small_trajectory_pair
+        path = tmp_path / "r.pt"
+        ref = {"callable": "zreg.distance_metrics.general:renamed_since_saving"}
+        self._save_with_ref(x, y, path, ref)
+        expected = torch.load(path, weights_only=True)
+        with caplog.at_level("WARNING", logger="zreg.algorithms.dtw.core"):
+            loaded = DynamicTimeWarping.load(path)
+        assert loaded.config["distance_metric"] == ref
+        assert torch.equal(loaded.cost_matrix, expected["cost_matrix"])
+        assert loaded.warping_path == expected["warping_path"]
+        assert any("not restored" in r.getMessage() for r in caplog.records)
+        with pytest.raises(ValueError, match="callable reference"):
+            DynamicTimeWarping.resolve_metric(loaded.config["distance_metric"])
+
+    def test_resolve_metric_false_imports_nothing(
+        self, small_trajectory_pair, tmp_path, monkeypatch
+    ):
+        """Fails before WR-02: load() always imported the module named in the file."""
+        x, y = small_trajectory_pair
+        mod_dir = tmp_path / "mods"
+        mod_dir.mkdir()
+        mod_name = "zreg_wr02_side_effect_mod"
+        (mod_dir / f"{mod_name}.py").write_text(
+            "IMPORTED = True\n\n\ndef metric(a, b):\n    return 0.0\n"
+        )
+        monkeypatch.syspath_prepend(str(mod_dir))
+        monkeypatch.delitem(sys.modules, mod_name, raising=False)
+        path = tmp_path / "r.pt"
+        ref = {"callable": f"{mod_name}:metric"}
+        self._save_with_ref(x, y, path, ref)
+
+        loaded = DynamicTimeWarping.load(path, resolve_metric=False)
+        assert mod_name not in sys.modules
+        assert loaded.config["distance_metric"] == ref
+        assert loaded.warping_path[0] == (0, 0)
+
+        fn = DynamicTimeWarping.resolve_metric(loaded.config["distance_metric"])
+        assert mod_name in sys.modules
+        assert fn is sys.modules[mod_name].metric
+        monkeypatch.delitem(sys.modules, mod_name, raising=False)
+
+    def test_default_load_still_restores_callable(self, small_trajectory_pair, tmp_path):
+        """CPD-07 contract unchanged: a resolvable reference is restored by default."""
+        x, y = small_trajectory_pair
+        path = tmp_path / "r.pt"
+        _computed(x, y, euclidean_distance).save(path)
+        assert DynamicTimeWarping.load(path).config["distance_metric"] is euclidean_distance
+        assert DynamicTimeWarping.load(path, resolve_metric=False).config[
+            "distance_metric"
+        ] == {"callable": EUCLIDEAN_REF}

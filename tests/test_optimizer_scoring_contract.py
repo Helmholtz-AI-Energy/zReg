@@ -271,6 +271,38 @@ def test_objective_paired_target_without_label_transfer_zero_fills_f1(
     assert hist[0].metrics.f1_score == 0.0
 
 
+def _paired_target_cfg(tmp_path, f1_weight) -> EvalConfig:
+    return EvalConfig(
+        data_path=str(tmp_path / "s.mat"),
+        target_data_path=str(tmp_path / "t.csv"),
+        output_dir=str(tmp_path / "out"),
+        pipeline_mode="paired",
+        label_source="target",
+        tier="sanity",
+        search_strategy="grid",
+        search_space={"k_neighbours": [3]},
+        metric_weights={
+            "chamfer": 0.30,
+            "hausdorff": 0.15,
+            "path_smoothness": 0.10,
+            "temporal_stability": 0.10,
+            "f1": f1_weight,
+            "knn_consistency": 0.10,
+        },
+    )
+
+
+@pytest.mark.parametrize("f1_weight,expect_warning", [(0.25, True), (0.0, False)])
+def test_run_warns_on_dead_f1_weight(tmp_path, monkeypatch, caplog, f1_weight, expect_warning) -> None:
+    """WR-07: run() warns when F1 is unavailable but still carries a positive weight."""
+    opt = HyperparamOptimizer(_paired_target_cfg(tmp_path, f1_weight))
+    monkeypatch.setattr(opt, "_run_tiers", lambda _out: [])
+    with caplog.at_level(logging.WARNING, logger=_OPT_LOGGER):
+        opt.run()
+    warned = any("metric_weights['f1']" in r.getMessage() for r in caplog.records)
+    assert warned is expect_warning
+
+
 # ---------------------------------------------------------------------------
 # NUM-05 (optimizer half): failed trials are recorded, worst-scored and merged
 # across MPI ranks.

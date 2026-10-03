@@ -440,6 +440,20 @@ class HyperparamOptimizer:
         if self._comm is None:
             self._comm = _mpi_world_comm()
 
+        # WR-07: a positive F1 weight is dead weight when F1 is zero-filled in
+        # every trial; it caps the composite score below 1.0 and makes
+        # best_score values incomparable with runs where F1 is available.
+        f1_weight = self.config.metric_weights.get("f1", 0.0)
+        f1_reason = f1_unavailable_reason(self.config)
+        if f1_reason is not None and f1_weight > 0:
+            _log.warning(
+                "metric_weights['f1']=%s but F1 is zero-filled in every trial (%s); "
+                "the composite score is capped below 1.0. Set metric_weights.f1 to 0.0 "
+                "(ranking-neutral) to remove the dead weight.",
+                f1_weight,
+                f1_reason,
+            )
+
         # WR-03: an exception raised on one rank before the outcome reduction
         # (pre-populate / load_real() I/O, _tier_dataset, an Optuna storage
         # error, ...) must not leave the other ranks blocked in gather. With a

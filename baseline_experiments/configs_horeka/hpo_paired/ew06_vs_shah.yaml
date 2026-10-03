@@ -1,7 +1,13 @@
 # HPO directly on the cross-embryo paired task — Kobitski ew_06 (source) vs Shah sample-1 (target).
 # Alignment + label transfer (kNN voting). No synthetic perturbation — optimizer scores trials
-# on proxy metrics (chamfer, hausdorff, path smoothness, temporal stability) plus label transfer
-# accuracy (f1, knn_consistency) using Shah's per-cell "id" labels on the held-out val split.
+# on proxy metrics (chamfer, hausdorff, path smoothness) plus kNN label consistency of Shah's
+# germ-layer labels transferred onto the aligned Kobitski source (label_source: "target").
+#
+# F1 is unavailable here: the receiver (Kobitski) has no ground-truth class labels, so f1 is
+# zero-filled in every trial (Phase 59 NUM-04) and its weight is 0.0 (ranking-neutral; a
+# positive weight only capped the score below 1.0). temporal_stability is reported unavailable
+# (no per-frame transforms), so it contributes a constant 0. best_score values from before
+# Phase 59 are therefore not comparable with later runs.
 #
 # Unlike selfcal/ground_truth configs this is pipeline_mode: paired, so there is no known ground
 # truth transform — the optimizer minimises the weighted metric composite directly on real data.
@@ -60,5 +66,5 @@ metric_weights:
   hausdorff: 0.15
   path_smoothness: 0.10
   temporal_stability: 0.10
-  f1: 0.25
+  f1: 0.0  # zero-filled in paired label_source=target runs (see header)
   knn_consistency: 0.10

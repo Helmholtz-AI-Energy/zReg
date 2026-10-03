@@ -80,7 +80,11 @@ def run_ranks(fn, size: int, timeout: float = 10.0):
             results[r] = fn()
         except BaseException as e:  # noqa: BLE001 - surfaced through `errors`
             errors[r] = e
-            comm._barrier.abort()
+            # No barrier abort here: a peer released from the last allgather barrier
+            # may not have re-checked the barrier state yet, and an abort would turn
+            # its expected exception into BrokenBarrierError (flaky CR-01).  A genuine
+            # lock-step violation still surfaces via the Barrier timeout, and hung
+            # ranks via the join-timeout abort below.
 
     with mock.patch.object(pm, "hasmpi", True), mock.patch.object(
         pm, "MPI", types.SimpleNamespace(COMM_WORLD=comm)

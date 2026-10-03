@@ -40,7 +40,10 @@ class RigidCPD(CoherentPointDrift):
     source : torch.Tensor | None
         Source point cloud data with shape (N, D).
     update_scale : bool
-        If True, optimize the scale parameter during registration.
+        If True, optimize the scale parameter during registration. If False,
+        the scale stays at the initial transformation's scale
+        (``tf_init_params["scale"]``, default 1, or that of a pre-set
+        transformation).
     tf_init_params : dict
         Parameters to initialize the rigid transformation (``rot``, ``t``,
         ``scale``). The default start is the identity rotation with zero
@@ -165,6 +168,11 @@ class RigidCPD(CoherentPointDrift):
         MstepResult
             Updated transformation parameters.
         """
+        fixed_scale = (
+            self.transformation.scale
+            if self.transformation is not None
+            else self._tf_init_params.get("scale", 1.0)
+        )
         ret = self._maximization_step(
             self._source,
             target,
@@ -173,6 +181,7 @@ class RigidCPD(CoherentPointDrift):
             self._update_scale,
             target_colors=target_colors,
             source_colors=source_colors,
+            fixed_scale=fixed_scale,
         )
         self.transformation = ret.transformation
         return ret
@@ -186,6 +195,7 @@ class RigidCPD(CoherentPointDrift):
         update_scale: bool = True,
         target_colors: torch.Tensor | None = None,
         source_colors: torch.Tensor | None = None,
+        fixed_scale: float | torch.Tensor = 1.0,
     ) -> MstepResult:
         """Compute optimal rigid transformation parameters.
 
@@ -205,6 +215,8 @@ class RigidCPD(CoherentPointDrift):
             Target color information (unused, for API compatibility).
         source_colors : torch.Tensor | None
             Source color information (unused, for API compatibility).
+        fixed_scale : float | torch.Tensor
+            Scale kept when ``update_scale`` is False (ignored otherwise).
 
         Returns
         -------
@@ -243,8 +255,10 @@ class RigidCPD(CoherentPointDrift):
         tr_yp1y = torch.trace(torch.matmul(source_hat.T * p1, source_hat))
         if update_scale:
             scale = tr_atr / torch.clamp(tr_yp1y, min=torch.finfo(a.dtype).eps)
+        elif isinstance(fixed_scale, torch.Tensor):
+            scale = fixed_scale.to(dtype=a.dtype, device=a.device)
         else:
-            scale = 1.0
+            scale = float(fixed_scale)
 
         # Optimal translation
         t = mu_x - scale * torch.matmul(rot, mu_y)
@@ -252,11 +266,13 @@ class RigidCPD(CoherentPointDrift):
 
         # Update variance (Eq. 23 from Myronenko & Song 2010). With the
         # optimal scale, s*tr(Y'P1Y) == tr(A'R) and the s^2 term collapses;
-        # with a fixed scale s = 1 all three trace terms remain.
+        # with a fixed scale s all three trace terms remain (s = 1 by default).
         if update_scale:
             sigma2 = (tr_xp1x - scale * tr_atr) / (n_p * dim)
         else:
-            sigma2 = (tr_xp1x - 2.0 * tr_atr + tr_yp1y) / (n_p * dim)
+            sigma2 = (tr_xp1x - 2.0 * scale * tr_atr + (scale**2) * tr_yp1y) / (
+                n_p * dim
+            )
         sigma2 = torch.clamp(sigma2, min=torch.finfo(a.dtype).eps)
 
         # Objective function: M&S negative log-likelihood; may be negative.

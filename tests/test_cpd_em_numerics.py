@@ -110,6 +110,56 @@ class TestFixedScaleSigma2:
         assert float((r.transformation.rot - r_small).abs().max()) < 1e-2
 
 
+class TestFixedScaleKeepsConfiguredScale:
+    """WR-01: update_scale=False keeps the configured scale, not s = 1.
+
+    Before the fix the fixed-scale M-step hard-coded s = 1, so
+    ``RigidCPD(src, update_scale=False, tf_init_params={"scale": 2.0})``
+    returned scale 1.0 and sigma2 0.186 for target = 2 * src.
+    """
+
+    def test_fixed_scale_hand_reference(self):
+        """With P = I and s = 2, sigma2 is the mean squared residual at s = 2."""
+        y, x = _hand_pair()
+        x = 2.0 * x
+        n = y.shape[0]
+        res = cpd.RigidCPD._maximization_step(
+            y, x, _identity_estep(x), None, update_scale=False, fixed_scale=2.0
+        )
+        assert float(res.transformation.scale) == 2.0
+        resid = float(torch.sum((x - res.transformation.transform(y)) ** 2))
+        sigma2 = float(res.sigma2)
+        assert math.isclose(sigma2, resid / (n * 3), rel_tol=1e-10)
+        expected_q = resid / (2 * sigma2) + n * 3 / 2 * math.log(sigma2)
+        assert math.isclose(float(res.q), expected_q, rel_tol=1e-9)
+
+    def test_fixed_scale_default_is_one(self):
+        """The default fixed scale is 1, so the CPD-03 s = 1 result is unchanged."""
+        y, x = _hand_pair()
+        a = cpd.RigidCPD._maximization_step(
+            y, x, _identity_estep(x), None, update_scale=False
+        )
+        b = cpd.RigidCPD._maximization_step(
+            y, x, _identity_estep(x), None, update_scale=False, fixed_scale=1.0
+        )
+        assert float(a.transformation.scale) == 1.0
+        assert float(a.sigma2) == float(b.sigma2)
+
+    def test_registration_keeps_tf_init_scale(self):
+        torch.manual_seed(0)
+        src = torch.randn(100, 3, dtype=torch.float64)
+        tgt = 2.0 * src + 1e-3 * torch.randn(100, 3, dtype=torch.float64)
+        reg = cpd.RigidCPD(
+            src, update_scale=False, tf_init_params={"scale": 2.0}, log_freq=-1
+        )
+        r = reg.registration(tgt, maxiter=200, tol=1e-8)
+        assert float(r.transformation.scale) == 2.0
+        assert float(reg.transformation.scale) == 2.0
+        assert float(r.sigma2) < 1e-4
+        resid = float(torch.sum((r.transformation.transform(src) - tgt) ** 2))
+        assert math.isclose(float(r.sigma2), resid / 300, rel_tol=1e-6)
+
+
 class TestRigidQ:
     """CPD-02: rigid q is the M&S negative log-likelihood (log term added).
 

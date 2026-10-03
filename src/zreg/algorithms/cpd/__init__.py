@@ -22,6 +22,10 @@ Types:
 
 Utilities:
     rbf_kernel_matrix : RBF kernel computation for non-rigid registration
+
+Constants:
+    SHAH_KOBITSKI_EMPIRICAL_INIT : Historical opt-in RigidCPD start (general
+        linear 3x3, det = 1, not a rotation); RigidCPD defaults to identity
 """
 
 # Types (always needed)
@@ -31,7 +35,7 @@ from ._types import EstepResult, MstepResult
 from .base import CoherentPointDrift
 
 # Registration variants
-from .rigid import RigidCPD
+from .rigid import RigidCPD, SHAH_KOBITSKI_EMPIRICAL_INIT
 from .affine import AffineCPD
 from .nonrigid import NonRigidCPD, ConstrainedNonRigidCPD
 
@@ -57,4 +61,6 @@ __all__ = [
     "MstepResult",
     # Utilities
     "rbf_kernel_matrix",
+    # Constants
+    "SHAH_KOBITSKI_EMPIRICAL_INIT",
 ]

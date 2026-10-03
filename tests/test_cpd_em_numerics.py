@@ -15,7 +15,7 @@ These tests pin the CPD EM loop to Myronenko & Song (2010). The symptoms at
 - CPD-05: ``use_color=True`` without ``target_colors`` failed with a TypeError
   deep inside ``cdist``.
 - CPD-08: RigidCPD started from a hard-coded non-orthogonal "Shah->Kobitski"
-  pose, which stalled a 17-degree rotation at rms 0.44.
+  pose, which stalled a 17-degree rotation of normalised clouds at rms 0.49.
 
 All tests use the real CPD code (no mocks). Symbols that do not exist at
 6c1c37f are imported inside the test bodies so that a baseline run fails per
@@ -242,3 +242,113 @@ class TestUseColorTargetColors:
         obj, tgt = self._colour_cpd()
         with pytest.raises(ValueError, match="target_colors"):
             obj.registration(tgt, target_colors=torch.rand(tgt.shape[0] + 5, 3))
+
+
+class TestRigidDefaultInit:
+    """CPD-08: a fresh RigidCPD starts from the identity rotation.
+
+    Baseline (6c1c37f) overwrote the rotation with a hard-coded, non-orthogonal
+    "Shah->Kobitski" pose (row norms 1, 1.118, 1.118), which stalled a
+    17-degree rotation at rms 0.44. The pose is now the opt-in constant
+    ``cpd.SHAH_KOBITSKI_EMPIRICAL_INIT``.
+    """
+
+    @staticmethod
+    def _pair(dtype=torch.float32, n=50):
+        torch.manual_seed(0)
+        src = torch.randn(n, 3, dtype=dtype)
+        tgt = src + 0.01 * torch.randn(n, 3, dtype=dtype)
+        return src, tgt
+
+    def test_rigid_default_init_is_identity(self):
+        src, tgt = self._pair()
+        init = cpd.RigidCPD(src, log_freq=-1)._initialize(tgt).transformation
+        assert torch.equal(init.rot, torch.eye(3))
+        assert torch.equal(init.t, torch.zeros(3))
+        r = cpd.RigidCPD(src, log_freq=-1).registration(tgt, maxiter=0)
+        assert torch.equal(r.transformation.rot, torch.eye(3))
+
+    def test_rigid_default_init_pose_opt_in(self):
+        pose = torch.tensor(cpd.SHAH_KOBITSKI_EMPIRICAL_INIT)
+        src, tgt = self._pair()
+        r = cpd.RigidCPD(src, tf_init_params={"rot": pose}, log_freq=-1).registration(
+            tgt, maxiter=0
+        )
+        assert torch.equal(r.transformation.rot, pose.to(torch.float32))
+        src64, tgt64 = self._pair(torch.float64)
+        r64 = cpd.RigidCPD(
+            src64, tf_init_params={"rot": pose}, log_freq=-1
+        ).registration(tgt64, maxiter=0)
+        assert r64.transformation.rot.dtype == torch.float64
+        assert torch.equal(r64.transformation.rot, pose.to(torch.float64))
+
+    def test_rigid_default_init_constant_is_not_a_rotation(self):
+        """The constant is a general linear init (det = 1), not a rotation."""
+        mat = torch.tensor(cpd.SHAH_KOBITSKI_EMPIRICAL_INIT, dtype=torch.float64)
+        assert abs(float(torch.linalg.det(mat)) - 1.0) < 1e-12
+        assert not torch.allclose(mat @ mat.T, torch.eye(3, dtype=torch.float64))
+
+    def test_rigid_default_init_recovers_17_degree_rotation(self):
+        """A 17-degree rotation of normalised clouds is recovered from identity.
+
+        Both clouds are normalised to [-1, 1] as in the pipeline. Baseline
+        (pose start): per-point rms 0.49. With the pose and the CPD-01/02/03
+        fixes it still stalls (rms 0.62 at maxiter); from the identity it is 0.015.
+        """
+
+        def normalise(p):
+            lo, hi = p.min(), p.max()
+            return (p - lo) / (hi - lo) * 2 - 1
+
+        torch.manual_seed(0)
+        n = 1000
+        x = torch.randn(n, 3, dtype=torch.float64)
+        y = x @ _rot_x(17.0).T + 0.03 * torch.randn(n, 3, dtype=torch.float64)
+        x, y = normalise(x), normalise(y)
+        r = cpd.RigidCPD(x, log_freq=-1).registration(y, maxiter=1000, tol=1e-5)
+        diff = r.transformation.transform(x) - y
+        rms = float(torch.sqrt(torch.mean(torch.sum(diff**2, dim=1))))
+        assert rms < 0.05
+
+    def test_rigid_default_init_does_not_mutate_caller_dict(self):
+        src, _ = self._pair()
+        params = {"rot": torch.eye(3)}
+        keys_before = set(params)
+        cpd.RigidCPD(src, tf_init_params=params, log_freq=-1)
+        assert set(params) == keys_before
+
+    def test_rigid_default_init_deferred_source_float64(self):
+        """Deferred source: the default identity is built in the source dtype.
+
+        Intended as a regression guard for the identity change (without the
+        set_source refresh, RigidCPD(None).set_source(src64) builds a float32
+        identity and registration fails with a dtype mismatch). On 6c1c37f it
+        fails anyway, because the baseline start is the historical pose, not
+        eye(3).
+        """
+        src64, tgt64 = self._pair(torch.float64)
+        obj = cpd.RigidCPD(None, log_freq=-1)
+        obj.set_source(src64)
+        rot = obj._initialize(tgt64).transformation.rot
+        assert rot.dtype == torch.float64
+        assert torch.equal(rot, torch.eye(3, dtype=torch.float64))
+        obj2 = cpd.RigidCPD(None, log_freq=-1)
+        obj2.set_source(src64)
+        r = obj2.registration(tgt64, maxiter=5)
+        assert r.transformation.rot.dtype == torch.float64
+        assert r.transformation.t.dtype == torch.float64
+
+    def test_rigid_default_init_preset_transform_survives_set_source(self):
+        """REGRESSION GUARD: set_source never replaces a pre-set transformation.
+
+        Passes on 6c1c37f; protects warm starts against the set_source override.
+        """
+        src64, tgt64 = self._pair(torch.float64)
+        rot = _rot_zyx(10.0, 5.0, -3.0)
+        obj = cpd.RigidCPD(None, log_freq=-1)
+        obj.transformation = transforms.RigidTransformation(
+            rot=rot, dtype=torch.float64
+        )
+        obj.set_source(src64)
+        r = obj.registration(tgt64, maxiter=0)
+        assert torch.equal(r.transformation.rot, rot)

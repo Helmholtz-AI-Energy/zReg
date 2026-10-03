@@ -7,7 +7,26 @@ from ._types import MstepResult, EstepResult
 from ...core import transforms as tf
 from ...utils import squared_kernel_sum
 
-__all__ = ["RigidCPD"]
+__all__ = ["RigidCPD", "SHAH_KOBITSKI_EMPIRICAL_INIT"]
+
+#: Historical "Shah->Kobitski" initial 3x3 matrix, kept as an opt-in constant.
+#:
+#: This is a general linear initialisation with det = 1, NOT a rotation: its
+#: row norms are 1, 1.118 and 1.118, so it shears and scales anisotropically.
+#: It was found empirically for raw (unnormalised) Shah->Kobitski data and was
+#: previously hard-coded as the RigidCPD start. The values are kept exactly
+#: and deliberately not orthogonalised, so opting in reproduces the old
+#: behaviour::
+#:
+#:     RigidCPD(src, tf_init_params={"rot": torch.tensor(SHAH_KOBITSKI_EMPIRICAL_INIT)})
+#:
+#: RigidCPD starts from the identity by default; no zreg/eval pipeline path
+#: passes this constant.
+SHAH_KOBITSKI_EMPIRICAL_INIT = (
+    (-0.0, -1.0, 0.0),
+    (1.0, -0.0, 0.5),
+    (0.0, 0.5, 1.0),
+)
 
 
 class RigidCPD(CoherentPointDrift):
@@ -23,7 +42,11 @@ class RigidCPD(CoherentPointDrift):
     update_scale : bool
         If True, optimize the scale parameter during registration.
     tf_init_params : dict
-        Parameters to initialize the rigid transformation.
+        Parameters to initialize the rigid transformation (``rot``, ``t``,
+        ``scale``). The default start is the identity rotation with zero
+        translation. To reproduce the historical start, pass
+        ``{"rot": torch.tensor(SHAH_KOBITSKI_EMPIRICAL_INIT)}``. The dict is
+        copied, never mutated.
     use_color : bool
         Use color information if True.
     use_cuda : bool
@@ -67,8 +90,28 @@ class RigidCPD(CoherentPointDrift):
         self._tf_type = tf.RigidTransformation
         self._update_scale = update_scale
         self.transform = None
-        self._tf_init_params = tf_init_params
+        self._tf_init_params = dict(tf_init_params)
         self._tf_init_params.update(fact)
+
+    def set_source(
+        self, source: torch.Tensor, source_colors: torch.Tensor | None = None
+    ) -> None:
+        """Set the source and refresh the default transform's dtype/device.
+
+        The default identity is built from ``_tf_init_params`` in
+        ``_initialize``; refreshing dtype/device here keeps it in the source
+        dtype when the source is supplied after construction. An already set
+        transformation is never replaced or cast.
+
+        Parameters
+        ----------
+        source : torch.Tensor
+            Source point cloud.
+        source_colors : torch.Tensor | None
+            Color information for source points.
+        """
+        super().set_source(source, source_colors)
+        self._tf_init_params.update({"dtype": source.dtype, "device": source.device})
 
     def _initialize(self, target: torch.Tensor) -> MstepResult:
         """Initialize rigid registration parameters.
@@ -87,13 +130,6 @@ class RigidCPD(CoherentPointDrift):
         q = torch.inf
         if self.transformation is None:
             self.transformation = self._tf_type(**self._tf_init_params)
-            # Initial rotation matrix (found empirically for Shah->Kobiski data)
-            rot = torch.tensor(
-                [[-0.0, -1.0, 0.0], [1.0, -0.0, 0.5], [0.0, 0.5, 1.0]],
-                dtype=self._source.dtype,
-                device=self._source.device,
-            )
-            self.transformation.rot = rot
         return MstepResult(self.transformation, sigma2, q)
 
     def reset_transform(self) -> None:

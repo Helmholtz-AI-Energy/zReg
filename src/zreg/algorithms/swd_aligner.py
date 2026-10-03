@@ -7,8 +7,9 @@ It follows the same normalisation pattern as CPD and ICP registration
 during the alignment pipeline.
 
 The class supports all 6 SWD variants (swd, aswd, oswd, gswd, pswd, maxswd)
-and enforces SO(3) orthogonality periodically via SVD projection to prevent
-rotation matrix drift during optimization.
+and projects the rotation onto SO(3) (SVD with det=+1 correction) after every
+optimiser step and once more at return, so the result is always a proper
+rotation.
 """
 
 from typing import Optional
@@ -28,6 +29,39 @@ from zreg.distance_metrics.sw_varients import (
 import zreg.utils as utils
 
 __all__ = ["SlicedWassersteinAligner", "SWDTransformation"]
+
+
+def _nearest_rotation(m: torch.Tensor) -> torch.Tensor:
+    """Return the proper rotation closest to ``m`` in the Frobenius norm.
+
+    With the SVD ``m = U S V^T`` the result is ``U diag(1, 1, s) V^T`` where
+    ``s = -1`` if ``det(U V^T) < 0`` and ``+1`` otherwise (``det == 0`` is
+    treated as ``+1``). The sign flip turns a reflection into a rotation, so
+    the result always has determinant ``+1``.
+
+    Parameters
+    ----------
+    m : torch.Tensor
+        ``[3, 3]`` matrix (any float dtype, any device).
+
+    Returns
+    -------
+    torch.Tensor
+        ``[3, 3]`` orthogonal matrix with determinant ``+1`` on the dtype and
+        device of ``m``.
+
+    Examples
+    --------
+    >>> import torch
+    >>> r = _nearest_rotation(torch.diag(torch.tensor([1.0, 1.0, -1.0])))
+    >>> round(torch.det(r).item(), 6)
+    1.0
+    """
+    U, _, Vt = torch.linalg.svd(m)
+    d = torch.det(U @ Vt)
+    c = torch.ones(3, dtype=m.dtype, device=m.device)
+    c[-1] = torch.where(d < 0, -torch.ones_like(d), torch.ones_like(d))
+    return (U * c.unsqueeze(0)) @ Vt
 
 
 class SWDTransformation:
@@ -74,9 +108,19 @@ class SlicedWassersteinAligner:
 
     Orthogonality Enforcement
     -------------------------
-    To prevent rotation matrix drift from gradient descent, SO(3) orthogonality is
-    enforced via SVD projection every 10 iterations. This ensures the rotation
-    matrix remains a valid orthogonal matrix throughout optimization.
+    To prevent rotation matrix drift from gradient descent, the rotation is
+    projected onto SO(3) after every optimiser step and once more at return
+    (SVD with det=+1 correction, see ``_nearest_rotation``). The returned
+    rotation block is therefore orthogonal with determinant +1 to float
+    precision, also at large learning rates.
+
+    Point Counts
+    ------------
+    Source and target may have different point counts. The SW metrics compare
+    the sorted 1-D projections through the exact 1-D quantile coupling (legacy
+    max(N, M) scaling for the sort-sum variants; PSWD uses a weighted mean),
+    see plan 61-01 in ``zreg.distance_metrics.sw_varients``; the aligner does
+    no sampling of its own.
 
     Parameters
     ----------
@@ -158,7 +202,8 @@ class SlicedWassersteinAligner:
            - Transform centred source by current rotation + translation
            - Compute SWD loss between transformed source and centred target
            - Backward pass to update rotation/translation gradients
-           - Enforce SO(3) orthogonality via SVD projection (every 10 iters)
+           - Project the rotation onto SO(3) after every optimiser step and
+             once more at return (SVD with det=+1 correction)
         7. Compute composite D_inv @ T @ D, where D and D_inv come from
            ``zreg.utils.normalization_matrix`` / ``denormalization_matrix``
            (exact inverse pair) and T is the optimised affine matrix
@@ -236,7 +281,7 @@ class SlicedWassersteinAligner:
         optimizer = torch.optim.Adam([rotation, translation], lr=self.learning_rate)
 
         # Optimization loop
-        for step in range(self.num_iterations):
+        for _ in range(self.num_iterations):
             optimizer.zero_grad()
 
             # Transform centred source: x_transformed = x_c @ R^T + t
@@ -250,18 +295,27 @@ class SlicedWassersteinAligner:
             # Backward pass
             loss.backward()
 
+            # Keep only the rotational (tangent-space) part of the rotation
+            # gradient, G -> R skew(R^T G). Adam rescales each entry
+            # separately, so a raw gradient whose symmetric (scale/shear)
+            # part dominates yields an update that is almost entirely
+            # symmetric; the per-step SO(3) projection below would discard
+            # it and the rotation would barely move.
+            with torch.no_grad():
+                a = rotation.T @ rotation.grad
+                rotation.grad.copy_(rotation @ (0.5 * (a - a.T)))
+
             # Optimizer step
             optimizer.step()
 
-            # Enforce orthogonality every 10 iterations
-            # SVD projection: R_new = U @ V^T where R = U @ Sigma @ V^T
-            if step % 10 == 0:
-                U, _, Vt = torch.linalg.svd(rotation.detach())
-                rotation.data = U @ Vt
+            # Project onto SO(3) after every step. The in-place copy keeps the
+            # parameter object Adam holds; det=+1 is enforced (no reflections).
+            with torch.no_grad():
+                rotation.copy_(_nearest_rotation(rotation.detach()))
 
         # Fold the centring back into one affine map in the shared normalised
         # frame: x' = R x + (t + mu_tgt - R mu_src).
-        rotation_final = rotation.detach()
+        rotation_final = _nearest_rotation(rotation.detach())
         translation_final = translation.detach() + tgt_mean - rotation_final @ src_mean
 
         # Compute denormalized transformation matrix

@@ -140,3 +140,133 @@ def test_registration_bounds_matches_shared_bounds():
     lo_ref, hi_ref = utils.shared_bounds(a, b)
     assert torch.equal(lo, lo_ref)
     assert torch.equal(hi, hi_ref)
+
+
+# ---------------------------------------------------------------------------
+# Task 2: exact SO(3) rotation and unequal point counts (SWD)
+# ---------------------------------------------------------------------------
+
+SO3_TOL = 1e-5
+
+
+def _nearest_rotation(m):
+    # Imported lazily so the Task-1 tests above still collect without it.
+    from zreg.algorithms.swd_aligner import _nearest_rotation as impl
+
+    return impl(m)
+
+
+def _chamfer(a, b):
+    from zreg.evaluation.alignment import chamfer
+
+    return chamfer(a, b).item()
+
+
+def _so3_errors(r):
+    r = torch.as_tensor(np.asarray(r.detach().cpu()) if isinstance(r, torch.Tensor) else r).double()
+    eye = torch.eye(3, dtype=torch.float64)
+    return (r.T @ r - eye).abs().max().item(), abs(torch.det(r).item() - 1.0)
+
+
+def _check_nearest_rotation(device, dtype):
+    refl = torch.diag(torch.tensor([1.0, 1.0, -1.0], dtype=dtype, device=device))
+    r = _nearest_rotation(refl)
+    assert r.dtype == dtype and r.device.type == torch.device(device).type
+    orth, det = _so3_errors(r)
+    assert orth < SO3_TOL
+    assert det < 1e-6
+
+    gen = torch.Generator().manual_seed(11)
+    m = torch.randn(3, 3, generator=gen, dtype=torch.float64).to(device=device, dtype=dtype)
+    r = _nearest_rotation(m)
+    assert r.dtype == dtype and r.device.type == torch.device(device).type
+    orth, det = _so3_errors(r)
+    assert orth < SO3_TOL
+    assert det < SO3_TOL
+
+
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+def test_nearest_rotation_corrects_reflection(dtype):
+    _check_nearest_rotation("cpu", dtype)
+    rot = _rot_z(37, dtype=dtype)
+    assert torch.allclose(_nearest_rotation(rot), rot, atol=1e-6)
+
+
+@requires_cuda
+def test_nearest_rotation_cuda():
+    _check_nearest_rotation("cuda", torch.float32)
+
+
+@pytest.mark.parametrize("learning_rate", [None, 0.05], ids=["default-lr", "lr0.05"])
+def test_swd_rotation_is_exact_so3(learning_rate):
+    torch.manual_seed(0)
+    gen = torch.Generator().manual_seed(21)
+    src = torch.randn(200, 3, generator=gen)
+    tgt = src @ _rot_z(30).T + torch.tensor([0.3, -0.2, 0.1])
+    kwargs = dict(
+        variant="aswd",
+        num_iterations=50,
+        init_projs=20,
+        step_projs=10,
+        k=2.0,
+        loop_rate_thresh=0.05,
+        max_slices=500,
+    )
+    if learning_rate is not None:
+        kwargs["learning_rate"] = learning_rate
+    result = SlicedWassersteinAligner(**kwargs).register(zRegPointCloud(pos=src), zRegPointCloud(pos=tgt))
+    orth, det = _so3_errors(result.transform.matrix[:3, :3])
+    assert orth < SO3_TOL
+    assert det < SO3_TOL
+
+
+def test_swd_per_step_projection_still_recovers_rotation():
+    """Per-step SO(3) projection must not stall the rotation.
+
+    Projecting the raw Adam update every step discards its (dominant)
+    symmetric part and the rotation barely moves (measured 3.95 deg of 30 deg
+    after 200 steps). The aligner therefore keeps only the tangent-space part
+    of the rotation gradient; with it the 30 deg rotation is recovered
+    (measured 30.00 deg).
+    """
+    torch.manual_seed(0)
+    gen = torch.Generator().manual_seed(21)
+    src = torch.randn(200, 3, generator=gen)
+    tgt = src @ _rot_z(30).T + torch.tensor([0.3, -0.2, 0.1])
+    result = SlicedWassersteinAligner(variant="aswd", num_iterations=200, learning_rate=1e-2).register(
+        zRegPointCloud(pos=src), zRegPointCloud(pos=tgt)
+    )
+    r = result.transform.matrix[:3, :3].double()
+    angle = math.degrees(math.atan2(r[1, 0].item(), r[0, 0].item()))
+    assert abs(angle - 30.0) < 1.0, f"recovered {angle:.2f} deg, expected 30"
+
+
+@pytest.mark.parametrize(
+    "variant, variant_kwargs",
+    [
+        ("swd", {}),
+        ("aswd", {}),
+        ("oswd", {"num_projs": 3}),
+        ("gswd", {}),
+        ("pswd", {}),
+        ("maxswd", {}),
+    ],
+)
+def test_swd_unequal_n_all_variants(variant, variant_kwargs):
+    torch.manual_seed(0)
+    gen = torch.Generator().manual_seed(31)
+    src = torch.randn(300, 3, generator=gen)
+    idx = torch.randperm(300, generator=gen)[:220]
+    tgt = src[idx] @ _rot_z(20).T
+    aligner = SlicedWassersteinAligner(
+        variant=variant, num_iterations=200, learning_rate=1e-2, **variant_kwargs
+    )
+    result = aligner.register(zRegPointCloud(pos=src), zRegPointCloud(pos=tgt))
+    m = result.transform.matrix
+    assert _matrix_finite(m)
+    orth, det = _so3_errors(m[:3, :3])
+    assert orth < SO3_TOL
+    assert det < SO3_TOL
+    before = _chamfer(src.double(), tgt.double())
+    after = _chamfer(_apply(m, src), tgt.double())
+    assert after < before, f"{variant}: chamfer {after:.4f} not below identity {before:.4f}"

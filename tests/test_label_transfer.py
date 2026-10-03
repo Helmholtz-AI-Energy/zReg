@@ -13,7 +13,7 @@ class MockEstepResult:
     def __init__(self, pmat):
         self.pt1 = pmat.sum(dim=1)  # sum over source for each target
         self.p1 = pmat.sum(dim=0)   # sum over target for each source
-        self.px = torch.matmul(pmat, torch.zeros(pmat.shape[1], 3))  # dummy, any pmat shape
+        self.px = torch.matmul(pmat, torch.zeros(pmat.shape[1], 3, dtype=pmat.dtype))  # dummy
         self.n_p = self.p1.sum()
         self.pmat = pmat
 
@@ -877,6 +877,17 @@ def test_cpd_weighted_1d_source_labels_with_two_repaired_rows():
     nearest = torch.cdist(_RECEIVER4[:2], _PROVIDER4).argmin(dim=1)
     torch.testing.assert_close(out[:2], labels[nearest])
     torch.testing.assert_close(out[2:], labels.mean().expand(2))
+
+
+def test_cpd_weighted_float64_pmat():
+    """62-REVIEW WR-02: a float64 posterior (expectation_step on float64 positions) works."""
+    pmat = _uniform_pmat().double()
+    pmat[1] = 0.0
+    with pytest.warns(RuntimeWarning):
+        out = _cpd(pmat)
+    assert out.dtype == torch.float64
+    torch.testing.assert_close(out[1], _COLOURS4[1].double())
+    torch.testing.assert_close(out[0], _COLOURS4.double().mean(dim=0))
 
 
 def test_cpd_weighted_zreg_source_default_1d_label():

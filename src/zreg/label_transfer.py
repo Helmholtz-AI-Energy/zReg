@@ -245,10 +245,12 @@ def _weighted_colours_from_repair(repair: PmatRowRepair, source_colors: torch.Te
     squeeze = source_colors.ndim == 1
     cols = source_colors.unsqueeze(1) if squeeze else source_colors
     prob_matrix = repair.pmat / repair.pmat.sum(dim=1, keepdim=True)
-    transferred = torch.matmul(prob_matrix, cols.float())
+    # 62-REVIEW WR-02: colours follow the posterior's float dtype (float64 pmat).
+    dtype = prob_matrix.dtype if prob_matrix.is_floating_point() else torch.float32
+    transferred = torch.matmul(prob_matrix.to(dtype), cols.to(dtype))
     if repair.n_bad > 0:
         idx = repair.fallback_idx
-        fill = cols[idx.clamp(min=0)].float().to(transferred.dtype)
+        fill = cols[idx.clamp(min=0)].to(dtype)
         fill = torch.where((idx >= 0).unsqueeze(1), fill, torch.zeros_like(fill))
         transferred[repair.bad_rows] = fill
     return transferred[:, 0] if squeeze else transferred

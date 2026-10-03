@@ -135,6 +135,16 @@ class RigidCPD(CoherentPointDrift):
             self.transformation = self._tf_type(**self._tf_init_params)
         return MstepResult(self.transformation, sigma2, q)
 
+    def _q_scale(self, q_last: float, n_p: float) -> float:
+        """Return ``max(|q_last|, N_P * D / 2, 1)`` as the convergence scale.
+
+        At the fixed point q is ``N_P * D / 2 * (1 + log sigma2)``; its
+        natural magnitude is ``N_P * D / 2``, while ``|q|`` itself vanishes at
+        sigma2 = e^-1. Using ``|q|`` there made ``tol`` absolute and float32
+        runs hit ``maxiter`` depending only on the units of the data.
+        """
+        return max(abs(q_last), 0.5 * CoherentPointDrift._N_DIM * n_p, 1.0)
+
     def reset_transform(self) -> None:
         """Reset the transformation to identity."""
         if self.transformation is not None:

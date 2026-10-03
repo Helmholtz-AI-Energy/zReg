@@ -297,6 +297,63 @@ class TestConvergence:
         assert r32.transformation.t.dtype == torch.float32
         assert r32.sigma2.dtype == torch.float32
 
+    def test_convergence_predicate_explicit_scale(self):
+        """An explicit scale replaces |q_last| (WR-01, iteration 2)."""
+        from zreg.algorithms.cpd.base import _q_window_converged
+
+        def dq(values):
+            return collections.deque(values, maxlen=4)
+
+        # q crosses zero: |q_last| = 0 would make tol=1e-5 absolute.
+        window = dq([0.01, -0.01, 0.01, 0.0])
+        assert _q_window_converged(window, 1e-5) is False
+        assert _q_window_converged(window, 1e-5, 3000.0) is True
+        # Scales below 1 (or non-finite) are floored like the default.
+        assert _q_window_converged(dq([0.0, 0.1, 0.2, 0.3]), 0.101, 0.0) is True
+        assert _q_window_converged(dq([0.0, 0.1, 0.2, 0.3]), 0.099, math.nan) is False
+
+    def test_q_scale_hook_per_variant(self):
+        """Rigid/affine scale by N_P*D/2; non-rigid keeps max(|q|, 1)."""
+        src = torch.rand(10, 3)
+        for cls in (cpd.RigidCPD, cpd.AffineCPD):
+            obj = cls(src, log_freq=-1)
+            assert obj._q_scale(0.0, 1000.0) == pytest.approx(1500.0)
+            assert obj._q_scale(-2e4, 1000.0) == pytest.approx(2e4)
+            assert obj._q_scale(0.0, 0.0) == 1.0
+        nr = cpd.NonRigidCPD(src, log_freq=-1)
+        assert nr._q_scale(0.0, 1000.0) == 1.0
+        assert nr._q_scale(5.0, 1000.0) == 5.0
+
+    @pytest.mark.parametrize("cls", [cpd.RigidCPD, cpd.AffineCPD], ids=lambda c: c.__name__)
+    def test_float32_converges_when_q_crosses_zero(self, cls):
+        """WR-01 (iteration 2): float32 converges at sigma2 = e^-1, where q ~ 0.
+
+        At the fixed point the rigid/affine q is N_P*D/2*(1 + log sigma2),
+        which is ~0 at sigma2 = e^-1. With the threshold tol*max(|q|, 1) it
+        was an absolute 1e-5 on an extensive quantity; the float32 E-step
+        jitter never fell below it and EM ran to maxiter=1000 (float64: 158),
+        while the same pair rescaled by 2 converged in 105 iterations.
+        """
+        n = 1000
+        g = torch.Generator().manual_seed(3)
+        src = torch.rand(n, 3, generator=g, dtype=torch.float64) * 10
+        tgt = src @ _rot_zyx(math.degrees(0.17), 0.0, 0.0).T + 0.6 * torch.randn(
+            n, 3, generator=g, dtype=torch.float64
+        )
+        # Rescale so the converged sigma2 sits at e^-1 (calibrated offline).
+        k = 1.0609
+        src, tgt = src * k, tgt * k
+        r64 = cls(src, log_freq=-1).registration(tgt, maxiter=1000, tol=1e-5)
+        r32 = cls(src.float(), log_freq=-1).registration(
+            tgt.float(), maxiter=1000, tol=1e-5
+        )
+        # Premise: the converged sigma2 is in the q ~ 0 band.
+        assert float(r64.sigma2) == pytest.approx(math.exp(-1), rel=2e-2)
+        assert abs(float(r64.q)) < 0.01 * 1.5 * n
+        assert r32.n_iters < 400
+        assert abs(r32.n_iters - r64.n_iters) <= 5
+        assert float(r32.sigma2) == pytest.approx(float(r64.sigma2), rel=1e-3)
+
     @pytest.mark.parametrize("cls", [cpd.RigidCPD, cpd.AffineCPD])
     def test_float32_m_step_returns_source_dtype(self, cls):
         """The float64 M-step reduction casts every result back to float32."""

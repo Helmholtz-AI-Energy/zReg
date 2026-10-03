@@ -58,7 +58,9 @@ def _upcast_estep(estep_res: EstepResult, dtype: torch.dtype) -> EstepResult:
     return EstepResult(cast(pt1), cast(p1), cast(px), cast(n_p), pmat)
 
 
-def _q_window_converged(q_window: deque, tol: float) -> bool:
+def _q_window_converged(
+    q_window: deque, tol: float, scale: float | None = None
+) -> bool:
     """Return True if a full window of q values has converged.
 
     The window is chronological (a ``deque`` with ``maxlen``; the oldest value
@@ -81,6 +83,13 @@ def _q_window_converged(q_window: deque, tol: float) -> bool:
     non-rigid variants, whose q is sigma2) and avoids dividing by a q that
     crosses zero.
 
+    ``|q_last|`` alone is not a usable magnitude for the rigid/affine q: it
+    passes through zero at sigma2 = e^-1, where the threshold would collapse
+    to an absolute ``tol`` on an extensive quantity and float32 E-step jitter
+    kept EM at ``maxiter``, depending only on the units of the data. Callers
+    therefore pass ``scale`` explicitly (``CoherentPointDrift._q_scale``);
+    rigid/affine use ``max(|q_last|, N_P * D / 2, 1)``.
+
     Non-finite q never counts as converged, so a NaN or Inf run proceeds to
     ``maxiter`` (as before) instead of stopping or raising.
 
@@ -90,13 +99,16 @@ def _q_window_converged(q_window: deque, tol: float) -> bool:
         Chronological q values with ``maxlen`` set (4 in ``registration``).
     tol : float
         Relative convergence tolerance on the mean absolute successive change
-        (absolute when ``|q_last| <= 1``).
+        (absolute when the scale is 1).
+    scale : float | None
+        Magnitude the tolerance is relative to. ``None`` (default) uses
+        ``max(|q_last|, 1)``. Non-finite or values below 1 are floored at 1.
 
     Returns
     -------
     bool
         True only if the window is full, every value is finite and the mean
-        absolute successive change is below ``tol * max(|q_last|, 1)``.
+        absolute successive change is below ``tol * scale``.
     """
     if q_window.maxlen is None or len(q_window) != q_window.maxlen:
         return False
@@ -104,7 +116,11 @@ def _q_window_converged(q_window: deque, tol: float) -> bool:
     if len(values) < 2 or not all(math.isfinite(v) for v in values):
         return False
     total = sum(abs(b - a) for a, b in zip(values[:-1], values[1:]))
-    scale = max(abs(values[-1]), 1.0)
+    if scale is None:
+        scale = abs(values[-1])
+    if not math.isfinite(scale):
+        scale = abs(values[-1])
+    scale = max(scale, 1.0)
     return total / (len(values) - 1) < tol * scale
 
 
@@ -453,6 +469,28 @@ class CoherentPointDrift(ABC):
         """
         ...
 
+    def _q_scale(self, q_last: float, n_p: float) -> float:
+        """Return the magnitude the convergence ``tol`` is relative to.
+
+        The default is ``max(|q_last|, 1)``: for the non-rigid variants q is
+        sigma2, so ``tol`` stays absolute while sigma2 <= 1. Rigid and affine
+        override this with the natural magnitude of their extensive objective
+        (see ``_q_window_converged``).
+
+        Parameters
+        ----------
+        q_last : float
+            Newest q value.
+        n_p : float
+            Total posterior mass ``N_P`` of the newest E-step.
+
+        Returns
+        -------
+        float
+            Scale passed to ``_q_window_converged``.
+        """
+        return max(abs(q_last), 1.0)
+
     def registration(
         self,
         target: torch.Tensor,
@@ -476,9 +514,13 @@ class CoherentPointDrift(ABC):
             Maximum number of iterations.
         tol : float
             Convergence tolerance: stop once the mean absolute change of the
-            last four q values is below ``tol * max(|q|, 1)``, i.e. relative
-            to ``|q|`` for the extensive rigid/affine objective and absolute
-            for ``|q| <= 1`` (see ``_q_window_converged``).
+            last four q values is below ``tol * scale``. For rigid/affine the
+            scale is ``max(|q|, N_P * D / 2, 1)``, the natural magnitude of
+            the extensive objective, so convergence does not depend on the
+            units of the data even where q crosses zero (sigma2 = e^-1). For
+            the non-rigid variants (q = sigma2) the scale is ``max(|q|, 1)``:
+            ``tol`` is absolute while sigma2 <= 1 and relative above (see
+            ``_q_scale`` and ``_q_window_converged``).
         target_colors : torch.Tensor | None
             Target color information.
 
@@ -574,7 +616,8 @@ class CoherentPointDrift(ABC):
 
             q_window.append(float(res.q))
 
-            if _q_window_converged(q_window, tol):
+            q_scale = self._q_scale(float(res.q), float(estep_res.n_p))
+            if _q_window_converged(q_window, tol, q_scale):
                 if self.log_freq > 0:
                     log.info(
                         f"Hit tolerance in iteration {i} (criteria: {res.q:.4f}), exiting."

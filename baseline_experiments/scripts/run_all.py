@@ -20,8 +20,10 @@ Phases (see baseline_experiments/README.md for the full design rationale):
                          best_params.json consumed by phase 4.
 4. baseline_with_combined — optimize+eval, ew06_vs_shah (real cross-embryo task).
                          Merged params from phases 1 + 3 (merge_combined_params,
-                         see merge_params.py) are injected as default_params
-                         and as the warm start (first HPO trial). Every
+                         see merge_params.py) are snapped onto the combined
+                         config's search space (nearest choice per key) and
+                         injected as default_params and as the warm start
+                         (first HPO trial). Every
                          upstream best_params.json and the merged params are
                          validated through EvalConfig.model_validate first
                          (Phase 63 HPC-01). Uses same search space as the
@@ -235,13 +237,74 @@ def _with_params_validated(config: EvalConfig, extra_params: dict, *, source: st
         raise ValueError(msg) from e
 
 
+def _is_number(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _project_to_search_space(params: dict, search_space: dict) -> tuple[dict, dict]:
+    """Snap every searched key of ``params`` onto one of its search-space choices.
+
+    ``merge_params.merge_two`` averages numeric keys, so a merged warm start
+    can hold values that are not choices of the combined config's search space
+    (e.g. ``k_neighbours`` 3/10 -> 6). Such a seed makes ``BayesianSearch``
+    raise before any trial, and under Propulate/Sobol it is evaluated with
+    values the config forbids (Phase 63 review CR-01 / WR-02).
+
+    Rules, per key that is in both ``params`` and ``search_space``:
+
+    - value already a choice: kept;
+    - numeric value with numeric choices: nearest numeric choice (ties go to
+      the choice listed first);
+    - anything else (e.g. ``dtw_dist_fn: euclidean`` vs ``[cpd]``): the first
+      choice.
+
+    Keys outside ``search_space`` and keys with an empty choice list are
+    returned unchanged.
+
+    Returns
+    -------
+    tuple[dict, dict]
+        ``(projected, changed)`` where ``changed`` maps each replaced key to
+        ``(old_value, new_value)``.
+    """
+    out = dict(params)
+    changed: dict = {}
+    for key, choices in search_space.items():
+        if key not in out or not choices:
+            continue
+        value = out[key]
+        if value in choices:
+            continue
+        numeric = [c for c in choices if _is_number(c)]
+        if _is_number(value) and numeric:
+            new = min(numeric, key=lambda c: abs(c - value))
+        else:
+            new = choices[0]
+        out[key] = new
+        changed[key] = (value, new)
+    return out, changed
+
+
 def run_optimize_then_eval(name: str, config_path: Path, force: bool, dry_run: bool, clear_checkpoints: bool = False, warmstart_params: dict | None = None) -> None:
     config = _load_config(config_path)
     if warmstart_params is not None:
         # Validated merge (never model_copy for params): runs on every rank
         # before the skip bcast below, so every rank raises identically and
         # none blocks in a collective.
-        config = _with_params_validated(config, warmstart_params, source="baseline_with_combined merged warm start")
+        source = "baseline_with_combined merged warm start"
+        # Validate the raw merge first so an unsupported value (e.g. a stale
+        # dtw_dist_fn) fails loudly instead of being silently snapped away.
+        _with_params_validated(config, warmstart_params, source=source)
+        # CR-01 / WR-02: snap averaged / foreign values onto this config's
+        # search space so the seed is a legal trial for every strategy.
+        warmstart_params, changed = _project_to_search_space(warmstart_params, config.search_space)
+        if changed and RANK == 0:
+            log.warning(
+                "[%s] warm start projected onto the search space: %s",
+                name,
+                ", ".join(f"{k}: {old!r} -> {new!r}" for k, (old, new) in changed.items()),
+            )
+        config = _with_params_validated(config, warmstart_params, source=source)
     output_dir = Path(config.output_dir)
 
     skip = False

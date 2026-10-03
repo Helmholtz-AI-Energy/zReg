@@ -210,6 +210,41 @@ def test_run_optimize_then_eval_revalidates_warmstart(tmp_path) -> None:
     assert not (out / "run_config.yaml").exists()
 
 
+def test_project_to_search_space_snaps_off_grid_values() -> None:
+    """CR-01 / WR-02: averaged and foreign seed values are snapped onto the choices."""
+    run_all = _import_run_all()
+    space = {"k_neighbours": [3, 5, 10], "smoothing": [0.0, 0.1, 0.3], "dtw_dist_fn": ["cpd"], "window_size": [10]}
+    seed = {"k_neighbours": 6, "smoothing": 0.15, "dtw_dist_fn": "euclidean", "window_size": 5, "n_breakpoints": 7}
+    projected, changed = run_all._project_to_search_space(seed, space)
+    assert projected == {
+        "k_neighbours": 5,
+        "smoothing": 0.1,  # tie 0.1 / 0.3 -> first listed
+        "dtw_dist_fn": "cpd",
+        "window_size": 10,
+        "n_breakpoints": 7,  # not searched: unchanged
+    }
+    assert set(changed) == {"k_neighbours", "smoothing", "dtw_dist_fn", "window_size"}
+    on_grid = {"k_neighbours": 3, "smoothing": 0.3}
+    assert run_all._project_to_search_space(on_grid, space) == (on_grid, {})
+
+
+def test_run_all_bayesian_off_grid_merged_seed_is_projected(tmp_path, caplog) -> None:
+    """CR-01: an averaged merge no longer crashes BayesianSearch; the seed is snapped."""
+    run_all = _import_run_all()
+    out = tmp_path / "hpo"
+    cfg_path = _write_yaml(
+        tmp_path / "cfg.yaml",
+        _cfg_dict(out, strategy="bayesian", search_space={"k_neighbours": [3, 5, 10]}),
+    )
+    seed = {**_SEED, "k_neighbours": 6}  # e.g. merge_two(5, 7) -> 6, not a choice
+    with caplog.at_level(logging.WARNING, logger="run_all"):
+        run_all.run_optimize_then_eval("t", cfg_path, force=True, dry_run=False, warmstart_params=seed)
+    history = _read_json(out / "search_history.json")
+    assert history[0]["params"]["k_neighbours"] == 5
+    assert all(h["params"]["k_neighbours"] in (3, 5, 10) for h in history)
+    assert "k_neighbours: 6 -> 5" in caplog.text
+
+
 # --- Task 2: every non-Propulate strategy evaluates the seed first ----------
 
 

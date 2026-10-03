@@ -447,6 +447,11 @@ class LabelTransferStage(PipelineStage):
                 else self.config.egnn_checkpoint_path
             )
             learned_model = self._load_learned_model(params["method"], checkpoint_path)
+            # Phase 62 (Research Open Q2) / 62-REVIEW WR-08: the checkpoint is
+            # loaded on CPU; move the model ONCE to the frames' device (first
+            # source frame) instead of re-moving a shared module per frame.
+            model_device = source[sorted(source.keys())[0]]["pos"].device
+            learned_model.to(model_device)
 
         for k in range(n_pairs):
             sk = source_keys[k]
@@ -543,11 +548,13 @@ class LabelTransferStage(PipelineStage):
                 # the data (Anti-Patterns — data-derived n_classes could
                 # silently under-size joint_feat).
                 joint_pos = torch.cat([src_frame["pos"], tgt_frame["pos"]], dim=0)
-                # Phase 62 (Research Open Q2): the checkpoint is loaded on CPU;
-                # run the model and its inputs on the frame's device so a
-                # device: cuda run does not hit a device mismatch.
                 dev = joint_pos.device
-                learned_model.to(dev)
+                if dev != model_device:
+                    raise ValueError(
+                        f"frame pair ({sk}, {tk}) is on {dev} but the learned model was "
+                        f"placed on {model_device} (device of the first source frame); "
+                        "all frames must share one device"
+                    )
                 joint_feat = torch.zeros(joint_pos.shape[0], n_classes + 1, device=dev)
                 joint_feat[:n_src, :n_classes] = torch.nn.functional.one_hot(
                     labels_tensor.to(dev).long(), num_classes=n_classes

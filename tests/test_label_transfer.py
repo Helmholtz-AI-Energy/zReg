@@ -606,6 +606,27 @@ class _RecordingModel(torch.nn.Module):
         return torch.zeros(joint_pos.shape[0], self.n_classes)
 
 
+def test_transfer_labels_model_device_mismatch_raises():
+    """62-REVIEW WR-08: a model on another device fails with a clear error, not inside forward()."""
+
+    class _ParamModel(torch.nn.Module):
+        n_classes = 3
+
+        def __init__(self):
+            super().__init__()
+            self.w = torch.nn.Parameter(torch.zeros(1))
+
+        def forward(self, joint_pos, joint_feat):  # pragma: no cover - never reached
+            return torch.zeros(joint_pos.shape[0], self.n_classes)
+
+    model = _ParamModel().to("meta")
+    with pytest.raises(ValueError, match="model parameters are on meta"):
+        transfer_labels(
+            torch.randn(4, 3), torch.randn(5, 3), method="egnn",
+            source_colors=torch.tensor([0, 1, 2, 0]), model=model,
+        )
+
+
 def test_transfer_labels_model_joint_feat_encoding():
     """Joint features: source rows one-hot + unknown_flag 0, target rows zeros + unknown_flag 1."""
     source_pos, target_pos, labels = _model_clouds()

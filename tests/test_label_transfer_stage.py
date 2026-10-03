@@ -1017,3 +1017,31 @@ def test_learned_stage_runs_on_cuda_frames(
         labels = result.transferred_labels[tk]
         assert labels.device.type == "cuda"
         assert labels.shape == (frame["pos"].shape[0],)
+
+
+@pytest.mark.parametrize("method,path_field", [("pointnet2", "pointnet2_checkpoint_path"), ("egnn", "egnn_checkpoint_path")])
+def test_learned_stage_moves_model_once(
+    method, path_field, tmp_path, good_params, synthetic_dataset, learned_smoke_checkpoint, monkeypatch
+) -> None:
+    """62-REVIEW WR-08: the shared model is moved once before the frame loop, not per frame."""
+    assert len(synthetic_dataset) > 1
+    ckpt_path = learned_smoke_checkpoint(method)
+    config = EvalConfig(data_path=str(tmp_path / "unused.mat"), **{path_field: ckpt_path})
+    original = LabelTransferStage._load_learned_model
+    to_calls: list = []
+
+    def _counting_load(m, path):
+        model = original(m, path)
+        real_to = model.to
+
+        def _to(*args, **kwargs):
+            to_calls.append(args)
+            return real_to(*args, **kwargs)
+
+        model.to = _to
+        return model
+
+    monkeypatch.setattr(LabelTransferStage, "_load_learned_model", staticmethod(_counting_load))
+    result = LabelTransferStage(config).run(synthetic_dataset, synthetic_dataset, {**good_params, "method": method})
+    assert len(to_calls) == 1
+    assert set(result.transferred_labels) == set(synthetic_dataset)

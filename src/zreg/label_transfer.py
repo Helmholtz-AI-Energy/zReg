@@ -742,8 +742,9 @@ def _transfer_labels_model(
     Raises
     ------
     ValueError
-        If the model has no ``n_classes`` attribute, or the labels do not fit
-        ``model.n_classes`` (wrong width, non-integer or out-of-range ids).
+        If the model has no ``n_classes`` attribute, its parameters are not on
+        the positions' device, or the labels do not fit ``model.n_classes``
+        (wrong width, non-integer or out-of-range ids).
     """
     if not hasattr(model, "n_classes"):
         raise ValueError(
@@ -753,6 +754,15 @@ def _transfer_labels_model(
     n_classes = int(model.n_classes)
     n_source = source_pos.shape[0]
     device = source_pos.device
+    # 62-REVIEW WR-08: the caller's model is not moved implicitly (that would
+    # mutate a shared module); a device mismatch is a clear error instead of
+    # an opaque failure inside forward().
+    model_param = next(iter(model.parameters()), None)
+    if model_param is not None and model_param.device != device:
+        raise ValueError(
+            f"model parameters are on {model_param.device} but the positions are on "
+            f"{device}; move the model first (model.to({str(device)!r}))"
+        )
 
     if source_colors.ndim == 1:
         ids = source_colors

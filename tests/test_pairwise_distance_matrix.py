@@ -646,8 +646,12 @@ class TestMPIPaths:
         comm.allgather.side_effect = lambda row: [row, np.zeros_like(row)]
         return comm
 
-    def test_mpi_skip_and_empty_row_continue(self):
-        """rank=1, size=2 with 1-sample pair: iteration fc=0 is skipped (148-150) → empty row → continue (233)."""
+    def test_mpi_rank_without_local_pairs_joins_allgather(self):
+        """rank=1, size=2 with 1-sample pair: the only pair (fc=0) belongs to rank 0.
+
+        Rank 1 computes no pair in the row yet still joins the per-row allgather (no
+        `continue`), so the collective stays in lock-step with rank 0 (DIST-01).
+        """
         from unittest.mock import patch as _patch, MagicMock as _MagicMock
         import zreg.algorithms.pairwise_distance_matrix as pmat
 
@@ -663,7 +667,8 @@ class TestMPIPaths:
                 distance_metric="euclidean",
                 mpi_distribute=True,
             ).cost_matrix
-        # rank=1 skips fc=0 (0%2 ≠ 1), so distance stays inf
+        # rank=1 owns no pair (0 % 2 != 1) but must still join the single row's allgather
+        assert comm.allgather.call_count == 1
         assert matrix.shape[1] == 1
 
     def test_mpi_allgather_path(self):
@@ -686,8 +691,12 @@ class TestMPIPaths:
         assert comm.allgather.called
         assert matrix.shape[1] == 2
 
-    def test_mpi_given_rigid_rot_skip_and_empty_row(self):
-        """rank=1, size=2 with given_rigid_rot: fc=0 skipped (348-350) → empty row → continue (418)."""
+    def test_mpi_given_rigid_rot_rank_without_local_pairs_joins_allgather(self):
+        """rank=1, size=2 with given_rigid_rot and a 1-sample pair: the only pair belongs to rank 0.
+
+        Rank 1 computes no pair in the row yet still joins the per-row allgather (no
+        `continue`), so the collective stays in lock-step with rank 0 (DIST-01).
+        """
         from unittest.mock import patch as _patch, MagicMock as _MagicMock
         import zreg.algorithms.pairwise_distance_matrix as pmat
 
@@ -707,6 +716,7 @@ class TestMPIPaths:
                 distance_metric="euclidean",
                 mpi_distribute=True,
             )
+        assert comm.allgather.call_count == 1
         assert matrix.shape[1] == 1
 
     def test_mpi_given_rigid_rot_allgather(self):
@@ -734,13 +744,17 @@ class TestMPIPaths:
         assert matrix.shape[1] == 2
 
     def _make_asymmetric_pair(self):
-        """x has 2 samples, y has 1 sample — for loop back-edge branch tests."""
+        """x has 2 samples, y has 1 sample — rank 1 owns no pair in row 0."""
         pcs_x = {i: zRegPointCloud(pos=torch.randn(10, 3), label=torch.rand(10, 3), id=torch.arange(10)) for i in range(2)}
         pcs_y = {0: zRegPointCloud(pos=torch.randn(10, 3), label=torch.rand(10, 3), id=torch.arange(10))}
         return pcs_x, pcs_y
 
-    def test_mpi_loop_back_edge_create(self):
-        """rank=1, size=2, x=2 samples, y=1 sample: i=0 is fully skipped → continue back to i=1 (261->133)."""
+    def test_mpi_row_without_local_pairs_still_allgathers_create(self):
+        """rank=1, size=2, x=2 samples, y=1 sample: rank 1 computes no pair in row 0.
+
+        It still joins the allgather of row 0 (no `continue`) and of row 1, so it issues
+        exactly one collective per row, like rank 0 (DIST-01).
+        """
         from unittest.mock import patch as _patch, MagicMock as _MagicMock
         import zreg.algorithms.pairwise_distance_matrix as pmat
 
@@ -756,10 +770,15 @@ class TestMPIPaths:
                 distance_metric="euclidean",
                 mpi_distribute=True,
             ).cost_matrix
+        assert comm.allgather.call_count == 2
         assert matrix.shape[1] == 2
 
-    def test_mpi_loop_back_edge_given_rigid_rot(self):
-        """rank=1, size=2, x=2 samples, y=1 sample: i=0 fully skipped → continue back to i=1 (444->333)."""
+    def test_mpi_row_without_local_pairs_still_allgathers_given_rigid_rot(self):
+        """rank=1, size=2, x=2 samples, y=1 sample (given_rigid_rot): rank 1 computes no pair in row 0.
+
+        It still joins the allgather of row 0 (no `continue`) and of row 1, so it issues
+        exactly one collective per row, like rank 0 (DIST-01).
+        """
         from unittest.mock import patch as _patch, MagicMock as _MagicMock
         import zreg.algorithms.pairwise_distance_matrix as pmat
 
@@ -779,6 +798,7 @@ class TestMPIPaths:
                 distance_metric="euclidean",
                 mpi_distribute=True,
             )
+        assert comm.allgather.call_count == 2
         assert matrix.shape[1] == 2
 
 

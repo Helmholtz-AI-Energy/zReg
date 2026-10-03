@@ -314,42 +314,36 @@ def create_pairwise_distance_matrix(
             if full_counter == 1:
                 log.debug("end of first iteration")
 
-        # if l in log_intervals:
-        if len(times["copy"]) == 0:
-            continue
-        tc = sum(times["copy"]) / float(len(times["copy"]))
-        tn = sum(times["norm"]) / float(len(times["norm"]))
-        tdn = sum(times["downsample"]) / float(len(times["downsample"]))
-        tcpd = sum(times["cpd"][2:]) / float(len(times["cpd"][2:])) if len(times["cpd"]) > 2 else 0.0
-        tdi = sum(times["distance"]) / float(len(times["distance"]))
-        tt = sum(times["total"]) / float(len(times["total"]))
+        # Per-row timing log, only when this rank computed pairs in the row. No `continue`
+        # here: the per-row allgather below must be reached by every rank (DIST-01).
+        if times["copy"]:
+            tc = sum(times["copy"]) / float(len(times["copy"]))
+            tn = sum(times["norm"]) / float(len(times["norm"]))
+            tdn = sum(times["downsample"]) / float(len(times["downsample"]))
+            tcpd = sum(times["cpd"][2:]) / float(len(times["cpd"][2:])) if len(times["cpd"]) > 2 else 0.0
+            tdi = sum(times["distance"]) / float(len(times["distance"]))
+            tt = sum(times["total"]) / float(len(times["total"]))
 
-        # logging at the end of every row, can be removed without issue
-        log.info(
-            f"iteration {i + 1}/{x_samples + 1}: time: full: {tt:.4f}, copy: {tc:.4f}, "
-            f"norm: {tn:.4f}, downsample: {tdn:.4f}, cpd: {tcpd:.4f}, distance: {tdi:.4f}"
-        )
-        # reset time counters
-        times["copy"] = []
-        times["norm"] = []
-        times["downsample"] = []
-        times["cpd"] = []
-        times["distance"] = []
-        times["total"] = []
+            # logging at the end of every row, can be removed without issue
+            log.info(
+                f"iteration {i + 1}/{x_samples + 1}: time: full: {tt:.4f}, copy: {tc:.4f}, "
+                f"norm: {tn:.4f}, downsample: {tdn:.4f}, cpd: {tcpd:.4f}, distance: {tdi:.4f}"
+            )
+            # reset time counters
+            times["copy"] = []
+            times["norm"] = []
+            times["downsample"] = []
+            times["cpd"] = []
+            times["distance"] = []
+            times["total"] = []
 
         # Release CUDA allocator cache after each row so del'd CPD tensors are freed promptly
         if cpd_type is not None and torch.cuda.is_available():  # pragma: no cover
             torch.cuda.empty_cache()
 
-        # sync up mpi things
+        # sync up mpi things: every rank joins the row collective, even without local pairs
         if mpi_distribute and hasmpi:
-            tcomm = time.perf_counter()
-            row = distance_matrix[:, i].cpu().numpy()
-            gathered = comm_world.allgather(row)
-            combined = sum(gathered)
-            distance_matrix[:, i] = torch.tensor(combined, device=distance_matrix.device, dtype=distance_matrix.dtype)
-            if rank == 0:
-                log.debug("MPI allgather row %d: %.4f s", i, time.perf_counter() - tcomm)
+            _allgather_row(comm_world, distance_matrix, i, rank)
     rotations = torch.cat(rots, dim=0) if len(rots) > 0 else None
     return PairwiseResult(
         cost_matrix=distance_matrix,
@@ -507,40 +501,65 @@ def create_pairwise_distance_matrix_given_rigid_rot(
             if full_counter == 1:
                 log.debug("end of first iteration")
 
-        # if l in log_intervals:
-        if len(times["copy"]) == 0:
-            continue
-        tc = sum(times["copy"]) / float(len(times["copy"]))
-        tn = sum(times["norm"]) / float(len(times["norm"]))
-        tdn = sum(times["downsample"]) / float(len(times["downsample"]))
-        trt = sum(times["rot"][2:]) / float(len(times["rot"][2:])) if len(times["rot"]) > 2 else 0.0
-        tdi = sum(times["distance"]) / float(len(times["distance"]))
-        tt = sum(times["total"]) / float(len(times["total"]))
-        log.info(
-            f"iteration {i + 1}/{x_samples + 1}: time: full: {tt:.4f}, copy: {tc:.4f}, "
-            f"norm: {tn:.4f}, downsample: {tdn:.4f}, rot: {trt:.4f}, distance: {tdi:.4f}"
-        )
-        # reset time counters
-        times["copy"] = []
-        times["norm"] = []
-        times["downsample"] = []
-        times["rot"] = []
-        times["distance"] = []
-        times["total"] = []
+        # Per-row timing log, only when this rank computed pairs in the row. No `continue`
+        # here: the per-row allgather below must be reached by every rank (DIST-01).
+        if times["copy"]:
+            tc = sum(times["copy"]) / float(len(times["copy"]))
+            tn = sum(times["norm"]) / float(len(times["norm"]))
+            tdn = sum(times["downsample"]) / float(len(times["downsample"]))
+            trt = sum(times["rot"][2:]) / float(len(times["rot"][2:])) if len(times["rot"]) > 2 else 0.0
+            tdi = sum(times["distance"]) / float(len(times["distance"]))
+            tt = sum(times["total"]) / float(len(times["total"]))
+            log.info(
+                f"iteration {i + 1}/{x_samples + 1}: time: full: {tt:.4f}, copy: {tc:.4f}, "
+                f"norm: {tn:.4f}, downsample: {tdn:.4f}, rot: {trt:.4f}, distance: {tdi:.4f}"
+            )
+            # reset time counters
+            times["copy"] = []
+            times["norm"] = []
+            times["downsample"] = []
+            times["rot"] = []
+            times["distance"] = []
+            times["total"] = []
 
-        # sync up mpi things
+        # sync up mpi things: every rank joins the row collective, even without local pairs
         if mpi_distribute and hasmpi:
-            tcomm = time.perf_counter()
-            row = distance_matrix[:, i].cpu().numpy()
-            gathered = comm_world.allgather(row)
-            combined = sum(gathered)
-            distance_matrix[:, i] = torch.tensor(combined, device=distance_matrix.device, dtype=distance_matrix.dtype)
-            if rank == 0:
-                log.debug("MPI allgather row %d: %.4f s", i, time.perf_counter() - tcomm)
-            # print(distance_matrix)
+            _allgather_row(comm_world, distance_matrix, i, rank)
     # if len(rots) > 0:
     #     rots = torch.cat(rots, dim=0)
     return distance_matrix
+
+
+def _allgather_row(comm, distance_matrix: torch.Tensor, i: int, rank: int) -> None:
+    """Combine row ``i`` of an MPI-distributed cost matrix across all ranks, in place.
+
+    ``allgather`` is a collective and collectives match by call order, so every rank
+    must call this helper for every row, in the same order -- also for rows in which it
+    computed no pair. Skipping it on one rank pairs that rank's next call with another
+    rank's call for a different row (silently wrong matrix) or blocks forever (DIST-01).
+
+    The sum-combine is exact: each in-window entry is computed by exactly one rank and
+    is 0.0 on every other rank, and out-of-window entries are inf on all ranks.
+
+    Parameters
+    ----------
+    comm : mpi4py.MPI.Comm
+        Communicator (``MPI.COMM_WORLD``).
+    distance_matrix : torch.Tensor
+        Cost matrix of shape ``(n_metrics, n_x, n_y)``; row ``i`` is overwritten with
+        the combined row.
+    i : int
+        Row (x frame position) to combine.
+    rank : int
+        Rank of the caller (used only for the debug timing log).
+    """
+    tcomm = time.perf_counter()
+    row = distance_matrix[:, i].cpu().numpy()
+    gathered = comm.allgather(row)
+    combined = sum(gathered)
+    distance_matrix[:, i] = torch.tensor(combined, device=distance_matrix.device, dtype=distance_matrix.dtype)
+    if rank == 0:
+        log.debug("MPI allgather row %d: %.4f s", i, time.perf_counter() - tcomm)
 
 
 def _cpd_dtw_cost(reg: cpd.MstepResult) -> torch.Tensor:

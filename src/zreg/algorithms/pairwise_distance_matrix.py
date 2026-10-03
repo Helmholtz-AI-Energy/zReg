@@ -117,7 +117,7 @@ def create_pairwise_distance_matrix(
     )
     # distance_fn: list  # this is a list of callables / None (for cpd)
 
-    # Guard: distance_metric='cpd' uses reg.q from CPD registration as the distance value.
+    # Guard: distance_metric='cpd' uses the converged CPD sigma2 as the distance value (D-02).
     # If cpd_type=None, no CPD runs and cpd_metric stays torch.inf, making the entire cost
     # matrix inf and causing DTW backtracing to fail with a misleading "window too tight" error.
     if cpd_type is None and any(fn is None for fn in distance_fns):
@@ -223,7 +223,7 @@ def create_pairwise_distance_matrix(
                 xi["pos"] = cpd_obj.transformation.transform(xi["pos"])
                 if hasattr(reg.transformation, "rot"):
                     rots.append(reg.transformation.rot.unsqueeze(0))
-                cpd_metric = reg.q
+                cpd_metric = _cpd_dtw_cost(reg)
                 # Store the transform and normalisation params for reuse in _build_aligned_cloud.
                 # Only store when normalize=True: when normalize=False, src_min/src_max/tgt_min/
                 # tgt_max remain None and the reuse path in _build_aligned_cloud would apply
@@ -518,6 +518,34 @@ def create_pairwise_distance_matrix_given_rigid_rot(
     return distance_matrix
 
 
+def _cpd_dtw_cost(reg: cpd.MstepResult) -> torch.Tensor:
+    """Return the DTW cost of one CPD registration: the converged sigma2.
+
+    sigma2 is the P-weighted mean squared residual per point and coordinate of the
+    converged registration. It is >= 0, ~0 at a perfect fit, monotone in fit quality and
+    independent of the point count, which makes it a well-behaved DTW local cost.
+
+    ``reg.q`` is deliberately NOT used: the correct Myronenko & Song objective
+    ``q = N_P*D/2*(1 + log sigma2)`` is negative for sigma2 < 1/e and extensive in N, and
+    negative or offset local costs bias the DTW dynamic programme towards long paths (D-02).
+
+    A non-finite sigma2 is passed through unchanged rather than raised here: raising
+    inside one rank of an MPI-distributed sweep could block the other ranks, and failure
+    propagation for the sweep is Phase 61's scope.
+
+    Parameters
+    ----------
+    reg : cpd.MstepResult
+        Result returned by ``registration()`` of a rigid, affine or non-rigid CPD.
+
+    Returns
+    -------
+    torch.Tensor
+        Scalar tensor ``max(reg.sigma2, 0)``.
+    """
+    return torch.as_tensor(reg.sigma2).clamp_min(0.0)
+
+
 def _sanitize_pairwise_distance_matrix(distance_kwargs, distance_metrics, downsample_method, x, y):
     """Resolve distance metric strings to callable objects.
 
@@ -539,7 +567,7 @@ def _sanitize_pairwise_distance_matrix(distance_kwargs, distance_metrics, downsa
     "euclidean" | partial(euclidean_distance, ...) | No downsampling required
     "manhattan" | partial(manhattan_distance, ...) | No downsampling required
     "minkowski" | partial(minkowski_distance, ...) | No downsampling required
-    "cpd"       | None (uses CPD q metric)         | Special case
+    "cpd"       | None (uses CPD sigma2)           | Special case
 
     Parameters
     ----------

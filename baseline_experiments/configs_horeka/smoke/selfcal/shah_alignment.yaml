@@ -23,7 +23,7 @@ search_strategy: auto
 n_synthetic: 0
 
 search_space:
-  cpd_penalty: ["rigid", "affine", "nonrigid"]  # null excluded: dtw_dist_fn=cpd uses reg.q as distance; cpd_metric=inf when cpd_type=None → all-inf cost matrix → DTW backtrace fails
+  cpd_penalty: ["rigid", "affine", "nonrigid"]  # null excluded: dtw_dist_fn=cpd uses CPD sigma2 as distance; cpd_metric=inf when cpd_type=None → all-inf cost matrix → DTW backtrace fails
   window_size: [10, 20]  # 5 removed; smoke step=16 gives 27 frames; keep 10+20 to exercise both regimes
   step: [16]  # smoke-only override: 420/16=27 frames; window=20 costs 27×41×0.7s≈13min/trial×5≈65min, fits in 1h; full configs keep step=8
   dtw_dist_fn: [cpd]

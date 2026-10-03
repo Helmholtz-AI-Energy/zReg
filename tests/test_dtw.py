@@ -686,8 +686,9 @@ class TestDTWMetricsAndBoundaries:
         result = dtw_obj.compute()
 
         assert isinstance(result, DTWResult)
-        # CPD quality metric (reg.q) can be negative, so check finite instead of >= 0
+        # CPD DTW cost is the converged sigma2 (D-02), hence non-negative
         assert math.isfinite(result.distance)
+        assert result.distance >= 0
         assert len(result.warping_path) >= 3
         assert result.warping_path[0] == (0, 0)
         assert result.warping_path[-1] == (2, 2)

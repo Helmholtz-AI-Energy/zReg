@@ -461,6 +461,13 @@ class HyperparamOptimizer:
         # Phase 62 RD-6: (tier, params, score) pairs PropulateSearch returned on
         # this rank (rank 0 only; [] elsewhere), reconciled in the reduction.
         self._propulate_returned: list[tuple[str, dict[str, Any], float]] = []
+        # 62-REVIEW iteration 3: per-run state set by run() / the reduction,
+        # initialised here like the other per-run fields (IN-06).
+        self._aborted_ranks: list[tuple[int, str]] = []
+        self._n_placeholders: int = 0
+        # True once a tier ran the Propulate strategy in this run (WR-01). The
+        # strategy is resolved from config / environment, identical on every rank.
+        self._ran_propulate: bool = False
         # MPI communicator for the outcome reduction. None => resolved lazily in
         # run() via _mpi_world_comm(); tests inject a communicator here.
         self._comm = None
@@ -551,8 +558,9 @@ class HyperparamOptimizer:
         self._failed_trials = []
         self._n_succeeded = 0
         self._propulate_returned = []
-        self._aborted_ranks: list[tuple[int, str]] = []
+        self._aborted_ranks = []
         self._n_placeholders = 0
+        self._ran_propulate = False
         # Resolved lazily so constructing an optimizer does not initialise MPI.
         if self._comm is None:
             self._comm = _mpi_world_comm()
@@ -665,6 +673,20 @@ class HyperparamOptimizer:
                 "individual(s) but evaluated no trial in this run; refusing to "
                 "select a best from stale scores (clear or change output_dir "
                 f"{output_dir}, or raise the generation budget)."
+            )
+
+        # 62-REVIEW iteration 3 WR-01: a Propulate run that attempted no
+        # trial at all (e.g. a resume whose checkpoint already used up the
+        # generation budget and whose restored individuals all failed or no
+        # longer decode, so PropulateSearch returns []) has no best either.
+        # Raise instead of overwriting best_params.json with {}. n_hist / n_ok
+        # / n_fail come from rank 0's broadcast and _ran_propulate from the
+        # shared strategy resolution, so every rank raises alike.
+        if self._ran_propulate and n_hist == 0 and (n_ok + n_fail) == 0:
+            raise RuntimeError(
+                "Propulate evaluated no trial in this run and returned no usable "
+                "individual; refusing to write an empty best_params.json (clear or "
+                f"change output_dir {output_dir}, or raise the generation budget)."
             )
 
         # Only rank 0 writes results: it holds the merged history of every
@@ -810,6 +832,7 @@ class HyperparamOptimizer:
                     output_dir=str(output_dir),
                     warm_start=warm_start,  # D-09: silently ignored by PropulateSearch
                 )
+                self._ran_propulate = True
                 self._propulate_returned.extend(
                     (tier_name, dict(p), float(sc)) for p, sc in results
                 )

@@ -1358,6 +1358,26 @@ def test_run_threads_propulate_only_placeholders_raises_on_every_rank(
     assert not (Path(cfgs[0].output_dir).resolve() / "best_params.json").exists()
 
 
+class _EmptyResumeSearch:
+    """Propulate stand-in: evaluates nothing and returns nothing (exhausted resume)."""
+
+    def search(self, search_space, objective_fn, n_trials, output_dir, warm_start=None):
+        return []
+
+
+def test_propulate_nothing_evaluated_nothing_returned_raises(tmp_path, monkeypatch) -> None:
+    """62-REVIEW iteration 3 WR-01: an exhausted resume returning [] raises and keeps
+    the previous run's best_params.json instead of overwriting it with {}."""
+    cfg = _num05_cfg(tmp_path, [_OK_K], strategy="propulate")
+    out = Path(cfg.output_dir).resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "best_params.json").write_text(json.dumps({"k_neighbours": 99}))
+    monkeypatch.setattr(optimizer_module, "PropulateSearch", _EmptyResumeSearch)
+    with pytest.raises(RuntimeError, match="evaluated no trial"):
+        HyperparamOptimizer(cfg).run()
+    assert _read_json(out / "best_params.json") == {"k_neighbours": 99}
+
+
 def test_propulate_placeholder_flag_is_public() -> None:
     """RD-8: the flag constant is public API; the helper stays private."""
     assert "PROPULATE_PLACEHOLDER_FLAG" in optimizer_module.__all__

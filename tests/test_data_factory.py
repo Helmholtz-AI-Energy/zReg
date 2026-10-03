@@ -2130,6 +2130,30 @@ class TestAugmentCorrespondence:
         for k in ds:
             assert torch.all(gt[k][-3:] == -1)
 
+    def test_direct_augment_does_not_compose_stale_map(self):
+        """62-REVIEW WR-07: augment() after a dropout generate_target starts a fresh map."""
+        factory = DataFactory(EvalConfig(data_path="x"))
+        ds = _make_labelled_ds(n=30)
+        factory.generate_target(ds, {"dropout_fraction": 0.4})
+        stale = factory._correspondence_idx
+        assert stale is not None and stale[next(iter(ds))].shape[0] < 30
+        factory.config.augmentation_params = {"n_outliers": 4}
+        out = factory.augment(ds)
+        for k in ds:
+            corr = factory._correspondence_idx[k]
+            assert corr.shape[0] == out[k]["pos"].shape[0] == 34
+            assert torch.equal(corr[:30], torch.arange(30))
+            assert torch.all(corr[30:] == -1)
+
+    def test_direct_augment_without_count_change_clears_stale_map(self):
+        """62-REVIEW WR-07: a count-preserving augment leaves no stale map behind."""
+        factory = DataFactory(EvalConfig(data_path="x"))
+        ds = _make_labelled_ds(n=30)
+        factory.generate_target(ds, {"dropout_fraction": 0.4})
+        factory.config.augmentation_params = {"sigma": 0.01}
+        factory.augment(ds)
+        assert factory._correspondence_idx is None
+
     def test_sample_new_points_map_unchanged(self):
         """sample_new_points still appends n_extra -1 sentinels to an identity map."""
         factory = DataFactory(EvalConfig(data_path="x"))

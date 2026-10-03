@@ -339,7 +339,8 @@ class DataFactory:
             )
         # D-02: save original augmentation_params and restore in finally
         original_params = self.config.augmentation_params
-        self._correspondence_idx = None  # D-03/D-04 (Phase 56): reset so this call composes a fresh correspondence map
+        # D-03/D-04 (Phase 56): augment() resets self._correspondence_idx itself
+        # (62-REVIEW WR-07), so this call composes a fresh correspondence map.
         try:
             self.config.augmentation_params = augment_params
             result = self.augment(dataset)
@@ -794,7 +795,10 @@ class DataFactory:
         ``self._correspondence_idx`` (outliers and new points map to ``-1``,
         dropout composes the retained indices).  This keeps
         :meth:`get_synthetic_ground_truth` aligned with the target for any
-        combination of the three.
+        combination of the three.  ``augment`` resets
+        ``self._correspondence_idx`` to ``None`` at entry (62-REVIEW WR-07):
+        the map always describes this call's output relative to its input,
+        never a composition with an earlier call's map.
 
         Missing keys skip the corresponding step.  An empty dict (or a dict
         containing only ``"augment_seed"``) is a no-op and returns the input
@@ -818,6 +822,11 @@ class DataFactory:
         """
         params = self.config.augmentation_params
         augment_seed = params.get("augment_seed", 42)
+        # 62-REVIEW WR-07: augment() owns the correspondence map.  Every call
+        # starts from a fresh (identity) map, so outliers / dropout / new
+        # points never compose onto a map left by an earlier
+        # generate_target() / generate_subsample_pair() call.
+        self._correspondence_idx = None
         result = dataset
         # Step 1: Gaussian noise
         if "sigma" in params:

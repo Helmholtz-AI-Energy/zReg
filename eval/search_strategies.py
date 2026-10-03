@@ -228,7 +228,7 @@ class SobolSearch:
         randomize:
             When ``True`` (default), uses scrambled Owen sequence (better
             uniformity, reproducible via ``seed``).  When ``False``, uses
-            classical Van der Corput sequence and ``seed`` is silently ignored
+            classical Van der Corput sequence and ``seed`` has no effect
             (D-04).
         warm_start:
             Optional list of param dicts to evaluate first (D-07).
@@ -405,9 +405,12 @@ class PropulateSearch:
     actual count may exceed ``n_trials`` by up to (world_size - 1).  Use
     ``mpirun -n N`` to control parallelism.
 
-    ``warm_start`` is accepted but silently ignored — Propulate's evolutionary
-    model manages its own population and does not accept warm-start seeds in
-    the same way (D-09).
+    Propulate does not seed its population from ``warm_start``.
+    ``HyperparamOptimizer`` therefore pre-evaluates each tier's incoming seeds
+    on rank 0 as ordinary trials before calling this search and passes
+    ``warm_start=None`` (Phase 63 HPC-01 / D-09, PROVISIONAL, pending user
+    confirmation).  A direct caller that passes seeds gets a WARNING that they
+    are not used.
 
     Checkpoints are written to ``checkpoint_path=Path(output_dir)`` (same
     directory passed as ``output_dir``).
@@ -441,7 +444,9 @@ class PropulateSearch:
         output_dir:
             Directory where Propulate checkpoint files are written.
         warm_start:
-            Accepted but silently ignored (D-09 — log only).
+            Not used to seed the population; a non-empty value logs a WARNING
+            (Phase 63 D-09).  ``HyperparamOptimizer`` evaluates the seeds
+            itself and passes ``None``.
 
         Returns
         -------
@@ -464,9 +469,15 @@ class PropulateSearch:
         rank = comm.Get_rank()
         world_size = comm.Get_size()
 
-        # D-09: warm_start silently ignored — log and continue
+        # Phase 63 D-09: Propulate cannot seed its population. Say so loudly;
+        # HyperparamOptimizer pre-evaluates the seeds and passes None.
         if warm_start:
-            _log.info("PropulateSearch: warm_start ignored (D-09)")
+            _log.warning(
+                "PropulateSearch: %d warm-start seed(s) given, but Propulate's population "
+                "is not seeded from them; evaluate them as ordinary trials before the "
+                "search (HyperparamOptimizer does this on rank 0, Phase 63 D-09)",
+                len(warm_start),
+            )
 
         # D-07: convert lists → tuples for Propulate's limits format.
         # Propulate infers parameter type from the first element: str→categorical,

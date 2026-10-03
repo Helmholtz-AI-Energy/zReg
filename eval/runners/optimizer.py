@@ -15,6 +15,10 @@ Key design decisions implemented here:
 - **D-03** ``prune_candidates(history, keep_top_k)`` prunes candidate list (top-k
   ``Trial`` param dicts by score); the search space is unchanged between tiers.
 - **D-04** Top-k pruned params from tier N are passed as ``warm_start`` to tier N+1.
+  Under Propulate, which cannot seed its population, rank 0 evaluates each
+  tier's incoming seeds as ordinary trials before the search and logs one
+  WARNING per tier (Phase 63 HPC-01 / D-09, PROVISIONAL, pending user
+  confirmation).
 - **D-05** Unified search space — list of values per param key.
 - **D-06** Search space keys are exact param names passed to stages (no mapping).
 - **D-07** ``_objective(params) → float`` calls ``AlignmentStage``,
@@ -836,12 +840,36 @@ class HyperparamOptimizer:
                 # real Trial (metrics, flags) goes to all_history; _reduce_trial_outcomes
                 # gathers them; returned pairs only back-fill individuals without an
                 # evaluation record (RD-6).
+                #
+                # Phase 63 HPC-01 / D-09 (PROVISIONAL, pending user confirmation):
+                # Propulate cannot seed its population, so this tier's incoming
+                # seeds (the external warm start in the first tier, the pruned
+                # top-k of the previous tier afterwards) are evaluated here as
+                # ordinary trials on this tier's dataset. Rank 0 only: its
+                # warm_start list is authoritative (only rank 0 holds Propulate's
+                # results, so only its prune is complete), and no new collective
+                # is added (WR-03); the other ranks go straight to PropulateSearch,
+                # whose own synchronisation waits for rank 0.
+                if warm_start and self._is_rank_zero():
+                    for seed_params in warm_start:
+                        obj(dict(seed_params))
+                    _log.warning(
+                        "PropulateSearch tier %s: %d warm-start seed(s) were evaluated on "
+                        "this tier's dataset as ordinary trials before the search; "
+                        "Propulate's population itself is not seeded (Phase 63 D-09, "
+                        "PROVISIONAL)",
+                        tier_name,
+                        len(warm_start),
+                    )
                 results = PropulateSearch().search(
                     self.config.search_space,
                     obj,
                     n_trials=n_trials,
                     output_dir=str(output_dir),
-                    warm_start=warm_start,  # D-09: silently ignored by PropulateSearch
+                    # seeds pre-evaluated above on rank 0 for every tier (Phase 63
+                    # D-09, PROVISIONAL); Propulate does not seed its population.
+                    # None, so the "not seeded" WARNING is logged exactly once.
+                    warm_start=None,
                 )
                 self._ran_propulate = True
                 self._propulate_returned.extend(

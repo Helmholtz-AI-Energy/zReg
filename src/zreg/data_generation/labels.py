@@ -222,6 +222,9 @@ def generate_labels(
     ------
     ValueError
         If neither or both of ``n_labels``/``label_specs`` are given; if
+        ``label_specs`` is an empty list; if ``mode`` is not
+        ``"deterministic"`` or ``"probabilistic"`` (checked at runtime, so a
+        misspelt mode is never silently treated as probabilistic); if
         ``n_labels`` is given and is less than 1; if ``n_labels`` is given
         together with ``mode="probabilistic"``.
 
@@ -231,6 +234,9 @@ def generate_labels(
     ``torch.manual_seed(seed)`` and before the per-frame loop, then reused
     unchanged across every frame (D-07). Two frames with identical ``pos``
     therefore produce identical ``pc["label"]`` output.
+
+    Returned label tensors live on the device of each frame's ``pos``
+    (CPU, CUDA or meta).
 
     Empty frames (``N == 0``) are handled transparently on every path/mode
     combination: per-component/per-label scores are shape ``(0,)``,
@@ -242,6 +248,10 @@ def generate_labels(
             "exactly one of n_labels or label_specs must be provided "
             f"(got n_labels={n_labels!r}, label_specs={label_specs!r})"
         )
+    if label_specs is not None and len(label_specs) == 0:
+        raise ValueError("label_specs must be non-empty")
+    if mode not in ("deterministic", "probabilistic"):
+        raise ValueError(f"mode must be 'deterministic' or 'probabilistic', got {mode!r}")
     if n_labels is not None and n_labels < 1:
         raise ValueError(f"n_labels must be >= 1, got {n_labels}")
     if n_labels is not None and mode == "probabilistic":
@@ -280,10 +290,12 @@ def generate_labels(
         stacked = torch.stack(
             [_label_scores(pos, spec, mode) for spec in resolved_specs], dim=1
         )  # (N, n_labels)
+        # U6-2: label ids follow the position device (CUDA/meta input).
+        ids = label_ids_tensor.to(pos.device)
         if mode == "deterministic":
-            labels = _assign_deterministic(stacked, label_ids_tensor)
+            labels = _assign_deterministic(stacked, ids)
         else:
-            labels = _assign_probabilistic(stacked, label_ids_tensor)
+            labels = _assign_probabilistic(stacked, ids)
         pc["label"] = labels
     return result
 

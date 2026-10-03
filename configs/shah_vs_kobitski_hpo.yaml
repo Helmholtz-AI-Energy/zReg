@@ -18,7 +18,8 @@ search_strategy: bayesian
 search_space:
   cpd_penalty: [null, rigid, affine]
   window_size: [30, 40, 60]
-  dtw_dist_fn: [euclidean, cosine]
+  # single-value list; cosine is not a DTW distance (Phase 63 D-08)
+  dtw_dist_fn: [euclidean]
 default_params:
   window_size: 40
   step: 2

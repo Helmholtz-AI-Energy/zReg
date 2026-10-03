@@ -123,3 +123,49 @@ def test_cpd_weighted_real_config_uses_target_direction():
     cfg = EvalConfig.from_yaml(REPO_ROOT / "configs/experiments/stage2_label_transfer/cpd_weighted/real.yaml")
     assert cfg.label_transfer_method == "cpd_weighted"
     assert cfg.label_source == "target"
+
+
+def _dtw_dist_fn_values(path: Path) -> list:
+    """Every ``dtw_dist_fn`` value a YAML lists in ``search_space`` or ``default_params``.
+
+    Pure YAML scan (``yaml.safe_load``, no ``eval`` imports) so it also runs on
+    trees whose ``EvalConfig`` schema predates the validator (Phase 63 D-08).
+    """
+    with open(path) as f:
+        data = yaml.safe_load(f) or {}
+    values = []
+    search = (data.get("search_space") or {}).get("dtw_dist_fn")
+    if search is not None:
+        values.extend(search if isinstance(search, list) else [search])
+    default = (data.get("default_params") or {}).get("dtw_dist_fn")
+    if default is not None:
+        values.append(default)
+    return values
+
+
+def test_no_config_lists_cosine_dtw_dist_fn():
+    """No shipped config samples ``cosine`` as a DTW distance (Phase 63 D-08).
+
+    ``cosine`` is a valid ``dist_metric`` for label transfer but not a DTW
+    distance: the DTW dispatch raises ``ValueError``, so every such HPO trial
+    failed and was scored ``-inf``.
+    """
+    offending = [str(p.relative_to(REPO_ROOT)) for p in YAMLS if "cosine" in _dtw_dist_fn_values(p)]
+    assert not offending, (
+        f"dtw_dist_fn lists 'cosine' in {len(offending)} file(s):\n" + "\n".join(offending)
+    )
+
+
+def test_every_config_dtw_dist_fn_is_supported():
+    """Every dtw_dist_fn value in a shipped config is in ``SUPPORTED_DTW_DIST_FNS``."""
+    from eval.config import SUPPORTED_DTW_DIST_FNS
+
+    bad = [
+        f"{p.relative_to(REPO_ROOT)}: {v!r}"
+        for p in YAMLS
+        for v in _dtw_dist_fn_values(p)
+        if v not in SUPPORTED_DTW_DIST_FNS
+    ]
+    assert not bad, (
+        f"unsupported dtw_dist_fn values (allowed: {SUPPORTED_DTW_DIST_FNS}):\n" + "\n".join(bad)
+    )

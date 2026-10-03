@@ -25,7 +25,14 @@ __all__ = [
     "AlignmentPreprocessingConfig",
     "DataPreprocessingConfig",
     "LabelGenerationConfig",
+    "SUPPORTED_DTW_DIST_FNS",
 ]
+
+# DTW distances runnable through AlignmentStage (downsample_method=None). The
+# SWD family (swd, aswd, oswd, gswd, pswd, maxswd) requires downsampling and
+# raises there; cosine is not a DTW distance. Kept in sync with zreg's dispatch
+# by tests/test_dtw_dist_fn_validation.py (Phase 63 D-08).
+SUPPORTED_DTW_DIST_FNS: tuple[str, ...] = ("euclidean", "manhattan", "minkowski", "cpd")
 
 
 class _UniqueKeyLoader(yaml.SafeLoader):

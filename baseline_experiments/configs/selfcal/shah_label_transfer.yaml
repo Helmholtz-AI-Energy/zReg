@@ -33,7 +33,8 @@ search_space:
   cpd_penalty: ["rigid"]  # fixed to rigid — null/affine excluded; see README.md Runtime section for nonrigid exclusion reason
   window_size: [5, 10, 20]
   step: [8]  # single-value list, not a real search - see README.md Runtime section: HyperparamOptimizer._objective merges its own hardcoded _default_params (step=1) with the trial's sampled params, so default_params.step alone is silently ignored unless step is also a search_space key
-  dtw_dist_fn: [euclidean, cosine]
+  # single-value list; cosine is not a DTW distance (Phase 63 D-08)
+  dtw_dist_fn: [euclidean]
   k_neighbours: [3, 5, 10]
   dist_metric: [euclidean, cosine]
   smoothing: [0.0, 0.1, 0.3]

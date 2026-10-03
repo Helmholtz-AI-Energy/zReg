@@ -68,6 +68,8 @@ making each trial 10–100x slower than needed.
 **Default params merge (Pitfall 4):** ``_objective`` merges ``self._default_params``
 with the trial's ``params`` before calling stages, so stage ``validate_params``
 never fails when the search space covers only a subset of required keys.
+``self._default_params`` is ``config.default_params`` over builtin fallbacks
+(Phase 63 HPC-01, D-09 PROVISIONAL, pending user confirmation).
 
 **Sanity tier labels (Pitfall 5):** ``_tier_dataset("sanity")`` calls
 ``generate_labels(generate_trajectory(...))`` so ``pc["id"]`` is populated and
@@ -474,7 +476,7 @@ class HyperparamOptimizer:
 
         # _default_params: fallback for all 9 required stage keys (Pitfall 4)
         # These fill any gaps when search_space covers only a subset of required keys.
-        self._default_params: dict[str, Any] = {
+        builtin_defaults: dict[str, Any] = {
             "window_size": 5,
             "step": 1,
             "cpd_penalty": None,
@@ -484,6 +486,15 @@ class HyperparamOptimizer:
             "dist_metric": "euclidean",
             "smoothing": 0.0,
             "threshold": 0.0,
+        }
+        # Phase 63 D-09 (PROVISIONAL, pending user confirmation): non-searched
+        # keys come from config.default_params (documented contract in
+        # eval/config.py); builtins fill keys the config omits. Before Phase 63
+        # config.default_params was ignored here, so HPO searched under other
+        # fixed params than the final evaluation used (HPC-01).
+        self._default_params: dict[str, Any] = {
+            **builtin_defaults,
+            **dict(config.default_params),
         }
 
     def run(self) -> SearchResult:

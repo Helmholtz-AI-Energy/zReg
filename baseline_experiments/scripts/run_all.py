@@ -21,7 +21,10 @@ Phases (see baseline_experiments/README.md for the full design rationale):
 4. baseline_with_combined — optimize+eval, ew06_vs_shah (real cross-embryo task).
                          Merged params from phases 1 + 3 (merge_combined_params,
                          see merge_params.py) are injected as default_params
-                         warm-start before HPO. Uses same search space as the
+                         and as the warm start (first HPO trial). Every
+                         upstream best_params.json and the merged params are
+                         validated through EvalConfig.model_validate first
+                         (Phase 63 HPC-01). Uses same search space as the
                          selfcal/ground_truth full-pipeline runs.
 
 Each run is idempotent: if ``eval_report.json`` already exists in a run's
@@ -177,10 +180,68 @@ def _read_json(path: Path) -> dict:
         return json.load(f)
 
 
+def _with_params_validated(config: EvalConfig, extra_params: dict, *, source: str | Path, phase: str | None = None) -> EvalConfig:
+    """Return ``config`` with ``extra_params`` merged into ``default_params``, re-validated.
+
+    ``model_copy(update=...)`` skips every pydantic validator, so a merged
+    value such as ``dtw_dist_fn: cosine`` (unsupported since Phase 63 D-08)
+    would pass unnoticed and only fail inside each HPO trial. The merged
+    config is therefore rebuilt with ``EvalConfig.model_validate``, which runs
+    all field and model validators (Phase 63-07, Review cycle 1 MEDIUM-3).
+
+    Parameters
+    ----------
+    config:
+        Loaded config whose ``default_params`` the extra params override.
+    extra_params:
+        Params to merge over ``config.default_params``.
+    source:
+        Where ``extra_params`` came from (an artifact path or a description);
+        named in the error message.
+    phase:
+        Suite phase that produced the artifact (``"selfcal"`` /
+        ``"ground_truth"``). When given, the error message says how to
+        regenerate a stale artifact.
+
+    Returns
+    -------
+    EvalConfig
+        A new, fully validated config.
+
+    Raises
+    ------
+    ValueError
+        If the merged config fails validation. The message names ``source``,
+        the config's output_dir and the first validation error.
+    """
+    from pydantic import ValidationError
+
+    try:
+        return EvalConfig.model_validate(
+            {**config.model_dump(), "default_params": {**config.default_params, **extra_params}}
+        )
+    except ValidationError as e:
+        first = e.errors()[0]
+        loc = ".".join(str(x) for x in first["loc"])
+        detail = f"{loc + ': ' if loc else ''}{first['msg']}"
+        msg = f"{source}: invalid params for config with output_dir {config.output_dir}: {detail}."
+        if phase is not None:
+            msg += (
+                f" Regenerate it by re-running the '{phase}' phase with --force (the artifact "
+                "predates a config change such as Phase 63 D-08). Note: ZREG_CLEAR_CHECKPOINTS=1 / "
+                "--clear-checkpoints only removes Propulate checkpoint files; "
+                "it does not delete best_params.json."
+            )
+        raise ValueError(msg) from e
+
+
 def run_optimize_then_eval(name: str, config_path: Path, force: bool, dry_run: bool, clear_checkpoints: bool = False, warmstart_params: dict | None = None) -> None:
     config = _load_config(config_path)
     if warmstart_params is not None:
-        config = config.model_copy(update={"default_params": {**config.default_params, **warmstart_params}})
+        # Validated merge (never model_copy for params): runs on every rank
+        # before the skip bcast below, so every rank raises identically and
+        # none blocks in a collective.
+        config = _with_params_validated(config, warmstart_params, source="baseline_with_combined merged warm start")
     output_dir = Path(config.output_dir)
 
     skip = False
@@ -208,7 +269,9 @@ def run_optimize_then_eval(name: str, config_path: Path, force: bool, dry_run: b
     # HyperparamOptimizer.run() is a collective MPI operation — every rank
     # must call this (propulate needs all ranks to participate; gating on
     # rank-0 only would deadlock on the internal comm.Barrier()).
-    HyperparamOptimizer(config).run()
+    # Phase 63 HPC-01: the injected params are also the first HPO trial (warm
+    # start), not just the fallback for non-searched keys.
+    HyperparamOptimizer(config, warm_start=[warmstart_params] if warmstart_params else None).run()
 
     if RANK == 0:
         best_params_path = output_dir / "best_params.json"
@@ -256,6 +319,10 @@ def _combined_best_params(configs_dir: Path) -> tuple[dict, dict, dict, dict, di
     ------
     FileNotFoundError
         If any selfcal or ground_truth run hasn't produced best_params.json yet.
+    ValueError
+        If an artifact fails validation against its own config (e.g. a stale
+        ``dtw_dist_fn: cosine`` from before Phase 63 D-08). The message names
+        the artifact and says how to regenerate it.
     """
     selfcal_paths = {
         "kobitski_sc_alignment": configs_dir / "selfcal" / "kobitski_ew06_alignment.yaml",
@@ -267,14 +334,20 @@ def _combined_best_params(configs_dir: Path) -> tuple[dict, dict, dict, dict, di
         "shah_gt_both": configs_dir / "ground_truth" / "shah_sample1.yaml",
     }
     results = {}
-    for key, cfg_path in {**selfcal_paths, **gt_paths}.items():
-        config = _load_config(cfg_path)
-        bp_path = Path(config.output_dir) / "best_params.json"
-        if not bp_path.exists():
-            raise FileNotFoundError(
-                f"{bp_path} not found — run the 'selfcal' and 'ground_truth' phases before 'baseline_with_combined'."
-            )
-        results[key] = _read_json(bp_path)
+    sources = [("selfcal", selfcal_paths), ("ground_truth", gt_paths)]
+    for phase, paths in sources:
+        for key, cfg_path in paths.items():
+            config = _load_config(cfg_path)
+            bp_path = Path(config.output_dir) / "best_params.json"
+            if not bp_path.exists():
+                raise FileNotFoundError(
+                    f"{bp_path} not found — run the 'selfcal' and 'ground_truth' phases before 'baseline_with_combined'."
+                )
+            params = _read_json(bp_path)
+            # Phase 63-07 (MEDIUM-3): reject a stale artifact loudly instead of
+            # merging it; the validated config is discarded, the dict is kept.
+            _with_params_validated(config, params, source=bp_path, phase=phase)
+            results[key] = params
 
     defaults_config = _load_config(configs_dir / "baseline_with_combined" / "ew06_vs_shah.yaml")
     return (

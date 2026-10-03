@@ -137,3 +137,39 @@ class TestCpdDtwCost:
         assert isinstance(cost, torch.Tensor)
         assert float(cost) >= 0.0
         assert float(cost) == pytest.approx(float(reg.sigma2), rel=1e-12, abs=0.0)
+
+
+class TestCpdTypeValidation:
+    """Unsupported cpd_type values raise ValueError instead of silently running rigid CPD."""
+
+    @pytest.mark.parametrize("cpd_type", ["nonrigid_constrained", "constrained_nonrigid", "Rigid", "bogus"])
+    def test_unknown_cpd_type_rejected(self, cpd_type):
+        """Fails on 6c1c37f: the unknown value fell through to rigid CPD without an error."""
+        x, y = _make_pair(n_points=20, n_frames=1, seed=5)
+        with pytest.raises(ValueError, match="cpd_type") as excinfo:
+            pdm.create_pairwise_distance_matrix(
+                x, y, distance_metric="cpd", cpd_type=cpd_type, downsample_method=None
+            )
+        if "constrained" in cpd_type:
+            assert "constrained" in str(excinfo.value)
+
+    def test_unknown_cpd_type_rejected_via_dtw(self):
+        """DynamicTimeWarping.compute() surfaces the same ValueError. Fails on 6c1c37f."""
+        x, y = _make_pair(n_points=20, n_frames=1, seed=6)
+        dtw_obj = DynamicTimeWarping(
+            x, y, distance_metric="cpd", cpd_type="nonrigid_constrained", downsample_method=None
+        )
+        with pytest.raises(ValueError, match="cpd_type"):
+            dtw_obj.compute()
+
+    @pytest.mark.parametrize(
+        "cpd_type, metric",
+        [(None, "euclidean"), ("rigid", "cpd"), ("affine", "cpd"), ("nonrigid", "cpd")],
+    )
+    def test_valid_cpd_types_accepted(self, cpd_type, metric):
+        """Consistency guard (passes on 6c1c37f too): the four valid values still run."""
+        x, y = _make_pair(n_points=30, n_frames=1, seed=7)
+        res = pdm.create_pairwise_distance_matrix(
+            x, y, distance_metric=metric, cpd_type=cpd_type, downsample_method=None
+        )
+        assert torch.isfinite(res.cost_matrix).all()

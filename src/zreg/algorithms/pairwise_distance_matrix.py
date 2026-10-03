@@ -30,6 +30,11 @@ from ..core.types import StoredTransform, PairwiseResult
 log = logging.getLogger(__name__)
 
 
+# CPD variants usable as a DTW penalty. Constrained non-rigid CPD needs per-pair
+# correspondence indices (idx_source/idx_target) and is therefore not supported here.
+_VALID_CPD_TYPES = (None, "rigid", "affine", "nonrigid")
+
+
 __all__ = [
     "create_pairwise_distance_matrix",
     "create_pairwise_distance_matrix_given_rigid_rot",
@@ -79,7 +84,9 @@ def create_pairwise_distance_matrix(
         The downsampling method to use. If None, no downsampling is performed.
         By default, None.
     cpd_type : str | None, optional
-        The type of Coherent Point Drift registration to perform. If None, no CPD is used.
+        The type of Coherent Point Drift registration to perform: one of None, "rigid",
+        "affine" or "nonrigid". If None, no CPD is used. With ``distance_metric="cpd"`` the
+        cost of a pair is the converged CPD sigma2.
         By default, None.
     mpi_distribute : bool, optional
         Whether to distribute the computation across multiple MPI processes. Requires `mpi4py`.
@@ -96,7 +103,25 @@ def create_pairwise_distance_matrix(
               never stored when cpd_type == "nonrigid" (unbounded-memory guard — see inline
               comment at the storage site) — callers needing a nonrigid transform for a specific
               pair must recompute it themselves.
+
+    Raises
+    ------
+    ValueError
+        If ``cpd_type`` is not one of None, "rigid", "affine", "nonrigid" (raised before
+        any registration runs; constrained non-rigid CPD is not supported in DTW sweeps),
+        or if ``distance_metric`` includes "cpd" while ``cpd_type`` is None.
     """
+    # Validate cpd_type before any work. Deterministic on the arguments, so every MPI rank
+    # raises identically (no rank divergence).
+    if cpd_type not in _VALID_CPD_TYPES:
+        if cpd_type in ("nonrigid_constrained", "constrained_nonrigid"):
+            raise ValueError(
+                f"cpd_type={cpd_type!r} is not supported: constrained non-rigid CPD needs "
+                "correspondence indices (idx_source/idx_target) and cannot be used as a DTW "
+                f"cpd_type. Valid values: {_VALID_CPD_TYPES}."
+            )
+        raise ValueError(f"cpd_type must be one of {_VALID_CPD_TYPES}; got {cpd_type!r}")
+
     # Use first available frame from each dict so callers with non-zero-based keys don't crash
     # (WR-01: x[0] / y[0] raised KeyError when keys did not include 0).
     _x0 = next(iter(x.values()))
@@ -214,7 +239,7 @@ def create_pairwise_distance_matrix(
                     cpd_obj = cpd.AffineCPD(
                         source=xi["pos"], use_color=False, tf_init_params=tf_params, log_freq=-1
                     )
-                else:  # "rigid"
+                elif cpd_type == "rigid":
                     cpd_obj = cpd.RigidCPD(
                         source=xi["pos"], use_color=False, tf_init_params=tf_params, log_freq=-1
                     )

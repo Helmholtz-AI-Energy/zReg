@@ -214,3 +214,31 @@ class TestConvergence:
         assert r0.n_iters == 0
         assert torch.equal(r0.transformation.b, init.b)
         assert torch.equal(r0.transformation.t, init.t)
+
+
+class TestUseColorTargetColors:
+    """CPD-05 (base half): use_color=True requires valid target_colors.
+
+    Baseline (6c1c37f) raised a TypeError deep inside ``cdist`` when
+    target_colors was missing.
+    """
+
+    @staticmethod
+    def _colour_cpd():
+        torch.manual_seed(0)
+        src = torch.randn(40, 3)
+        tgt = src + 0.01 * torch.randn(40, 3)
+        obj = cpd.RigidCPD(
+            src, use_color=True, source_colors=torch.rand(40, 3), log_freq=-1
+        )
+        return obj, tgt
+
+    def test_use_color_requires_target_colors(self):
+        obj, tgt = self._colour_cpd()
+        with pytest.raises(ValueError, match="target_colors"):
+            obj.registration(tgt)
+
+    def test_use_color_target_colors_row_mismatch(self):
+        obj, tgt = self._colour_cpd()
+        with pytest.raises(ValueError, match="target_colors"):
+            obj.registration(tgt, target_colors=torch.rand(tgt.shape[0] + 5, 3))

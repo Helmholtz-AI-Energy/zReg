@@ -366,12 +366,31 @@ class CoherentPointDrift(ABC):
         -------
         MstepResult
             Final transformation and convergence diagnostics.
+
+        Raises
+        ------
+        ValueError
+            If ``use_color=True`` and ``target_colors`` is None, or if
+            ``target_colors`` is on another device than ``target``, contains
+            non-finite values, or does not have one row per target point.
         """
         assert self._tf_type is not None, "transformation type is None."
         if self._source is not None:
             _validate_tensors(self._source, target, names=["source", "target"])
         else:
             _validate_tensors(target, names=["target"])
+        if self._use_color:
+            if target_colors is None:
+                raise ValueError(
+                    "use_color=True requires target_colors in registration()"
+                )
+            _validate_tensors(target, target_colors, names=["target", "target_colors"])
+            if target_colors.shape[0] != target.shape[0]:
+                raise ValueError(
+                    "target_colors must have one row per target point: "
+                    f"got {target_colors.shape[0]} rows for "
+                    f"{target.shape[0]} target points."
+                )
         res = self._initialize(target)
         sigma2_c = 0.0
         if self._use_color:

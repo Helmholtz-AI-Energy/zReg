@@ -239,16 +239,19 @@ def _weighted_colours_from_repair(repair: PmatRowRepair, source_colors: torch.Te
 
     Good rows: row-normalised ``repair.pmat @ source_colors``.  Bad rows: the
     fallback provider's colour row, or an all-zero row ("no label") when the
-    fallback index is ``-1``.
+    fallback index is ``-1``.  1-D ``source_colors`` (one label channel,
+    e.g. ``zRegPointCloud['label']``) give a 1-D result (62-REVIEW WR-01).
     """
+    squeeze = source_colors.ndim == 1
+    cols = source_colors.unsqueeze(1) if squeeze else source_colors
     prob_matrix = repair.pmat / repair.pmat.sum(dim=1, keepdim=True)
-    transferred = torch.matmul(prob_matrix, source_colors.float())
+    transferred = torch.matmul(prob_matrix, cols.float())
     if repair.n_bad > 0:
         idx = repair.fallback_idx
-        fill = source_colors[idx.clamp(min=0)].float().to(transferred.dtype)
+        fill = cols[idx.clamp(min=0)].float().to(transferred.dtype)
         fill = torch.where((idx >= 0).unsqueeze(1), fill, torch.zeros_like(fill))
         transferred[repair.bad_rows] = fill
-    return transferred
+    return transferred[:, 0] if squeeze else transferred
 
 
 class LabelTransferMethod(Enum):

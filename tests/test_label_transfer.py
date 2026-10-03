@@ -863,6 +863,36 @@ def test_cpd_weighted_nonfinite_receiver_position_gives_zero_row():
     torch.testing.assert_close(out[1:], _COLOURS4.mean(dim=0).expand(3, 3))
 
 
+def test_cpd_weighted_1d_source_labels_with_two_repaired_rows():
+    """62-REVIEW WR-01: 1-D labels (the zRegPointCloud['label'] default) survive >= 2 repaired rows."""
+    labels = torch.tensor([0.0, 1.0, 2.0, 3.0])
+    pmat = _uniform_pmat()
+    pmat[:2] = 0.0
+    with pytest.warns(RuntimeWarning, match="2 of 4"):
+        out = transfer_labels(
+            _PROVIDER4, _RECEIVER4, method="cpd_weighted", source_colors=labels,
+            estep_result=MockEstepResult(pmat), pmat_layout="receiver_provider",
+        )
+    assert out.shape == (4,)
+    nearest = torch.cdist(_RECEIVER4[:2], _PROVIDER4).argmin(dim=1)
+    torch.testing.assert_close(out[:2], labels[nearest])
+    torch.testing.assert_close(out[2:], labels.mean().expand(2))
+
+
+def test_cpd_weighted_zreg_source_default_1d_label():
+    """62-REVIEW WR-01: the default source['label'] path with 1-D labels."""
+    source = zRegPointCloud(pos=_PROVIDER4, label=torch.tensor([0.0, 1.0, 2.0, 3.0]))
+    pmat = _uniform_pmat()
+    pmat[[1, 3]] = 0.0
+    with pytest.warns(RuntimeWarning):
+        out = transfer_labels(
+            source, _RECEIVER4, method="cpd_weighted",
+            estep_result=MockEstepResult(pmat), pmat_layout="receiver_provider",
+        )
+    assert out.shape == (4,)
+    assert bool(torch.isfinite(out).all())
+
+
 def test_cpd_weighted_pmat_repair_reused_without_second_warning():
     """RD-1b: a precomputed repair is reused as is -- no second repair, no warning."""
     pmat = _uniform_pmat()

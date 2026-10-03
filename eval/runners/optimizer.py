@@ -950,8 +950,10 @@ class HyperparamOptimizer:
                     if sample_pc["label"] is not None:
                         y_true = tier_dataset[source_sorted_keys[-1]]["label"]
                     else:
-                        n = tier_dataset[source_sorted_keys[-1]]["pos"].shape[0]
-                        y_true = torch.arange(n, dtype=torch.long)
+                        last_pos = tier_dataset[source_sorted_keys[-1]]["pos"]
+                        y_true = torch.arange(
+                            last_pos.shape[0], dtype=torch.long, device=last_pos.device
+                        )
                 else:  # dev / full in synthetic mode — D-09
                     y_true = self._factory.get_synthetic_ground_truth()[source_sorted_keys[-1]]
             else:
@@ -966,21 +968,18 @@ class HyperparamOptimizer:
                     raise ValueError(
                         f"No ground-truth labels in field '{gt_key}' for sanity tier dataset."
                     )
+            # kNN inputs are taken BEFORE the WR-01 truncation below: positions
+            # and labels of the same receiver frame (U5-3, Phase 62).
+            knn_points, labels_for_knn = self._knn_inputs(
+                label_result, lt_target, tier_target[target_sorted_keys[-1]]["pos"]
+            )
             if label_result is not None:
-                # Label keys are RECEIVER frames per the LabelTransferStage contract.
-                # Use last key actually present in transferred_labels — guards
-                # against KeyError when |provider| < |receiver| (CR-01).
-                transferred_keys = sorted(label_result.transferred_labels.keys())
-                y_pred = label_result.transferred_labels[transferred_keys[-1]]
-                # kNN consistency pairs the transferred labels with the receiver's
-                # positions for the same frame (Phase 59 NUM-04, Pitfall 1).
-                knn_points = lt_target[transferred_keys[-1]]["pos"]
+                y_pred = labels_for_knn
+            elif y_true is not None:
+                # F1 placeholder only; it no longer feeds kNN consistency.
+                y_pred = torch.zeros_like(y_true)
             else:
-                knn_points = tier_target[target_sorted_keys[-1]]["pos"]
-                if y_true is not None:
-                    y_pred = torch.zeros_like(y_true)
-                else:
-                    y_pred = torch.zeros(knn_points.shape[0], dtype=torch.long)
+                y_pred = labels_for_knn.clone()
 
             if y_true is None:
                 # F1 unavailable: shape-compatible placeholder, zero-filled below.
@@ -1001,7 +1000,7 @@ class HyperparamOptimizer:
                 y_true,
                 y_pred,
                 knn_points,
-                y_pred,
+                labels_for_knn,
                 k_neighbours=merged.get("k_neighbours", 10),
             )
             self._require_scorable_frames(metrics)
@@ -1030,6 +1029,49 @@ class HyperparamOptimizer:
                 "error_type": type(exc).__name__,
             })
             return float("-inf")
+
+    @staticmethod
+    def _knn_inputs(
+        label_result,
+        lt_target: dict | None,
+        fallback_points: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return the positions and labels kNN consistency is scored on.
+
+        U5-3 WR-01 (Phase 62): kNN labels and positions come from the same
+        receiver frame; truncation applies to F1 only. Mirrors
+        ``EvaluationRunner._run_single``.
+
+        Parameters
+        ----------
+        label_result : LabelResult or None
+            Output of ``LabelTransferStage.run``; ``None`` when label transfer
+            is disabled.
+        lt_target : dict or None
+            Receiver frames handed to ``LabelTransferStage.run`` (keys match
+            ``label_result.transferred_labels``); unused when
+            ``label_result`` is ``None``.
+        fallback_points : torch.Tensor
+            Receiver positions of shape ``(N, 3)`` scored when label transfer
+            is disabled.
+
+        Returns
+        -------
+        tuple[torch.Tensor, torch.Tensor]
+            ``(points, labels)`` of equal length. With a label result:
+            the last transferred receiver frame's positions and its
+            untruncated transferred labels. Without: ``fallback_points`` and
+            zero labels of the same length on the same device.
+        """
+        if label_result is not None:
+            # Label keys are RECEIVER frames per the LabelTransferStage
+            # contract; the last key actually present guards against KeyError
+            # when |provider| < |receiver| (CR-01).
+            key = sorted(label_result.transferred_labels)[-1]
+            return lt_target[key]["pos"], label_result.transferred_labels[key]
+        return fallback_points, torch.zeros(
+            fallback_points.shape[0], dtype=torch.long, device=fallback_points.device
+        )
 
     def _require_scorable_frames(self, metrics: StageMetrics) -> None:
         """Raise when an alignment trial produced no scorable frame (WR-01).
@@ -1175,13 +1217,16 @@ class HyperparamOptimizer:
             warp_path = align_result.warp_path if align_result else []
 
             y_true = scratch_factory.get_synthetic_ground_truth()[source_sorted_keys[-1]]
+            # U5-3 (Phase 62): kNN inputs from the shared helper, before the
+            # WR-01 truncation (which applies to the F1 pair only).
+            knn_points, labels_for_knn = self._knn_inputs(
+                label_result, lt_target, target_view[target_sorted_keys[-1]]["pos"]
+            )
             if label_result is not None:
-                transferred_keys = sorted(label_result.transferred_labels.keys())
-                y_pred = label_result.transferred_labels[transferred_keys[-1]]
-                knn_points = lt_target[transferred_keys[-1]]["pos"]
+                y_pred = labels_for_knn
             else:
+                # F1 placeholder only; it no longer feeds kNN consistency.
                 y_pred = torch.zeros_like(y_true)
-                knn_points = target_view[target_sorted_keys[-1]]["pos"]
 
             # WR-01: truncate to min length when source and target have
             # different point counts.
@@ -1202,7 +1247,7 @@ class HyperparamOptimizer:
                 y_true,
                 y_pred,
                 knn_points,
-                y_pred,
+                labels_for_knn,
                 k_neighbours=merged.get("k_neighbours", 10),
             )
             self._require_scorable_frames(metrics)

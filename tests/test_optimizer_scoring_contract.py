@@ -271,6 +271,113 @@ def test_objective_paired_target_without_label_transfer_zero_fills_f1(
     assert hist[0].metrics.f1_score == 0.0
 
 
+# ---------------------------------------------------------------------------
+# LT-04 / U5-3 WR-01 (Phase 62): kNN consistency is scored on the receiver
+# frame's positions together with its UNTRUNCATED transferred labels; the
+# WR-01 truncation applies to the F1 pair only.
+# ---------------------------------------------------------------------------
+
+
+def _paired_source_cfg(tmp_path, *, run_alignment, run_label_transfer, search_space) -> EvalConfig:
+    """Paired config with the default label_source='source' (F1 live)."""
+    return EvalConfig(
+        data_path=str(tmp_path / "source.mat"),
+        target_data_path=str(tmp_path / "target.csv"),
+        output_dir=str(tmp_path / "out"),
+        pipeline_mode="paired",
+        run_alignment=run_alignment,
+        run_label_transfer=run_label_transfer,
+        label_transfer_method="knn_voting",
+        search_strategy="grid",
+        search_space=search_space,
+    )
+
+
+def test_objective_knn_uses_untruncated_receiver_labels(tmp_path, monkeypatch, caplog) -> None:
+    """25 labelled source points -> 40 target points: kNN scores all 40 receiver points."""
+    from eval.stages import LabelTransferStage
+    from zreg.evaluation.label_transfer import knn_consistency
+
+    cfg = _paired_source_cfg(
+        tmp_path, run_alignment=False, run_label_transfer=True,
+        search_space={"k_neighbours": [3]},
+    )
+    source = _frames(25, labels=True, offset=0.0)
+    target = _frames(40, labels=True, offset=0.0)
+    opt = HyperparamOptimizer(cfg)
+    monkeypatch.setattr(opt._factory, "load_target", lambda: target)
+
+    hist: list = []
+    with caplog.at_level(logging.WARNING, logger=_OPT_LOGGER):
+        score = opt._objective({"k_neighbours": 3}, source, "dev", hist)
+
+    assert _trial_failed_records(caplog) == []
+    assert len(hist) == 1
+    assert math.isfinite(score)
+
+    # Independent reference: the real stage on the same inputs, last receiver frame.
+    reference = LabelTransferStage(cfg).run(source, target, {**opt._default_params, "k_neighbours": 3})
+    last = sorted(reference.transferred_labels)[-1]
+    expected_labels = reference.transferred_labels[last]
+    assert expected_labels.shape[0] == 40
+    expected = knn_consistency(target[last]["pos"], expected_labels, 3)
+    assert hist[0].metrics.knn_consistency == pytest.approx(expected)
+
+
+def test_objective_knn_placeholder_matches_receiver_without_label_transfer(
+    tmp_path, monkeypatch, caplog
+) -> None:
+    """Temporal-only alignment, label transfer off: the kNN placeholder has the receiver's length."""
+    cfg = _paired_source_cfg(
+        tmp_path, run_alignment=True, run_label_transfer=False,
+        search_space={"window_size": [3]},
+    )
+    source = _frames(25, labels=True, offset=0.0)
+    target = _frames(40, labels=True, offset=0.0)
+    opt = HyperparamOptimizer(cfg)  # a configuration the optimizer accepts
+    monkeypatch.setattr(opt._factory, "load_target", lambda: target)
+
+    hist: list = []
+    with caplog.at_level(logging.WARNING, logger=_OPT_LOGGER):
+        score = opt._objective({"window_size": 3, "cpd_penalty": None}, source, "dev", hist)
+
+    assert _trial_failed_records(caplog) == []
+    assert len(hist) == 1
+    assert math.isfinite(score)
+    assert math.isfinite(hist[0].metrics.knn_consistency)
+
+
+def test_knn_inputs_placeholder_on_receiver_device(tmp_path) -> None:
+    """Without a label result the placeholder labels match the receiver frame's length and device."""
+    opt = HyperparamOptimizer(_num05_cfg(tmp_path, [_OK_K]))
+    points = torch.rand(40, 3)
+    knn_points, labels = opt._knn_inputs(None, None, points)
+    assert knn_points is points
+    assert labels.shape == (40,)
+    assert labels.dtype == torch.long
+    assert labels.device == points.device
+    assert torch.count_nonzero(labels) == 0
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+def test_knn_inputs_placeholder_on_cuda(tmp_path) -> None:
+    opt = HyperparamOptimizer(_num05_cfg(tmp_path, [_OK_K]))
+    points = torch.rand(40, 3, device="cuda")
+    _, labels = opt._knn_inputs(None, None, points)
+    assert labels.device == points.device
+
+
+def test_multiseed_knn_finite(tmp_path, caplog) -> None:
+    """Regression guard: the multiseed path still records a trial with finite kNN consistency."""
+    opt = HyperparamOptimizer(_cfg(tmp_path))
+    hist: list = []
+    with caplog.at_level(logging.WARNING, logger=_OPT_LOGGER):
+        opt._score_subsample_pair_multiseed({}, dict(opt._default_params), "full", [1, 2], hist)
+    assert _trial_failed_records(caplog) == []
+    assert len(hist) == 1
+    assert math.isfinite(hist[0].metrics.knn_consistency)
+
+
 def _paired_target_cfg(tmp_path, f1_weight) -> EvalConfig:
     return EvalConfig(
         data_path=str(tmp_path / "s.mat"),

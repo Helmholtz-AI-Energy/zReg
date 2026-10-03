@@ -13,6 +13,12 @@
 # NOTE: Set egnn_checkpoint_path / pointnet2_checkpoint_path in the egnn/pointnet2
 # configs before submitting those jobs.
 # NOTE: hybrid_knn_cpd uses knn_voting as placeholder until hybrid is implemented.
+#
+# Eval-mode submissions request a single rank (--ntasks-per-node=1 --gres=gpu:1);
+# HPO (full/optimize) keeps the sbatch template's multi-rank default.
+# SLURM logs go to ZREG_SLURM_LOG_DIR
+# (default: /hkfs/work/workspace/scratch/${USER}-zreg/logs/slurm),
+# created before the first submission and passed as --output=<dir>/%x-%j.out.
 
 set -euo pipefail
 
@@ -22,12 +28,21 @@ SBATCH="${SCRIPT_DIR}/exp_horeka.sbatch"
 CFG="${REPO_ROOT}/configs/experiments/stage2_label_transfer"
 LOG="${REPO_ROOT}/experiments/runs/logs"
 mkdir -p "${LOG}"
+SLURM_LOG_DIR="${ZREG_SLURM_LOG_DIR:-/hkfs/work/workspace/scratch/${USER}-zreg/logs/slurm}"
+mkdir -p "${SLURM_LOG_DIR}"
 
 submit() {
     local cfg="$1" mode="$2" nodes="$3" time="$4"
     local name="s2-$(basename "$(dirname "$cfg")")-$(basename "$cfg" .yaml)"
+    local res_flags=()
+    if [[ "$mode" == "eval" ]]; then
+        res_flags=(--ntasks-per-node=1 --gres=gpu:1)
+    fi
+
     local jid
     jid=$(sbatch --parsable \
+        ${res_flags[@]+"${res_flags[@]}"} \
+        --output="${SLURM_LOG_DIR}/%x-%j.out" \
         --job-name="${name}" \
         --nodes="${nodes}" \
         --time="${time}" \

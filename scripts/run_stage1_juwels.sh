@@ -16,6 +16,12 @@
 # Run from repo root on JUWELS login node.
 #
 # NOTE: constrained_nonrigid_cpd requires VALID_CPD extension before submitting.
+#
+# Eval-mode submissions request a single rank (--ntasks-per-node=1 --gres=gpu:1);
+# HPO (full/optimize) keeps the sbatch template's multi-rank default.
+# SLURM logs go to ZREG_SLURM_LOG_DIR
+# (default: /p/project1/tissuetwin/${USER}/logs/slurm),
+# created before the first submission and passed as --output=<dir>/%x-%j.out.
 
 set -euo pipefail
 
@@ -26,6 +32,8 @@ CFG="${REPO_ROOT}/configs/experiments/stage1_alignment"
 RUNS="${REPO_ROOT}/experiments/runs/stage1_alignment"
 LOG="${REPO_ROOT}/experiments/runs/logs"
 mkdir -p "${LOG}"
+SLURM_LOG_DIR="${ZREG_SLURM_LOG_DIR:-/p/project1/tissuetwin/${USER}/logs/slurm}"
+mkdir -p "${SLURM_LOG_DIR}"
 
 # submit cfg mode nodes time [dep_jid] [warm_start_from]
 # Prints job ID to stdout; logs human-readable line to stderr + log file.
@@ -40,8 +48,15 @@ submit() {
     local export_str="ALL,CONFIG=${cfg},MODE=${mode}"
     [[ -n "$warm" ]] && export_str="${export_str},WARM_START_FROM=${warm}"
 
+    local res_flags=()
+    if [[ "$mode" == "eval" ]]; then
+        res_flags=(--ntasks-per-node=1 --gres=gpu:1)
+    fi
+
     local jid
     jid=$(sbatch --parsable \
+        ${res_flags[@]+"${res_flags[@]}"} \
+        --output="${SLURM_LOG_DIR}/%x-%j.out" \
         ${dep_flag:+"$dep_flag"} \
         --job-name="${name}" \
         --nodes="${nodes}" \

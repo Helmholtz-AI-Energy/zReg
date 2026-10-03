@@ -1,6 +1,5 @@
 """Tests for color transfer functionality."""
 
-import unittest.mock
 import pytest
 import torch
 
@@ -512,59 +511,114 @@ def test_pointnet2_requires_model(sample_point_clouds):
         transfer_labels(source, target, method="pointnet2")
 
 
-def test_transfer_labels_egnn_mock(sample_point_clouds):
-    """Dispatch calls model.forward() and returns (n_target, n_classes) softmax probs."""
-    source, target = sample_point_clouds
-    n_target = target["pos"].shape[0]
-    n_classes = source["label"].shape[1]
+def _tiny_egnn():
+    from zreg.models.egnn import EGNNLabelTransfer
 
-    mock_model = unittest.mock.MagicMock()
-    fake_logits = torch.zeros(source["pos"].shape[0] + n_target, n_classes)
-    mock_model.return_value = fake_logits
-
-    result = transfer_labels(source, target, method="egnn", model=mock_model)
-
-    assert result.shape == (n_target, n_classes)
-    mock_model.assert_called_once()
-    mock_model.eval.assert_called_once()
+    torch.manual_seed(0)
+    return EGNNLabelTransfer(n_classes=3, hidden_dim=8, n_layers=1)
 
 
-def test_transfer_labels_pointnet2_mock(sample_point_clouds):
-    """PointNet2 path mirrors EGNN path (same _transfer_labels_model helper)."""
-    source, target = sample_point_clouds
-    n_target = target["pos"].shape[0]
-    n_classes = source["label"].shape[1]
+def _tiny_pointnet2():
+    from zreg.models.pointnet2 import PointNet2LabelTransfer
 
-    mock_model = unittest.mock.MagicMock()
-    fake_logits = torch.zeros(source["pos"].shape[0] + n_target, n_classes)
-    mock_model.return_value = fake_logits
-
-    result = transfer_labels(source, target, method="pointnet2", model=mock_model)
-
-    assert result.shape == (n_target, n_classes)
+    torch.manual_seed(0)
+    return PointNet2LabelTransfer(n_classes=3, hidden_dim=8)
 
 
-def test_transfer_labels_model_joint_feat_encoding(sample_point_clouds):
-    """Joint feature matrix: source rows have unknown_flag=0, target rows have unknown_flag=1."""
-    source, target = sample_point_clouds
-    n_source = source["pos"].shape[0]
-    n_classes = source["label"].shape[1]
-    captured = {}
+_TINY_MODELS = [("egnn", _tiny_egnn), ("pointnet2", _tiny_pointnet2)]
 
-    def capture_forward(joint_pos, joint_feat):
-        captured["joint_feat"] = joint_feat
-        return torch.zeros(joint_pos.shape[0], n_classes)
 
-    mock_model = unittest.mock.MagicMock()
-    mock_model.side_effect = capture_forward
+def _model_clouds():
+    gen = torch.Generator().manual_seed(1)
+    source_pos = torch.rand(24, 3, generator=gen)
+    target_pos = torch.rand(16, 3, generator=gen)
+    labels = torch.arange(24) % 3
+    return source_pos, target_pos, labels
 
-    transfer_labels(source, target, method="egnn", model=mock_model)
 
-    jf = captured["joint_feat"]
-    assert (jf[:n_source, n_classes] == 0.0).all()
-    assert (jf[n_source:, n_classes] == 1.0).all()
-    torch.testing.assert_close(jf[:n_source, :n_classes], source["label"].float())
+@pytest.mark.parametrize("method, factory", _TINY_MODELS)
+def test_transfer_labels_model_accepts_1d_labels(method, factory):
+    """U6-1: 1-D integer labels are one-hot encoded with model.n_classes (real tiny model)."""
+    source_pos, target_pos, labels = _model_clouds()
+    model = factory()
+    torch.manual_seed(2)
+    out = transfer_labels(source_pos, target_pos, method=method, source_colors=labels, model=model)
+    assert out.shape == (16, 3)
+    assert bool(torch.isfinite(out).all())
+    torch.testing.assert_close(out.sum(dim=1), torch.ones(16), atol=1e-5, rtol=0)
 
+
+@pytest.mark.parametrize("method, factory", _TINY_MODELS)
+def test_transfer_labels_model_one_hot_matches_1d(method, factory):
+    source_pos, target_pos, labels = _model_clouds()
+    model = factory()
+    torch.manual_seed(2)
+    from_ids = transfer_labels(source_pos, target_pos, method=method, source_colors=labels, model=model)
+    torch.manual_seed(2)
+    from_one_hot = transfer_labels(
+        source_pos, target_pos, method=method,
+        source_colors=torch.nn.functional.one_hot(labels, num_classes=3).float(), model=model,
+    )
+    torch.testing.assert_close(from_ids, from_one_hot)
+
+
+@pytest.mark.parametrize("method, factory", _TINY_MODELS)
+def test_transfer_labels_model_width_mismatch_raises(method, factory):
+    source_pos, target_pos, labels = _model_clouds()
+    with pytest.raises(ValueError, match="n_classes"):
+        transfer_labels(
+            source_pos, target_pos, method=method,
+            source_colors=torch.nn.functional.one_hot(labels % 2, num_classes=2).float(),
+            model=factory(),
+        )
+
+
+@pytest.mark.parametrize("method, factory", _TINY_MODELS)
+def test_transfer_labels_model_out_of_range_label_raises(method, factory):
+    source_pos, target_pos, labels = _model_clouds()
+    labels = labels.clone()
+    labels[0] = 3
+    with pytest.raises(ValueError, match="n_classes"):
+        transfer_labels(source_pos, target_pos, method=method, source_colors=labels, model=factory())
+
+
+def test_transfer_labels_model_without_n_classes_raises():
+    class _NoClasses(torch.nn.Module):
+        def forward(self, joint_pos, joint_feat):
+            return torch.zeros(joint_pos.shape[0], 3)
+
+    source_pos, target_pos, labels = _model_clouds()
+    with pytest.raises(ValueError, match="n_classes"):
+        transfer_labels(source_pos, target_pos, method="egnn", source_colors=labels, model=_NoClasses())
+
+
+class _RecordingModel(torch.nn.Module):
+    """A real module that records its input features and returns zero logits."""
+
+    n_classes = 3
+
+    def __init__(self):
+        super().__init__()
+        self.joint_feat = None
+
+    def forward(self, joint_pos, joint_feat):
+        self.joint_feat = joint_feat.clone()
+        return torch.zeros(joint_pos.shape[0], self.n_classes)
+
+
+def test_transfer_labels_model_joint_feat_encoding():
+    """Joint features: source rows one-hot + unknown_flag 0, target rows zeros + unknown_flag 1."""
+    source_pos, target_pos, labels = _model_clouds()
+    model = _RecordingModel()
+    out = transfer_labels(source_pos, target_pos, method="egnn", source_colors=labels, model=model)
+    jf = model.joint_feat
+    n_source = source_pos.shape[0]
+    assert jf.shape == (n_source + target_pos.shape[0], 4)
+    torch.testing.assert_close(jf[:n_source, :3], torch.nn.functional.one_hot(labels, 3).float())
+    assert (jf[:n_source, 3] == 0.0).all()
+    assert (jf[n_source:, :3] == 0.0).all()
+    assert (jf[n_source:, 3] == 1.0).all()
+    torch.testing.assert_close(out, torch.full((target_pos.shape[0], 3), 1.0 / 3.0))
 
 
 # ── Shared pmat zero-row policy: repair_pmat_rows (U6-7, IN-09a, IN-09c) ──────

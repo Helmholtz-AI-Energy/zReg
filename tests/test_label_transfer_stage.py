@@ -1001,3 +1001,19 @@ class TestLabelTransferStageCorruptedCheckpoint:
         stage = LabelTransferStage(config)
         with pytest.raises(ValueError, match="failed to load"):
             stage.run(synthetic_dataset, synthetic_dataset, {**good_params, "method": "pointnet2"})
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required (run once on HoreKa)")
+@pytest.mark.parametrize("method,path_field", [("pointnet2", "pointnet2_checkpoint_path"), ("egnn", "egnn_checkpoint_path")])
+def test_learned_stage_runs_on_cuda_frames(
+    method, path_field, tmp_path, good_params, synthetic_dataset, learned_smoke_checkpoint
+) -> None:
+    """Phase 62 (Research Open Q2): CUDA frames + CPU-loaded checkpoint -> no device mismatch."""
+    ckpt_path = learned_smoke_checkpoint(method)
+    config = EvalConfig(data_path=str(tmp_path / "unused.mat"), **{path_field: ckpt_path})
+    cuda_frames = {k: zRegPointCloud(**dict(v)).to("cuda") for k, v in synthetic_dataset.items()}
+    result = LabelTransferStage(config).run(cuda_frames, cuda_frames, {**good_params, "method": method})
+    for tk, frame in cuda_frames.items():
+        labels = result.transferred_labels[tk]
+        assert labels.device.type == "cuda"
+        assert labels.shape == (frame["pos"].shape[0],)

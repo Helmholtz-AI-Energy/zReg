@@ -847,7 +847,8 @@ class _ContractPropulateSearch:
 
 
 def test_run_threads_propulate_contract_rank0_all_failed(tmp_path, monkeypatch) -> None:
-    """Propulate branch: rank 0's history is already global; the gather adds no duplicate."""
+    """Propulate branch: each rank contributes its own real trials; rank 0's returned
+    pairs are matched against them, never duplicated (Phase 62 RD-5/RD-6)."""
     hub, opts, cfgs = _rank_optimizers(tmp_path, [[_FAIL_K], [_OK_K]], strategy="propulate")
     monkeypatch.setattr(_ContractPropulateSearch, "hub", hub)
     monkeypatch.setattr(optimizer_module, "PropulateSearch", _ContractPropulateSearch)
@@ -885,11 +886,31 @@ class _SuccessDroppingSearch:
         return []
 
 
-def test_success_missing_from_history_raises(tmp_path, monkeypatch) -> None:
-    """A success that never reaches the merged history is not silently persisted as {}."""
+def test_propulate_success_omitted_from_return_is_persisted(tmp_path, monkeypatch) -> None:
+    """Phase 62 RD-5: a success the strategy omits from its return value keeps its real payload."""
     cfg = _num05_cfg(tmp_path, [_OK_K], strategy="propulate")
     monkeypatch.setattr(optimizer_module, "PropulateSearch", _SuccessDroppingSearch)
+    result = HyperparamOptimizer(cfg).run()
+    assert len(result.history) == 1
+    trial = result.history[0]
+    assert trial.metrics.chamfer_distance > 0.0
+    assert optimizer_module.PROPULATE_PLACEHOLDER_FLAG not in trial.flags
+    assert result.best_params["k_neighbours"] == _OK_K
+    history = _read_json(Path(cfg.output_dir).resolve() / "search_history.json")
+    assert len(history) == 1
+    assert history[0]["metrics"]["chamfer_distance"] > 0.0
+
+
+def test_success_missing_from_history_still_raises(tmp_path, monkeypatch) -> None:
+    """Defensive rule: successes were counted but no trial reached the merged history."""
+    cfg = _num05_cfg(tmp_path, [_OK_K])
     opt = HyperparamOptimizer(cfg)
+
+    def _counted_but_lost(_output_dir):
+        opt._n_succeeded = 1
+        return []
+
+    monkeypatch.setattr(opt, "_run_tiers", _counted_but_lost)
     with pytest.raises(RuntimeError, match="No successful HPO trial reached rank 0"):
         opt.run()
     assert _read_json(Path(cfg.output_dir).resolve() / "failed_trials.json") == []
@@ -1158,3 +1179,79 @@ def test_objective_cpd_weighted_all_bad_fails_trial(tmp_path, monkeypatch, caplo
     assert opt._failed_trials[0]["error_type"] == "ValueError"
     assert "every receiver point" in opt._failed_trials[0]["error"]
     assert "frame 0" in opt._failed_trials[0]["error"]
+
+
+# ---------------------------------------------------------------------------
+# Phase 62 (62-06, Review cycle 1 HIGH, 59-REVIEW IN-09b): under Propulate the
+# real evaluated Trial (metrics and flags) reaches rank 0; returned individuals
+# without an evaluation record of this run become flagged placeholders.
+# ---------------------------------------------------------------------------
+
+
+def test_run_threads_propulate_preserves_real_trial_flags(tmp_path, monkeypatch) -> None:
+    """Only rank 1 evaluates; its real flagged Trial is what rank 0 persists."""
+    hub, opts, cfgs = _rank_optimizers(tmp_path, [[_OK_K], [_OK_K]], strategy="propulate")
+    monkeypatch.setattr(_ContractPropulateSearch, "hub", hub)
+    monkeypatch.setattr(_ContractPropulateSearch, "idle_ranks", (0,))
+    monkeypatch.setattr(optimizer_module, "PropulateSearch", _ContractPropulateSearch)
+    monkeypatch.setattr(optimizer_module, "LabelTransferStage", _FlaggingLabelTransferStage)
+    results, errors = _run_in_rank_threads(hub, [opts[0].run, opts[1].run])
+    assert errors == [None, None]
+    history = _read_json(Path(cfgs[0].output_dir).resolve() / "search_history.json")
+    assert len(history) == 1
+    entry = history[0]
+    assert entry["flags"] == [_TEST_FLAG]
+    assert optimizer_module.PROPULATE_PLACEHOLDER_FLAG not in entry["flags"]
+    assert math.isfinite(entry["metrics"]["chamfer_distance"])
+    assert entry["metrics"]["chamfer_distance"] > 0.0
+    assert entry["params"]["k_neighbours"] == _OK_K
+    assert results[0].history[0].flags == [_TEST_FLAG]
+    assert opts[0]._comm.calls == ["gather", "bcast"]
+    assert opts[1]._comm.calls == ["gather", "bcast"]
+
+
+def _real_trial(k: int, score: float) -> Trial:
+    metrics = _zero_metrics().model_copy(update={"chamfer_distance": 0.25})
+    return Trial(params={"k_neighbours": k}, score=score, metrics=metrics, tier="sanity",
+                 flags=["frame 0: real"])
+
+
+def test_propulate_placeholders_skip_matched_real_trial() -> None:
+    """A returned pair with the params and score of a real Trial adds nothing."""
+    merged = [_real_trial(3, 0.4)]
+    assert optimizer_module._propulate_placeholders(merged, [("dev", {"k_neighbours": 3}, 0.4)]) == []
+
+
+def test_propulate_placeholders_dedup_across_tiers() -> None:
+    """The same unmatched pair returned by two tiers yields one flagged placeholder (first tier)."""
+    returned = [("sanity", {"k_neighbours": 5}, 0.7), ("dev", {"k_neighbours": 5}, 0.7)]
+    out = optimizer_module._propulate_placeholders([], returned)
+    assert len(out) == 1
+    placeholder = out[0]
+    assert placeholder.flags == [optimizer_module.PROPULATE_PLACEHOLDER_FLAG]
+    assert placeholder.tier == "sanity"
+    assert placeholder.params == {"k_neighbours": 5}
+    assert placeholder.score == 0.7
+    assert placeholder.metrics == _zero_metrics()
+
+
+def test_propulate_placeholders_skip_non_finite_scores() -> None:
+    """NaN and -inf returned scores never become placeholders."""
+    returned = [("sanity", {"k_neighbours": 5}, float("nan")),
+                ("sanity", {"k_neighbours": 6}, float("-inf"))]
+    assert optimizer_module._propulate_placeholders([], returned) == []
+
+
+def test_propulate_placeholders_score_mismatch_is_placeholder() -> None:
+    """Equal params but a different score is not the same evaluation: placeholder."""
+    merged = [_real_trial(3, 0.4)]
+    out = optimizer_module._propulate_placeholders(merged, [("sanity", {"k_neighbours": 3}, 0.5)])
+    assert len(out) == 1
+    assert out[0].flags == [optimizer_module.PROPULATE_PLACEHOLDER_FLAG]
+    assert out[0].score == 0.5
+
+
+def test_propulate_placeholder_flag_is_public() -> None:
+    """RD-8: the flag constant is public API; the helper stays private."""
+    assert "PROPULATE_PLACEHOLDER_FLAG" in optimizer_module.__all__
+    assert "_propulate_placeholders" not in optimizer_module.__all__

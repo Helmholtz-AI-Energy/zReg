@@ -183,3 +183,136 @@ def test_maxswd_grad_leak():
     loss.backward()
     assert R.grad is not None
     assert torch.isfinite(R.grad).all()
+
+
+# ---------------------------------------------------------------------------
+# Unequal point counts: 1-D quantile coupling (DIST-04, metric side)
+# ---------------------------------------------------------------------------
+
+
+def _is_non_decreasing(t):
+    return bool((t[1:] >= t[:-1]).all())
+
+
+def test_coupling_hand_reference():
+    """The unscaled quantile coupling of x=[0,1,5], y=[0.5,2] costs 79/24."""
+    ix, iy, w = sw_varients._coupling_indices(3, 2, device="cpu")
+    xs = torch.tensor([0.0, 1.0, 5.0], dtype=torch.float64)
+    ys = torch.tensor([0.5, 2.0], dtype=torch.float64)
+    cost = (w * (xs[ix] - ys[iy]) ** 2).sum().item()
+    assert cost == pytest.approx(79 / 24, rel=1e-12)
+    assert w.sum().item() == pytest.approx(1.0, rel=1e-12)
+    assert _is_non_decreasing(ix) and _is_non_decreasing(iy)
+    assert int(ix.min()) >= 0 and int(ix.max()) <= 2
+    assert int(iy.min()) >= 0 and int(iy.max()) <= 1
+
+
+def test_coupling_equal_n_is_identity_pairing():
+    ix, iy, w = sw_varients._coupling_indices(5, 5, device="cpu")
+    assert torch.equal(ix, torch.arange(5))
+    assert torch.equal(iy, torch.arange(5))
+    assert torch.allclose(w, torch.full((5,), 0.2, dtype=w.dtype))
+
+
+def test_coupling_symmetric():
+    ix, iy, w = sw_varients._coupling_indices(7, 4, device="cpu")
+    jx, jy, v = sw_varients._coupling_indices(4, 7, device="cpu")
+    assert torch.equal(ix, jy)
+    assert torch.equal(iy, jx)
+    assert torch.equal(w, v)
+
+
+@pytest.mark.parametrize("swap", [False, True])
+@pytest.mark.parametrize("name", ALL_VARIANTS)
+def test_unequal_n_all_variants(name, swap):
+    """Every variant returns a finite scalar for N != M (previously a size-mismatch crash)."""
+    x, y = _clouds(n=80, m=60)
+    if swap:
+        x, y = y, x
+    torch.manual_seed(0)
+    result = _make(name)(x, y)
+    assert result.ndim == 0
+    assert torch.isfinite(result)
+
+
+def test_unequal_n_duplicate_scaling():
+    """Sort-sum variants use the legacy max(N, M) cardinality scaling (assumption A3).
+
+    The underlying quantile coupling is exact, but the reported value is
+    max(N, M) times the weighted coupling cost, so it depends on sample
+    multiplicity by design: duplicating every target point (M = 2N) doubles the
+    value. It is the legacy "sum over points" convention, NOT the normalised
+    empirical Wasserstein distance.
+    """
+    x, y = _clouds(n=30)
+    x, y = x.unsqueeze(0), y.unsqueeze(0)
+    y_dup = y.repeat(1, 2, 1)
+    g =torch.Generator().manual_seed(5)
+    P = torch.randn(1, 16, 3, generator=g)
+    P = P / P.norm(dim=2, keepdim=True)
+    base, _ = sw_varients.compute_practical_moments_sw_with_predefined_projections(x, y, P)
+    dup, _ = sw_varients.compute_practical_moments_sw_with_predefined_projections(x, y_dup, P)
+    assert dup.item() == pytest.approx(2 * base.item(), rel=1e-5)
+
+
+@pytest.mark.parametrize("swap", [False, True])
+def test_pswd_unequal_n_hand_reference(swap):
+    """PSWD's unequal-N branch is a weighted mean with NO max(N, M) factor.
+
+    All points lie on the x-axis, so for any projection with a non-zero
+    x-component both clouds sort by x in the same direction; the quantile
+    coupling costs 79/24 in x and 0 in y/z, and PSWD averages over the 3
+    coordinates: 79/72.
+    """
+    x = torch.tensor([[0.0, 0, 0], [1, 0, 0], [5, 0, 0]], dtype=torch.float64)
+    y = torch.tensor([[0.5, 0, 0], [2, 0, 0]], dtype=torch.float64)
+    if swap:
+        x, y = y, x
+    torch.manual_seed(0)
+    value = sw_varients.ProjectedWassersteinDistance(num_projs=20, device="cpu")(x, y)
+    assert value.item() == pytest.approx(79 / 72, rel=1e-12)
+
+
+def test_pswd_unequal_n_duplication_invariant():
+    """PSWD (weighted mean) is invariant to duplicating every target point.
+
+    Contrast with the sort-sum variants (test_unequal_n_duplicate_scaling),
+    whose max(N, M)-scaled value doubles under the same duplication.
+    """
+    x, y = _clouds(n=80, m=60)
+    y_dup = y.repeat(2, 1)
+    torch.manual_seed(0)
+    base = sw_varients.ProjectedWassersteinDistance(num_projs=20, device="cpu")(x, y)
+    torch.manual_seed(0)
+    dup = sw_varients.ProjectedWassersteinDistance(num_projs=20, device="cpu")(x, y_dup)
+    assert dup.item() == pytest.approx(base.item(), rel=1e-5)
+
+
+@pytest.mark.parametrize("case", ["x_empty", "y_empty", "both_empty"])
+@pytest.mark.parametrize("name", ALL_VARIANTS)
+def test_empty_point_set_rejected(name, case):
+    full = torch.randn(20, 3)
+    empty = torch.zeros(0, 3)
+    x = empty if case in ("x_empty", "both_empty") else full
+    y = empty if case in ("y_empty", "both_empty") else full
+    with pytest.raises(ValueError, match="empty"):
+        _make(name)(x, y)
+
+
+def test_coupling_indices_rejects_empty():
+    with pytest.raises(ValueError, match="empty"):
+        sw_varients._coupling_indices(0, 3, device="cpu")
+    with pytest.raises(ValueError, match="empty"):
+        sw_varients._coupling_indices(3, 0, device="cpu")
+
+
+@pytest.mark.parametrize("name", ["swd", "pswd"])
+def test_unequal_n_gradients_flow(name):
+    torch.manual_seed(1)
+    x = torch.randn(50, 3, requires_grad=True)
+    y = torch.randn(30, 3)
+    torch.manual_seed(0)
+    _make(name)(x, y).backward()
+    assert x.grad is not None
+    assert torch.isfinite(x.grad).all()
+    assert x.grad.abs().sum() > 0

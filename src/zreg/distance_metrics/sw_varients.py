@@ -44,6 +44,88 @@ def _sample_minibatch_orthogonal_projections(batch_size, dim, num_projections):
     return projections
 
 
+def _coupling_indices(n, m, device):
+    """Index pairs and weights of the 1-D quantile coupling of two empirical measures.
+
+    The optimal (monotone) coupling between the uniform empirical measures on
+    ``n`` and ``m`` sorted atoms transports mass ``w[k]`` from the ``ix[k]``-th
+    smallest atom of the first measure to the ``iy[k]``-th smallest atom of the
+    second. The breakpoints of the two quantile functions are the multiples
+    ``i * m`` and ``j * n`` on the common grid ``[0, n * m]``; consecutive
+    breakpoints delimit at most ``n + m - 1`` segments. For ``n == m`` the
+    coupling is the identity pairing with weights ``1 / n``.
+
+    Parameters
+    ----------
+    n, m : int
+        Number of atoms of the two measures.
+    device : str or torch.device
+        Device of the returned tensors.
+
+    Returns
+    -------
+    ix, iy : torch.LongTensor
+        Non-decreasing indices into the sorted atoms, shape ``[K]``.
+    w : torch.Tensor
+        float64 weights summing to 1, shape ``[K]``; cast to the data dtype at use.
+
+    Raises
+    ------
+    ValueError
+        If ``n <= 0`` or ``m <= 0`` (empty point set).
+    """
+    if n <= 0 or m <= 0:
+        raise ValueError(f"Cannot couple an empty point set: got n={n}, m={m}")
+    b = torch.unique(
+        torch.cat(
+            [
+                torch.arange(1, n + 1, device=device) * m,
+                torch.arange(1, m + 1, device=device) * n,
+            ]
+        )
+    )  # sorted breakpoints in (0, n * m]
+    w = torch.diff(b, prepend=b.new_zeros(1)).to(torch.float64) / (n * m)
+    ix = (b + m - 1) // m - 1
+    iy = (b + n - 1) // n - 1
+    return ix, iy, w
+
+
+def _sorted_pow_sum(xproj, yproj, degree):
+    """Per-projection sum of ``|sort(x) - sort(y)|**degree`` for the sort-sum SW variants.
+
+    Parameters
+    ----------
+    xproj : torch.Tensor
+        Projected source data, shape ``[B, L, N]``.
+    yproj : torch.Tensor
+        Projected target data, shape ``[B, L, M]``.
+    degree : float
+        Exponent ``p``.
+
+    Returns
+    -------
+    torch.Tensor
+        Shape ``[B, L]``.
+
+    Notes
+    -----
+    For ``N == M`` this is exactly the legacy expression (sum over the paired
+    sorted points; bit-identical). For ``N != M`` the sorted projections are
+    paired by the 1-D quantile coupling (:func:`_coupling_indices`) and the
+    weighted coupling cost is multiplied by ``max(N, M)`` so magnitudes stay
+    comparable to the equal-N "sum over points" convention (legacy max(N, M)
+    cardinality scaling). The coupling itself is exact, but the scaled value
+    depends on sample multiplicity by design: duplicating every point of one
+    cloud doubles it. It is not the normalised empirical Wasserstein distance.
+    """
+    n, m = xproj.shape[2], yproj.shape[2]
+    if n == m:
+        return torch.sum(torch.pow(torch.abs(torch.sort(xproj)[0] - torch.sort(yproj)[0]), degree), dim=2)
+    ix, iy, w = _coupling_indices(n, m, device=xproj.device)
+    diff = torch.sort(xproj)[0][:, :, ix] - torch.sort(yproj)[0][:, :, iy]
+    return max(n, m) * torch.sum(torch.pow(torch.abs(diff), degree) * w.to(diff.dtype), dim=2)
+
+
 def compute_practical_moments_sw(x, y, num_projections=30, degree=2.0, **kwargs):
     """
     x, y: [batch_size, num_points, dim=3]
@@ -66,9 +148,7 @@ def compute_practical_moments_sw(x, y, num_projections=30, degree=2.0, **kwargs)
 
     yproj = y.bmm(projections.transpose(1, 2))
 
-    _sort = torch.sort(xproj.transpose(1, 2))[0] - torch.sort(yproj.transpose(1, 2))[0]
-
-    _sort_pow_p_get_sum = torch.sum(torch.pow(torch.abs(_sort), degree), dim=2)
+    _sort_pow_p_get_sum = _sorted_pow_sum(xproj.transpose(1, 2), yproj.transpose(1, 2), degree)
 
     first_moment = _sort_pow_p_get_sum.mean(dim=1)
     second_moment = _sort_pow_p_get_sum.pow(2).mean(dim=1)
@@ -85,9 +165,7 @@ def compute_practical_moments_sw_with_predefined_projections(x, y, projections, 
 
     yproj = y.bmm(projections.transpose(1, 2))
 
-    _sort = torch.sort(xproj.transpose(1, 2))[0] - torch.sort(yproj.transpose(1, 2))[0]
-
-    _sort_pow_p_get_sum = torch.sum(torch.pow(torch.abs(_sort), degree), dim=2)
+    _sort_pow_p_get_sum = _sorted_pow_sum(xproj.transpose(1, 2), yproj.transpose(1, 2), degree)
 
     first_moment = _sort_pow_p_get_sum.mean(dim=1)
     second_moment = _sort_pow_p_get_sum.pow(2).mean(dim=1)
@@ -96,9 +174,7 @@ def compute_practical_moments_sw_with_predefined_projections(x, y, projections, 
 
 
 def _compute_practical_moments_sw_with_projected_data(xproj, yproj, degree=2.0, **kwargs):
-    _sort = torch.sort(xproj.transpose(1, 2))[0] - torch.sort(yproj.transpose(1, 2))[0]
-
-    _sort_pow_p_get_sum = torch.sum(torch.pow(torch.abs(_sort), degree), dim=2)
+    _sort_pow_p_get_sum = _sorted_pow_sum(xproj.transpose(1, 2), yproj.transpose(1, 2), degree)
 
     first_moment = _sort_pow_p_get_sum.mean(dim=1)
     second_moment = _sort_pow_p_get_sum.pow(2).mean(dim=1)
@@ -167,6 +243,27 @@ class BaseWD(nn.Module):
         self.nobatchdim = nobatchdim
 
     def forward(self, x, y, *args, **kwargs):
+        """Compute the distance between point clouds ``x`` and ``y``.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            Source points, shape ``[N, D]`` or ``[B, N, D]``.
+        y : torch.Tensor
+            Target points, shape ``[M, D]`` or ``[B, M, D]``. ``M`` may differ
+            from ``N`` (1-D quantile coupling; see :func:`_sorted_pow_sum`).
+
+        Returns
+        -------
+        torch.Tensor
+            Scalar distance.
+
+        Raises
+        ------
+        ValueError
+            If ``x`` or ``y`` contains non-finite values, has fewer than two
+            dimensions, or is an empty point set (``N == 0`` or ``M == 0``).
+        """
         _validate_tensors(x, y, names=["x", "y"])
 
         # Validate minimum dimensions before unsqueeze to avoid silent shape errors
@@ -174,6 +271,11 @@ class BaseWD(nn.Module):
             raise ValueError(
                 f"Expected x and y to have at least 2 dimensions (n_points, dim), "
                 f"but got x.ndim={x.ndim}, y.ndim={y.ndim}"
+            )
+        if x.shape[-2] == 0 or y.shape[-2] == 0:
+            raise ValueError(
+                f"Sliced Wasserstein distances need non-empty point sets, but got an empty x or y: "
+                f"x.shape={tuple(x.shape)}, y.shape={tuple(y.shape)}"
             )
 
         xsqueeze = False
@@ -207,7 +309,8 @@ class SlicedWassersteinDistance(BaseWD):
 
     def _forward(self, x, y, *args, **kwargs):
         """
-        x, y have the same shape of [batch_size, num_points_in_point_cloud, dim_of_1_point]
+        x: [batch_size, N, dim], y: [batch_size, M, dim]; N and M may differ (1-D quantile
+        coupling under the legacy max(N, M) cardinality scaling, see _sorted_pow_sum)
         """
         squared_sw_2, _ = compute_practical_moments_sw(x, y, num_projections=self.num_projs)
         squared_sw_2 = squared_sw_2.mean(dim=0)
@@ -343,7 +446,8 @@ class MaxSlicedWassersteinDistance(BaseWD):
 
     def _forward(self, x, y, *args, **kwargs):
         """
-        x, y have the same shape of [batch_size, num_points_in_point_cloud, dim_of_1_point]
+        x: [batch_size, N, dim], y: [batch_size, M, dim]; N and M may differ (1-D quantile
+        coupling under the legacy max(N, M) cardinality scaling, see _sorted_pow_sum)
         """
         dim = x.size(2)
         # generate on CPU (unchanged RNG stream), then follow the input dtype/device
@@ -363,9 +467,7 @@ class MaxSlicedWassersteinDistance(BaseWD):
 
             yproj = yd.bmm(projections.transpose(1, 2))
 
-            _sort = torch.sort(xproj.transpose(1, 2))[0] - torch.sort(yproj.transpose(1, 2))[0]
-
-            _sort_pow_2_get_sum = torch.sum(torch.pow(_sort, 2), dim=2)
+            _sort_pow_2_get_sum = _sorted_pow_sum(xproj.transpose(1, 2), yproj.transpose(1, 2), 2.0)
 
             negative_first_moment = -(_sort_pow_2_get_sum.mean(dim=1))
 
@@ -394,7 +496,8 @@ class OrthogonalSlicedWassersteinDistance(BaseWD):
 
     def _forward(self, x, y, *args, **kwargs):
         """
-        x, y have the same shape of [batch_size, num_points_in_point_cloud, dim_of_1_point]
+        x: [batch_size, N, dim], y: [batch_size, M, dim]; N and M may differ (1-D quantile
+        coupling under the legacy max(N, M) cardinality scaling, see _sorted_pow_sum)
         """
         dim = x.shape[2]
         if self.num_projs > dim:
@@ -433,7 +536,8 @@ class GeneralisedSlicedWassersteinDistance(BaseWD):
 
     def _forward(self, x, y, *args, **kwargs):
         """
-        x, y have the same shape of [batch_size, num_points_in_point_cloud, dim_of_1_point]
+        x: [batch_size, N, dim], y: [batch_size, M, dim]; N and M may differ (1-D quantile
+        coupling under the legacy max(N, M) cardinality scaling, see _sorted_pow_sum)
         """
         dim = x.size(2)
         batch_size = x.size(0)
@@ -459,6 +563,15 @@ class GeneralisedSlicedWassersteinDistance(BaseWD):
 class ProjectedWassersteinDistance(BaseWD):
     """
     Projected Wasserstein distance was proposed in paper "Orthogonal estimation of Wasserstein Distance - AISTATS'19"
+
+    Points are paired by their order along each random projection and the
+    squared differences of the paired points are averaged (a mean, not a sum).
+    For unequal point counts (N != M) the points are paired by the 1-D
+    quantile coupling (:func:`_coupling_indices`) and the result is the
+    weighted analogue of that mean (weights sum to 1). Deliberately there is
+    NO max(N, M) factor here, unlike the sort-sum variants: N == M stays
+    bit-identical and continuous, and the value is invariant to duplicating
+    every point of a cloud.
     """
 
     def __init__(self, num_projs, device=None, orthogonal=False, nobatchdim=True, **kwargs):
@@ -468,7 +581,8 @@ class ProjectedWassersteinDistance(BaseWD):
 
     def _forward(self, x, y, *args, **kwargs):
         """
-        x, y have the same shape of [batch_size, num_points_in_point_cloud, dim_of_1_point]
+        x: [batch_size, N, dim], y: [batch_size, M, dim]; N and M may differ (1-D quantile
+        coupling as a weighted mean, no max(N, M) factor; see the class docstring)
         """
 
         dim = x.size(2)
@@ -489,5 +603,14 @@ class ProjectedWassersteinDistance(BaseWD):
         _sorted_x = torch.stack([x[i][xproj_argsort[i]] for i in range(x.shape[0])], dim=0)
         _sorted_y = torch.stack([y[i][yproj_argsort[i]] for i in range(y.shape[0])], dim=0)
 
-        loss = torch.mean((_sorted_x - _sorted_y) ** 2)
+        n, m = x.shape[1], y.shape[1]
+        if n == m:
+            loss = torch.mean((_sorted_x - _sorted_y) ** 2)
+            return loss
+        # unequal N: quantile coupling as a weighted mean over points (weights
+        # sum to 1); deliberately no max(N, M) factor -- see the class docstring
+        ix, iy, w = _coupling_indices(n, m, device=x.device)
+        sx = _sorted_x[:, :, ix]  # [B, L, K, dim]
+        sy = _sorted_y[:, :, iy]
+        loss = (((sx - sy) ** 2) * w.to(x.dtype)[None, None, :, None]).sum(dim=2).mean()
         return loss

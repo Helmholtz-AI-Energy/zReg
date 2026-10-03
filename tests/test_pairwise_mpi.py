@@ -18,6 +18,7 @@ Two layers of evidence:
   ``mpirun -n 2`` with a subprocess timeout (skipped without mpirun/mpi4py).
 """
 
+import copy
 import json
 import os
 import shutil
@@ -59,11 +60,11 @@ class ThreadComm:
         return self._local.rank
 
     def allgather(self, obj):
-        # The production row is a NumPy view of the tensor; copy so the later
+        # The production row is a NumPy view of the tensor; deep-copy so the later
         # tensor writeback can never mutate a stored payload (real MPI pickles).
-        self._slots[self.rank] = np.array(obj, copy=True)
+        self._slots[self.rank] = copy.deepcopy(obj)
         self._barrier.wait()
-        out = [np.array(s, copy=True) for s in self._slots]
+        out = [copy.deepcopy(s) for s in self._slots]
         self._barrier.wait()
         return out
 
@@ -167,3 +168,76 @@ def test_mpirun_two_ranks(which, tmp_path):
         report = json.loads(path.read_text())
         assert report["rank"] == r
         assert report["equal"] is True, f"rank {r} matrix differs from serial: {report}"
+
+
+_FAIL_MARKER = 999.0
+
+
+def _failing_metric(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """Euclidean-like metric that raises for the frame tagged with ``_FAIL_MARKER``."""
+    if bool((a == _FAIL_MARKER).any()):
+        raise ValueError("synthetic pair failure")
+    return torch.linalg.norm(a.mean(0) - b.mean(0))
+
+
+def _call_failing(which: str, x, y, mpi_distribute: bool):
+    if which == "create":
+        return pm.create_pairwise_distance_matrix(
+            x, y, normalize=False, distance_metric=_failing_metric, mpi_distribute=mpi_distribute,
+        )
+    return pm.create_pairwise_distance_matrix_given_rigid_rot(
+        x, y, rotation=torch.eye(3), translation=torch.zeros(3), scale=1.0,
+        normalize=False, distance_metric=_failing_metric, mpi_distribute=mpi_distribute,
+    )
+
+
+@pytest.mark.parametrize("which", ["create", "given_rigid_rot"])
+@pytest.mark.parametrize("fail_frame", [0, 1], ids=["fail-on-rank0", "fail-on-rank1"])
+def test_thread_ranks_pair_failure_raises_on_every_rank(which, fail_frame):
+    """A pair failing on one rank raises RuntimeError on every rank instead of deadlocking (WR-01).
+
+    x=3, y=1, 2 ranks: pair (k, 0) is owned by rank k % 2, so tagging frame 0 or 1
+    makes exactly one rank fail.
+    """
+    torch.manual_seed(0)
+    x, y = _frames(3), _frames(1)
+    x[fail_frame]["pos"][0, 0] = _FAIL_MARKER
+
+    results, errors, hung = run_ranks(lambda: _call_failing(which, x, y, mpi_distribute=True), 2)
+
+    assert not any(hung), f"ranks hung after a pair failure: {hung}"
+    for r, err in enumerate(errors):
+        assert isinstance(err, RuntimeError), f"rank {r} did not raise RuntimeError: {err!r}"
+        assert f"rank {fail_frame % 2}" in str(err)
+        assert f"pair ({fail_frame}, 0)" in str(err)
+        assert "synthetic pair failure" in str(err)
+    owner = errors[fail_frame % 2]
+    assert isinstance(owner.__cause__, ValueError), "failing rank must chain the original exception"
+
+
+@pytest.mark.parametrize("which", ["create", "given_rigid_rot"])
+def test_serial_pair_failure_raises_original_exception(which):
+    """Without MPI the original exception propagates unchanged (WR-01 keeps the serial path)."""
+    torch.manual_seed(0)
+    x, y = _frames(2), _frames(1)
+    x[1]["pos"][0, 0] = _FAIL_MARKER
+    with pytest.raises(ValueError, match="synthetic pair failure"):
+        _call_failing(which, x, y, mpi_distribute=False)
+
+
+def test_mpirun_two_ranks_pair_failure(tmp_path):
+    """Real ``mpirun -n 2``: a pair failing on rank 1 makes both ranks raise, no deadlock (WR-01)."""
+    mpirun = _require_mpi()
+    try:
+        proc = subprocess.run(
+            [mpirun, "-n", "2", sys.executable, str(_WORKER), "create_fail", "3", str(tmp_path)],
+            capture_output=True,
+            timeout=_MPIRUN_TIMEOUT_S,
+            env=dict(os.environ),
+        )
+    except subprocess.TimeoutExpired:
+        pytest.fail(f"pair failure on one rank deadlocked mpirun -n 2 (WR-01) within {_MPIRUN_TIMEOUT_S} s")
+    assert proc.returncode == 0, f"mpirun failed: stderr={proc.stderr.decode(errors='replace')!r}"
+    for r in (0, 1):
+        report = json.loads((tmp_path / f"rank_{r}.json").read_text())
+        assert report["raised"] == "RuntimeError", f"rank {r}: {report}"

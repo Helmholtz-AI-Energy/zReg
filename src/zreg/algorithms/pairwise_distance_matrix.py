@@ -179,6 +179,9 @@ def create_pairwise_distance_matrix(
 
     # Initialize the loop counter and timing dictionary
     full_counter = 0
+    # First local per-pair failure under MPI (WR-01); raised on every rank after the row gather
+    pair_error: str | None = None
+    pair_exc: Exception | None = None
     times = {
         "copy": [],
         "norm": [],
@@ -201,125 +204,135 @@ def create_pairwise_distance_matrix(
 
         # Iterate over the samples in the second set of data within the window
         for j in range(window_min, window_max):
-            if full_counter % size != rank and mpi_distribute:
+            owner = full_counter % size
+            full_counter += 1
+            # Pairs owned by another rank, and the rest of a row after a local pair
+            # failure, contribute 0.0 to the row sum-combine.
+            if (mpi_distribute and owner != rank) or pair_error is not None:
                 distance_matrix[:, i, j] = 0.0
-                full_counter += 1
                 continue
-            t0 = time.perf_counter()
-            # copies to avoid overwriting...
-            xi = deepcopy(x[x_keys[i]])
-            yj = deepcopy(y[y_keys[j]])
-            tc = time.perf_counter()
-            times["copy"].append(tc - t0)
+            try:
+                t0 = time.perf_counter()
+                # copies to avoid overwriting...
+                xi = deepcopy(x[x_keys[i]])
+                yj = deepcopy(y[y_keys[j]])
+                tc = time.perf_counter()
+                times["copy"].append(tc - t0)
 
-            # normalize the smaller point cloud to the largest
-            src_min = src_max = tgt_min = tgt_max = None
-            if normalize:
-                # source = copy.deepcopy(pcs[0])
-                downsampling.remove_outliers_knn(xi, inplace=True)
-                downsampling.remove_outliers_knn(yj, inplace=True)
+                # normalize the smaller point cloud to the largest
+                src_min = src_max = tgt_min = tgt_max = None
+                if normalize:
+                    # source = copy.deepcopy(pcs[0])
+                    downsampling.remove_outliers_knn(xi, inplace=True)
+                    downsampling.remove_outliers_knn(yj, inplace=True)
 
-                # xi, yj = downsampling.random_down_sample(xi, yj)
-                xi["pos"], (src_min, src_max) = utils.normalize_point_cloud(xi["pos"])
-                yj["pos"], (tgt_min, tgt_max) = utils.normalize_point_cloud(yj["pos"])
-                # xi["pos"], yj["pos"], _ = utils.normalize_to_pc_w_most_points(xi["pos"], yj["pos"])
-            tn = time.perf_counter()
-            times["norm"].append(tn - tc)
+                    # xi, yj = downsampling.random_down_sample(xi, yj)
+                    xi["pos"], (src_min, src_max) = utils.normalize_point_cloud(xi["pos"])
+                    yj["pos"], (tgt_min, tgt_max) = utils.normalize_point_cloud(yj["pos"])
+                    # xi["pos"], yj["pos"], _ = utils.normalize_to_pc_w_most_points(xi["pos"], yj["pos"])
+                tn = time.perf_counter()
+                times["norm"].append(tn - tc)
 
-            # downsample the point could to be the same size
-            xi, yj = downsample_fn(xi, yj)
-            tdn = time.perf_counter()
-            times["downsample"].append(tdn - tn)
+                # downsample the point could to be the same size
+                xi, yj = downsample_fn(xi, yj)
+                tdn = time.perf_counter()
+                times["downsample"].append(tdn - tn)
 
-            # do CPD registration to transform *yj*
-            # this means that yj is the source and xi is the target
-            cpd_metric = torch.inf
-            if cpd_type is not None:
-                tf_params = {"device": xi["pos"].device, "dtype": xi["pos"].dtype}
-                if cpd_type == "nonrigid":
-                    cpd_obj = cpd.NonRigidCPD(source=xi["pos"], use_color=False, log_freq=-1)
-                elif cpd_type == "affine":
-                    cpd_obj = cpd.AffineCPD(
-                        source=xi["pos"], use_color=False, tf_init_params=tf_params, log_freq=-1
+                # do CPD registration to transform *yj*
+                # this means that yj is the source and xi is the target
+                cpd_metric = torch.inf
+                if cpd_type is not None:
+                    tf_params = {"device": xi["pos"].device, "dtype": xi["pos"].dtype}
+                    if cpd_type == "nonrigid":
+                        cpd_obj = cpd.NonRigidCPD(source=xi["pos"], use_color=False, log_freq=-1)
+                    elif cpd_type == "affine":
+                        cpd_obj = cpd.AffineCPD(
+                            source=xi["pos"], use_color=False, tf_init_params=tf_params, log_freq=-1
+                        )
+                    elif cpd_type == "rigid":
+                        cpd_obj = cpd.RigidCPD(
+                            source=xi["pos"], use_color=False, tf_init_params=tf_params, log_freq=-1
+                        )
+                    reg = cpd_obj.registration(yj["pos"], w=0.0, maxiter=1000, tol=1e-5)
+
+                    xi["pos"] = cpd_obj.transformation.transform(xi["pos"])
+                    if hasattr(reg.transformation, "rot"):
+                        rots.append(reg.transformation.rot.unsqueeze(0))
+                    cpd_metric = _cpd_dtw_cost(reg)
+                    # Store the transform and normalisation params for reuse in _build_aligned_cloud.
+                    # Only store when normalize=True: when normalize=False, src_min/src_max/tgt_min/
+                    # tgt_max remain None and the reuse path in _build_aligned_cloud would apply
+                    # normalisation that was never done in Step 1, corrupting the output (CR-02).
+                    #
+                    # cpd_type == "nonrigid" is excluded from caching: NonRigidTransformation
+                    # retains a dense (n_points, n_points) RBF kernel matrix (see
+                    # zreg.core.transforms.nonrigid.NonRigidTransformation.g). With real, full-resolution
+                    # point clouds (tens of thousands of points/frame) and a windowed sweep touching
+                    # thousands of (i, j) pairs, retaining one of these per pair grows this dict
+                    # unboundedly into the hundreds of GB, exhausting memory/swap well before the
+                    # sweep completes. _build_aligned_cloud already has a tested, correctness-
+                    # preserving fallback for missing cache entries (D-10: fresh CPD from raw data,
+                    # eval/stages/alignment.py) — losing the nonrigid cache only means that fallback
+                    # runs for the (bounded, ~len(target)) frames actually selected by the DTW warp
+                    # path, instead of reusing a precomputed transform.
+                    if normalize and cpd_type != "nonrigid":
+                        stored_transforms[(i, j)] = StoredTransform(
+                            transform=reg.transformation,
+                            src_min=src_min,
+                            src_max=src_max,
+                            tgt_min=tgt_min,
+                            tgt_max=tgt_max,
+                        )
+                    del cpd_obj, reg  # release GPU tensors held by CPD internals
+                tcpd = time.perf_counter()
+                times["cpd"].append(tcpd - tdn)
+
+                # distance calculations
+                dists = []
+                for fn in distance_fns:
+                    if fn is None:
+                        dists.append(cpd_metric)
+                        continue
+                    if hasattr(fn, "projs_history"):
+                        # cleanup ASWD projection history file
+                        fn.remove_history()
+                    dist = fn(xi["pos"], yj["pos"])
+                    if dist.numel() > 1:
+                        dist = dist.mean()
+                    dists.append(dist)
+                tdist = time.perf_counter()
+                times["distance"].append(tdist - tcpd)
+
+                for di in range(len(distance_fns)):
+                    distance_matrix[di, i, j] = dists[di]
+
+                tf = time.perf_counter()
+                times["total"].append(tf - t0)
+
+                if full_counter in log_intervals:
+                    tc = sum(times["copy"]) / float(len(times["copy"]))
+                    tn = sum(times["norm"]) / float(len(times["norm"]))
+                    tdn = sum(times["downsample"]) / float(len(times["downsample"]))
+                    tcpd = sum(times["cpd"]) / float(len(times["cpd"]))
+                    tdi = sum(times["distance"]) / float(len(times["distance"]))
+                    tt = sum(times["total"]) / float(len(times["total"]))
+                    log.info(
+                        f"iteration {full_counter + 1}/{num_dist_elems + 1}: time: full: {tt:.4f}, copy: {tc:.4f}, "
+                        f"norm: {tn:.4f}, downsample: {tdn:.4f}, cpd: {tcpd:.4f}, distance: {tdi:.4f}"
                     )
-                elif cpd_type == "rigid":
-                    cpd_obj = cpd.RigidCPD(
-                        source=xi["pos"], use_color=False, tf_init_params=tf_params, log_freq=-1
-                    )
-                reg = cpd_obj.registration(yj["pos"], w=0.0, maxiter=1000, tol=1e-5)
-
-                xi["pos"] = cpd_obj.transformation.transform(xi["pos"])
-                if hasattr(reg.transformation, "rot"):
-                    rots.append(reg.transformation.rot.unsqueeze(0))
-                cpd_metric = _cpd_dtw_cost(reg)
-                # Store the transform and normalisation params for reuse in _build_aligned_cloud.
-                # Only store when normalize=True: when normalize=False, src_min/src_max/tgt_min/
-                # tgt_max remain None and the reuse path in _build_aligned_cloud would apply
-                # normalisation that was never done in Step 1, corrupting the output (CR-02).
-                #
-                # cpd_type == "nonrigid" is excluded from caching: NonRigidTransformation
-                # retains a dense (n_points, n_points) RBF kernel matrix (see
-                # zreg.core.transforms.nonrigid.NonRigidTransformation.g). With real, full-resolution
-                # point clouds (tens of thousands of points/frame) and a windowed sweep touching
-                # thousands of (i, j) pairs, retaining one of these per pair grows this dict
-                # unboundedly into the hundreds of GB, exhausting memory/swap well before the
-                # sweep completes. _build_aligned_cloud already has a tested, correctness-
-                # preserving fallback for missing cache entries (D-10: fresh CPD from raw data,
-                # eval/stages/alignment.py) — losing the nonrigid cache only means that fallback
-                # runs for the (bounded, ~len(target)) frames actually selected by the DTW warp
-                # path, instead of reusing a precomputed transform.
-                if normalize and cpd_type != "nonrigid":
-                    stored_transforms[(i, j)] = StoredTransform(
-                        transform=reg.transformation,
-                        src_min=src_min,
-                        src_max=src_max,
-                        tgt_min=tgt_min,
-                        tgt_max=tgt_max,
-                    )
-                del cpd_obj, reg  # release GPU tensors held by CPD internals
-            tcpd = time.perf_counter()
-            times["cpd"].append(tcpd - tdn)
-
-            # distance calculations
-            dists = []
-            for fn in distance_fns:
-                if fn is None:
-                    dists.append(cpd_metric)
-                    continue
-                if hasattr(fn, "projs_history"):
-                    # cleanup ASWD projection history file
-                    fn.remove_history()
-                dist = fn(xi["pos"], yj["pos"])
-                if dist.numel() > 1:
-                    dist = dist.mean()
-                dists.append(dist)
-            tdist = time.perf_counter()
-            times["distance"].append(tdist - tcpd)
-
-            for di in range(len(distance_fns)):
-                distance_matrix[di, i, j] = dists[di]
-
-            full_counter += 1  # noqa: E741
-            tf = time.perf_counter()
-            times["total"].append(tf - t0)
-
-            if full_counter in log_intervals:
-                tc = sum(times["copy"]) / float(len(times["copy"]))
-                tn = sum(times["norm"]) / float(len(times["norm"]))
-                tdn = sum(times["downsample"]) / float(len(times["downsample"]))
-                tcpd = sum(times["cpd"]) / float(len(times["cpd"]))
-                tdi = sum(times["distance"]) / float(len(times["distance"]))
-                tt = sum(times["total"]) / float(len(times["total"]))
-                log.info(
-                    f"iteration {full_counter + 1}/{num_dist_elems + 1}: time: full: {tt:.4f}, copy: {tc:.4f}, "
-                    f"norm: {tn:.4f}, downsample: {tdn:.4f}, cpd: {tcpd:.4f}, distance: {tdi:.4f}"
-                )
-            if full_counter == 1:
-                log.debug("end of first iteration")
+                if full_counter == 1:
+                    log.debug("end of first iteration")
+            except Exception as exc:  # noqa: BLE001 - re-raised on every rank after the row gather
+                if not (mpi_distribute and hasmpi):
+                    raise
+                # Raising here would leave the other ranks blocked in this row's allgather
+                # (WR-01). Record the failure; _allgather_row shares it with every rank.
+                pair_error, pair_exc = f"pair ({i}, {j}): {type(exc).__name__}: {exc}", exc
+                distance_matrix[:, i, j] = 0.0
 
         # Per-row timing log, only when this rank computed pairs in the row. No `continue`
         # here: the per-row allgather below must be reached by every rank (DIST-01).
-        if times["copy"]:
+        if times["total"]:  # "total" is appended only by a completed pair (WR-01)
             tc = sum(times["copy"]) / float(len(times["copy"]))
             tn = sum(times["norm"]) / float(len(times["norm"]))
             tdn = sum(times["downsample"]) / float(len(times["downsample"]))
@@ -346,7 +359,8 @@ def create_pairwise_distance_matrix(
 
         # sync up mpi things: every rank joins the row collective, even without local pairs
         if mpi_distribute and hasmpi:
-            _allgather_row(comm_world, distance_matrix, i, rank)
+            failures = _allgather_row(comm_world, distance_matrix, i, rank, error=pair_error)
+            _raise_pair_failures(failures, pair_exc)
     rotations = torch.cat(rots, dim=0) if len(rots) > 0 else None
     return PairwiseResult(
         cost_matrix=distance_matrix,
@@ -420,6 +434,9 @@ def create_pairwise_distance_matrix_given_rigid_rot(
 
     # Initialize the loop counter and timing dictionary
     full_counter = 0
+    # First local per-pair failure under MPI (WR-01); raised on every rank after the row gather
+    pair_error: str | None = None
+    pair_exc: Exception | None = None
     times = {
         "copy": [],
         "norm": [],
@@ -446,74 +463,84 @@ def create_pairwise_distance_matrix_given_rigid_rot(
 
         # Iterate over the samples in the second set of data within the window
         for j in range(window_min, window_max):
-            if full_counter % size != rank and mpi_distribute:
+            owner = full_counter % size
+            full_counter += 1
+            # Pairs owned by another rank, and the rest of a row after a local pair
+            # failure, contribute 0.0 to the row sum-combine.
+            if (mpi_distribute and owner != rank) or pair_error is not None:
                 distance_matrix[:, i, j] = 0.0
-                full_counter += 1
                 continue
-            t0 = time.perf_counter()
-            # copies to avoid overwriting...
-            xi = deepcopy(x[x_keys[i]])
-            yj = deepcopy(y[y_keys[j]])
-            tc = time.perf_counter()
-            # normalize the smaller point cloud to the largest
-            if normalize:
-                # source = copy.deepcopy(pcs[0])
-                downsampling.remove_outliers_knn(xi, inplace=True)
-                downsampling.remove_outliers_knn(yj, inplace=True)
+            try:
+                t0 = time.perf_counter()
+                # copies to avoid overwriting...
+                xi = deepcopy(x[x_keys[i]])
+                yj = deepcopy(y[y_keys[j]])
+                tc = time.perf_counter()
+                # normalize the smaller point cloud to the largest
+                if normalize:
+                    # source = copy.deepcopy(pcs[0])
+                    downsampling.remove_outliers_knn(xi, inplace=True)
+                    downsampling.remove_outliers_knn(yj, inplace=True)
 
-                # xi, yj = downsampling.random_down_sample(xi, yj)
-                xi["pos"], _ = utils.normalize_point_cloud(xi["pos"])
-                yj["pos"], _ = utils.normalize_point_cloud(yj["pos"])
-                # xi["pos"], yj["pos"], _ = utils.normalize_to_pc_w_most_points(xi["pos"], yj["pos"])
-            tn = time.perf_counter()
-            # downsample the point could to be the same size
-            xi, yj = downsample_fn(xi, yj)
-            tdn = time.perf_counter()
+                    # xi, yj = downsampling.random_down_sample(xi, yj)
+                    xi["pos"], _ = utils.normalize_point_cloud(xi["pos"])
+                    yj["pos"], _ = utils.normalize_point_cloud(yj["pos"])
+                    # xi["pos"], yj["pos"], _ = utils.normalize_to_pc_w_most_points(xi["pos"], yj["pos"])
+                tn = time.perf_counter()
+                # downsample the point could to be the same size
+                xi, yj = downsample_fn(xi, yj)
+                tdn = time.perf_counter()
 
-            # CHANGE FROM OTHER THINGS ----------
-            # do rotation here
-            xi["pos"] = trans.transform(xi["pos"])
-            trot = time.perf_counter()
+                # CHANGE FROM OTHER THINGS ----------
+                # do rotation here
+                xi["pos"] = trans.transform(xi["pos"])
+                trot = time.perf_counter()
 
-            # distance calculations
-            dists = []
-            for fn in distance_fns:
-                if fn is None:
-                    continue
-                if hasattr(fn, "projs_history"):
-                    # cleanup ASWD projection history file
-                    fn.remove_history()
-                dist = fn(xi["pos"], yj["pos"])
-                if dist.numel() > 1:
-                    dist = dist.mean()
-                dists.append(dist)
-            tdist = time.perf_counter()
+                # distance calculations
+                dists = []
+                for fn in distance_fns:
+                    if fn is None:
+                        continue
+                    if hasattr(fn, "projs_history"):
+                        # cleanup ASWD projection history file
+                        fn.remove_history()
+                    dist = fn(xi["pos"], yj["pos"])
+                    if dist.numel() > 1:
+                        dist = dist.mean()
+                    dists.append(dist)
+                tdist = time.perf_counter()
 
-            for di in range(len(distance_fns)):
-                distance_matrix[di, i, j] = dists[di]
+                for di in range(len(distance_fns)):
+                    distance_matrix[di, i, j] = dists[di]
 
-            full_counter += 1  # noqa: E741
-            tf = time.perf_counter()
-            times["copy"].append(tc - t0)
-            times["norm"].append(tn - tc)
-            times["downsample"].append(tdn - tn)
-            times["rot"].append(trot - tdn)
-            times["distance"].append(tdist - trot)
-            times["total"].append(tf - t0)
+                tf = time.perf_counter()
+                times["copy"].append(tc - t0)
+                times["norm"].append(tn - tc)
+                times["downsample"].append(tdn - tn)
+                times["rot"].append(trot - tdn)
+                times["distance"].append(tdist - trot)
+                times["total"].append(tf - t0)
 
-            if full_counter in log_intervals:
-                tc = sum(times["copy"]) / float(len(times["copy"]))
-                tn = sum(times["norm"]) / float(len(times["norm"]))
-                tdn = sum(times["downsample"]) / float(len(times["downsample"]))
-                trt = sum(times["rot"]) / float(len(times["rot"]))
-                tdi = sum(times["distance"]) / float(len(times["distance"]))
-                tt = sum(times["total"]) / float(len(times["total"]))
-                log.info(
-                    f"iteration {full_counter + 1}/{num_dist_elems + 1}: time: full: {tt:.4f}, copy: {tc:.4f}, "
-                    f"norm: {tn:.4f}, downsample: {tdn:.4f}, rot: {trt:.4f}, distance: {tdi:.4f}"
-                )
-            if full_counter == 1:
-                log.debug("end of first iteration")
+                if full_counter in log_intervals:
+                    tc = sum(times["copy"]) / float(len(times["copy"]))
+                    tn = sum(times["norm"]) / float(len(times["norm"]))
+                    tdn = sum(times["downsample"]) / float(len(times["downsample"]))
+                    trt = sum(times["rot"]) / float(len(times["rot"]))
+                    tdi = sum(times["distance"]) / float(len(times["distance"]))
+                    tt = sum(times["total"]) / float(len(times["total"]))
+                    log.info(
+                        f"iteration {full_counter + 1}/{num_dist_elems + 1}: time: full: {tt:.4f}, copy: {tc:.4f}, "
+                        f"norm: {tn:.4f}, downsample: {tdn:.4f}, rot: {trt:.4f}, distance: {tdi:.4f}"
+                    )
+                if full_counter == 1:
+                    log.debug("end of first iteration")
+            except Exception as exc:  # noqa: BLE001 - re-raised on every rank after the row gather
+                if not (mpi_distribute and hasmpi):
+                    raise
+                # Raising here would leave the other ranks blocked in this row's allgather
+                # (WR-01). Record the failure; _allgather_row shares it with every rank.
+                pair_error, pair_exc = f"pair ({i}, {j}): {type(exc).__name__}: {exc}", exc
+                distance_matrix[:, i, j] = 0.0
 
         # Per-row timing log, only when this rank computed pairs in the row. No `continue`
         # here: the per-row allgather below must be reached by every rank (DIST-01).
@@ -538,13 +565,16 @@ def create_pairwise_distance_matrix_given_rigid_rot(
 
         # sync up mpi things: every rank joins the row collective, even without local pairs
         if mpi_distribute and hasmpi:
-            _allgather_row(comm_world, distance_matrix, i, rank)
+            failures = _allgather_row(comm_world, distance_matrix, i, rank, error=pair_error)
+            _raise_pair_failures(failures, pair_exc)
     # if len(rots) > 0:
     #     rots = torch.cat(rots, dim=0)
     return distance_matrix
 
 
-def _allgather_row(comm, distance_matrix: torch.Tensor, i: int, rank: int) -> None:
+def _allgather_row(
+    comm, distance_matrix: torch.Tensor, i: int, rank: int, error: str | None = None
+) -> list[tuple[int, str]]:
     """Combine row ``i`` of an MPI-distributed cost matrix across all ranks, in place.
 
     ``allgather`` is a collective and collectives match by call order, so every rank
@@ -554,6 +584,10 @@ def _allgather_row(comm, distance_matrix: torch.Tensor, i: int, rank: int) -> No
 
     The sum-combine is exact: each in-window entry is computed by exactly one rank and
     is 0.0 on every other rank, and out-of-window entries are inf on all ranks.
+
+    Each rank also contributes its first per-pair failure (or None), so every rank learns
+    of a failure on any rank in the same collective and can raise in lock-step instead
+    of leaving the other ranks blocked in the next row's allgather (WR-01).
 
     Parameters
     ----------
@@ -566,14 +600,44 @@ def _allgather_row(comm, distance_matrix: torch.Tensor, i: int, rank: int) -> No
         Row (x frame position) to combine.
     rank : int
         Rank of the caller (used only for the debug timing log).
+    error : str | None, optional
+        Description of this rank's first failed pair, or None. By default, None.
+
+    Returns
+    -------
+    list[tuple[int, str]]
+        ``(rank, error)`` for every rank that reported a failure; empty if none did.
+        Identical on every rank.
     """
     tcomm = time.perf_counter()
     row = distance_matrix[:, i].cpu().numpy()
-    gathered = comm.allgather(row)
-    combined = sum(gathered)
+    gathered = comm.allgather((row, error))
+    combined = sum(r for r, _ in gathered)
     distance_matrix[:, i] = torch.tensor(combined, device=distance_matrix.device, dtype=distance_matrix.dtype)
     if rank == 0:
         log.debug("MPI allgather row %d: %.4f s", i, time.perf_counter() - tcomm)
+    return [(r, err) for r, (_, err) in enumerate(gathered) if err is not None]
+
+
+def _raise_pair_failures(failures: list[tuple[int, str]], local_exc: Exception | None) -> None:
+    """Raise on every rank if any rank reported a failed pair (WR-01).
+
+    Parameters
+    ----------
+    failures : list[tuple[int, str]]
+        ``(rank, error)`` pairs returned by :func:`_allgather_row`.
+    local_exc : Exception | None
+        This rank's own exception, chained as ``__cause__`` when present.
+
+    Raises
+    ------
+    RuntimeError
+        If ``failures`` is non-empty.
+    """
+    if not failures:
+        return
+    detail = "; ".join(f"rank {r}: {err}" for r, err in failures)
+    raise RuntimeError(f"MPI-distributed pairwise sweep failed on {len(failures)} rank(s): {detail}") from local_exc
 
 
 def _cpd_dtw_cost(reg: cpd.MstepResult) -> torch.Tensor:
@@ -587,9 +651,10 @@ def _cpd_dtw_cost(reg: cpd.MstepResult) -> torch.Tensor:
     ``q = N_P*D/2*(1 + log sigma2)`` is negative for sigma2 < 1/e and extensive in N, and
     negative or offset local costs bias the DTW dynamic programme towards long paths (D-02).
 
-    A non-finite sigma2 is passed through unchanged rather than raised here: raising
-    inside one rank of an MPI-distributed sweep could block the other ranks, and failure
-    propagation for the sweep is Phase 61's scope.
+    A non-finite sigma2 is passed through unchanged rather than raised here. Exceptions
+    raised while computing a pair (CPD, normalisation, distance) are propagated in an
+    MPI-distributed sweep by the per-row gather: every rank raises a ``RuntimeError``
+    naming the failed pair (see ``_allgather_row`` / ``_raise_pair_failures``).
 
     Parameters
     ----------

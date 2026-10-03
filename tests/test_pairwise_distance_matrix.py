@@ -644,7 +644,7 @@ class TestMPIPaths:
         comm = MagicMock()
         comm.rank = rank
         comm.size = size
-        comm.allgather.side_effect = lambda row: [row, np.zeros_like(row)]
+        comm.allgather.side_effect = lambda payload: [payload, (np.zeros_like(payload[0]), None)]
         return comm
 
     def test_mpi_rank_without_local_pairs_joins_allgather(self):

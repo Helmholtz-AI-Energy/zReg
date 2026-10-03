@@ -169,3 +169,24 @@ def test_every_config_dtw_dist_fn_is_supported():
     assert not bad, (
         f"unsupported dtw_dist_fn values (allowed: {SUPPORTED_DTW_DIST_FNS}):\n" + "\n".join(bad)
     )
+
+
+def test_f1_unavailable_configs_have_zero_f1_weight():
+    """No config weights an F1 that cannot be computed (Phase 63 D-05, D-09).
+
+    When ``f1_unavailable_reason(cfg)`` is not ``None`` the F1 score is
+    zero-filled, so a positive ``f1`` weight only shifts every score by a
+    constant and misreports the composite.  Applies to all configs, not only
+    HPO ones.
+    """
+    from eval.runners._label_direction import f1_unavailable_reason
+
+    offending = []
+    for path in YAMLS:
+        cfg = EvalConfig.from_yaml(path)
+        if f1_unavailable_reason(cfg) is not None and cfg.metric_weights.get("f1", 0.0) != 0.0:
+            offending.append(f"{path.relative_to(REPO_ROOT)} (f1={cfg.metric_weights['f1']})")
+    assert not offending, (
+        f"F1 is unavailable by construction but weighted > 0 in {len(offending)} file(s):\n"
+        + "\n".join(offending)
+    )

@@ -122,3 +122,36 @@ def test_given_rigid_rot_cpd_raises_valueerror(frames, metric):
             rotation=torch.eye(3), translation=torch.zeros(3),
             normalize=False, distance_metric=metric,
         )
+
+
+_WR05_MSG = "without a downsample_method"
+
+
+def _sanitize_with(metric, downsample_method, caplog):
+    x = {0: zRegPointCloud(pos=torch.randn(10, 3))}
+    with caplog.at_level("WARNING", logger="zreg.algorithms.pairwise_distance_matrix"):
+        _sanitize_pairwise_distance_matrix(
+            distance_kwargs=None, distance_metrics=metric, downsample_method=downsample_method, x=x, y=x,
+        )
+    return [r for r in caplog.records if _WR05_MSG in r.getMessage()]
+
+
+@pytest.mark.parametrize("cls_name", ["SlicedWassersteinDistance", "OrthogonalSlicedWassersteinDistance"])
+def test_callable_sort_sum_sw_without_downsampling_warns(cls_name, caplog):
+    """A sort-sum SW instance without downsampling warns about max(N, M) cost scaling (61 WR-05)."""
+    metric = getattr(pm.distances, cls_name)(num_projs=3)
+    hits = _sanitize_with(metric, None, caplog)
+    assert len(hits) == 1 and cls_name in hits[0].getMessage()
+
+
+@pytest.mark.parametrize(
+    "metric_factory, downsample_method",
+    [
+        (lambda: pm.distances.SlicedWassersteinDistance(num_projs=3), "random"),
+        (lambda: pm.distances.ProjectedWassersteinDistance(num_projs=3), None),
+        (lambda: pm.distances.euclidean_distance, None),
+    ],
+    ids=["swd-with-downsampling", "pswd-weighted-mean", "plain-callable"],
+)
+def test_no_warning_when_cost_is_not_cardinality_scaled(metric_factory, downsample_method, caplog):
+    assert _sanitize_with(metric_factory(), downsample_method, caplog) == []

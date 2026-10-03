@@ -798,6 +798,20 @@ def _sanitize_pairwise_distance_matrix(distance_kwargs, distance_metrics, downsa
             # Pass it through directly without string dispatch or downsampling requirement.
             distance_fn = dist
             distance_metrics[c] = distance_fn
+            # Sort-sum SW variants scale the coupling cost by max(N, M) for unequal point
+            # counts, so without downsampling the local DTW cost depends on frame cardinality
+            # (61 WR-05). String SW metrics require downsampling; warn for instances.
+            if (
+                downsample_method is None
+                and isinstance(dist, distances.sw_varients.BaseWD)
+                and not isinstance(dist, distances.sw_varients.ProjectedWassersteinDistance)
+            ):
+                log.warning(
+                    "%s used without a downsample_method: for frames with unequal point counts "
+                    "the cost is scaled by max(N, M), so DTW costs depend on point cardinality. "
+                    "Set downsample_method or use ProjectedWassersteinDistance (weighted mean).",
+                    type(dist).__name__,
+                )
             continue
 
         if dist == "swd":

@@ -3,7 +3,6 @@
 
 import torch
 import torch.nn as nn
-from torch.autograd import Variable
 from pathlib import Path
 import os
 import tempfile
@@ -312,34 +311,57 @@ class AdaptiveSlicedWassersteinDistance(BaseWD):
 
 
 class MaxSlicedWassersteinDistance(BaseWD):
-    """
+    """Max-sliced Wasserstein distance.
+
     Max-SW distance was proposed in paper "Max-Sliced Wasserstein Distance and its use for GANs" - CVPR'19
     The way to estimate it was proposed in paper "Generalized Sliced Wasserstein Distance" - NeurIPS'19
+
+    A single projection direction is optimised with Adam to maximise the
+    sliced distance; the distance is then evaluated along the optimised
+    direction. The inner maximisation runs on detached copies of the inputs,
+    so it never back-propagates into the caller's graph; only the final
+    evaluation is differentiable with respect to ``x`` and ``y``.
+
+    Parameters
+    ----------
+    device : str or torch.device, optional
+        Device to use for computation.
+    nobatchdim : bool, default True
+        If True, always treat inputs as unbatched (add batch dim).
+    max_sw_num_iters : int, default 50
+        Number of Adam steps of the inner projection maximisation. A
+        ``max_sw_num_iters`` keyword passed to ``forward`` overrides it.
+    max_sw_lr : float, default 1e-4
+        Adam learning rate of the inner projection maximisation. A
+        ``max_sw_lr`` keyword passed to ``forward`` overrides it.
     """
 
-    def __init__(self, device=None, nobatchdim=True, **kwargs):
+    def __init__(self, device=None, nobatchdim=True, max_sw_num_iters=50, max_sw_lr=1e-4, **kwargs):
         super().__init__(nobatchdim=nobatchdim, device=device)
+        self.max_sw_num_iters = max_sw_num_iters
+        self.max_sw_lr = max_sw_lr
 
     def _forward(self, x, y, *args, **kwargs):
         """
         x, y have the same shape of [batch_size, num_points_in_point_cloud, dim_of_1_point]
         """
         dim = x.size(2)
-        projections = Variable(
-            minibatch_rand_projections(batchsize=x.size(0), dim=dim, num_projections=1),
-            requires_grad=True,
-        )
+        # generate on CPU (unchanged RNG stream), then follow the input dtype/device
+        projections = minibatch_rand_projections(batchsize=x.size(0), dim=dim, num_projections=1)
+        projections = projections.to(dtype=x.dtype, device=x.device).requires_grad_(True)
         # projs.shape: [batchsize, num_projs, dim]
 
-        num_iter = kwargs.get("max_sw_num_iters") if "max_sw_num_iters" in kwargs.keys() else 50
-        lr = kwargs.get("max_sw_lr") if "max_sw_lr" in kwargs else 1e-4
+        num_iter = kwargs.get("max_sw_num_iters", self.max_sw_num_iters)
+        lr = kwargs.get("max_sw_lr", self.max_sw_lr)
         optimizer = torch.optim.Adam([projections], lr=lr)
 
+        # the inner maximisation must not reach the caller's graph (U3-new-1)
+        xd, yd = x.detach(), y.detach()
         for i in range(num_iter):
             # compute loss
-            xproj = x.bmm(projections.transpose(1, 2))
+            xproj = xd.bmm(projections.transpose(1, 2))
 
-            yproj = y.bmm(projections.transpose(1, 2))
+            yproj = yd.bmm(projections.transpose(1, 2))
 
             _sort = torch.sort(xproj.transpose(1, 2))[0] - torch.sort(yproj.transpose(1, 2))[0]
 
@@ -350,7 +372,7 @@ class MaxSlicedWassersteinDistance(BaseWD):
             # perform optimization
             optimizer.zero_grad()
             hold = negative_first_moment.mean()
-            hold.backward(retain_graph=True)
+            hold.backward()
             optimizer.step()
             # project onto unit sphere (in-place to preserve Adam's parameter reference)
             projections.data = proj_onto_unit_sphere(projections.data)
@@ -416,6 +438,7 @@ class GeneralisedSlicedWassersteinDistance(BaseWD):
         dim = x.size(2)
         batch_size = x.size(0)
         projections = minibatch_rand_projections(batch_size, dim, self.num_projs)
+        projections = projections.to(dtype=x.dtype, device=x.device)
 
         if self.g_type == "circular":
             xproj = _circular(x, projections)
@@ -452,8 +475,10 @@ class ProjectedWassersteinDistance(BaseWD):
         batch_size = x.size(0)
         if self.orthogonal:
             projections = _sample_minibatch_orthogonal_projections(batch_size, dim, self.num_projs)
+            projections = projections.to(dtype=x.dtype, device=x.device)
         else:
             projections = minibatch_rand_projections(batch_size, dim, self.num_projs)
+            projections = projections.to(dtype=x.dtype, device=x.device)
         # print(projections)
         xproj = _linear(x, projections).transpose(1, 2)  # [bs, num_slices, num_points]
         yproj = _linear(y, projections).transpose(1, 2)  # [bs, num_slices, num_points]

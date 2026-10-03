@@ -60,3 +60,93 @@ def test_supported_dtw_dist_fns_is_public():
     import eval.config
 
     assert "SUPPORTED_DTW_DIST_FNS" in eval.config.__all__
+
+
+# --- EvalConfig validator (Phase 63 D-08 part 3) -----------------------------
+
+
+def test_search_space_cosine_rejected(tmp_path):
+    """A search space listing cosine is a construction error naming key, value and allowed set."""
+    from pydantic import ValidationError
+
+    from eval.config import EvalConfig
+
+    with pytest.raises(ValidationError, match=r"search_space\.dtw_dist_fn") as exc:
+        EvalConfig(
+            data_path=str(tmp_path / "data.mat"),
+            search_space={"dtw_dist_fn": ["euclidean", "cosine"]},
+        )
+    msg = str(exc.value)
+    assert "'cosine'" in msg
+    assert "euclidean" in msg
+
+
+def test_default_params_swd_rejected(tmp_path):
+    """default_params.dtw_dist_fn='swd' needs downsampling, which AlignmentStage disables."""
+    from pydantic import ValidationError
+
+    from eval.config import EvalConfig
+
+    with pytest.raises(ValidationError, match=r"default_params\.dtw_dist_fn"):
+        EvalConfig(data_path=str(tmp_path / "data.mat"), default_params={"dtw_dist_fn": "swd"})
+
+
+def test_scalar_search_space_value_rejected(tmp_path):
+    """A scalar search_space value is checked as a one-element list."""
+    from pydantic import ValidationError
+
+    from eval.config import EvalConfig
+
+    with pytest.raises(ValidationError, match=r"search_space\.dtw_dist_fn"):
+        EvalConfig(data_path=str(tmp_path / "data.mat"), search_space={"dtw_dist_fn": "cosine"})
+
+
+def test_from_yaml_cosine_raises_eval_config_error(tmp_path):
+    """from_yaml surfaces the validator as EvalConfigError carrying the key path."""
+    from eval.config import EvalConfig, EvalConfigError
+
+    p = tmp_path / "cfg.yaml"
+    p.write_text(
+        f"data_path: {tmp_path / 'data.mat'}\n"
+        "search_space:\n"
+        "  dtw_dist_fn: [euclidean, cosine]\n"
+    )
+    with pytest.raises(EvalConfigError, match="dtw_dist_fn"):
+        EvalConfig.from_yaml(p)
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"default_params": {"dtw_dist_fn": "cpd"}},
+        {"search_space": {"dtw_dist_fn": ["euclidean", "cpd"]}},
+        {"search_space": {"dtw_dist_fn": "manhattan"}},
+        {},
+        {"default_params": {"window_size": 10}, "search_space": {"step": [1, 2]}},
+    ],
+    ids=["default-cpd", "search-euclidean-cpd", "search-scalar", "no-key", "other-keys"],
+)
+def test_valid_values_construct(tmp_path, kwargs):
+    """Supported values and configs without dtw_dist_fn construct fine."""
+    from eval.config import EvalConfig
+
+    EvalConfig(data_path=str(tmp_path / "data.mat"), **kwargs)
+
+
+def test_model_validate_revalidates_merged_params(tmp_path):
+    """model_validate re-runs the validator; model_copy(update=...) does not.
+
+    This is why merged warm-start params must be re-validated through
+    ``EvalConfig.model_validate`` (Phase 63-07, baseline_experiments/scripts/run_all.py)
+    instead of being applied with ``model_copy``.
+    """
+    from pydantic import ValidationError
+
+    from eval.config import EvalConfig
+
+    cfg = EvalConfig(data_path=str(tmp_path / "data.mat"), default_params={"dtw_dist_fn": "euclidean"})
+    merged = {**cfg.default_params, "dtw_dist_fn": "cosine"}
+    with pytest.raises(ValidationError, match=r"default_params\.dtw_dist_fn"):
+        EvalConfig.model_validate({**cfg.model_dump(), "default_params": merged})
+    copied = cfg.model_copy(update={"default_params": merged})
+    assert copied.default_params["dtw_dist_fn"] == "cosine"

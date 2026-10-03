@@ -688,3 +688,47 @@ class EvalConfig(BaseModel):
                 "labels from the target would score the wrong cloud"
             )
         return self
+
+    @model_validator(mode="after")
+    def validate_dtw_dist_fn(self) -> "EvalConfig":
+        """Reject a ``dtw_dist_fn`` the alignment stage cannot run (Phase 63 D-08).
+
+        Checks ``default_params['dtw_dist_fn']`` (when present) and every
+        element of ``search_space['dtw_dist_fn']`` (a scalar is treated as a
+        one-element list) against ``SUPPORTED_DTW_DIST_FNS``.  Without this
+        check an unsupported value such as ``cosine`` only failed inside each
+        HPO trial, which was then scored ``-inf``.
+
+        Returns
+        -------
+        EvalConfig
+            The validated model instance (self).
+
+        Raises
+        ------
+        ValueError
+            If a ``dtw_dist_fn`` value is not in ``SUPPORTED_DTW_DIST_FNS``.
+            The message names the key path (``default_params.dtw_dist_fn`` or
+            ``search_space.dtw_dist_fn``), the bad value and the allowed set.
+
+        Notes
+        -----
+        Runs on construction, ``model_validate`` and ``from_yaml``; NOT on
+        ``model_copy(update=...)``, so callers that merge params must
+        re-validate (see baseline_experiments/scripts/run_all.py, Phase 63-07).
+        """
+        checks: list[tuple[str, object]] = []
+        if "dtw_dist_fn" in self.default_params:
+            checks.append(("default_params.dtw_dist_fn", self.default_params["dtw_dist_fn"]))
+        if "dtw_dist_fn" in self.search_space:
+            values = self.search_space["dtw_dist_fn"]
+            if not isinstance(values, (list, tuple)):
+                values = [values]
+            checks.extend(("search_space.dtw_dist_fn", v) for v in values)
+        for key_path, value in checks:
+            if value not in SUPPORTED_DTW_DIST_FNS:
+                raise ValueError(
+                    f"{key_path}={value!r} is not a supported DTW distance; "
+                    f"allowed: {SUPPORTED_DTW_DIST_FNS}"
+                )
+        return self

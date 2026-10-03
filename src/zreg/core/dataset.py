@@ -52,6 +52,40 @@ class zRegPointCloud(dict):  # dict[str, torch.Tensor]
         return o3dtgeo.PointCloud(map_to_tensors)
 
 
+def _canonical_colour(raw):
+    """Normalise one tracklet colour to a Python scalar or a tuple.
+
+    ``scipy.io.loadmat(..., simplify_cells=True, squeeze_me=True)`` returns a
+    scalar colour as a Python ``int``/``float`` and an RGB colour as a numpy
+    array, so the raw value cannot be assumed to have ``tolist``.
+
+    Parameters
+    ----------
+    raw : int | float | bool | numpy.ndarray | numpy.generic | torch.Tensor
+        Raw colour value of one tracklet.
+
+    Returns
+    -------
+    int | float | bool | tuple
+        Python ``int``/``float``/``bool`` scalars pass through unchanged.
+        Anything with a ``tolist`` method (numpy array, numpy scalar, torch
+        tensor) is converted with ``tolist()``; a resulting list of length 1
+        is unwrapped to its element and any other list becomes a ``tuple``
+        (an RGB colour).
+    """
+    if isinstance(raw, (bool, int, float)):
+        return raw
+    if hasattr(raw, "tolist"):
+        value = raw.tolist()
+    else:
+        value = raw
+    if isinstance(value, (list, tuple)):
+        if len(value) == 1:
+            return value[0]
+        return tuple(value)
+    return value
+
+
 def load_data_from_tracklets(
     filepath: str,
     device: str = "cpu",
@@ -85,7 +119,8 @@ def load_data_from_tracklets(
     FileNotFoundError
         If the specified file path does not exist.
     ValueError
-        If the file does not contain valid tracklet data
+        If the file does not contain valid tracklet data, or if it mixes
+        scalar and RGB colours.
 
     Notes
     -----
@@ -96,6 +131,19 @@ def load_data_from_tracklets(
         * endTime: The ending time point of the tracklet.
         * pos: An array of positions (x, y, z) for each time point in the tracklet.
         * id: The ID of the tracklet.
+        * color: A scalar class id or an RGB triple.
+
+    Colours are normalised by ``_canonical_colour`` (Python scalar, or a
+    tuple for RGB). Whether RGB colours are remapped to integer indices is
+    decided over all labels of all non-empty frames, so leading empty frames
+    do not disable the remap; every unique RGB triple maps to the same index
+    in every frame (first-seen order over frames and points). A recording
+    that mixes scalar and RGB colours raises ``ValueError``.
+
+    Label dtype is one value for the whole recording: ``torch.long`` when the
+    RGB remap ran, when every colour is an integer, or when every frame is
+    empty; ``torch.float32`` when the colours are float scalars. Empty frames
+    get a ``(0,)`` label tensor of that dtype.
 
     Examples
     --------
@@ -128,7 +176,7 @@ def load_data_from_tracklets(
 
     for idx in range(len(data["tracklets"])):
         tracklet = data["tracklets"][idx]
-        col = tracklet["color"].tolist()
+        col = _canonical_colour(tracklet["color"])
         cellid = tracklet["id"]
 
         # add tracklet to all point cloud entries
@@ -142,26 +190,47 @@ def load_data_from_tracklets(
             pc[j]["id"].append(cellid)
 
     # MATLAB tracklet "color" is often an RGB triple [r, g, b].  When that is
-    # the case, pc[j]["label"] ends up as a list-of-lists and the resulting
-    # tensor is 2-D (n_points, 3), which breaks KNN-voting label transfer that
-    # expects 1-D integer class indices.  Build a globally consistent
-    # color→index mapping so every unique RGB triple maps to the same integer
-    # across all frames.
-    sample_labels = next(iter(pc.values()))["label"]
-    if sample_labels and isinstance(sample_labels[0], (list, tuple)):
+    # the case, pc[j]["label"] ends up as a list of tuples and the resulting
+    # tensor would be 2-D (n_points, 3), which breaks KNN-voting label
+    # transfer that expects 1-D integer class indices.  Decide over ALL labels
+    # of all non-empty frames (leading frames may be empty) and build a
+    # globally consistent colour->index mapping so every unique RGB triple
+    # maps to the same integer across all frames.
+    first_rgb = None
+    first_scalar = None
+    for frame_data in pc.values():
+        for c in frame_data["label"]:
+            if isinstance(c, tuple):
+                if first_rgb is None:
+                    first_rgb = c
+            elif first_scalar is None:
+                first_scalar = c
+        if first_rgb is not None and first_scalar is not None:
+            raise ValueError(
+                f"{filepath}: tracklets use mixed scalar and RGB colours "
+                f"(first scalar {first_scalar!r}, first RGB {first_rgb!r}); "
+                "no mapping between the two representations is defined"
+            )
+
+    if first_rgb is not None:
         color_to_idx: dict[tuple, int] = {}
         for frame_data in pc.values():
             for c in frame_data["label"]:
-                key = tuple(c)
-                if key not in color_to_idx:
-                    color_to_idx[key] = len(color_to_idx)
+                if c not in color_to_idx:
+                    color_to_idx[c] = len(color_to_idx)
         for frame_data in pc.values():
-            frame_data["label"] = [color_to_idx[tuple(c)] for c in frame_data["label"]]
+            frame_data["label"] = [color_to_idx[c] for c in frame_data["label"]]
+        label_dtype = torch.long
+    elif all(isinstance(c, (bool, int)) for frame_data in pc.values() for c in frame_data["label"]):
+        # integer colours, or no non-empty frame at all
+        label_dtype = torch.long
+    else:
+        label_dtype = torch.float32
 
     for i in pc:
         pc[i] = zRegPointCloud(
             pos=torch.tensor(pc[i]["pos"], device=device),
-            label=torch.tensor(pc[i]["label"], device=device),
+            label=torch.tensor(pc[i]["label"], dtype=label_dtype, device=device),
             id=torch.tensor(pc[i]["id"], device=device),
         )
         # pc[i]["pos"] =

@@ -308,6 +308,122 @@ class TestLoadDataFromTrackletsWithMock:
         assert pc[0]["pos"].device.type == "cpu"
 
 
+class TestTrackletRgbRemapRealMat:
+    """Real ``scipy.io.savemat`` round-trips through ``load_data_from_tracklets``.
+
+    Phase 62-02 (DATA-04, U4-9): colours are canonicalised before use, the
+    RGB remap is decided over all non-empty frames (not frame 0 only), and
+    every frame's label tensor has one consistent dtype (``torch.long`` for
+    RGB or integer colours), empty frames included. No loader stubbing:
+    every case writes and reads a real .mat file.
+    """
+
+    N_FRAMES = 4
+
+    @staticmethod
+    def _write(path, tracklets, n_frames):
+        import numpy as np
+        import scipy.io as sio
+
+        arr = np.empty(len(tracklets), dtype=object)
+        for k, t in enumerate(tracklets):
+            arr[k] = t
+        sio.savemat(path, {"tracklets": arr, "trackletsPerTimePoint": np.zeros(n_frames)})
+        return str(path)
+
+    @staticmethod
+    def _tracklet(tid, start, end, color):
+        import numpy as np
+
+        # 1-based MATLAB times; every tracklet spans >= 2 time points so
+        # squeeze_me keeps pos 2-D.
+        n = end - start + 1
+        pos = np.arange(n * 3, dtype=float).reshape(n, 3) + 10.0 * tid
+        return {"startTime": start, "endTime": end, "pos": pos, "id": tid, "color": color}
+
+    def test_rgb_remap_with_empty_leading_frames(self, tmp_path):
+        import numpy as np
+        from zreg.core.dataset import load_data_from_tracklets
+
+        red = np.array([1.0, 0.0, 0.0])
+        blue = np.array([0.0, 0.0, 1.0])
+        path = self._write(
+            tmp_path / "t.mat",
+            [self._tracklet(1, 3, 4, red), self._tracklet(2, 3, 4, blue), self._tracklet(3, 3, 4, red)],
+            self.N_FRAMES,
+        )
+        pc, _ = load_data_from_tracklets(path)
+
+        assert sorted(pc) == [0, 1, 2, 3]
+        for i in (0, 1):
+            assert pc[i]["label"].shape == (0,)
+            assert pc[i]["label"].dtype == torch.long
+        for i in (2, 3):
+            label = pc[i]["label"]
+            assert label.dim() == 1 and label.dtype == torch.long
+            assert label.shape == (3,)
+            # tracklets 1 and 3 are red, tracklet 2 is blue
+            assert label[0] == label[2]
+            assert label[0] != label[1]
+        assert torch.equal(pc[2]["label"], pc[3]["label"])
+        assert set(pc[2]["label"].tolist()) == {0, 1}
+
+    def test_scalar_int_colours_not_remapped(self, tmp_path):
+        import scipy.io as sio
+        from zreg.core.dataset import load_data_from_tracklets
+
+        path = self._write(
+            tmp_path / "t.mat",
+            [self._tracklet(1, 3, 4, 4), self._tracklet(2, 2, 4, 7)],
+            self.N_FRAMES,
+        )
+        raw = sio.loadmat(path, simplify_cells=True, squeeze_me=True)["tracklets"][0]["color"]
+        # Premise of Review cycle 1 HIGH: real loadmat returns a Python int.
+        assert isinstance(raw, int)
+
+        pc, _ = load_data_from_tracklets(path)
+        assert pc[0]["label"].shape == (0,)
+        assert pc[0]["label"].dtype == torch.long
+        assert pc[1]["label"].tolist() == [7]
+        assert pc[2]["label"].tolist() == [4, 7]
+        assert pc[3]["label"].tolist() == [4, 7]
+        for i in range(self.N_FRAMES):
+            assert pc[i]["label"].dtype == torch.long
+            assert pc[i]["label"].dim() == 1
+
+    def test_zero_time_points_returns_empty(self, tmp_path):
+        """Empty object array and empty trackletsPerTimePoint round-trip as len-0 arrays."""
+        from zreg.core.dataset import load_data_from_tracklets
+
+        path = self._write(tmp_path / "t.mat", [], 0)
+        pc, tracklets = load_data_from_tracklets(path)
+        assert pc == {}
+        assert len(tracklets) == 0
+
+    def test_mixed_scalar_and_rgb_colours_rejected(self, tmp_path):
+        import numpy as np
+        from zreg.core.dataset import load_data_from_tracklets
+
+        path = self._write(
+            tmp_path / "t.mat",
+            [self._tracklet(1, 1, 4, np.array([1.0, 0.0, 0.0])), self._tracklet(2, 1, 4, 4)],
+            self.N_FRAMES,
+        )
+        with pytest.raises(ValueError, match="mixed scalar and RGB colours"):
+            load_data_from_tracklets(path)
+
+    def test_canonical_colour_helper(self):
+        import numpy as np
+        from zreg.core.dataset import _canonical_colour
+
+        assert _canonical_colour(5) == 5
+        assert _canonical_colour(np.int64(5)) == 5
+        assert type(_canonical_colour(np.int64(5))) is int
+        assert _canonical_colour(np.array([1.0, 0.0, 0.0])) == (1.0, 0.0, 0.0)
+        assert _canonical_colour(torch.tensor([1, 2, 3])) == (1, 2, 3)
+        assert _canonical_colour(np.array([9])) == 9
+
+
 class TestDatasetNoOpen3D:
     """Tests for RuntimeError paths when Open3D is unavailable (lines 44, 187, 261)."""
 

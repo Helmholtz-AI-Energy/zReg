@@ -31,6 +31,8 @@ import numpy as np
 import pandas as pd
 
 import eval.viz as viz
+from eval.config import EvalConfig
+from eval.stages.alignment import AlignmentStage
 from eval.types import AlignResult, EvalReport, LabelResult, StageMetrics
 
 
@@ -221,3 +223,67 @@ def test_triptych_suptitle_inside_canvas(triptych_csv, captured, tmp_path: Path)
     _assert_inside(fig, fig._suptitle.get_window_extent(r), "triptych suptitle")
     img = mpimg.imread(out)
     assert img.shape[:2] == (round(4.2 * 150), round(13 * 150))
+
+
+# ---------------------------------------------------------------------------
+# VIZ-02 — source panel mirrors _build_aligned_cloud (source_sorted[::step])
+# ---------------------------------------------------------------------------
+
+
+def _constant_x_trajectory(n_frames: int, seed: int) -> dict[int, zRegPointCloud]:
+    """Frames whose x coordinate equals the frame key (distinct clouds)."""
+    rng = np.random.default_rng(seed)
+    out = {}
+    for k in range(n_frames):
+        pos = np.column_stack([
+            np.full(30, float(k)),
+            rng.normal(size=30),
+            rng.normal(size=30),
+        ])
+        out[k] = zRegPointCloud(
+            pos=torch.tensor(pos, dtype=torch.float32),
+            label=None,
+            id=torch.arange(30),
+        )
+    return out
+
+
+def test_source_panel_matches_aligned_frame_with_step_2(captured, tmp_path: Path) -> None:
+    """With step=2 and 5 source frames, plotted source frames equal the frames used.
+
+    Temporal-only CPD (``cpd_penalty=None``) makes every aligned frame a deep
+    copy of the chosen strided source frame, so the source panel and the
+    aligned panel must show identical point sets for each plotted frame.
+    """
+    source = _constant_x_trajectory(5, seed=1)
+    target = _constant_x_trajectory(5, seed=2)
+    params = {
+        "window_size": 10,
+        "step": 2,
+        "cpd_penalty": None,
+        "dtw_dist_fn": "euclidean",
+        "n_breakpoints": 5,
+        "alignment_method": "cpd",
+    }
+    config = EvalConfig(data_path=str(tmp_path / "unused.mat"))
+    align_result = AlignmentStage(config).run(source, target, params)
+
+    viz.plot_trajectory(align_result, None, source, None, tmp_path, target=target)
+
+    # Save order with a target: source, target, aligned, superposed.
+    assert len(captured) == 4
+    src_fig, _tgt_fig, aln_fig, sup_fig = captured
+    assert len(src_fig.axes) == len(aln_fig.axes) == 3
+    for ax_s, ax_a in zip(src_fig.axes, aln_fig.axes):
+        src_x = np.asarray(ax_s.collections[0]._offsets3d[0])
+        aln_x = np.asarray(ax_a.collections[0]._offsets3d[0])
+        assert ax_s.get_title() == ax_a.get_title()
+        np.testing.assert_array_equal(
+            src_x, aln_x, err_msg=f"{ax_s.get_title()}: source panel shows a different frame"
+        )
+    for ax in sup_fig.axes:
+        np.testing.assert_array_equal(
+            np.asarray(ax.collections[0]._offsets3d[0]),
+            np.asarray(ax.collections[1]._offsets3d[0]),
+            err_msg=f"{ax.get_title()}: superposed source != aligned",
+        )

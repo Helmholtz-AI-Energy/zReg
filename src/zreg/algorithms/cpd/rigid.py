@@ -218,9 +218,9 @@ class RigidCPD(CoherentPointDrift):
             sigma2 = (tr_xp1x - 2.0 * tr_atr + tr_yp1y) / (n_p * dim)
         sigma2 = torch.clamp(sigma2, min=torch.finfo(a.dtype).eps)
 
-        # Objective function
-        q = (tr_xp1x - 2.0 * scale * tr_atr + (scale**2) * tr_yp1y) / (
-            2.0 * sigma2 + dim * n_p * 0.5 * torch.log(sigma2)
-        )
+        # Objective function: M&S negative log-likelihood; may be negative.
+        # DTW uses sigma2, not q (D-02, pairwise_distance_matrix._cpd_dtw_cost).
+        q = (tr_xp1x - 2.0 * scale * tr_atr + (scale**2) * tr_yp1y) / (2.0 * sigma2)
+        q += dim * n_p * 0.5 * torch.log(sigma2)
 
         return MstepResult(tf.RigidTransformation(rot, t, scale), sigma2, q)

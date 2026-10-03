@@ -108,3 +108,37 @@ class TestFixedScaleSigma2:
         )
         assert abs(sigma2 - resid) / resid < 1e-6
         assert float((r.transformation.rot - r_small).abs().max()) < 1e-2
+
+
+class TestRigidQ:
+    """CPD-02: rigid q is the M&S negative log-likelihood (log term added).
+
+    q = residual/(2*sigma2) + D*N_P/2*log(sigma2). After an M-step the
+    residual equals N_P*D*sigma2, so q == N_P*D/2*(1 + log sigma2), which may
+    be negative. Baseline (6c1c37f) put the log term in the denominator and
+    gave q of order -1e-5 on a converged fit.
+    """
+
+    @pytest.mark.parametrize("update_scale", [True, False])
+    def test_rigid_q_m_step_identity(self, update_scale):
+        torch.manual_seed(0)
+        n = 200
+        src = torch.randn(n, 3, dtype=torch.float64)
+        tgt = src + 0.01 * torch.randn(n, 3, dtype=torch.float64)
+        reg = cpd.RigidCPD(src, update_scale=update_scale, log_freq=-1)
+        r = reg.registration(tgt, maxiter=200, tol=1e-8)
+        sigma2 = float(r.sigma2)
+        expected = n * 3 / 2 * (1 + math.log(sigma2))
+        assert math.isclose(float(r.q), expected, rel_tol=1e-9)
+
+    @pytest.mark.parametrize("update_scale", [True, False])
+    def test_rigid_q_direct_m_step(self, update_scale):
+        y, x = _hand_pair()
+        n = y.shape[0]
+        res = cpd.RigidCPD._maximization_step(
+            y, x, _identity_estep(x), None, update_scale=update_scale
+        )
+        resid = float(torch.sum((x - res.transformation.transform(y)) ** 2))
+        sigma2 = float(res.sigma2)
+        expected = resid / (2 * sigma2) + n * 3 / 2 * math.log(sigma2)
+        assert math.isclose(float(res.q), expected, rel_tol=1e-9)

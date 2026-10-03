@@ -5,8 +5,13 @@
 # when mixed with w=5/10 trials in the same propulate population.
 #
 # Submit:  sbatch baseline_experiments/scripts/launch_horeka_w20.sbatch
-# Resume:  re-submit with same command; propulate will resume from its checkpoint.
-#          Use --clear-checkpoints if the checkpoint is stale (pre-fix run).
+# Resume:  re-submit; _already_done() skips runs that have eval_report.json, unfinished
+#          HPO resumes from Propulate checkpoints. Set ZREG_CLEAR_CHECKPOINTS=1 for one
+#          submission to drop stale checkpoints (e.g. after a search-space change such as
+#          Phase 63 D-08):  ZREG_CLEAR_CHECKPOINTS=1 sbatch <this script>
+# Env:     ZREG_VENV      venv to activate (default: $HOME/regvenv_horeka)
+#          ZREG_REPO_DIR  repo checkout to cd into
+#                         (default: /home/hk-project-starter-p0024807/uitog/BA/zReg)
 
 #SBATCH --job-name=zreg-baseline-w20
 #SBATCH --partition=accelerated
@@ -22,22 +27,29 @@ module load mpi/openmpi
 
 set -euo pipefail
 
-VENV=~/regvenv_horeka
+VENV="${ZREG_VENV:-$HOME/regvenv_horeka}"
+REPO_DIR="${ZREG_REPO_DIR:-/home/hk-project-starter-p0024807/uitog/BA/zReg}"
+
+# Checkpoint clearing is opt-in: a plain re-submit resumes HPO from Propulate checkpoints.
+CLEAR_FLAG=()
+if [[ "${ZREG_CLEAR_CHECKPOINTS:-0}" == "1" ]]; then
+  CLEAR_FLAG=(--clear-checkpoints)
+fi
+
 source "$VENV/bin/activate"
 
-cd /home/hk-project-starter-p0024807/uitog/BA/zReg
+cd "${REPO_DIR}"
 mkdir -p baseline_experiments/logs
 
 export KMP_DUPLICATE_LIB_OK=TRUE
 
-# --clear-checkpoints removes stale *.pkl files before each HPO phase so
-# propulate does not resume from a checkpoint with old float-index encoding.
-# Remove the flag once the w20 job has run successfully at least once.
+# --clear-checkpoints is only passed when ZREG_CLEAR_CHECKPOINTS=1 (see header);
+# otherwise unfinished HPO resumes from its Propulate checkpoints.
 srun --mpi=pmix --label \
   "$VENV/bin/python" -u baseline_experiments/scripts/run_all.py \
     --phase selfcal \
     --configs-dir baseline_experiments/configs_horeka_w20 \
-    --clear-checkpoints \
+    ${CLEAR_FLAG[@]+"${CLEAR_FLAG[@]}"} \
     --verbose
 
 # ground_truth phase also needs w20 results; run it sequentially after selfcal.
@@ -46,5 +58,5 @@ srun --mpi=pmix --label \
   "$VENV/bin/python" -u baseline_experiments/scripts/run_all.py \
     --phase ground_truth \
     --configs-dir baseline_experiments/configs_horeka_w20 \
-    --clear-checkpoints \
+    ${CLEAR_FLAG[@]+"${CLEAR_FLAG[@]}"} \
     --verbose

@@ -38,6 +38,7 @@ When ``cpd_type=None``, ``DTWResult.rotations`` is ``[]`` (empty list), NOT
 """
 
 from copy import deepcopy
+import logging
 from typing import Any
 
 # zreg.* MUST precede torch on macOS-ARM (libomp SIGABRT).
@@ -57,6 +58,8 @@ from eval.stages.base import PipelineStage
 from eval.types import AlignResult
 
 __all__ = ["AlignmentStage"]
+
+log = logging.getLogger(__name__)
 
 
 class AlignmentStage(PipelineStage):
@@ -493,6 +496,18 @@ class AlignmentStage(PipelineStage):
                 estep_results[tk] = estep_result
 
                 aligned[tk] = matched_source_frame
+            elif alignment_method in ("icp", "swd") and (
+                reason := AlignmentStage._degenerate_registration_reason(matched_source_frame, matched_target_frame)
+            ):
+                # ICP/SWD reject empty, non-finite and zero-extent (e.g. single-point) clouds
+                # with a ValueError (DIST-04). One such frame must not abort the whole stage:
+                # keep the temporally matched frame unregistered and warn (61 WR-04).
+                log.warning(
+                    "%s registration skipped for target frame %s (source sub-frame %d): %s; "
+                    "keeping the temporally matched source frame unregistered",
+                    alignment_method.upper(), tk, src_sub_idx, reason,
+                )
+                aligned[tk] = matched_source_frame
             elif alignment_method == "icp":
                 # ICP spatial registration
                 icp = ICPRegistration()
@@ -529,6 +544,31 @@ class AlignmentStage(PipelineStage):
                 aligned[tk] = matched_source_frame
 
         return aligned, estep_results
+
+    @staticmethod
+    def _degenerate_registration_reason(source: zRegPointCloud, target: zRegPointCloud) -> str | None:
+        """Return why ICP/SWD cannot register this pair, or None if it can (61 WR-04).
+
+        Runs the same validation as the aligners (``zreg.utils.registration_bounds``), so
+        only the documented degenerate-input ``ValueError`` (mis-shaped, empty, non-finite
+        or zero-extent cloud) is turned into a skip; any other error from ``register()``
+        still propagates.
+
+        Parameters
+        ----------
+        source, target : zRegPointCloud
+            Source and target frames of the pair.
+
+        Returns
+        -------
+        str | None
+            The validation message, or None if the pair is registrable.
+        """
+        try:
+            utils.registration_bounds(source["pos"], target["pos"])
+        except ValueError as exc:
+            return str(exc)
+        return None
 
     @staticmethod
     def _apply_stored_transform(

@@ -1272,3 +1272,37 @@ class TestEstepResultsCapture:
         result = stage.run(synthetic_dataset_a, synthetic_dataset_b, params)
 
         assert result.estep_results == {}
+
+
+class TestBuildAlignedCloudDegenerateFrames:
+    """61 WR-04: a degenerate frame skips ICP/SWD registration instead of aborting the stage."""
+
+    @pytest.mark.parametrize("method", ["icp", "swd"])
+    def test_single_point_frame_kept_unregistered(self, method, caplog):
+        torch.manual_seed(0)
+        source_sub = {0: zRegPointCloud(pos=torch.rand(10, 3)), 1: zRegPointCloud(pos=torch.rand(1, 3))}
+        target = {0: zRegPointCloud(pos=torch.rand(10, 3)), 1: zRegPointCloud(pos=torch.rand(10, 3))}
+        with caplog.at_level("WARNING", logger="eval.stages.alignment"):
+            aligned, _ = AlignmentStage._build_aligned_cloud(
+                source=source_sub,
+                target=target,
+                source_sub=source_sub,
+                target_sub=target,
+                warp_path=[(0, 0), (1, 1)],
+                cpd_penalty=None,
+                alignment_method=method,
+                swd_num_iterations=2,
+            )
+        assert set(aligned) == {0, 1}
+        # Degenerate frame: unregistered copy of the matched source frame.
+        assert torch.equal(aligned[1]["pos"], source_sub[1]["pos"])
+        assert aligned[1] is not source_sub[1]
+        assert aligned[0]["pos"].shape == (10, 3)
+        assert any("target frame 1" in r.getMessage() and "zero extent" in r.getMessage() for r in caplog.records)
+
+    def test_registrable_pair_has_no_reason(self):
+        torch.manual_seed(0)
+        a, b = zRegPointCloud(pos=torch.rand(5, 3)), zRegPointCloud(pos=torch.rand(5, 3))
+        assert AlignmentStage._degenerate_registration_reason(a, b) is None
+        empty = zRegPointCloud(pos=torch.empty(0, 3))
+        assert "empty" in AlignmentStage._degenerate_registration_reason(empty, b)

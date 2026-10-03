@@ -24,7 +24,9 @@ Key design decisions implemented here:
   ``__init__`` raises ``ValueError("At least one stage must be enabled")``
   immediately (fail-fast).
 - **D-10 / D-11** ``save_report`` writes ``Path(output_dir) / "eval_report.json"``
-  using ``report.model_dump()`` + ``json.dump(data, f, indent=2)``.  Never uses
+  using ``report.model_dump()`` + strict ``json.dump`` (Phase 63 IN-01:
+  non-finite values are written as ``null`` and listed in a top-level
+  ``non_finite_fields``; ``allow_nan=False``).  Never uses
   ``model_dump_json()`` (RESEARCH Pitfall 2).
 - **D-12** ``run()`` calls ``Path(config.output_dir).mkdir(parents=True,
   exist_ok=True)`` as its first executable line — before any stage execution or
@@ -40,7 +42,7 @@ Notes
 
 **``params`` must contain only JSON-primitive values** (int, float, str, bool,
 None) for ``save_report`` to succeed.  If any value is a ``torch.Tensor``,
-``json.dump(report.model_dump(), f)`` will raise ``TypeError`` (RESEARCH
+serialising ``report.model_dump()`` will raise ``TypeError`` (RESEARCH
 Pitfall 2).
 
 **Frame selection for ``compute_stage_metrics``.**
@@ -66,6 +68,7 @@ from eval.data_factory import DataFactory
 from eval.metrics import MetricsEngine
 from eval.runners._label_direction import f1_unavailable_reason, resolve_label_transfer_pair
 from eval.stages import AlignmentStage, LabelTransferStage
+from eval.strict_json import sanitize_non_finite
 from eval.tracking import export_trajectory
 from eval.types import AlignResult, EvalReport, LabelResult, StageMetrics
 from eval.viz import plot_metrics, plot_trajectory
@@ -515,9 +518,16 @@ class EvaluationRunner:
     ) -> Path:
         """Write the evaluation report to ``eval_report.json`` in ``output_dir``.
 
-        Uses ``report.model_dump()`` + ``json.dump()`` (D-10).  Never uses
+        Uses ``report.model_dump()`` + strict ``json.dump`` (D-10).  Never uses
         ``model_dump_json()`` — that method raises ``PydanticSerializationError``
         for tensor-containing fields (RESEARCH Pitfall 2).
+
+        The file is strict JSON (Phase 63 IN-01): non-finite values (e.g. an
+        unavailable stage's ``+inf`` metrics) are written as ``null`` and their
+        dotted paths are listed in a top-level ``non_finite_fields`` list
+        (empty when every value is finite).  ``allow_nan=False`` makes a
+        non-finite value that escapes the sanitiser raise instead of writing
+        an ``Infinity`` literal.
 
         Parameters
         ----------
@@ -543,6 +553,8 @@ class EvaluationRunner:
         """
         out_path = Path(output_dir) / "eval_report.json"  # D-11 fixed filename
         data = report.model_dump()  # D-10 — never model_dump_json()
+        clean, non_finite = sanitize_non_finite(data)  # Phase 63 IN-01
+        clean["non_finite_fields"] = non_finite
         with open(out_path, "w") as f:
-            json.dump(data, f, indent=2)
+            json.dump(clean, f, indent=2, allow_nan=False)
         return out_path

@@ -82,8 +82,12 @@ consults ``self.config.label_generation`` when set (forwarding its
 ``n_labels``/``label_specs``/``mode``/``seed`` fields), falling back to the
 hardcoded ``n_labels=4, seed=42`` literal otherwise.
 
-**JSON serialisation:** Always ``model_dump()`` + ``json.dump()``.  The JSON
+**JSON serialisation:** Always ``model_dump()`` + strict ``json.dump``.  The JSON
 shortcut raises for ``torch.Tensor`` fields (Pitfall 2 from eval/types.py).
+Every file is strict JSON (Phase 63 IN-01): non-finite values are written as
+``null`` with ``allow_nan=False``; each ``search_history.json`` trial dict
+lists its replaced paths in ``non_finite_fields``; ``best_params.json`` stays a
+flat params dict without a marker (D-09).
 
 **Phase 30 source/target dispatch (Pitfall 7):** sanity tier reuses
 ``tier_dataset`` as both source and target (D-03 smoke-test parity); dev/full
@@ -114,6 +118,7 @@ from eval.metrics import MetricsEngine
 from eval.runners._label_direction import f1_unavailable_reason, resolve_label_transfer_pair
 from eval.search_strategies import BayesianSearch, GridSearch, PropulateSearch, RandomSearch, SobolSearch
 from eval.stages import AlignmentStage, LabelTransferStage
+from eval.strict_json import dump_strict, sanitize_non_finite
 from eval.types import SearchResult, StageMetrics, Trial
 
 __all__ = ["HyperparamOptimizer", "PROPULATE_PLACEHOLDER_FLAG"]
@@ -658,7 +663,7 @@ class HyperparamOptimizer:
         if n_hist == 0 and (n_ok + n_fail) > 0:
             if self._is_rank_zero():
                 with open(output_dir / "failed_trials.json", "w") as f:
-                    json.dump(failed_records, f, indent=2)
+                    dump_strict(failed_records, f, indent=2)  # Phase 63 IN-01
             if n_fail > 0:
                 if self._failed_trials:
                     first = self._failed_trials[0]
@@ -1627,24 +1632,37 @@ class HyperparamOptimizer:
         best when only placeholders exist).  Failures
         (Phase 59 NUM-05) go to ``failed_trials.json`` as a list of records.
 
-        Uses ``model_dump()`` + ``json.dump()``.  The JSON shortcut raises
+        Uses ``model_dump()`` + strict ``json.dump``.  The JSON shortcut raises
         ``PydanticSerializationError`` for ``torch.Tensor`` fields and must not
         be used (RESEARCH Pitfall 2 / D-12).
+
+        All three files are strict JSON (Phase 63 IN-01): non-finite values
+        (e.g. ``temporal_stability=+inf`` of an HPO trial, which has no
+        per-frame transforms) are written as ``null`` with
+        ``allow_nan=False``.  Each ``search_history.json`` trial dict carries
+        its own ``non_finite_fields`` list of the replaced dotted paths;
+        ``best_params.json`` gets no marker key (D-09: it is merged into stage
+        params downstream).
         """
         out = Path(output_dir)
 
         # best_params.json — flat dict of best hyperparameters
         with open(out / "best_params.json", "w") as f:
-            json.dump(result.best_params, f, indent=2)
+            dump_strict(result.best_params, f, indent=2)  # D-09: no marker key
 
-        # search_history.json — list of Trial dicts (model_dump() only)
-        history_dicts = [t.model_dump() for t in result.history]
+        # search_history.json — list of Trial dicts (model_dump() only);
+        # Phase 63 IN-01: per-trial non_finite_fields marker.
+        history_dicts = []
+        for t in result.history:
+            clean, non_finite = sanitize_non_finite(t.model_dump())
+            clean["non_finite_fields"] = non_finite
+            history_dicts.append(clean)
         with open(out / "search_history.json", "w") as f:
-            json.dump(history_dicts, f, indent=2)
+            json.dump(history_dicts, f, indent=2, allow_nan=False)
 
         # failed_trials.json — failure records of every rank (NUM-05)
         with open(out / "failed_trials.json", "w") as f:
-            json.dump(result.failed_trials, f, indent=2)
+            dump_strict(result.failed_trials, f, indent=2)
 
     def _is_rank_zero(self) -> bool:
         """Return True if running single-process or if this is MPI rank 0.

@@ -51,6 +51,7 @@ import torch  # noqa: F401 — ensures consistent import order for downstream ca
 from eval.config import EvalConfig
 from eval.data_factory import DataFactory
 from eval.stages import AlignmentStage, LabelTransferStage
+from eval.strict_json import sanitize_non_finite
 from eval.types import BenchmarkReport, MethodBenchmarkResult
 
 __all__ = ["LabelTransferBenchmark"]
@@ -274,9 +275,11 @@ class LabelTransferBenchmark:
         """Write the benchmark report to ``benchmark_report.json`` in ``output_dir``.
 
         Mirrors ``EvaluationRunner.save_report`` exactly (D-11 fixed
-        filename convention, ``model_dump()`` + ``json.dump()`` — the
+        filename convention, ``model_dump()`` + strict ``json.dump`` — the
         tensor-serializing alternative pydantic method is deliberately
-        avoided here, T-49-04).
+        avoided here, T-49-04).  Strict JSON (Phase 63 IN-01): non-finite
+        values are written as ``null`` and listed in a top-level
+        ``non_finite_fields``; ``allow_nan=False``.
 
         Parameters
         ----------
@@ -294,6 +297,8 @@ class LabelTransferBenchmark:
         """
         out_path = Path(output_dir) / "benchmark_report.json"
         data = report.model_dump()  # D-11 — never the tensor-serializing alternative
+        clean, non_finite = sanitize_non_finite(data)  # Phase 63 IN-01
+        clean["non_finite_fields"] = non_finite
         with open(out_path, "w") as f:
-            json.dump(data, f, indent=2)
+            json.dump(clean, f, indent=2, allow_nan=False)
         return out_path

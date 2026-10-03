@@ -117,7 +117,9 @@ def test_disabled_alignment_report_serialises(tmp_path, monkeypatch):
     assert report.metrics.chamfer_distance == math.inf
     with open(tmp_path / "out" / "eval_report.json") as f:
         data = json.load(f)
-    assert data["metrics"]["chamfer_distance"] == float("inf")
+    # Phase 63 IN-01: strict JSON on disk — null plus a non_finite_fields marker.
+    assert data["metrics"]["chamfer_distance"] is None
+    assert "metrics.chamfer_distance" in data["non_finite_fields"]
     assert (tmp_path / "out" / "metrics_summary.pdf").exists()
 
 

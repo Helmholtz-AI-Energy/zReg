@@ -31,7 +31,10 @@ Phases (see baseline_experiments/README.md for the full design rationale):
 
 Each run is idempotent: if ``eval_report.json`` already exists in a run's
 output_dir, it is skipped unless ``--force`` is passed. This lets the full
-suite be safely re-invoked after a crash or interruption.
+suite be safely re-invoked after a crash or interruption. ``--force`` redoes a
+completed optimize run from scratch: its Propulate checkpoints and
+``eval_report.json`` are discarded first (63-REVIEW WR-02); runs without
+``eval_report.json`` resume from their checkpoints as usual.
 
 **Runtime:** tier=dev → 5 sanity trials (tiny synthetic data, fast) + 20 dev
 trials (real data, step=8 temporal subsampling, max_points=1000 spatial
@@ -239,6 +242,31 @@ def _clear_propulate_checkpoints(output_dir: Path) -> None:
         log.info("[clear-checkpoints] removed %d checkpoint file(s) from %s", len(removed), output_dir)
 
 
+def _start_forced_redo(name: str, output_dir: Path) -> None:
+    """Reset a completed optimize run that ``--force`` redoes (rank 0).
+
+    63-REVIEW (iteration 2) WR-02: a completed run leaves its Propulate
+    checkpoints in ``output_dir``. Resuming from them would not redo the HPO:
+    the generation budget is already used up, so ``best_params.json`` would be
+    rewritten from little more than rank 0's re-evaluated seeds. A forced
+    redo therefore discards the checkpoints (the search-space record is then
+    rewritten by ``_checkpoint_search_space_error``) and the completion marker
+    ``eval_report.json``. Removing the marker means that a redo interrupted by
+    the wall clock resumes from its own new checkpoints on the next
+    submission (with or without ``--force``) instead of being restarted, or
+    skipped next to an old report. Runs without ``eval_report.json`` are not
+    complete and resume as usual under ``--force``.
+    """
+    log.info(
+        "[%s] --force: redoing the completed run from scratch; discarding its Propulate "
+        "checkpoints and eval_report.json in %s",
+        name,
+        output_dir,
+    )
+    _clear_propulate_checkpoints(output_dir)
+    (output_dir / "eval_report.json").unlink(missing_ok=True)
+
+
 def _read_json(path: Path) -> dict:
     with open(path) as f:
         return json.load(f)
@@ -293,12 +321,15 @@ def _with_params_validated(config: EvalConfig, extra_params: dict, *, source: st
             # 63-REVIEW WR-04: name a recovery the HoreKa launchers can perform.
             report = Path(source).parent / "eval_report.json"
             msg += (
-                f" The artifact predates a config change such as Phase 63 D-08. Regenerate it: "
-                f"delete {report} and re-run the '{phase}' phase (only this run is redone), or "
-                f"re-run the '{phase}' phase with --force (HoreKa launchers: ZREG_FORCE=1 sbatch "
-                "<launcher>; redoes every run of the phase). Add ZREG_CLEAR_CHECKPOINTS=1 / "
-                "--clear-checkpoints if the run's Propulate checkpoints predate the change too; "
-                "that only removes checkpoint files, it does not delete best_params.json."
+                f" The artifact predates a config change such as Phase 63 D-08. Regenerate it "
+                f"with a fresh HPO: re-run the '{phase}' phase with --force (HoreKa launchers: "
+                "ZREG_FORCE=1 sbatch <launcher>); this redoes every completed run of the phase "
+                "from scratch and discards their Propulate checkpoints. To redo only this run, "
+                f"delete {report} and re-run the '{phase}' phase with --clear-checkpoints "
+                "(ZREG_CLEAR_CHECKPOINTS=1 sbatch <launcher>), or delete the run's Propulate "
+                f"checkpoint files (*.pickle, *.pkl, *.bkp in {report.parent}) by hand; without "
+                "that the run resumes its finished search instead of redoing it. "
+                "--clear-checkpoints alone does not delete best_params.json."
             )
         raise ValueError(msg) from e
 
@@ -384,7 +415,9 @@ def run_optimize_then_eval(name: str, config_path: Path, force: bool, dry_run: b
             if dry_run:
                 skip = True
             else:
-                if clear_checkpoints:
+                if force and _already_done(output_dir):
+                    _start_forced_redo(name, output_dir)
+                elif clear_checkpoints:
                     _clear_propulate_checkpoints(output_dir)
                 error = _checkpoint_search_space_error(output_dir, config.search_space)
                 if error is None:
@@ -526,7 +559,14 @@ def run_phase(phase: str, phases_map: dict[str, list], configs_dir: Path, force:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Run the baseline_experiments suite")
     parser.add_argument("--phase", choices=[*PHASE_ORDER, "all"], default="all")
-    parser.add_argument("--force", action="store_true", help="Re-run even if eval_report.json already exists")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help=(
+            "Re-run even if eval_report.json already exists. A completed optimize run is redone "
+            "from scratch: its Propulate checkpoints and eval_report.json are discarded first."
+        ),
+    )
     parser.add_argument("--dry-run", action="store_true", help="Print the execution plan without running any pipeline")
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument(

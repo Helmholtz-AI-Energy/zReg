@@ -188,6 +188,9 @@ def test_combined_best_params_rejects_stale_cosine_artifact(tmp_path) -> None:
     # 63-REVIEW WR-04: a recovery the sbatch launchers can actually perform.
     assert "ZREG_FORCE=1" in msg
     assert str(stale_path.parent / "eval_report.json") in msg
+    # 63-REVIEW iter-2 WR-02: the single-run redo must also drop the checkpoints.
+    assert "ZREG_CLEAR_CHECKPOINTS=1" in msg
+    assert "*.pickle" in msg
 
 
 def test_combined_best_params_valid_artifacts_unchanged(tmp_path) -> None:
@@ -256,6 +259,50 @@ def test_stale_checkpoint_search_space_fails_with_clear_hint(tmp_path) -> None:
     assert (out / run_all.SEARCH_SPACE_FINGERPRINT).read_text() == run_all._search_space_fingerprint(
         {"k_neighbours": [3, 4, 5]}
     )
+
+
+def _completed_run(tmp_path: Path, run_all) -> tuple[Path, Path, Path]:
+    """A finished grid run whose output_dir also holds a (fake) Propulate checkpoint."""
+    out = tmp_path / "hpo"
+    cfg_path = _write_yaml(tmp_path / "cfg.yaml", _cfg_dict(out, strategy="grid", default_params=_SEED))
+    run_all.run_optimize_then_eval("t", cfg_path, force=False, dry_run=False)
+    report = out / "eval_report.json"
+    assert report.exists()
+    ckpt = out / "island_0_ckpt.pickle"
+    ckpt.write_bytes(b"x")
+    return out, cfg_path, ckpt
+
+
+def test_force_redo_discards_completed_runs_checkpoints(tmp_path) -> None:
+    """63-REVIEW iter-2 WR-02: --force on a completed run is a fresh HPO, not a resume."""
+    run_all = _import_run_all()
+    out, cfg_path, ckpt = _completed_run(tmp_path, run_all)
+    (out / "eval_report.json").write_text("{}")  # stands in for the old report
+
+    run_all.run_optimize_then_eval("t", cfg_path, force=True, dry_run=False)
+    assert not ckpt.exists(), "a forced redo must not resume the finished search"
+    assert (out / "eval_report.json").read_text() != "{}", "the redo writes a new report"
+    assert (out / run_all.SEARCH_SPACE_FINGERPRINT).exists()
+
+
+def test_force_dry_run_and_unforced_skip_keep_checkpoints(tmp_path) -> None:
+    """Neither a dry run nor a skipped run touches the completed run's files."""
+    run_all = _import_run_all()
+    out, cfg_path, ckpt = _completed_run(tmp_path, run_all)
+    run_all.run_optimize_then_eval("t", cfg_path, force=True, dry_run=True)
+    run_all.run_optimize_then_eval("t", cfg_path, force=False, dry_run=False)
+    assert ckpt.exists()
+    assert (out / "eval_report.json").exists()
+
+
+def test_force_on_unfinished_run_resumes_checkpoints(tmp_path) -> None:
+    """Without eval_report.json the run is unfinished: --force keeps resuming its checkpoints."""
+    run_all = _import_run_all()
+    out, cfg_path, ckpt = _completed_run(tmp_path, run_all)
+    (out / "eval_report.json").unlink()
+    run_all.run_optimize_then_eval("t", cfg_path, force=True, dry_run=False)
+    assert ckpt.exists(), "checkpoints of an unfinished run are only cleared on opt-in"
+    assert (out / "eval_report.json").exists()
 
 
 def test_unrecorded_checkpoints_resume_with_warning(tmp_path, caplog) -> None:

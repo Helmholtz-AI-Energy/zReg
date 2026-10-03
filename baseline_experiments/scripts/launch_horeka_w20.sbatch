@@ -11,9 +11,13 @@
 #          Phase 63 D-08):  ZREG_CLEAR_CHECKPOINTS=1 sbatch <this script>
 #          run_all.py records the search space next to the checkpoints and stops with an
 #          error naming ZREG_CLEAR_CHECKPOINTS=1 if they were written under another one.
-# Redo:    ZREG_FORCE=1 sbatch <this script> passes --force: every run of this job is
-#          redone even if its eval_report.json exists. To redo one run only, delete that
-#          run's eval_report.json instead (the error for a stale best_params.json names it).
+# Redo:    ZREG_FORCE=1 sbatch <this script> passes --force: every completed run of this
+#          job is redone from scratch (run_all.py discards its Propulate checkpoints and
+#          eval_report.json first; unfinished runs still resume). To redo one run only,
+#          delete that run's eval_report.json AND its Propulate checkpoints (*.pickle,
+#          *.pkl, *.bkp in its output dir), or delete eval_report.json and submit with
+#          ZREG_CLEAR_CHECKPOINTS=1 (also restarts every other unfinished run of the job).
+#          Deleting eval_report.json alone resumes the finished search; it is not a redo.
 # Env:     ZREG_VENV      venv to activate (default: $HOME/regvenv_horeka)
 #          ZREG_REPO_DIR  repo checkout to cd into
 #                         (default: /home/hk-project-starter-p0024807/uitog/BA/zReg).

@@ -270,13 +270,23 @@ now uses ~46 of Kobitski's 370 frames / ~53 of Shah's 420.
   existed resume with a WARNING; if the search space changed since (e.g.
   Phase 63 D-08), re-submit once with `ZREG_CLEAR_CHECKPOINTS=1`.
 - `ZREG_CLEAR_CHECKPOINTS=1` / `--clear-checkpoints` only removes Propulate
-  checkpoint files; it does not delete best_params.json. After a
-  search-space change such as Phase 63 D-08 (`cosine` removed from
-  `dtw_dist_fn`), re-run the `selfcal` and `ground_truth` phases with
-  `--force` (HoreKa launchers: `ZREG_FORCE=1 sbatch <launcher>`), or delete
-  the stale run's `eval_report.json` to redo only that run:
+  checkpoint files of the runs that actually execute; it does not delete
+  best_params.json. After a search-space change such as Phase 63 D-08
+  (`cosine` removed from `dtw_dist_fn`), redo the `selfcal` and
+  `ground_truth` phases with `--force` (HoreKa launchers:
+  `ZREG_FORCE=1 sbatch <launcher>`). `--force` redoes every completed
+  optimize run from scratch: `run_all.py` first discards that run's
+  Propulate checkpoints and `eval_report.json`, so a redo interrupted by the
+  wall clock resumes its own new search on the next submission. Unfinished
+  runs (no `eval_report.json`) still resume under `--force`.
+- To redo a single run, delete its `eval_report.json` and its Propulate
+  checkpoints (`*.pickle`, `*.pkl`, `*.bkp` in the run's output dir), or
+  delete `eval_report.json` and submit once with `ZREG_CLEAR_CHECKPOINTS=1`
+  (this also restarts every other unfinished run of the job). Deleting only
+  `eval_report.json` resumes the finished search, whose generation budget is
+  used up, so `best_params.json` would be rewritten without a real HPO.
   `baseline_with_combined` rejects a stale `best_params.json` with an error
-  that names the artifact and that `eval_report.json`.
+  that names the artifact and these recovery paths.
 
 The `step` fix alone was still not enough: closing apps + `caffeinate` helped for
 a while, but system swap crept back up (7.2GB -> 9.2GB -> 11.3GB total

@@ -291,7 +291,9 @@ def transfer_labels(
         Source labels of shape (n_points, n_label_channels). Required if source
         is torch.Tensor. If source is a zRegPointCloud, an explicit
         ``source_colors`` wins; otherwise ``source['label']`` is used, and a
-        ``ValueError`` is raised when neither is available.
+        ``ValueError`` is raised when neither is available.  For 'egnn' and
+        'pointnet2' it may also be 1-D integer class ids ``(n_points,)``;
+        2-D labels must then have width ``model.n_classes``.
     target_colors : torch.Tensor, optional
         Target labels of shape (m_points, n_label_channels). Not used in current methods.
     estep_result : EstepResult, optional
@@ -674,20 +676,77 @@ def _transfer_labels_model(
     Builds a joint source+target cloud, encodes source labels as one-hot features
     with unknown_flag=0, encodes target points as unknown_flag=1, and runs
     model.forward(). Returns softmax probabilities for target points only.
+
+    Parameters
+    ----------
+    source_pos, target_pos : torch.Tensor
+        Positions, shapes ``(n_source, d)`` and ``(n_target, d)``.
+    source_colors : torch.Tensor
+        Either 1-D integer class ids of shape ``(n_source,)`` with values in
+        ``[0, model.n_classes)`` (one-hot encoded here), or 2-D one-hot/soft
+        labels of shape ``(n_source, model.n_classes)``.  A 2-D tensor of any
+        other width is rejected (a ``(n, 1)`` column is not read as class ids).
+    model : nn.Module
+        Model exposing ``n_classes``; the feature width is taken from the
+        model, never from the data (U6-1).
+
+    Returns
+    -------
+    torch.Tensor
+        Softmax probabilities, shape ``(n_target, model.n_classes)``.
+
+    Raises
+    ------
+    ValueError
+        If the model has no ``n_classes`` attribute, or the labels do not fit
+        ``model.n_classes`` (wrong width, non-integer or out-of-range ids).
     """
+    if not hasattr(model, "n_classes"):
+        raise ValueError(
+            f"model {type(model).__name__} has no n_classes attribute; label-transfer "
+            "models must expose n_classes"
+        )
+    n_classes = int(model.n_classes)
     n_source = source_pos.shape[0]
-    n_classes = source_colors.shape[1]
+    device = source_pos.device
+
+    if source_colors.ndim == 1:
+        ids = source_colors
+        if ids.dtype.is_floating_point:
+            if not bool(torch.isfinite(ids).all()) or not bool((ids == ids.round()).all()):
+                raise ValueError(
+                    "1-D source labels must be integer class ids in [0, n_classes) "
+                    f"with model.n_classes={n_classes}"
+                )
+        if ids.numel() > 0 and (int(ids.min()) < 0 or int(ids.max()) >= n_classes):
+            raise ValueError(
+                f"source label ids span [{int(ids.min())}, {int(ids.max())}] but "
+                f"model.n_classes={n_classes} requires values in [0, {n_classes})"
+            )
+        source_feat = torch.nn.functional.one_hot(ids.long(), num_classes=n_classes).float()
+    elif source_colors.ndim == 2 and tuple(source_colors.shape) == (n_source, n_classes):
+        source_feat = source_colors.float()
+    else:
+        raise ValueError(
+            f"source labels shape {tuple(source_colors.shape)} incompatible with "
+            f"model.n_classes={n_classes}: expected 1-D class ids ({n_source},) or "
+            f"({n_source}, {n_classes})"
+        )
+    if source_feat.shape[0] != n_source:
+        raise ValueError(
+            f"source labels have {source_feat.shape[0]} rows but the source has {n_source} points"
+        )
 
     joint_pos = torch.cat([source_pos, target_pos], dim=0)
 
     # joint_feat: [n_joint, n_classes + 1]
-    # source rows: source_colors (one-hot / soft) + unknown_flag=0
+    # source rows: one-hot / soft labels + unknown_flag=0
     # target rows: zeros + unknown_flag=1
     joint_feat = torch.zeros(
         joint_pos.shape[0], n_classes + 1,
-        dtype=torch.float32, device=source_pos.device,
+        dtype=torch.float32, device=device,
     )
-    joint_feat[:n_source, :n_classes] = source_colors.float()
+    joint_feat[:n_source, :n_classes] = source_feat.to(device)
     joint_feat[n_source:, n_classes] = 1.0
 
     model.eval()

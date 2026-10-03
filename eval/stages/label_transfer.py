@@ -543,9 +543,14 @@ class LabelTransferStage(PipelineStage):
                 # the data (Anti-Patterns — data-derived n_classes could
                 # silently under-size joint_feat).
                 joint_pos = torch.cat([src_frame["pos"], tgt_frame["pos"]], dim=0)
-                joint_feat = torch.zeros(joint_pos.shape[0], n_classes + 1)
+                # Phase 62 (Research Open Q2): the checkpoint is loaded on CPU;
+                # run the model and its inputs on the frame's device so a
+                # device: cuda run does not hit a device mismatch.
+                dev = joint_pos.device
+                learned_model.to(dev)
+                joint_feat = torch.zeros(joint_pos.shape[0], n_classes + 1, device=dev)
                 joint_feat[:n_src, :n_classes] = torch.nn.functional.one_hot(
-                    labels_tensor.long(), num_classes=n_classes
+                    labels_tensor.to(dev).long(), num_classes=n_classes
                 ).float()
                 joint_feat[n_src:, -1] = 1.0  # "unknown" flag for target rows
                 with torch.no_grad():

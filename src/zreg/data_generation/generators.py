@@ -24,6 +24,8 @@ controlled/nondeterministic" semantic is preserved: passing ``seed=None`` calls
 ``np.random.default_rng()`` with no seed.
 """
 
+import math
+
 import numpy as np
 import torch
 
@@ -166,6 +168,18 @@ def sample_ball(
     return torch.from_numpy(arr.astype(np.float32))
 
 
+# Phase 62 U6-4 (Review cycles 1-3): bounds for ``sample_bowl``'s rejection
+# sampler. The acceptance rate is roughly 0.39 * d_ratio for small d_ratio
+# (about 0.04% at the lower bound), so smaller d_ratio values are rejected.
+# ``_MAX_BOWL_CANDIDATES`` bounds the TOTAL number of candidate points drawn
+# over all rounds (independent of n_points; about 1.2 GB of float64 drawn in
+# total at worst, never resident at once). ``_MAX_BOWL_BATCH`` bounds the
+# candidates drawn in one round, i.e. the peak allocation (24 MB of float64).
+_MIN_BOWL_D_RATIO = 1e-3
+_MAX_BOWL_CANDIDATES = 50_000_000
+_MAX_BOWL_BATCH = 1_000_000
+
+
 def _in_bowl(pts: np.ndarray, R: float, d: float) -> np.ndarray:
     """Boolean mask: True for points inside bowl(R, d).
 
@@ -208,10 +222,12 @@ def sample_bowl(
         ``numpy.random.default_rng(seed)``; ``None`` calls
         ``numpy.random.default_rng()`` unseeded. Default: 42.
     radius : float, optional
-        Outer sphere radius R. Must be > 0. Default: 1.0.
+        Outer sphere radius R. Must be finite and > 0. Default: 1.0.
     d_ratio : float, optional
         Ratio used to compute the carving-sphere offset ``d = d_ratio *
-        radius``. Default: 0.5.
+        radius``. Must be finite and >= 1e-3: the rejection acceptance rate
+        is roughly ``0.39 * d_ratio``, and ``d_ratio <= 0`` describes an
+        empty region. Default: 0.5.
 
     Returns
     -------
@@ -222,7 +238,15 @@ def sample_bowl(
     Raises
     ------
     ValueError
-        If ``n_points < 1``.
+        If ``n_points < 1``; if ``radius`` is not finite or ``<= 0``; if
+        ``d_ratio`` is not finite or ``< 1e-3``; if ``n_points`` exceeds
+        the candidate budget (50 million candidate points, unsatisfiable
+        even at 100% acceptance).
+    RuntimeError
+        If fewer than ``n_points`` points are accepted within the candidate
+        budget of 50 million candidate points summed over all rounds. Each
+        round draws at most ``max(n_points * 10, 2_000)`` candidates, capped
+        at 1 million per round (peak allocation) and at the remaining budget.
 
     Examples
     --------
@@ -234,19 +258,44 @@ def sample_bowl(
     """
     if n_points < 1:
         raise ValueError(f"n_points must be >= 1, got {n_points}")
+    if not math.isfinite(radius) or radius <= 0:
+        raise ValueError(f"radius must be a finite float > 0, got {radius!r}")
+    if not math.isfinite(d_ratio) or d_ratio < _MIN_BOWL_D_RATIO:
+        raise ValueError(
+            f"d_ratio must be a finite float >= {_MIN_BOWL_D_RATIO} (acceptance rate "
+            f"~0.39*d_ratio makes smaller values impractical), got {d_ratio!r}"
+        )
+    if n_points > _MAX_BOWL_CANDIDATES:
+        raise ValueError(
+            f"n_points={n_points} exceeds the sample_bowl candidate budget "
+            f"_MAX_BOWL_CANDIDATES={_MAX_BOWL_CANDIDATES}"
+        )
 
     rng = np.random.default_rng(seed)
     R = radius
     d = d_ratio * radius
-    batch = max(n_points * 10, 2_000)
+    # The per-round cap bounds peak allocation. numpy draws the candidates
+    # sequentially from one stream, so chunking does not change the
+    # accepted points.
+    batch = min(max(n_points * 10, 2_000), _MAX_BOWL_BATCH)
 
     collected: list[np.ndarray] = []
     total = 0
-    while total < n_points:
-        cands = rng.uniform(-R, R, (batch, 3))
+    drawn = 0
+    while total < n_points and drawn < _MAX_BOWL_CANDIDATES:
+        current = min(batch, _MAX_BOWL_CANDIDATES - drawn)
+        cands = rng.uniform(-R, R, (current, 3))
+        drawn += current
         keep = cands[_in_bowl(cands, R, d)]
         collected.append(keep)
         total += len(keep)
+
+    if total < n_points:
+        raise RuntimeError(
+            f"sample_bowl accepted only {total} of n_points={n_points} points after "
+            f"drawn={drawn} candidates (budget _MAX_BOWL_CANDIDATES="
+            f"{_MAX_BOWL_CANDIDATES}); radius={radius!r}, d_ratio={d_ratio!r}"
+        )
 
     arr = np.concatenate(collected, axis=0)[:n_points]
     return torch.from_numpy(arr.astype(np.float32))

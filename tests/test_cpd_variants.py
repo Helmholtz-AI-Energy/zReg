@@ -123,10 +123,11 @@ class TestAffineDtype:
         assert torch.equal(init.transformation.t, torch.zeros(3, dtype=torch.float64))
 
     def test_affine_preset_transform_survives_set_source(self, source_target_pair):
-        """REGRESSION GUARD: set_source never replaces or casts a pre-set transformation.
+        """set_source never replaces or casts a pre-set transformation (CPD-06).
 
-        On 6c1c37f this fails because _initialize overwrites the pre-set
-        transform; after the fix it guards that set_source does not rebuild it.
+        Baseline-failing: on 6c1c37f _initialize overwrites the pre-set
+        transform. After the fix it also serves as a regression guard that the
+        new AffineCPD.set_source dtype/device refresh does not rebuild it.
         """
         src, tgt = source_target_pair
         src64, tgt64 = src.double(), tgt.double()
@@ -139,3 +140,27 @@ class TestAffineDtype:
         res = obj.registration(tgt64, maxiter=0)
         assert torch.equal(res.transformation.b, b)
         assert torch.equal(res.transformation.t, t)
+
+
+# ---------------------------------------------------------------------------
+# CPD-04: ConstrainedNonRigidCPD exposes its transformation
+# ---------------------------------------------------------------------------
+
+
+class TestConstrainedNonRigid:
+    """ConstrainedNonRigidCPD sets self.transformation like NonRigidCPD."""
+
+    def test_constrained_sets_instance_transformation(self, source_target_pair):
+        """After registration obj.transformation is the result (baseline: None)."""
+        src, tgt = source_target_pair
+        obj = cpd.ConstrainedNonRigidCPD(
+            src,
+            idx_source=torch.tensor([0, 1]),
+            idx_target=torch.tensor([0, 1]),
+            log_freq=-1,
+        )
+        res = obj.registration(tgt, maxiter=10)
+        assert obj.transformation is res.transformation
+        assert torch.allclose(
+            obj.transformation.transform(src), res.transformation.transform(src)
+        )

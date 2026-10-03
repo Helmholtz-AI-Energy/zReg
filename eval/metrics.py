@@ -24,9 +24,11 @@ methods plus one convenience helper:
   ``hausdorff`` are computed per-frame between ``aligned_cloud`` and
   ``target`` (every frame key shared by both) and then averaged — NOT on a
   single frame pair — via the private ``_frame_averaged_chamfer_hausdorff``
-  helper.  ``.item()`` coercion (Pitfall 5) for scalar ``torch.Tensor``
-  returns from ``chamfer``/``hausdorff``/``temporal_stability`` happens
-  inside that helper and at the ``temporal_stability`` call site.
+  helper, which derives both from one distance matrix per frame
+  (``chamfer_hausdorff``).  Host coercion (Pitfall 5) of the scalar
+  ``torch.Tensor`` returns happens inside that helper (one batched
+  transfer for all frames) and via ``.item()`` at the
+  ``temporal_stability`` call site.
 
 The engine is stateless aside from ``self.config``.  Construction performs no
 I/O.  Every metric call is a one-way delegation to ``zreg.metrics.*`` — no
@@ -127,9 +129,8 @@ from typing import NamedTuple
 # zreg.metrics transitively pulls in zreg.dataset and sklearn so it must
 # precede torch on macOS-ARM.
 from zreg.evaluation import (
-    chamfer,
+    chamfer_hausdorff,
     compute_f1,
-    hausdorff,
     knn_consistency,
     path_smoothness,
     temporal_stability,
@@ -518,19 +519,48 @@ class MetricsEngine:
             flags.append(msg)
             _log.warning(msg)
 
-        chamfer_vals: list[float] = []
-        hausdorff_vals: list[float] = []
+        # Pass 1 (DIST-05): one cdist per frame via chamfer_hausdorff; keep a
+        # structured entry (key, error_or_none, c, h) per frame, still on
+        # device, so flags can be emitted in original key order in pass 2.
+        entries: list[
+            tuple[int, ValueError | None, torch.Tensor | None, torch.Tensor | None]
+        ] = []
         for key in shared:
             src_pos = aligned_cloud[key]["pos"]
             tgt_pos = target[key]["pos"]
             try:
-                c = chamfer(src_pos, tgt_pos).item()  # Pitfall 5: .item()
-                h = hausdorff(src_pos, tgt_pos).item()  # Pitfall 5
+                c_t, h_t = chamfer_hausdorff(src_pos, tgt_pos)
             except ValueError as exc:
+                entries.append((key, exc, None, None))
+                continue
+            entries.append((key, None, c_t, h_t))
+
+        # One device-to-host transfer (Pitfall 5): stack every scored pair
+        # into a [F_ok, 2] float64 tensor and read it with a single list
+        # conversion.  float32 -> float64 is exact, so each value equals the
+        # former per-metric scalar read.  Mixed devices (stack raises) fall
+        # back to per-frame host reads.
+        ok = [(c_t, h_t) for _, err, c_t, h_t in entries if err is None]
+        rows: list[list[float]] = []
+        if ok:
+            try:
+                rows = torch.stack(
+                    [torch.stack([c_t, h_t]).to(torch.float64) for c_t, h_t in ok]
+                ).tolist()
+            except RuntimeError:
+                rows = [[c_t.item(), h_t.item()] for c_t, h_t in ok]
+
+        # Pass 2: emit flags / collect values in original key order.
+        chamfer_vals: list[float] = []
+        hausdorff_vals: list[float] = []
+        row_iter = iter(rows)
+        for key, err, _, _ in entries:
+            if err is not None:
                 flags.append(
-                    f"frame coverage: skipped degenerate frame {key}: {exc}"
+                    f"frame coverage: skipped degenerate frame {key}: {err}"
                 )
                 continue
+            c, h = next(row_iter)
             if not (math.isfinite(c) and math.isfinite(h)):
                 flags.append(
                     f"frame coverage: skipped degenerate frame {key}: "

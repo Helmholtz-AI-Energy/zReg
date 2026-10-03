@@ -302,3 +302,132 @@ def test_run_single_cpd_weighted_target_direction_end_to_end(tmp_path):
 
     result = runner._run_single(source, target, params)
     _assert_target_direction_result(result)
+
+
+# ---------------------------------------------------------------------------
+# Phase 62 (RD-1..RD-3, 59-REVIEW IN-09a/c): shared pmat zero-row policy
+# ---------------------------------------------------------------------------
+
+import logging  # noqa: E402
+import re  # noqa: E402
+import warnings  # noqa: E402
+
+
+def _nan_receiver_frame():
+    """Receiver point 0 has a NaN position and a non-finite posterior row."""
+    provider, _ = _clustered(PROVIDER_PER_CLUSTER, seed=5, labelled=True)
+    receiver, rcv_cluster = _clustered(RECEIVER_PER_CLUSTER, seed=6, labelled=False)
+    finite_pos = receiver["pos"].clone()
+    estep = _estep(finite_pos, provider["pos"], sigma2=1.0)
+    pmat = estep.pmat.clone()
+    pmat[0] = float("nan")
+    estep = estep._replace(pmat=pmat)
+    pos = finite_pos.clone()
+    pos[0] = float("nan")
+    return provider, zRegPointCloud(pos=pos), rcv_cluster, estep
+
+
+def _zero_mass_frame():
+    """Construction of test_stage_target_direction_zero_mass_row_falls_back_to_nearest."""
+    provider, _ = _clustered(PROVIDER_PER_CLUSTER, seed=5, labelled=True)
+    receiver, rcv_cluster = _clustered(RECEIVER_PER_CLUSTER, seed=6, labelled=False)
+    pos = receiver["pos"].clone()
+    pos[0] = torch.tensor([1e4, 1e4, 1e4])
+    estep = _estep(pos, provider["pos"], sigma2=1.0)
+    assert estep.pmat.sum(dim=1)[0].item() == 0.0
+    return provider, zRegPointCloud(pos=pos), rcv_cluster, estep
+
+
+def _bypass_pre_transfer_chamfer(monkeypatch):
+    """Skip the stage's pre-transfer Chamfer check, which rejects NaN positions.
+
+    ``LabelTransferStage.run`` validates every frame pair through
+    ``zreg.evaluation.chamfer`` before any transfer, so a NaN receiver
+    position currently fails loudly there (see
+    ``test_stage_nonfinite_receiver_position_rejected_before_transfer``).  The
+    cpd_weighted -1 sentinel (IN-09a) is the defence-in-depth behind that
+    check; these tests reach it by replacing only the Chamfer diagnostic.
+    The posterior and the transfer itself stay unmocked.
+    """
+    monkeypatch.setattr(
+        LabelTransferStage, "_check_alignment", staticmethod(lambda source, target: 0.0)
+    )
+
+
+def test_stage_nonfinite_receiver_position_rejected_before_transfer(tmp_path):
+    """A NaN receiver position fails loudly in the pre-transfer Chamfer check (never mislabelled)."""
+    provider, receiver, _, estep = _nan_receiver_frame()
+    stage = LabelTransferStage(_stage_cfg(tmp_path, "target"))
+    with pytest.raises(ValueError, match="finite"):
+        stage.run(
+            {7: provider}, {7: receiver}, dict(LT_PARAMS),
+            align_result=_align_result({7: receiver}, {7: estep}),
+        )
+
+
+def test_stage_target_direction_nonfinite_receiver_position_gets_minus_one(tmp_path, monkeypatch):
+    """IN-09a: a NaN receiver position is left unlabelled (-1), not given an arbitrary label."""
+    _bypass_pre_transfer_chamfer(monkeypatch)
+    provider, receiver, rcv_cluster, estep = _nan_receiver_frame()
+    stage = LabelTransferStage(_stage_cfg(tmp_path, "target"))
+    result = stage.run(
+        {7: provider}, {7: receiver}, dict(LT_PARAMS),
+        align_result=_align_result({7: receiver}, {7: estep}),
+    )
+    out = result.transferred_labels[7]
+    assert out.shape == (receiver["pos"].shape[0],)
+    assert out[0].item() == -1
+    assert _values(out[1:]) <= set(PROVIDER_CLASSES)
+    assert _cluster_accuracy(out[1:], rcv_cluster[1:]) >= 0.95
+    assert len(result.flags) == 1
+    assert "frame 7" in result.flags[0]
+    assert "1 with non-finite position" in result.flags[0] and "(-1)" in result.flags[0]
+
+
+def test_stage_target_direction_fallback_fraction_above_bound_raises(tmp_path):
+    """IN-09c: more than half of the receiver rows falling back fails the frame."""
+    provider, _ = _clustered(PROVIDER_PER_CLUSTER, seed=5, labelled=True)
+    receiver, _ = _clustered(RECEIVER_PER_CLUSTER, seed=6, labelled=False)
+    pos = receiver["pos"].clone()
+    n_far = pos.shape[0] // 2 + 1  # 14 of 27
+    pos[:n_far] += 1e4
+    receiver = zRegPointCloud(pos=pos)
+    estep = _estep(pos, provider["pos"], sigma2=1.0)
+    zero_rows = (estep.pmat.sum(dim=1) == 0)
+    assert int(zero_rows.sum()) > pos.shape[0] / 2
+    assert not bool(zero_rows.all())
+
+    stage = LabelTransferStage(_stage_cfg(tmp_path, "target"))
+    with pytest.raises(ValueError, match=r"max_fallback_fraction=0\.5") as exc:
+        stage.run(
+            {7: provider}, {7: receiver}, dict(LT_PARAMS),
+            align_result=_align_result({7: receiver}, {7: estep}),
+        )
+    assert re.search(r"in frame 7\b", str(exc.value))
+
+
+@pytest.mark.parametrize("frame_builder", [_nan_receiver_frame, _zero_mass_frame])
+def test_stage_target_direction_single_warning(tmp_path, caplog, monkeypatch, frame_builder):
+    """RD-1b: one bad row -> exactly one flag, one log record, no library RuntimeWarning."""
+    _bypass_pre_transfer_chamfer(monkeypatch)
+    provider, receiver, _, estep = frame_builder()
+    stage = LabelTransferStage(_stage_cfg(tmp_path, "target"))
+    with warnings.catch_warnings(record=True) as rec:
+        warnings.simplefilter("always")
+        with caplog.at_level(logging.WARNING, logger="eval.stages.label_transfer"):
+            result = stage.run(
+                {7: provider}, {7: receiver}, dict(LT_PARAMS),
+                align_result=_align_result({7: receiver}, {7: estep}),
+            )
+    assert len(result.flags) == 1
+    records = [
+        r for r in caplog.records
+        if r.name == "eval.stages.label_transfer" and r.levelno == logging.WARNING
+        and "frame 7" in r.getMessage()
+    ]
+    assert len(records) == 1
+    posterior = [
+        w for w in rec
+        if issubclass(w.category, RuntimeWarning) and "posterior mass" in str(w.message)
+    ]
+    assert posterior == []

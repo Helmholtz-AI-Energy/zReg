@@ -565,3 +565,314 @@ def test_transfer_labels_model_joint_feat_encoding(sample_point_clouds):
     assert (jf[n_source:, n_classes] == 1.0).all()
     torch.testing.assert_close(jf[:n_source, :n_classes], source["label"].float())
 
+
+
+# ── Shared pmat zero-row policy: repair_pmat_rows (U6-7, IN-09a, IN-09c) ──────
+
+import warnings  # noqa: E402
+
+from zreg.label_transfer import (  # noqa: E402
+    MAX_PMAT_FALLBACK_FRACTION,
+    PmatRowRepair,
+    repair_pmat_rows,
+)
+
+_PROVIDER4 = torch.tensor([
+    [0.0, 0.0, 0.0],
+    [1.0, 0.0, 0.0],
+    [0.0, 1.0, 0.0],
+    [1.0, 1.0, 0.0],
+])
+_RECEIVER4 = torch.tensor([
+    [0.1, 0.1, 0.0],
+    [0.9, 0.1, 0.0],
+    [0.1, 0.9, 0.0],
+    [0.9, 0.9, 0.0],
+])
+_COLOURS4 = torch.tensor([
+    [1.0, 0.0, 0.0],
+    [0.0, 1.0, 0.0],
+    [0.0, 0.0, 1.0],
+    [1.0, 1.0, 0.0],
+])
+
+
+def _uniform_pmat():
+    return torch.full((4, 4), 0.25)
+
+
+def _posterior_warnings(records):
+    return [
+        w for w in records
+        if issubclass(w.category, RuntimeWarning) and "posterior mass" in str(w.message)
+    ]
+
+
+def test_repair_pmat_rows_zero_row_falls_back_to_nearest_provider():
+    pmat = _uniform_pmat()
+    pmat[1] = 0.0
+    pmat_orig = pmat.clone()
+    repair = repair_pmat_rows(pmat, _PROVIDER4, _RECEIVER4, context="frame 3")
+    assert isinstance(repair, PmatRowRepair)
+    assert repair.bad_rows.tolist() == [False, True, False, False]
+    nearest = torch.cdist(_RECEIVER4[1:2], _PROVIDER4, p=2).argmin().item()
+    assert repair.fallback_idx.tolist() == [nearest]
+    assert repair.n_bad == 1 and repair.n_nonfinite_pos == 0
+    mass = repair.pmat.sum(dim=1)
+    assert bool(torch.isfinite(mass).all()) and bool((mass > 0).all())
+    assert torch.equal(pmat, pmat_orig)
+    assert "1 of 4" in repair.message and "frame 3" in repair.message
+
+
+def test_repair_pmat_rows_nan_row_treated_as_zero_row():
+    pmat = _uniform_pmat()
+    pmat[2, 1] = float("nan")
+    repair = repair_pmat_rows(pmat, _PROVIDER4, _RECEIVER4, context="frame 3")
+    assert repair.bad_rows.tolist() == [False, False, True, False]
+    assert repair.fallback_idx.tolist() == [2]
+    assert bool(torch.isfinite(repair.pmat).all())
+
+
+def test_repair_pmat_rows_nonfinite_receiver_position_gets_minus_one():
+    """IN-09a: a NaN receiver position is a bad row even with positive mass; no argmin over NaN."""
+    receiver = _RECEIVER4.clone()
+    receiver[0, 0] = float("nan")
+    repair = repair_pmat_rows(_uniform_pmat(), _PROVIDER4, receiver, context="frame 3")
+    assert repair.bad_rows.tolist() == [True, False, False, False]
+    assert repair.fallback_idx.tolist() == [-1]
+    assert repair.n_nonfinite_pos == 1
+    assert "(-1)" in repair.message
+
+
+def test_repair_pmat_rows_never_picks_nonfinite_provider():
+    provider = _PROVIDER4.clone()
+    provider[1] = float("nan")  # receiver 1's true nearest is provider 1
+    pmat = _uniform_pmat()
+    pmat[1] = 0.0
+    repair = repair_pmat_rows(pmat, provider, _RECEIVER4, context="frame 3")
+    assert repair.fallback_idx.item() != 1
+    finite = provider.clone()
+    finite[1] = 1e9
+    assert repair.fallback_idx.item() == torch.cdist(_RECEIVER4[1:2], finite).argmin().item()
+
+
+def test_repair_pmat_rows_no_finite_provider_raises():
+    provider = torch.full((4, 3), float("nan"))
+    pmat = _uniform_pmat()
+    pmat[1] = 0.0
+    with pytest.raises(ValueError, match="finite"):
+        repair_pmat_rows(pmat, provider, _RECEIVER4, context="frame 3")
+
+
+def test_repair_pmat_rows_validates_pmat_1d():
+    with pytest.raises(ValueError, match="2-D"):
+        repair_pmat_rows(torch.ones(4), _PROVIDER4, _RECEIVER4)
+
+
+def test_repair_pmat_rows_validates_pmat_3d():
+    with pytest.raises(ValueError, match="2-D"):
+        repair_pmat_rows(torch.ones(4, 4, 1), _PROVIDER4, _RECEIVER4)
+
+
+def test_repair_pmat_rows_validates_shape():
+    with pytest.raises(ValueError, match=r"shape.*\(4, 3\).*\(4, 4\)"):
+        repair_pmat_rows(torch.ones(4, 3), _PROVIDER4, _RECEIVER4)
+
+
+def test_repair_pmat_rows_validates_coordinate_width():
+    with pytest.raises(ValueError, match="coordinate"):
+        repair_pmat_rows(torch.ones(4, 4), _PROVIDER4, _RECEIVER4[:, :2])
+
+
+def test_repair_pmat_rows_validates_device():
+    pmat = torch.ones(4, 4, device=torch.device("meta"))
+    with pytest.raises(ValueError, match="device"):
+        repair_pmat_rows(pmat, _PROVIDER4, _RECEIVER4)
+
+
+@pytest.mark.parametrize("bad", [0.0, -0.1, 1.5, float("nan")])
+def test_repair_pmat_rows_validates_max_fallback_fraction(bad):
+    with pytest.raises(ValueError, match="max_fallback_fraction"):
+        repair_pmat_rows(_uniform_pmat(), _PROVIDER4, _RECEIVER4, max_fallback_fraction=bad)
+
+
+def test_cpd_weighted_validates_source_colors_rows():
+    with pytest.raises(ValueError, match="source_colors"):
+        transfer_labels(
+            _PROVIDER4, _RECEIVER4, method="cpd_weighted", source_colors=_COLOURS4[:3],
+            estep_result=MockEstepResult(_uniform_pmat()), pmat_layout="receiver_provider",
+        )
+
+
+def test_repair_pmat_rows_zero_receivers_returns_empty():
+    repair = repair_pmat_rows(torch.zeros(0, 4), _PROVIDER4, torch.zeros(0, 3), context="frame 3")
+    assert repair.n_bad == 0 and repair.n_nonfinite_pos == 0
+    assert repair.message == ""
+    assert repair.bad_rows.shape == (0,)
+    assert repair.fallback_idx.shape == (0,)
+    assert repair.pmat.shape == (0, 4)
+
+
+def test_cpd_weighted_empty_target_returns_empty():
+    """Pins existing behaviour (GREEN at HEAD by design): empty target -> (0, n_channels), no warning."""
+    source = zRegPointCloud(pos=_PROVIDER4, label=_COLOURS4[:, :2])
+    target = zRegPointCloud(pos=torch.zeros(0, 3))
+    with warnings.catch_warnings(record=True) as rec:
+        warnings.simplefilter("always")
+        out = transfer_labels(
+            source, target, method="cpd_weighted",
+            estep_result=MockEstepResult(torch.zeros(0, 4)), pmat_layout="receiver_provider",
+        )
+    assert out.shape == (0, 2)
+    assert rec == []
+
+
+def test_repair_pmat_rows_zero_providers_raises_every_receiver():
+    with pytest.raises(ValueError, match="every receiver point"):
+        repair_pmat_rows(torch.zeros(4, 0), torch.zeros(0, 3), _RECEIVER4, context="frame 3")
+
+
+def _cpd(pmat, receiver=_RECEIVER4, **kwargs):
+    return transfer_labels(
+        _PROVIDER4, receiver, method="cpd_weighted", source_colors=_COLOURS4,
+        estep_result=MockEstepResult(pmat), pmat_layout="receiver_provider", **kwargs,
+    )
+
+
+def test_cpd_weighted_zero_row_falls_back_with_warning():
+    """U6-7: a zero-mass row is not NaN; it takes the nearest provider's colour row."""
+    pmat = _uniform_pmat()
+    pmat[1] = 0.0
+    with pytest.warns(RuntimeWarning, match="zero or non-finite mass"):
+        out = _cpd(pmat)
+    assert bool(torch.isfinite(out).all())
+    torch.testing.assert_close(out[1], _COLOURS4[1])
+    torch.testing.assert_close(out[0], _COLOURS4.mean(dim=0))
+
+
+def test_cpd_weighted_nan_row_falls_back_with_warning():
+    pmat = _uniform_pmat()
+    pmat[3, 0] = float("nan")
+    with pytest.warns(RuntimeWarning, match="zero or non-finite mass"):
+        out = _cpd(pmat)
+    assert bool(torch.isfinite(out).all())
+    torch.testing.assert_close(out[3], _COLOURS4[3])
+
+
+def test_cpd_weighted_all_rows_zero_raises():
+    with pytest.raises(ValueError, match="every receiver point"):
+        _cpd(torch.zeros(4, 4))
+
+
+def test_cpd_weighted_fallback_fraction_above_bound_raises():
+    """IN-09c: 3 of 4 rows (75%) > 0.5 -> raise naming the bound and the library context."""
+    pmat = _uniform_pmat()
+    pmat[:3] = 0.0
+    with pytest.raises(ValueError, match=r"max_fallback_fraction=0\.5") as exc:
+        _cpd(pmat)
+    assert "in cpd_weighted pmat" in str(exc.value)
+    assert MAX_PMAT_FALLBACK_FRACTION == 0.5
+
+
+def test_cpd_weighted_fallback_fraction_exactly_half_falls_back():
+    pmat = _uniform_pmat()
+    pmat[:2] = 0.0
+    with pytest.warns(RuntimeWarning, match="2 of 4"):
+        out = _cpd(pmat)
+    torch.testing.assert_close(out[:2], _COLOURS4[:2])
+
+
+def test_cpd_weighted_custom_max_fallback_fraction():
+    pmat = _uniform_pmat()
+    pmat[:3] = 0.0
+    with pytest.warns(RuntimeWarning):
+        out = _cpd(pmat, max_fallback_fraction=0.8)
+    torch.testing.assert_close(out[:3], _COLOURS4[:3])
+
+
+@pytest.mark.parametrize("bad", [0, 1.5])
+def test_cpd_weighted_invalid_max_fallback_fraction_raises(bad):
+    with pytest.raises(ValueError, match="max_fallback_fraction"):
+        _cpd(_uniform_pmat(), max_fallback_fraction=bad)
+
+
+def test_cpd_weighted_nonfinite_receiver_position_gives_zero_row():
+    """IN-09a (library): a NaN receiver position gets an all-zero ('no label') row, others unaffected."""
+    receiver = _RECEIVER4.clone()
+    receiver[0] = torch.tensor([float("nan"), 0.0, 0.0])
+    pmat = _uniform_pmat()
+    pmat[0] = float("nan")
+    with pytest.warns(RuntimeWarning, match="zero or non-finite mass"):
+        out = _cpd(pmat, receiver=receiver)
+    assert bool(torch.isfinite(out).all())
+    assert torch.equal(out[0], torch.zeros(3))
+    torch.testing.assert_close(out[1:], _COLOURS4.mean(dim=0).expand(3, 3))
+
+
+def test_cpd_weighted_pmat_repair_reused_without_second_warning():
+    """RD-1b: a precomputed repair is reused as is -- no second repair, no warning."""
+    pmat = _uniform_pmat()
+    pmat[1] = 0.0
+    repair = repair_pmat_rows(pmat, _PROVIDER4, _RECEIVER4, context="frame 3")
+    with warnings.catch_warnings(record=True) as rec_reuse:
+        warnings.simplefilter("always")
+        reused = transfer_labels(
+            _PROVIDER4, _RECEIVER4, method="cpd_weighted", source_colors=_COLOURS4,
+            pmat_repair=repair,
+        )
+    with warnings.catch_warnings(record=True) as rec_self:
+        warnings.simplefilter("always")
+        self_repaired = _cpd(pmat)
+    assert _posterior_warnings(rec_reuse) == []
+    assert len(_posterior_warnings(rec_self)) == 1
+    torch.testing.assert_close(reused, self_repaired)
+
+
+def test_cpd_weighted_pmat_repair_nonfinite_position_no_warning():
+    receiver = _RECEIVER4.clone()
+    receiver[0, 1] = float("nan")
+    repair = repair_pmat_rows(_uniform_pmat(), _PROVIDER4, receiver, context="frame 3")
+    with warnings.catch_warnings(record=True) as rec:
+        warnings.simplefilter("always")
+        out = transfer_labels(
+            _PROVIDER4, receiver, method="cpd_weighted", source_colors=_COLOURS4,
+            pmat_repair=repair,
+        )
+    assert _posterior_warnings(rec) == []
+    assert torch.equal(out[0], torch.zeros(3))
+
+
+def test_cpd_weighted_pmat_repair_and_estep_result_raises():
+    repair = repair_pmat_rows(_uniform_pmat(), _PROVIDER4, _RECEIVER4)
+    with pytest.raises(ValueError, match="pmat_repair"):
+        transfer_labels(
+            _PROVIDER4, _RECEIVER4, method="cpd_weighted", source_colors=_COLOURS4,
+            estep_result=MockEstepResult(_uniform_pmat()), pmat_layout="receiver_provider",
+            pmat_repair=repair,
+        )
+
+
+def test_cpd_weighted_pmat_repair_neither_given_raises():
+    with pytest.raises(ValueError, match="estep_result"):
+        transfer_labels(_PROVIDER4, _RECEIVER4, method="cpd_weighted", source_colors=_COLOURS4)
+
+
+def test_cpd_weighted_pmat_repair_shape_mismatch_raises():
+    repair = repair_pmat_rows(torch.full((3, 4), 0.25), _PROVIDER4, _RECEIVER4[:3])
+    with pytest.raises(ValueError, match="shape"):
+        transfer_labels(
+            _PROVIDER4, _RECEIVER4, method="cpd_weighted", source_colors=_COLOURS4,
+            pmat_repair=repair,
+        )
+
+
+def test_label_transfer_all_exports_repair_api():
+    import zreg.label_transfer as lt
+
+    assert {
+        "repair_pmat_rows", "PmatRowRepair", "MAX_PMAT_FALLBACK_FRACTION",
+        "transfer_labels", "LabelTransferMethod",
+    } <= set(lt.__all__)
+    namespace: dict = {}
+    exec("from zreg.label_transfer import *", namespace)
+    assert "repair_pmat_rows" in namespace

@@ -1,5 +1,6 @@
 """Tests for zreg.dataset module."""
 
+import numpy as np
 import pytest
 import torch
 import tempfile
@@ -412,6 +413,19 @@ class TestTrackletRgbRemapRealMat:
         with pytest.raises(ValueError, match="mixed scalar and RGB colours"):
             load_data_from_tracklets(path)
 
+    def test_empty_colour_rejected_not_reported_as_mixed(self, tmp_path):
+        """62-REVIEW WR-10: an empty MATLAB colour names the tracklet, not 'mixed' colours."""
+        import numpy as np
+        from zreg.core.dataset import load_data_from_tracklets
+
+        path = self._write(
+            tmp_path / "t.mat",
+            [self._tracklet(1, 1, 4, 4), self._tracklet(2, 1, 4, np.array([]))],
+            self.N_FRAMES,
+        )
+        with pytest.raises(ValueError, match=r"tracklet 1 \(id 2\) colour is empty"):
+            load_data_from_tracklets(path)
+
     def test_canonical_colour_helper(self):
         import numpy as np
         from zreg.core.dataset import _canonical_colour
@@ -422,6 +436,24 @@ class TestTrackletRgbRemapRealMat:
         assert _canonical_colour(np.array([1.0, 0.0, 0.0])) == (1.0, 0.0, 0.0)
         assert _canonical_colour(torch.tensor([1, 2, 3])) == (1, 2, 3)
         assert _canonical_colour(np.array([9])) == 9
+        assert _canonical_colour(np.array([1.0, 0.0, 0.0, 1.0])) == (1.0, 0.0, 0.0, 1.0)
+
+    @pytest.mark.parametrize(
+        "raw, match",
+        [
+            (np.array([]), "is empty"),
+            ([], "is empty"),
+            (np.array([1.0, 0.0]), "malformed"),
+            (np.array([1, 2, 3, 4, 5]), "malformed"),
+            (np.zeros((3, 3)), "malformed"),
+        ],
+    )
+    def test_canonical_colour_rejects_malformed(self, raw, match):
+        """62-REVIEW WR-10: empty / wrong-length colours raise a colour-specific error."""
+        from zreg.core.dataset import _canonical_colour
+
+        with pytest.raises(ValueError, match=match):
+            _canonical_colour(raw, context="tracklet 3 (id 7) colour")
 
 
 class TestDatasetNoOpen3D:

@@ -52,7 +52,7 @@ class zRegPointCloud(dict):  # dict[str, torch.Tensor]
         return o3dtgeo.PointCloud(map_to_tensors)
 
 
-def _canonical_colour(raw):
+def _canonical_colour(raw, context: str = "tracklet colour"):
     """Normalise one tracklet colour to a Python scalar or a tuple.
 
     ``scipy.io.loadmat(..., simplify_cells=True, squeeze_me=True)`` returns a
@@ -63,6 +63,8 @@ def _canonical_colour(raw):
     ----------
     raw : int | float | bool | numpy.ndarray | numpy.generic | torch.Tensor
         Raw colour value of one tracklet.
+    context : str, optional
+        Location used in error messages, e.g. ``"tracklet 7 (id 12) colour"``.
 
     Returns
     -------
@@ -70,8 +72,16 @@ def _canonical_colour(raw):
         Python ``int``/``float``/``bool`` scalars pass through unchanged.
         Anything with a ``tolist`` method (numpy array, numpy scalar, torch
         tensor) is converted with ``tolist()``; a resulting list of length 1
-        is unwrapped to its element and any other list becomes a ``tuple``
-        (an RGB colour).
+        is unwrapped to its element (a scalar colour) and a list of length 3
+        or 4 of scalars becomes a ``tuple`` (an RGB / RGBA colour).
+
+    Raises
+    ------
+    ValueError
+        For an empty colour (MATLAB ``[]``) or a sequence colour of any other
+        length or with non-scalar entries (62-REVIEW WR-10): such a colour is
+        malformed and must not be misreported later as "mixed scalar and RGB
+        colours" or silently become an extra label class.
     """
     if isinstance(raw, (bool, int, float)):
         return raw
@@ -80,8 +90,17 @@ def _canonical_colour(raw):
     else:
         value = raw
     if isinstance(value, (list, tuple)):
+        if len(value) == 0:
+            raise ValueError(f"{context} is empty; expected a scalar or an RGB(A) triple")
         if len(value) == 1:
             return value[0]
+        if len(value) not in (3, 4) or not all(
+            isinstance(v, (bool, int, float)) for v in value
+        ):
+            raise ValueError(
+                f"{context} {value!r} is malformed; expected a scalar or an RGB(A) "
+                "colour of 3 or 4 scalar entries"
+            )
         return tuple(value)
     return value
 
@@ -176,8 +195,10 @@ def load_data_from_tracklets(
 
     for idx in range(len(data["tracklets"])):
         tracklet = data["tracklets"][idx]
-        col = _canonical_colour(tracklet["color"])
         cellid = tracklet["id"]
+        col = _canonical_colour(
+            tracklet["color"], context=f"{filepath}: tracklet {idx} (id {cellid!r}) colour"
+        )
 
         # add tracklet to all point cloud entries
         for c, j in enumerate(range(tracklet["startTime"] - 1, tracklet["endTime"])):

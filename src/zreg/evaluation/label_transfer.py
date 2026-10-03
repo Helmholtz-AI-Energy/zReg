@@ -1,5 +1,6 @@
 """Label transfer metrics: F1 with sentinel masking, KNN consistency, temporal stability."""
 
+import numpy as np
 import torch
 from sklearn.metrics import f1_score as _sklearn_f1
 from sklearn.neighbors import KDTree
@@ -162,6 +163,9 @@ def knn_consistency(
     -----
     Uses sklearn.neighbors.KDTree via .detach().cpu().numpy() CPU entry point
     (GPU-safe: all KDTree operations run on CPU numpy arrays).
+
+    The query point is excluded by index, so coincident points with
+    different labels are counted correctly.
     """
     if points.ndim != 2 or points.shape[1] != 3:
         raise ValueError(
@@ -190,13 +194,18 @@ def knn_consistency(
     tree = KDTree(points_np)
     _, idx = tree.query(points_np, k=k + 1)
 
-    scores = []
-    for i in range(n):
-        neighbour_labels = labels_np[idx[i, 1:]]
-        match_count = (neighbour_labels == labels_np[i]).sum()
-        scores.append(match_count / k)
+    # Exclude the query point by index, not by position: with coincident
+    # points the query point need not be in column 0. If more than k + 1
+    # points coincide, the query point may be missing from the k + 1
+    # returned neighbours; then the last (farthest) column is dropped so
+    # every row keeps exactly k neighbours.
+    is_self = idx == np.arange(n)[:, None]
+    self_missing = ~is_self.any(axis=1)
+    is_self[self_missing, -1] = True
+    neigh = idx[~is_self].reshape(n, k)
 
-    return float(sum(scores) / len(scores))
+    scores = (labels_np[neigh] == labels_np[:, None]).mean(axis=1)
+    return float(scores.mean())
 
 
 def temporal_stability(

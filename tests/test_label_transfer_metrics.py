@@ -5,7 +5,7 @@ import inspect
 import pytest
 import torch
 
-from zreg.evaluation.label_transfer import compute_f1
+from zreg.evaluation.label_transfer import compute_f1, knn_consistency
 
 
 class TestComputeF1Signature:
@@ -158,3 +158,56 @@ class TestToMatrixUnsupportedType:
         from zreg.evaluation.label_transfer import _to_matrix
         with pytest.raises(TypeError, match="Unsupported"):
             _to_matrix("not_a_transform")
+
+
+class TestKnnConsistencySelfExclusion:
+    """knn_consistency excludes the query point by index (LT-04 U1-8)."""
+
+    def test_coincident_pairs_with_different_labels(self):
+        """Coincident points with different labels are each other's neighbour."""
+        points = torch.tensor(
+            [
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+                [5.0, 5.0, 5.0],
+                [5.0, 5.0, 5.1],
+                [9.0, 9.0, 9.0],
+                [9.0, 9.0, 9.1],
+            ],
+            dtype=torch.float64,
+        )
+        labels = torch.tensor([0, 1, 2, 2, 3, 3])
+        # Points 0/1 see each other (different labels -> 0); the other four
+        # points see their partner with the same label -> 1. Mean = 4/6.
+        assert knn_consistency(points, labels, k=1) == pytest.approx(4 / 6, abs=1e-12)
+
+    def test_more_than_k_plus_one_coincident_points_use_exactly_k(self):
+        """When self is not among the k+1 returned neighbours, k neighbours are still used."""
+        points = torch.tensor(
+            [
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+                [9.0, 9.0, 9.0],
+                [9.0, 9.0, 9.1],
+            ],
+            dtype=torch.float64,
+        )
+        labels = torch.tensor([0, 1, 2, 3, 4, 4])
+        # Each origin point: 2 other origin points, all labels distinct -> 0.
+        # Each far point: its partner (match) and one origin point (no match)
+        # -> 1/2. Mean = (0 * 4 + 0.5 + 0.5) / 6.
+        expected = (0.0 * 4 + 0.5 + 0.5) / 6
+        assert knn_consistency(points, labels, k=2) == pytest.approx(expected, abs=1e-12)
+
+    def test_well_separated_points_unchanged(self):
+        """Without ties the result equals the definition."""
+        points = torch.tensor(
+            [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 12.0, 0.0]]
+        )
+        labels = torch.tensor([0, 0, 1, 2])
+        # 0<->1 match, 2<->3 do not match -> 2/4.
+        result = knn_consistency(points, labels, k=1)
+        assert isinstance(result, float)
+        assert result == pytest.approx(0.5, abs=1e-12)

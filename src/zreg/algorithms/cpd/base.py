@@ -83,6 +83,11 @@ class CoherentPointDrift(ABC):
 
     _N_DIM = 3
     _N_COLOR = 3
+    # True means "3 or more columns" (never "any column count"): variants whose
+    # M-step only uses the xyz columns and whose transformation passes extra
+    # columns through set it (NonRigidCPD, ConstrainedNonRigidCPD). Fewer than
+    # 3 columns are rejected for every variant by _check_point_shape.
+    _ACCEPTS_EXTRA_COLUMNS: bool = False
 
     transformation: object | None  # Set to a Transformation instance after registration
 
@@ -111,6 +116,45 @@ class CoherentPointDrift(ABC):
         self.transformation = None
         self.log_freq = log_freq
 
+    def _check_point_shape(self, points: torch.Tensor, name: str) -> None:
+        """Check that a point tensor has a shape this CPD variant supports.
+
+        Every variant needs a 2-D tensor with at least ``_N_DIM`` (xyz)
+        columns, because the E-step and every M-step normalise with D = 3.
+        Variants with ``_ACCEPTS_EXTRA_COLUMNS = False`` (RigidCPD, AffineCPD)
+        need exactly ``_N_DIM`` columns.
+
+        Parameters
+        ----------
+        points : torch.Tensor
+            Point tensor to check, expected shape (N, D).
+        name : str
+            Name used in the error message.
+
+        Raises
+        ------
+        ValueError
+            If ``points`` is not 2-D, has fewer than ``_N_DIM`` columns, or
+            has more than ``_N_DIM`` columns while the variant does not accept
+            extra columns.
+        """
+        if points.ndim != 2:
+            raise ValueError(
+                f"{type(self).__name__}: {name} must be a 2-D tensor of shape (N, D); "
+                f"got shape {tuple(points.shape)}"
+            )
+        if points.shape[1] < self._N_DIM:
+            raise ValueError(
+                f"{type(self).__name__}: {name} needs at least {self._N_DIM} columns "
+                f"(xyz); got shape {tuple(points.shape)}"
+            )
+        if not self._ACCEPTS_EXTRA_COLUMNS and points.shape[1] != self._N_DIM:
+            raise ValueError(
+                f"{type(self).__name__} requires {name} with exactly {self._N_DIM} "
+                f"columns (xyz); got shape {tuple(points.shape)}. Only NonRigidCPD "
+                "and ConstrainedNonRigidCPD accept extra columns."
+            )
+
     def set_source(
         self, source: torch.Tensor, source_colors: torch.Tensor | None = None
     ) -> None:
@@ -122,7 +166,14 @@ class CoherentPointDrift(ABC):
             Source point cloud data.
         source_colors : torch.Tensor | None
             Color information for source points.
+
+        Raises
+        ------
+        ValueError
+            If ``source`` is not a 2-D tensor with a column count this variant
+            supports (see ``_check_point_shape``).
         """
+        self._check_point_shape(source, "source")
         _validate_tensors(source, names=["source"])
         if source_colors is not None:
             _validate_tensors(source, source_colors, names=["source", "source_colors"])
@@ -195,7 +246,9 @@ class CoherentPointDrift(ABC):
         """Perform the Expectation step of the EM algorithm.
 
         Calculates posterior probabilities of correspondence between
-        transformed source points and target points.
+        transformed source points and target points. Correspondences are
+        computed from the first three (xyz) columns only; extra columns are
+        ignored by the E-step, so ``px`` has shape (N, 3).
 
         Parameters
         ----------
@@ -218,15 +271,24 @@ class CoherentPointDrift(ABC):
         -------
         EstepResult
             Posterior probabilities and intermediate results.
+
+        Raises
+        ------
+        ValueError
+            If ``t_source`` or ``target`` is not a 2-D tensor with a column
+            count this variant supports (see ``_check_point_shape``).
         """
-        posdims = t_source.shape[1]
-        assert t_source.ndim == 2 and target.ndim == 2, (
-            "source and target must have 2 dimensions."
-        )
-        pmat = self._compute_pmat_numerator(t_source, target, sigma2)
+        self._check_point_shape(t_source, "t_source")
+        self._check_point_shape(target, "target")
+        # Correspondences use xyz only (CPD-09): extra columns (labels,
+        # metadata) must not change the probabilities, and px is (N, 3).
+        spatial_source = t_source[:, : self._N_DIM]
+        spatial_target = target[:, : self._N_DIM]
+        posdims = self._N_DIM
+        pmat = self._compute_pmat_numerator(spatial_source, spatial_target, sigma2)
 
         c = (2.0 * torch.pi * sigma2) ** (posdims * 0.5)
-        c *= w / (1.0 - w) * t_source.shape[0] / target.shape[0]
+        c *= w / (1.0 - w) * spatial_source.shape[0] / spatial_target.shape[0]
         den = torch.sum(pmat, dim=0)
         den[den == 0] = torch.finfo(target.dtype).eps
 
@@ -255,7 +317,7 @@ class CoherentPointDrift(ABC):
 
         pt1 = torch.sum(pmat, dim=0)
         p1 = torch.sum(pmat, dim=1)
-        px = torch.matmul(pmat, target)
+        px = torch.matmul(pmat, spatial_target)
         return EstepResult(pt1, p1, px, torch.sum(p1), pmat)
 
     def maximization_step(
@@ -373,12 +435,16 @@ class CoherentPointDrift(ABC):
             If ``use_color=True`` and ``target_colors`` is None, or if
             ``target_colors`` is on another device than ``target``, contains
             non-finite values, or does not have one row per target point.
+            Also if the source or ``target`` is not a 2-D tensor with a column
+            count this variant supports (see ``_check_point_shape``).
         """
         assert self._tf_type is not None, "transformation type is None."
         if self._source is not None:
             _validate_tensors(self._source, target, names=["source", "target"])
+            self._check_point_shape(self._source, "source")
         else:
             _validate_tensors(target, names=["target"])
+        self._check_point_shape(target, "target")
         if self._use_color:
             if target_colors is None:
                 raise ValueError(

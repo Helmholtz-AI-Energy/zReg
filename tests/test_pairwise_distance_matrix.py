@@ -602,15 +602,16 @@ class TestASDWPropsHistoryFileNotFound:
 
 
 class TestGivenRigidRotCPDMetric:
-    """create_pairwise_distance_matrix_given_rigid_rot with cpd metric (line 380)."""
+    """create_pairwise_distance_matrix_given_rigid_rot with the cpd metric."""
 
     def test_cpd_metric_fn_is_none_path(self, small_trajectory_pair):
-        """distance_metric='cpd' makes fn=None, which hits 'if fn is None: continue' (line 380)."""
+        """distance_metric='cpd' resolves to fn=None; given_rigid_rot runs no CPD and rejects it."""
         x, y = small_trajectory_pair
         rotation = torch.eye(3, dtype=torch.float32)
         translation = torch.zeros(3, dtype=torch.float32)
-        # fn=None → line 380 covered; dists stays empty → IndexError on dists[di]
-        with pytest.raises(IndexError):
+        # Rejected up front with a ValueError (DIST-03), consistent with the cpd_type=None
+        # guard of create_pairwise_distance_matrix (previously an index error mid-sweep).
+        with pytest.raises(ValueError, match="cpd"):
             pairwise_distance_matrix.create_pairwise_distance_matrix_given_rigid_rot(
                 x, y,
                 rotation=rotation,

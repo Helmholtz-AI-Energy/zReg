@@ -153,20 +153,23 @@ def create_pairwise_distance_matrix(
             "impossible. Set cpd_type to match the desired CPD registration type."
         )
 
-    # Get the number of samples in each set of data
-    x_samples, y_samples = max(x), max(y)
+    # Sweep frames by sorted key position (DIST-03): matrix indices and stored_transforms
+    # keys are positional (i, j), so non-zero-based or gapped key layouts work and match
+    # the DTW warping path. n_x / n_y are the last positions.
+    x_keys, y_keys = sorted(x), sorted(y)
+    n_x, n_y = len(x_keys) - 1, len(y_keys) - 1
 
-    shape = (len(distance_fns), x_samples + 1, y_samples + 1)
+    shape = (len(distance_fns), n_x + 1, n_y + 1)
 
     distance_matrix = torch.full(shape, torch.inf, dtype=_x0["pos"].dtype, device=_x0["pos"].device)
 
     # Calculate the number of distance elements to compute
     if window is not None:
         k = 1 + 2 * window
-        n = x_samples
+        n = n_x
         num_dist_elems = int(n * k - (k * (k - 1)) / 2)
     else:
-        num_dist_elems = int(x_samples * y_samples)
+        num_dist_elems = int(n_x * n_y)
 
     # Set the logging frequency and intervals
     log_freq = 0.10
@@ -185,16 +188,16 @@ def create_pairwise_distance_matrix(
         "total": [],
     }
 
-    for i in range(x_samples + 1):
+    for i in range(n_x + 1):
         # Calculate the window boundaries
         if window is not None:
             window_min = i - window
             if window_min < 0:
                 window_min = 0
             # +1 so that range(window_min, window_max) includes j = i + window
-            window_max = min(i + window + 1, y_samples + 1)
+            window_max = min(i + window + 1, n_y + 1)
         else:
-            window_min, window_max = 0, y_samples + 1
+            window_min, window_max = 0, n_y + 1
 
         # Iterate over the samples in the second set of data within the window
         for j in range(window_min, window_max):
@@ -204,8 +207,8 @@ def create_pairwise_distance_matrix(
                 continue
             t0 = time.perf_counter()
             # copies to avoid overwriting...
-            xi = deepcopy(x[i])
-            yj = deepcopy(y[j])
+            xi = deepcopy(x[x_keys[i]])
+            yj = deepcopy(y[y_keys[j]])
             tc = time.perf_counter()
             times["copy"].append(tc - t0)
 
@@ -326,7 +329,7 @@ def create_pairwise_distance_matrix(
 
             # logging at the end of every row, can be removed without issue
             log.info(
-                f"iteration {i + 1}/{x_samples + 1}: time: full: {tt:.4f}, copy: {tc:.4f}, "
+                f"iteration {i + 1}/{n_x + 1}: time: full: {tt:.4f}, copy: {tc:.4f}, "
                 f"norm: {tn:.4f}, downsample: {tdn:.4f}, cpd: {tcpd:.4f}, distance: {tdi:.4f}"
             )
             # reset time counters
@@ -383,10 +386,21 @@ def create_pairwise_distance_matrix_given_rigid_rot(
     )
     # distance_fns: list  # this is a list of callables / None (for cpd)
 
-    # Get the number of samples in each set of data
-    x_samples, y_samples = max(x), max(y)
+    # Guard (mirrors create_pairwise_distance_matrix): this function runs no CPD, so a
+    # "cpd" metric has no value to report (previously an IndexError mid-sweep, DIST-03).
+    if any(fn is None for fn in distance_fns):
+        raise ValueError(
+            "distance_metric='cpd' is not supported by create_pairwise_distance_matrix_given_rigid_rot "
+            "(it runs no CPD); use create_pairwise_distance_matrix with cpd_type set"
+        )
 
-    shape = (len(distance_fns), x_samples + 1, y_samples + 1)
+    # Sweep frames by sorted key position (DIST-03): matrix indices and stored_transforms
+    # keys are positional (i, j), so non-zero-based or gapped key layouts work and match
+    # the DTW warping path. n_x / n_y are the last positions.
+    x_keys, y_keys = sorted(x), sorted(y)
+    n_x, n_y = len(x_keys) - 1, len(y_keys) - 1
+
+    shape = (len(distance_fns), n_x + 1, n_y + 1)
 
     # Use first available frame for dtype/device (WR-01: x[0] crashes on non-zero-based keys).
     _x0_rigid = next(iter(x.values()))
@@ -395,10 +409,10 @@ def create_pairwise_distance_matrix_given_rigid_rot(
     # Calculate the number of distance elements to compute
     if window is not None:
         k = 1 + 2 * window
-        n = x_samples
+        n = n_x
         num_dist_elems = int(n * k - (k * (k - 1)) / 2)
     else:
-        num_dist_elems = int(x_samples * y_samples)
+        num_dist_elems = int(n_x * n_y)
 
     # Set the logging frequency and intervals
     log_freq = 0.10
@@ -419,16 +433,16 @@ def create_pairwise_distance_matrix_given_rigid_rot(
         rot=rotation, t=translation, scale=scale, dtype=_x0_rigid["pos"].dtype, device=_x0_rigid["pos"].device
     )
 
-    for i in range(x_samples + 1):
+    for i in range(n_x + 1):
         # Calculate the window boundaries
         if window is not None:
             window_min = i - window
             if window_min < 0:
                 window_min = 0
             # +1 so that range(window_min, window_max) includes j = i + window
-            window_max = min(i + window + 1, y_samples + 1)
+            window_max = min(i + window + 1, n_y + 1)
         else:
-            window_min, window_max = 0, y_samples + 1
+            window_min, window_max = 0, n_y + 1
 
         # Iterate over the samples in the second set of data within the window
         for j in range(window_min, window_max):
@@ -438,8 +452,8 @@ def create_pairwise_distance_matrix_given_rigid_rot(
                 continue
             t0 = time.perf_counter()
             # copies to avoid overwriting...
-            xi = deepcopy(x[i])
-            yj = deepcopy(y[j])
+            xi = deepcopy(x[x_keys[i]])
+            yj = deepcopy(y[y_keys[j]])
             tc = time.perf_counter()
             # normalize the smaller point cloud to the largest
             if normalize:
@@ -511,7 +525,7 @@ def create_pairwise_distance_matrix_given_rigid_rot(
             tdi = sum(times["distance"]) / float(len(times["distance"]))
             tt = sum(times["total"]) / float(len(times["total"]))
             log.info(
-                f"iteration {i + 1}/{x_samples + 1}: time: full: {tt:.4f}, copy: {tc:.4f}, "
+                f"iteration {i + 1}/{n_x + 1}: time: full: {tt:.4f}, copy: {tc:.4f}, "
                 f"norm: {tn:.4f}, downsample: {tdn:.4f}, rot: {trt:.4f}, distance: {tdi:.4f}"
             )
             # reset time counters
@@ -649,21 +663,21 @@ def _sanitize_pairwise_distance_matrix(distance_kwargs, distance_metrics, downsa
     else:
         # need to copy the list to make sure we can run this iteratively without crashes
         distance_metrics = deepcopy(distance_metrics)
-    if not isinstance(distance_kwargs, list):
-        distance_kwargs = [
-            distance_kwargs,
-        ]  # noqa
+    # Normalise distance_kwargs to one entry per metric (DIST-03). None and [None] are the
+    # only broadcast forms; dicts are copied so the defaults filled in below never mutate
+    # the caller's kwargs; a leading None no longer discards later entries or disables the
+    # length check.
+    if distance_kwargs is None or (isinstance(distance_kwargs, list) and distance_kwargs == [None]):
+        distance_kwargs = [None] * len(distance_metrics)
+    elif isinstance(distance_kwargs, dict):
+        distance_kwargs = [dict(distance_kwargs)]
+    elif isinstance(distance_kwargs, list):
+        distance_kwargs = [None if kw is None else dict(kw) for kw in distance_kwargs]
     else:
-        # need to copy the list to make sure we can run this iteratively without crashes
-        distance_kwargs = deepcopy(distance_kwargs)
+        distance_kwargs = [distance_kwargs]
 
-    if len(distance_kwargs) != len(distance_metrics) and distance_kwargs[0] is not None:
+    if len(distance_kwargs) != len(distance_metrics):
         raise RuntimeError(f"len distance kwargs != len distance metrics!: {distance_kwargs} v {distance_metrics}")
-
-    if distance_kwargs[0] is None:
-        distance_kwargs = [
-            None,
-        ] * len(distance_metrics)  # noqa
 
     for c, dist in enumerate(distance_metrics):
         dist_kwargs = distance_kwargs[c]

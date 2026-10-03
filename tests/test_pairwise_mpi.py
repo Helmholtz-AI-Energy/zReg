@@ -168,6 +168,8 @@ def test_mpirun_two_ranks(which, tmp_path):
         report = json.loads(path.read_text())
         assert report["rank"] == r
         assert report["equal"] is True, f"rank {r} matrix differs from serial: {report}"
+        if which == "create":
+            assert report["equal_transforms"] is True, f"rank {r} transforms differ from serial (WR-03)"
 
 
 _FAIL_MARKER = 999.0
@@ -241,3 +243,36 @@ def test_mpirun_two_ranks_pair_failure(tmp_path):
     for r in (0, 1):
         report = json.loads((tmp_path / f"rank_{r}.json").read_text())
         assert report["raised"] == "RuntimeError", f"rank {r}: {report}"
+
+
+def _transform_state(st) -> list[torch.Tensor]:
+    tf = st.transform
+    return [torch.as_tensor(tf.rot), torch.as_tensor(tf.t), torch.as_tensor(tf.scale),
+            st.src_min, st.src_max, st.tgt_min, st.tgt_max]
+
+
+@pytest.mark.parametrize("size", [2, 3])
+def test_thread_ranks_gather_stored_transforms_and_rotations(size):
+    """Under MPI every rank returns the serial stored_transforms and rotations (WR-03)."""
+    torch.manual_seed(0)
+    x, y = _frames(3), _frames(2)
+
+    def run(mpi_distribute):
+        return pm.create_pairwise_distance_matrix(
+            x, y, normalize=True, distance_metric="euclidean", cpd_type="rigid",
+            mpi_distribute=mpi_distribute,
+        )
+
+    serial = run(False)
+    assert len(serial.stored_transforms) == 6 and serial.rotations.shape == (6, 3, 3)
+
+    results, errors, hung = run_ranks(lambda: run(True), size, timeout=60.0)
+    assert not any(hung), f"ranks hung: {hung}"
+    assert not any(errors), f"rank errors: {errors}"
+    for r, res in enumerate(results):
+        assert torch.equal(res.cost_matrix, serial.cost_matrix), f"rank {r} cost matrix differs"
+        assert list(res.stored_transforms) == list(serial.stored_transforms), f"rank {r} keys differ"
+        for key, st in serial.stored_transforms.items():
+            for got, want in zip(_transform_state(res.stored_transforms[key]), _transform_state(st)):
+                assert torch.equal(got, want), f"rank {r} transform {key} differs"
+        assert torch.equal(res.rotations, serial.rotations), f"rank {r} rotations differ"

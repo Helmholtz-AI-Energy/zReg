@@ -97,7 +97,8 @@ def create_pairwise_distance_matrix(
     PairwiseResult
         A dataclass containing:
             - cost_matrix (torch.Tensor): The pairwise distance matrix.
-            - rotations (torch.Tensor | None): The rotations from rigid CPD registration, or None.
+            - rotations (torch.Tensor | None): The rotations from rigid CPD registration, stacked
+              in row-major (i, j) order of the computed pairs, or None.
             - stored_transforms (dict[tuple[int, int], StoredTransform]): Stored CPD transforms
               keyed by (i, j) pair indices; empty dict when cpd_type is None. Entries are also
               never stored when cpd_type == "nonrigid" (unbounded-memory guard — see inline
@@ -174,7 +175,9 @@ def create_pairwise_distance_matrix(
     # Set the logging frequency and intervals
     log_freq = 0.10
     log_intervals = torch.linspace(0, num_dist_elems, steps=int(1 / log_freq) + 1, dtype=torch.int)[1:]
-    rots = []
+    # ((i, j), rotation) per computed pair; sorted by (i, j) before concatenation so the
+    # rotations tensor has the same row-major pair order serially and under MPI (WR-03).
+    rot_entries: list[tuple[tuple[int, int], torch.Tensor]] = []
     stored_transforms: dict[tuple[int, int], StoredTransform] = {}
 
     # Initialize the loop counter and timing dictionary
@@ -257,7 +260,7 @@ def create_pairwise_distance_matrix(
 
                     xi["pos"] = cpd_obj.transformation.transform(xi["pos"])
                     if hasattr(reg.transformation, "rot"):
-                        rots.append(reg.transformation.rot.unsqueeze(0))
+                        rot_entries.append(((i, j), reg.transformation.rot.unsqueeze(0)))
                     cpd_metric = _cpd_dtw_cost(reg)
                     # Store the transform and normalisation params for reuse in _build_aligned_cloud.
                     # Only store when normalize=True: when normalize=False, src_min/src_max/tgt_min/
@@ -361,7 +364,13 @@ def create_pairwise_distance_matrix(
         if mpi_distribute and hasmpi:
             failures = _allgather_row(comm_world, distance_matrix, i, rank, error=pair_error)
             _raise_pair_failures(failures, pair_exc)
-    rotations = torch.cat(rots, dim=0) if len(rots) > 0 else None
+
+    # Each rank holds only the transforms/rotations of the pairs it computed; gather them so
+    # every rank returns the serial result, not just the serial cost matrix (WR-03).
+    if mpi_distribute and hasmpi:
+        stored_transforms, rot_entries = _allgather_pair_results(comm_world, stored_transforms, rot_entries)
+    rot_entries.sort(key=lambda entry: entry[0])
+    rotations = torch.cat([rot for _, rot in rot_entries], dim=0) if rot_entries else None
     return PairwiseResult(
         cost_matrix=distance_matrix,
         rotations=rotations,
@@ -638,6 +647,41 @@ def _raise_pair_failures(failures: list[tuple[int, str]], local_exc: Exception |
         return
     detail = "; ".join(f"rank {r}: {err}" for r, err in failures)
     raise RuntimeError(f"MPI-distributed pairwise sweep failed on {len(failures)} rank(s): {detail}") from local_exc
+
+
+def _allgather_pair_results(
+    comm,
+    stored_transforms: dict[tuple[int, int], StoredTransform],
+    rot_entries: list[tuple[tuple[int, int], torch.Tensor]],
+) -> tuple[dict[tuple[int, int], StoredTransform], list[tuple[tuple[int, int], torch.Tensor]]]:
+    """Merge the per-rank CPD transforms and rotations of an MPI sweep on every rank (WR-03).
+
+    Pairs are distributed round-robin, so each rank only holds the ``stored_transforms``
+    and rotations of its own pairs. The pair keys are disjoint across ranks, so the merge
+    is a plain union. Like :func:`_allgather_row`, every rank must call this exactly once,
+    after the last row.
+
+    Parameters
+    ----------
+    comm : mpi4py.MPI.Comm
+        Communicator (``MPI.COMM_WORLD``).
+    stored_transforms : dict[tuple[int, int], StoredTransform]
+        This rank's stored transforms keyed by ``(i, j)``.
+    rot_entries : list[tuple[tuple[int, int], torch.Tensor]]
+        This rank's ``((i, j), rotation)`` entries.
+
+    Returns
+    -------
+    tuple[dict[tuple[int, int], StoredTransform], list[tuple[tuple[int, int], torch.Tensor]]]
+        The merged transforms (in ``(i, j)`` order) and rotation entries of all ranks.
+    """
+    gathered = comm.allgather((stored_transforms, rot_entries))
+    merged_transforms: dict[tuple[int, int], StoredTransform] = {}
+    merged_rots: list[tuple[tuple[int, int], torch.Tensor]] = []
+    for rank_transforms, rank_rots in gathered:
+        merged_transforms.update(rank_transforms)
+        merged_rots.extend(rank_rots)
+    return dict(sorted(merged_transforms.items())), merged_rots
 
 
 def _cpd_dtw_cost(reg: cpd.MstepResult) -> torch.Tensor:

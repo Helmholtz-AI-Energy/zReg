@@ -644,7 +644,15 @@ class TestMPIPaths:
         comm = MagicMock()
         comm.rank = rank
         comm.size = size
-        comm.allgather.side_effect = lambda payload: [payload, (np.zeros_like(payload[0]), None)]
+
+        def _fake_allgather(payload):
+            # Row payload: (row, error); end-of-sweep payload: (stored_transforms, rot_entries).
+            first, _ = payload
+            if isinstance(first, dict):
+                return [payload, ({}, [])]
+            return [payload, (np.zeros_like(first), None)]
+
+        comm.allgather.side_effect = _fake_allgather
         return comm
 
     def test_mpi_rank_without_local_pairs_joins_allgather(self):
@@ -668,8 +676,9 @@ class TestMPIPaths:
                 distance_metric="euclidean",
                 mpi_distribute=True,
             ).cost_matrix
-        # rank=1 owns no pair (0 % 2 != 1) but must still join the single row's allgather
-        assert comm.allgather.call_count == 1
+        # rank=1 owns no pair (0 % 2 != 1) but must still join the single row's allgather,
+        # plus the end-of-sweep transform/rotation gather (WR-03)
+        assert comm.allgather.call_count == 2
         assert matrix.shape[1] == 1
 
     def test_mpi_allgather_path(self):
@@ -771,7 +780,8 @@ class TestMPIPaths:
                 distance_metric="euclidean",
                 mpi_distribute=True,
             ).cost_matrix
-        assert comm.allgather.call_count == 2
+        # one per row plus the end-of-sweep transform/rotation gather (WR-03)
+        assert comm.allgather.call_count == 3
         assert matrix.shape[1] == 2
 
     def test_mpi_row_without_local_pairs_still_allgathers_given_rigid_rot(self):

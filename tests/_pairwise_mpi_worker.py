@@ -69,6 +69,18 @@ def main() -> None:
     distributed = _call(which, x, y, mpi_distribute=True)
 
     report = {"equal": bool(torch.equal(serial, distributed)), "rank": rank}
+    if which == "create":
+        # WR-03: CPD transforms and rotations are gathered, not rank-local.
+        rs = pm.create_pairwise_distance_matrix(x, y, distance_metric="euclidean", cpd_type="rigid")
+        rd = pm.create_pairwise_distance_matrix(
+            x, y, distance_metric="euclidean", cpd_type="rigid", mpi_distribute=True
+        )
+        same_tf = list(rs.stored_transforms) == list(rd.stored_transforms) and all(
+            torch.equal(rs.stored_transforms[k].transform.rot, rd.stored_transforms[k].transform.rot)
+            and torch.equal(rs.stored_transforms[k].transform.t, rd.stored_transforms[k].transform.t)
+            for k in rs.stored_transforms
+        )
+        report["equal_transforms"] = bool(same_tf and torch.equal(rs.rotations, rd.rotations))
     (out_dir / f"rank_{rank}.json").write_text(json.dumps(report))
 
 

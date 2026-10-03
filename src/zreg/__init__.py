@@ -44,12 +44,20 @@ from . import label_transfer as label_transfer  # noqa: E402
 # Backward-compatibility shim: ``zreg.dtw`` → ``zreg.algorithms.dtw``.  It is a
 # real module alias (registered in sys.modules), not only an attribute, so that
 # ``from zreg.dtw import X`` and ``importlib.import_module("zreg.dtw")`` work.
+# The submodules are aliased too (WR-05): otherwise ``import zreg.dtw.core``
+# would re-execute ``core.py`` under a new name (failing on its relative
+# imports, or creating duplicate classes that break ``isinstance``).
 # No other dropped top-level module is aliased.
+import importlib as _importlib  # noqa: E402
 import sys as _sys  # noqa: E402
 
 dtw = algorithms.dtw
 _sys.modules[__name__ + ".dtw"] = algorithms.dtw
-del _sys
+for _sub in ("core", "result", "constraints"):
+    _sys.modules[f"{__name__}.dtw.{_sub}"] = _importlib.import_module(
+        f".algorithms.dtw.{_sub}", __name__
+    )
+del _sys, _importlib, _sub
 # zreg.models is intentionally NOT eagerly imported here.  Its transitive import
 # of torch_geometric initialises a second libomp copy on macOS ARM and causes a
 # SIGABRT / SIGSEGV when open3d is later loaded by algorithms.icp.  Callers that

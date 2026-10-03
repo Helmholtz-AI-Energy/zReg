@@ -58,6 +58,19 @@ def test_zreg_dtw_is_algorithms_dtw():
     assert zreg.dtw is zreg.algorithms.dtw
 
 
+@pytest.mark.parametrize("sub", ["core", "result", "constraints"])
+def test_zreg_dtw_submodules_alias_algorithms_dtw(sub):
+    """WR-05: ``import zreg.dtw.<sub>`` reuses the real module (no re-execution, no duplicate classes)."""
+    alias = importlib.import_module(f"zreg.dtw.{sub}")
+    assert alias is importlib.import_module(f"zreg.algorithms.dtw.{sub}")
+
+
+def test_zreg_dtw_result_class_identity():
+    from zreg.dtw.result import DTWResult
+
+    assert DTWResult is zreg.algorithms.dtw.result.DTWResult
+
+
 # ---------------------------------------------------------------------------
 # Script importability (no side effects)
 # ---------------------------------------------------------------------------

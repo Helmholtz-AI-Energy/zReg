@@ -749,3 +749,26 @@ def test_propulate_search_warns_when_given_seeds(tmp_path, monkeypatch, caplog, 
         )
     assert out == []
     assert len(_not_seeded_warnings(caplog)) == n_warnings
+
+
+def test_propulate_loss_hint_for_individual_missing_a_new_key(tmp_path, monkeypatch) -> None:
+    """63-REVIEW IN-07: a checkpoint individual lacking a since-added key gets the recovery hint."""
+    _fake_propulate_modules(monkeypatch)
+    import propulate
+
+    class _StaleIndividualPropulator:
+        def __init__(self, *, loss_fn, **kwargs) -> None:
+            self.loss_fn = loss_fn
+            self.population: list = []
+
+        def propulate(self, logging_interval=1) -> None:
+            self.loss_fn({"k_neighbours": "3"})  # written before "window_size" was searched
+
+    monkeypatch.setattr(propulate, "Propulator", _StaleIndividualPropulator)
+    from eval.search_strategies import PropulateSearch
+
+    with pytest.raises(ValueError, match="ZREG_CLEAR_CHECKPOINTS=1") as excinfo:
+        PropulateSearch().search(
+            {"k_neighbours": [3, 4], "window_size": [5]}, lambda p: 0.5, n_trials=2, output_dir=str(tmp_path)
+        )
+    assert isinstance(excinfo.value.__cause__, KeyError)

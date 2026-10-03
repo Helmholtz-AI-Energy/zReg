@@ -506,9 +506,10 @@ class PropulateSearch:
             # Use explicit comprehension — Individual is not a dict subclass (Pitfall 1)
             try:
                 params = {k: _decode_param(k, ind[k]) for k in search_space}
-            except (ValueError, IndexError) as e:
+            except (ValueError, IndexError, KeyError) as e:
                 # 63-REVIEW WR-03: an individual bred from a checkpoint written
-                # under an older search space; say how to recover.
+                # under an older search space; say how to recover. KeyError:
+                # a key was added to the search space since (63-REVIEW IN-07).
                 raise ValueError(
                     f"Propulate individual {dict(ind)} does not fit the current search space; "
                     f"the checkpoints in {output_dir} were probably written under an older one. "
@@ -562,7 +563,7 @@ class PropulateSearch:
                 continue
             try:
                 params = {k: _decode_param(k, ind[k]) for k in search_space}
-            except (ValueError, IndexError):
+            except (ValueError, IndexError, KeyError):
                 # Stale checkpoint individual from an older search space (e.g. a param
                 # that previously allowed None/'__none__' but no longer does). Safe to
                 # skip — these individuals were evaluated under a different config and

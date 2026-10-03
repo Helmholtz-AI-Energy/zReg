@@ -14,7 +14,7 @@ class MockEstepResult:
     def __init__(self, pmat):
         self.pt1 = pmat.sum(dim=1)  # sum over source for each target
         self.p1 = pmat.sum(dim=0)   # sum over target for each source
-        self.px = torch.matmul(pmat, torch.randn_like(pmat)[:, :3])  # dummy
+        self.px = torch.matmul(pmat, torch.zeros(pmat.shape[1], 3))  # dummy, any pmat shape
         self.n_p = self.p1.sum()
         self.pmat = pmat
 
@@ -96,7 +96,8 @@ def test_transfer_labels_cpd_weighted(sample_point_clouds):
     transferred_colors = transfer_colors(
         source_pc, target_pc,
         method=ColorTransferMethod.CPD_WEIGHTED,
-        estep_result=estep_result
+        estep_result=estep_result,
+        pmat_layout="receiver_provider",
     )
 
     # With identity probabilities, should get exact source colors
@@ -114,7 +115,8 @@ def test_transfer_labels_cpd_weighted_uniform(sample_point_clouds):
     transferred_colors = transfer_colors(
         source_pc, target_pc,
         method=ColorTransferMethod.CPD_WEIGHTED,
-        estep_result=estep_result
+        estep_result=estep_result,
+        pmat_layout="receiver_provider",
     )
 
     # Should get average of all source colors
@@ -165,21 +167,28 @@ def test_transfer_colors_dimension_mismatch(sample_point_clouds):
 
 
 def test_transfer_colors_prob_matrix_transpose(sample_point_clouds):
-    """Test handling of transposed probability matrices."""
+    """A provider_receiver pmat is transposed internally (declared, never inferred; U6-9)."""
     source_pc, target_pc = sample_point_clouds
 
-    # Create probability matrix with wrong orientation (source, target) instead of (target, source)
     prob_matrix = torch.eye(4, dtype=torch.float32)
-    estep_result = MockEstepResult(prob_matrix.T)  # Transpose to simulate wrong orientation
+    prob_matrix[0, 1] = 0.5  # non-symmetric, so orientation is observable
+    estep_result = MockEstepResult(prob_matrix.T)  # (n_source, n_target)
 
-    # Should still work due to automatic handling
     transferred_colors = transfer_colors(
         source_pc, target_pc,
         method=ColorTransferMethod.CPD_WEIGHTED,
-        estep_result=estep_result
+        estep_result=estep_result,
+        pmat_layout="provider_receiver",
+    )
+    expected = transfer_colors(
+        source_pc, target_pc,
+        method=ColorTransferMethod.CPD_WEIGHTED,
+        estep_result=MockEstepResult(prob_matrix),
+        pmat_layout="receiver_provider",
     )
 
     assert transferred_colors.shape == (4, 3)
+    torch.testing.assert_close(transferred_colors, expected)
 
 
 @pytest.fixture
@@ -343,34 +352,142 @@ class TestColorTransferEdgeCases:
             transfer_colors(source_pos, target_pos, source_colors=source_colors)
 
 
-def test_cpd_weighted_transposed_pmat_raises():
-    """_transfer_labels_cpd_weighted raises ValueError when pmat shape looks transposed."""
-    import torch
-    from zreg.label_transfer import _transfer_labels_cpd_weighted
+def _square_nonsymmetric_pmat():
+    return torch.tensor([
+        [0.7, 0.2, 0.1],
+        [0.1, 0.1, 0.8],
+        [0.3, 0.6, 0.1],
+    ])
+
+
+def _three_point_clouds():
+    source_pos = torch.tensor([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+    target_pos = source_pos + 0.05
+    source_colors = torch.eye(3)
+    return source_pos, target_pos, source_colors
+
+
+def test_cpd_weighted_layouts_agree_on_square_nonsymmetric_pmat():
+    """U6-9: receiver_provider P equals provider_receiver P.T for a square non-symmetric pmat."""
+    source_pos, target_pos, source_colors = _three_point_clouds()
+    P = _square_nonsymmetric_pmat()
+    a = transfer_labels(
+        source_pos, target_pos, method="cpd_weighted", source_colors=source_colors,
+        estep_result=MockEstepResult(P), pmat_layout="receiver_provider",
+    )
+    b = transfer_labels(
+        source_pos, target_pos, method="cpd_weighted", source_colors=source_colors,
+        estep_result=MockEstepResult(P.T.contiguous()), pmat_layout="provider_receiver",
+    )
+    torch.testing.assert_close(a, b)
+    # receiver_provider rows are used as is (rows already sum to 1 here)
+    torch.testing.assert_close(a, P)
+
+
+def test_cpd_weighted_missing_pmat_layout_raises():
+    """U6-9: cpd_weighted with estep_result but no pmat_layout names both layouts."""
+    source_pos, target_pos, source_colors = _three_point_clouds()
+    with pytest.raises(ValueError, match="receiver_provider.*provider_receiver"):
+        transfer_labels(
+            source_pos, target_pos, method="cpd_weighted", source_colors=source_colors,
+            estep_result=MockEstepResult(_square_nonsymmetric_pmat()),
+        )
+
+
+def test_cpd_weighted_unknown_pmat_layout_raises():
+    source_pos, target_pos, source_colors = _three_point_clouds()
+    with pytest.raises(ValueError, match="pmat_layout"):
+        transfer_labels(
+            source_pos, target_pos, method="cpd_weighted", source_colors=source_colors,
+            estep_result=MockEstepResult(_square_nonsymmetric_pmat()), pmat_layout="rows_are_targets",
+        )
+
+
+@pytest.mark.parametrize("layout, shape", [
+    ("receiver_provider", (4, 3)),  # this is (n_source, n_target): wrong for receiver_provider
+    ("provider_receiver", (3, 4)),  # this is (n_target, n_source): wrong for provider_receiver
+    ("receiver_provider", (5, 5)),
+])
+def test_cpd_weighted_declared_layout_shape_mismatch_raises(layout, shape):
+    """U6-9: the declared layout's exact shape is checked; no shape inference."""
     source_pos = torch.randn(4, 3)
     target_pos = torch.randn(3, 3)
     source_colors = torch.randn(4, 3)
-
-    class _Mock:
-        pmat = torch.ones(4, 3) / 3.0  # (n_source=4, n_target=3) → transposed
-
-    with pytest.raises(ValueError, match="transposed"):
-        _transfer_labels_cpd_weighted(source_pos, target_pos, source_colors, _Mock())
-
-
-def test_cpd_weighted_wrong_shape_pmat_raises():
-    """_transfer_labels_cpd_weighted raises ValueError for completely unexpected pmat shape."""
-    import torch
-    from zreg.label_transfer import _transfer_labels_cpd_weighted
-    source_pos = torch.randn(4, 3)
-    target_pos = torch.randn(3, 3)
-    source_colors = torch.randn(4, 3)
-
-    class _Mock:
-        pmat = torch.ones(5, 5)  # neither (n_target, n_source) nor (n_source, n_target)
-
     with pytest.raises(ValueError, match="expected"):
-        _transfer_labels_cpd_weighted(source_pos, target_pos, source_colors, _Mock())
+        transfer_labels(
+            source_pos, target_pos, method="cpd_weighted", source_colors=source_colors,
+            estep_result=MockEstepResult(torch.ones(*shape)), pmat_layout=layout,
+        )
+
+
+# ── Gaussian kernel stability (U6-3) ──────────────────────────────────────────
+
+def test_gaussian_kernel_far_target_is_finite_and_nearest():
+    """U6-3: every source far from the target -> no 0/0 NaN; the nearest source dominates."""
+    source_pos = torch.tensor([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]])
+    source_colors = torch.tensor([[1.0, 0.0], [0.0, 1.0]])
+    target_pos = torch.tensor([[100.0, 0.0, 0.0]])
+    out = transfer_labels(
+        source_pos, target_pos, method="gaussian_kernel", source_colors=source_colors, sigma=1.0,
+    )
+    assert torch.isfinite(out).all()
+    torch.testing.assert_close(out, torch.tensor([[0.0, 1.0]]))
+
+
+@pytest.mark.parametrize("sigma", [0.0, -1.0, float("nan"), float("inf")])
+def test_gaussian_kernel_invalid_sigma_raises(sigma):
+    source_pos = torch.tensor([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]])
+    source_colors = torch.tensor([[1.0, 0.0], [0.0, 1.0]])
+    with pytest.raises(ValueError, match="sigma"):
+        transfer_labels(
+            source_pos, source_pos, method="gaussian_kernel", source_colors=source_colors, sigma=sigma,
+        )
+
+
+# ── Source label extraction (U6-5) ────────────────────────────────────────────
+
+def test_zreg_source_without_label_raises():
+    """U6-5: a zRegPointCloud without 'label' and no source_colors -> ValueError, not TypeError."""
+    source = zRegPointCloud(pos=torch.randn(4, 3))
+    target = zRegPointCloud(pos=torch.randn(3, 3))
+    with pytest.raises(ValueError, match="label"):
+        transfer_labels(source, target)
+
+
+def test_explicit_source_colors_win_over_zreg_label():
+    """U6-5: an explicit source_colors argument is not clobbered by source['label']."""
+    source = zRegPointCloud(pos=torch.randn(4, 3), label=torch.zeros(4, 2))
+    target = zRegPointCloud(pos=torch.randn(3, 3))
+    out = transfer_labels(source, target, source_colors=torch.ones(4, 2))
+    torch.testing.assert_close(out, torch.ones(3, 2))
+
+
+@pytest.mark.parametrize("method, extra", [
+    ("nearest_neighbor", {}),
+    ("knn_voting", {"k": 2}),
+    ("gaussian_kernel", {"sigma": 0.5}),
+    ("cpd_weighted", {"pmat_layout": "receiver_provider"}),
+])
+def test_transfer_does_not_mutate_inputs(method, extra):
+    """U6-5: caller tensors (positions, labels, explicit source_colors) are never written to."""
+    gen = torch.Generator().manual_seed(0)
+    src_pos = torch.randn(5, 3, generator=gen)
+    tgt_pos = torch.randn(4, 3, generator=gen)
+    src_label = torch.tensor([[0.0], [1.0], [2.0], [1.0], [0.0]])
+    explicit = torch.tensor([[1.0], [0.0], [2.0], [2.0], [1.0]])
+    source = zRegPointCloud(pos=src_pos, label=src_label)
+    target = zRegPointCloud(pos=tgt_pos)
+    originals = [t.clone() for t in (src_pos, src_label, tgt_pos, explicit)]
+    kwargs = dict(extra)
+    if method == "cpd_weighted":
+        pmat = torch.rand(4, 5, generator=gen) + 0.1
+        pmat_orig = pmat.clone()
+        kwargs["estep_result"] = MockEstepResult(pmat)
+    transfer_labels(source, target, method=method, source_colors=explicit, **kwargs)
+    for orig, now in zip(originals, (src_pos, src_label, tgt_pos, explicit)):
+        assert torch.equal(orig, now)
+    if method == "cpd_weighted":
+        assert torch.equal(pmat_orig, pmat)
 
 
 # ── Model-based dispatch ──────────────────────────────────────────────────────

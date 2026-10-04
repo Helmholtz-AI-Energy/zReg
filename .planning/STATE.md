@@ -1,35 +1,37 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.7
-milestone_name: Minor Adjustments
-status: executing
-stopped_at: Phase 58 complete (VERIFICATION.md passed, 6/6 must-haves) — v1.7 milestone complete; merged into feature/evaluation_framework
-last_updated: "2026-08-05T00:00:00.000Z"
-last_activity: 2026-08-05 -- v1.7 (Phases 57-58) merged into feature/evaluation_framework, renumbered from 56-57 to resolve collision with that branch's own Phase 56
+milestone: v1.8
+milestone_name: Code Review Remediation
+status: verifying
+stopped_at: Completed 60-02-PLAN.md
+last_updated: "2026-10-03T18:18:49.328Z"
+last_activity: 2026-10-03
 progress:
-  total_phases: 50
-  completed_phases: 25
-  total_plans: 69
-  completed_plans: 97
-  percent: 50
+  total_phases: 20
+  completed_phases: 17
+  total_plans: 70
+  completed_plans: 63
+  percent: 85
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-07-15 after v1.5/v1.6 roadmap creation)
+See: .planning/PROJECT.md (updated 2026-10-02 at v1.8 milestone start)
 
 **Core value:** Every existing capability works correctly, fails informatively, and is covered by tests.
-**Current focus:** v1.7, v1.6, and v1.5 are all complete. No active phase — next step is `/gsd:complete-milestone` (v1.5/v1.6/v1.7 are shippable) or starting a new milestone.
+**Current focus:** Phase 62 — data-label-transfer-gpu-path
 
 ## Current Position
 
-Phase: 58 of 58 — v1.7 milestone complete (6/6 requirements satisfied), now merged into feature/evaluation_framework
-Plan: 58-01, 58-02, 58-03, 58-04 (all 4 executed, VERIFICATION.md passed)
-Status: v1.7 Minor Adjustments complete and merged. v1.6 (Phases 51-54) and v1.5 (Phases 44-50) also confirmed complete on reconciliation (2026-08-05) - their completion had drifted out of tracking. Next: /gsd:complete-milestone for any/all of v1.5/v1.6/v1.7, or start a new milestone.
-Tests (this branch, pre-merge): 1410 passed, 22 skipped, 1 xpassed, 1 failed (tests/test_icp_registration.py::test_icp_translation_recovery — pre-existing full-suite-order flake, confirmed unrelated and passes in isolation)
-Last activity: 2026-08-05 -- merged into feature/evaluation_framework; renumbered 56-57 -> 57-58 to resolve a Phase 56 collision with that branch's own concurrent work
+Milestone: v1.8 Code Review Remediation (Phases 59–63)
+Phase: 62 (data-label-transfer-gpu-path) — EXECUTING
+Plan: 6 of 6
+Status: Phase complete — ready for verification
+Last activity: 2026-10-03
+
+Progress: [█████████░] 90%
 
 ## Shipped Milestones
 
@@ -42,7 +44,19 @@ Last activity: 2026-08-05 -- merged into feature/evaluation_framework; renumbere
 
 Full history: .planning/MILESTONES.md · Retrospective: .planning/RETROSPECTIVE.md
 
-## v1.7 Phases — Minor Adjustments (Phases 57–58, current milestone)
+## v1.8 Phases — Code Review Remediation (Phases 59–63, current milestone)
+
+| Phase | Name | Requirements | Status |
+|-------|------|---------------|--------|
+| 59 | P0 Runnability & Silent Number Corruption | RUN-01, RUN-02, NUM-01..NUM-05 | Not started |
+| 60 | CPD/DTW Numerics | CPD-01..CPD-09 | Not started |
+| 61 | Distances, Aligners & MPI | DIST-01..DIST-05 | Not started |
+| 62 | Data, Label Transfer & GPU Path | DATA-01..DATA-04, LT-01..LT-04 | Not started |
+| 63 | HPC Orchestration, Viz/Export & Docs | HPC-01..HPC-04, VIZ-01..VIZ-03, DOC-01 | Not started |
+
+Source: `.planning/reviews/00-INDEX.md` + `unit-01..08` (review of `feature/evaluation_framework` @ `6c1c37f`).
+
+## v1.7 Phases — Minor Adjustments (Phases 57–58, Complete)
 
 | Phase | Name | Requirements | Status |
 |-------|------|---------------|--------|
@@ -99,6 +113,16 @@ Note: v1.7 was originally planned as Phases 56–57. Phase 55 was already consum
 | 56 | 03 | ~20min | 3 | 5 |
 | 56 | 04 | ~25min | 2 | 2 |
 | 56 | 05 | ~15min | 2 | 4 |
+| Phase 60 P01 | 25min | 3 tasks | 4 files |
+| Phase 60 P02 | 35 min | 3 tasks | 15 files |
+| Phase 60 P03 | 35min | 3 tasks | 11 files |
+| Phase 60 P04 | 20min | 2 tasks | 3 files |
+| Phase 60 P05 | 12min | 2 tasks | 1 files |
+| Phase 62 P02 | 13 min | 3 tasks | 5 files |
+| Phase 62 P03 | 45 min | 3 tasks | 6 files |
+| Phase 62 P04 | 6min | 2 tasks | 2 files |
+| Phase 62 P05 | 19 min | 2 tasks | 4 files |
+| Phase 62 P06 | 40 min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -107,6 +131,15 @@ Note: v1.7 was originally planned as Phases 56–57. Phase 55 was already consum
 - Phase 56 added: Configurable multi-label region-based labeling — rework generate_labels() to support arbitrary n_labels, voronoi/gaussian-blob/gaussian-cone region shapes, deterministic and probabilistic assignment modes, and config-driven specification via EvalConfig
 - Phase 56 completed (5/5 plans, verified) and merged into feature/evaluation_framework on 2026-07-31, alongside this branch's own concurrent Phase 50/51 progress
 - v1.7 Minor Adjustments (Phases 57-58, originally planned as 56-57 on a separate branch before this merge — renumbered to resolve the Phase 56 collision with the entry above) added and completed: Phase 57 Ground-Truth Field Consistency (GT-01/02/03) and Phase 58 Synthetic Labeled Subsample-Pair Generation (GT-04/05/06), merged into feature/evaluation_framework on 2026-08-05
+- v1.8 Code Review Remediation (Phases 59–63) roadmap created 2026-10-02 from the 8-unit external review; 37 requirements, user-approved 5-phase structure
+
+### v1.8 Design Decisions
+
+- **Phase 59 first**: P0 runnability and silent number corruption; NUM-05 changes failure semantics (degenerate → non-finite/raise, failed trial ≠ 0.0) which all later regression tests build on
+- **60/61/62 depend only on 59** and may run in parallel; coordination points: NUM-01 (Phase 59) and DIST-04 (Phase 61) both edit `icp.py`/`swd_aligner.py`; DIST-03 cpd-branch tests should assert the `q` corrected by CPD-02 (Phase 60)
+- **63 depends on 59** (RUN-01 makes the HoreKa configs loadable)
+- **Cross-cutting test rule**: every fix ships with a regression test that fails on `6c1c37f`, passes after, and does not mock the unit under test (review pattern 3)
+- CUDA-only regression tests (DATA-01, DIST-02 CUDA leg) skip without a GPU and must be exercised once on a CUDA host
 
 ### v1.6 Design Decisions
 
@@ -142,11 +175,14 @@ See: `.planning/REQUIREMENTS.md`
 
 ### Pending Todos
 
-None open. v1.5, v1.6, and v1.7 are all complete; none are formally closed via /gsd:complete-milestone yet.
+- (v1.8, from Phase 59 planning) `configs/experiments/stage2_label_transfer/cpd_weighted/real.yaml` lacks `k_neighbours`, `dist_metric`, `smoothing` required by label transfer → `run_eval.py --mode eval` fails with "Missing required param". → Pulled into Phase 59 plan 59-08 after cycle-3 Codex review (resolved in plan).
+
+None open. v1.5, v1.6, and v1.7 are all complete; none are formally closed via /gsd:complete-milestone yet (optional housekeeping, not blocking v1.8).
 
 ### Blockers/Concerns
 
-None — test_search_strategies mock fixed (FakeIndividual k=int→str) to align with Phase 52 categorical string encoding.
+- Baseline/HPO numbers produced with the defective CPD/ICP/SWD code are suspect; re-runs are tracked as a v1.8 Future Requirement, not in scope.
+- PROJECT.md "Active" section refers to "REV-* requirements"; actual IDs are RUN/NUM/CPD/DIST/DATA/LT/HPC/VIZ/DOC.
 
 ### Quick Tasks Completed
 
@@ -170,6 +206,6 @@ None — test_search_strategies mock fixed (FakeIndividual k=int→str) to align
 
 ## Session Continuity
 
-Last session: 2026-08-05T00:00:00.000Z
-Stopped at: v1.7 Minor Adjustments (Phases 57-58) merged into feature/evaluation_framework, renumbered to resolve Phase 56 collision
-Next action: `/gsd:plan-phase 54` — Budget Calibration & Full-Suite Gate (BUDG-02, BUDG-03); requires real HoreKa timing data from Phase 52/53 full run. Or `/gsd:complete-milestone` to formally close out v1.7 first.
+Last session: 2026-10-03T18:18:44.297Z
+Stopped at: Completed 60-02-PLAN.md
+Next action: `/gsd:plan-phase 59` — P0 Runnability & Silent Number Corruption

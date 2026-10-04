@@ -6,15 +6,19 @@
 
 zReg is a Python library for GPU-accelerated 3D point cloud registration, temporal alignment, and label (celltype) transfer using PyTorch — paired with a complete, config-driven **evaluation framework** at the repo root (`eval/`). v1.4 (5 phases, 11 plans, 2026-06-29 → 2026-07-08) expanded the alignment and optimization pipeline: ICP (Open3D point-to-point) and SWD variants (SWD/ASWD/OSWD/GSWD/PSWD) as registration alternatives; preprocessing via `compute_pca_rotation` + `detect_velocity_landmarks`; Sobol quasi-random search as default HPO (`SOBOL_MIN_TRIALS=8` fallback); and per-trajectory z-score standardization as default data preprocessing — all config-driven and backward compatible. **1,156 tests pass, 18 skipped.**
 
-## Current Milestone: v1.7 Minor Adjustments
+## Current Milestone: v1.8 Code Review Remediation
 
-**Goal:** General-purpose catch-all milestone for small, unrelated fixes and additions that don't warrant their own themed milestone.
+**Goal:** Every finding of the 8-unit external code review (`.planning/reviews/`, target `feature/evaluation_framework` @ `6c1c37f`, 2026-09-17) is fixed and pinned by a contract-level regression test that does not mock the unit under test.
 
-**Target features (current contents):**
-- Fix the ground-truth field mismatch between `DataFactory.get_ground_truth()`/`get_synthetic_ground_truth()` (read `pc["id"]`) and `LabelTransferStage` (transfers `pc["label"]`), plus the position-based min-length truncation in `eval_runner._run_single` that silently misaligns `y_true`/`y_pred` once `transform_spec` dropout/new-points change point counts
-- Add a synthetic labeled subsample-pair mechanism (source/target = two views of one labeled cloud with tracked correspondence) for label-transfer HPO, as a sibling to the existing known-transform (`transform_spec`) path, building on `DataFactory.generate_training_triple()`
+**Target features:**
+- P0: HoreKa suite runnable again (`label_source` config drift, stale imports, `zreg.dtw` shim) and no silently corrupted numbers (ICP/SWD `D_inv`, multi-seed HPO scoring, list-seed tiers, paired transfer direction)
+- Degenerate metric cases fail loudly (`inf`/`nan` or raise) instead of returning `0.0`, which `normalize()` maps to the best possible score
+- CPD/DTW numerics corrected (convergence seed, rigid `q`, fixed-scale `sigma2`, affine identity default, warm-start, save/load)
+- Distances, aligners and MPI: no deadlock, dtype/device-correct SW variants, correct denormalisation, HPO metric performance
+- Data, label-transfer and GPU path: CUDA-correct buffers, validated label configs, NaN-safe weighting
+- HPC orchestration, figure/export correctness, and restructure leftovers (stale paths, docstrings, coverage omit)
 
-**Paused for this milestone:** v1.6 HoreKa Cluster Execution (Phase 54: Budget Calibration & Full-Suite Gate remains — resume after v1.7).
+**Previous milestones:** v1.5, v1.6 and v1.7 are complete (not yet formally archived).
 
 ## What This Is
 
@@ -51,7 +55,7 @@ Every existing capability works correctly, fails informatively, and is covered b
 
 ### Active
 
-v1.7 Minor Adjustments — all 6 requirements satisfied (Phases 56 and 57 both complete and verified); see `.planning/REQUIREMENTS.md`. v1.6 HoreKa Cluster Execution (Phase 54) resumes next.
+v1.8 Code Review Remediation — see `.planning/REQUIREMENTS.md` (RUN/NUM/CPD/DIST/DATA/LT/HPC/VIZ/DOC requirements, Phases 59–63). Source findings: `.planning/reviews/00-INDEX.md` + `unit-01..08`.
 
 ### Validated in v1.7 (2026-08-04, complete — Phases 56 and 57)
 
@@ -179,4 +183,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-04 — Phase 57 (Synthetic Labeled Subsample-Pair Generation) complete, GT-04/05/06 satisfied — v1.7 Minor Adjustments fully complete (previous note: 2026-07-31, Phase 50 complete — torch_cluster FAIL on HoreKa, no wheel for torch 2.13.0+cu130, Open3D fallback unchanged)*
+*Last updated: 2026-10-02 — v1.8 Code Review Remediation milestone started*

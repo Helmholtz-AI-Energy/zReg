@@ -25,7 +25,7 @@ generate_training_triple()/generate_training_set() (RED, then GREEN). Task 3
 finalizes the file by adding the remaining mandated classes not yet covered.
 """
 
-# zreg.dataset/zreg.generators MUST precede import torch on macOS ARM to avoid
+# zreg.core.dataset/zreg.data_generation MUST precede import torch on macOS ARM to avoid
 # a libomp SIGABRT (enforced in tests/conftest.py:20-24; matches the convention
 # in tests/test_data_factory.py).
 from zreg.core.dataset import zRegPointCloud

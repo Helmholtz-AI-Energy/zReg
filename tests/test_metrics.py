@@ -33,7 +33,7 @@ import pytest
 
 from eval.config import EvalConfig
 
-# zreg.dataset MUST be imported before torch on macOS ARM to avoid libomp SIGABRT
+# zreg.core.dataset MUST be imported before torch on macOS ARM to avoid libomp SIGABRT
 from zreg.core.dataset import zRegPointCloud
 
 import torch

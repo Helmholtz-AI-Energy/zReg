@@ -1,4 +1,4 @@
-"""Tests for zreg.transforms module."""
+"""Tests for zreg.core.transforms module."""
 
 import pytest
 import torch

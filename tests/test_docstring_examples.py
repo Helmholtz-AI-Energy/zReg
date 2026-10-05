@@ -8,7 +8,7 @@ On the 6c1c37f baseline:
   shape error.
 - U2-13: docstrings in ``zreg.core.transforms``,
   ``zreg.core.transforms.homogeneous`` and ``zreg.data_generation.transforms``
-  imported from the non-existent ``zreg.transforms`` / ``zreg.dataset``.
+  imported from the removed top-level transforms/dataset modules.
 
 Examples are parsed with :mod:`doctest`, not with regular expressions.
 """

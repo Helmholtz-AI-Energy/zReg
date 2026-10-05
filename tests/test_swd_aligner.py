@@ -1,6 +1,6 @@
 """Tests for Sliced Wasserstein Distance-based registration wrapper.
 
-Unit tests for zreg.registration.SlicedWassersteinAligner class.
+Unit tests for zreg.algorithms.swd_aligner.SlicedWassersteinAligner class.
 Tests verify convergence on synthetic data, orthogonality enforcement,
 denormalization matrix composition, batch dimension handling, and
 reproducibility across all 6 SWD variants.

@@ -1,10 +1,11 @@
-"""Documentation hygiene checks (Phase 63, DOC-01).
+"""Documentation hygiene checks (Phase 63 / 64, DOC-01).
 
 These tests keep docstrings, comments and packaging metadata in line with the
 code after the package restructure.  Per D-06 grep-style checks over source
 text are allowed; in addition the ``zreg.evaluation`` doctests are executed
-for real (the D-09 equivalent of ``tox -e doctests``, which needs sphinx/tox
-that are not installed in every environment).
+for real.  The doctest gate for the whole package (``pytest --doctest-modules
+src/zreg`` plus a Sphinx-equivalent empty-namespace runner) lives in
+``tests/test_doctests.py``.
 
 Checks:
 
@@ -22,16 +23,20 @@ Checks:
   is described as implemented (cross-product based), not by slope changes.
 - ``test_no_stale_zreg_module_references``: no ``*.py`` file under the scan
   roots (``src/``, ``eval/``, ``scripts/``, ``baseline_experiments/scripts/``,
-  ``run_eval.py``) mentions the removed modules ``zreg.metrics``,
-  ``zreg.distances``, ``zreg.dataset`` or ``zreg.transforms``.  The live
-  ``zreg.core.transforms``, ``zreg.data_generation.transforms`` and
-  ``zreg.dtw`` do not match.  There is no per-file exclusion list;
+  ``run_eval.py``, ``tests/``) names a removed top-level module, i.e. the
+  package ``zreg`` followed by ``metrics``, ``distances``, ``dataset``,
+  ``transforms``, ``generators`` or ``registration``.  The live
+  ``zreg.core.transforms``, ``zreg.data_generation.transforms``,
+  ``zreg.data_generation.generators`` and ``zreg.dtw`` do not match.  There is
+  no per-file exclusion list: ``STALE_LINE_ALLOWLIST`` exempts single lines
+  (file + exact line substring) that hold deliberate negative-test literals,
+  and ``test_stale_allowlist_entries_are_live`` rejects dead entries.
   ``test_stale_reference_scan_has_no_exclusions`` pins the scan roots.
+- ``test_src_zreg_slash_paths_exist``: every ``src/zreg/<...>.py`` path named
+  in a scanned file exists.
 
 Out of scope by definition (not per-file exclusions):
 
-- ``tests/``: ``tests/test_script_imports.py`` and this module contain the
-  removed module names as literal patterns.
 - non-``.py`` files (``*.md`` etc.): DOC-01 is about docstrings and comments
   in Python sources.
 - ``.planning/``: historical planning records describe past states on purpose.
@@ -56,11 +61,29 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # Fixed scan roots for the stale-reference check (directories are scanned
 # recursively for *.py, files are scanned as-is).  No per-file exclusions.
-STALE_SCAN_ROOTS = ("src", "eval", "scripts", "baseline_experiments/scripts", "run_eval.py")
+STALE_SCAN_ROOTS = ("src", "eval", "scripts", "baseline_experiments/scripts", "run_eval.py", "tests")
 
 # Removed modules; the lookbehind keeps zreg.core.transforms and
 # zreg.data_generation.transforms (preceded by a word/dot) from matching.
-STALE_MODULE_RE = re.compile(r"(?<![\w.])zreg\.(metrics|distances|dataset|transforms)\b")
+STALE_MODULE_RE = re.compile(
+    r"(?<![\w.])zreg\.(metrics|distances|dataset|transforms|generators|registration)\b"
+)
+
+# Line-level exemptions for deliberate negative-test literals.  A stale match
+# is exempt only if the file matches AND the matching line contains one of
+# that file's substrings; there are no whole-file exemptions.
+STALE_LINE_ALLOWLIST: dict[str, tuple[str, ...]] = {
+    "tests/test_doc_hygiene.py": ("STALE_MODULE_RE.search(",),
+    "tests/test_script_imports.py": (
+        "The package restructure moved ``",
+        "``zreg.downsampling``, ``",
+        'assert not _resolves("zreg.',
+    ),
+    "tests/test_dtw_cpd_cost.py": ('distances" not in text',),
+}
+
+# src/zreg/<...>.py slash paths named in docstrings/comments must exist.
+SRC_ZREG_PATH_RE = re.compile(r"src/zreg/[A-Za-z0-9_/]+\.py")
 
 
 def _stale_scan_files() -> list[Path]:
@@ -178,26 +201,57 @@ def test_path_smoothness_header_matches_implementation() -> None:
 )
 def test_no_stale_zreg_module_references(path: Path) -> None:
     """No docstring/comment/code line names a removed zreg module."""
+    rel = path.relative_to(REPO_ROOT).as_posix()
+    allowed = STALE_LINE_ALLOWLIST.get(rel, ())
     hits = [
-        f"{path.relative_to(REPO_ROOT).as_posix()}:{lineno}: {line.strip()}"
+        f"{rel}:{lineno}: {line.strip()}"
         for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1)
-        if STALE_MODULE_RE.search(line)
+        if STALE_MODULE_RE.search(line) and not any(sub in line for sub in allowed)
     ]
     assert not hits, "stale zreg module references:\n" + "\n".join(hits)
 
 
+def test_stale_allowlist_entries_are_live() -> None:
+    """Every allowlist substring exempts at least one real stale-matching line."""
+    dead: list[str] = []
+    for rel, substrings in STALE_LINE_ALLOWLIST.items():
+        path = REPO_ROOT / rel
+        lines = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
+        stale_lines = [line for line in lines if STALE_MODULE_RE.search(line)]
+        for sub in substrings:
+            if not any(sub in line for line in stale_lines):
+                dead.append(f"{rel}: {sub!r}")
+    assert not dead, "dead or over-broad STALE_LINE_ALLOWLIST entries:\n" + "\n".join(dead)
+
+
+def test_src_zreg_slash_paths_exist() -> None:
+    """Every ``src/zreg/<...>.py`` path named in a scanned file exists."""
+    missing = [
+        f"{path.relative_to(REPO_ROOT).as_posix()}:{lineno}: {match}"
+        for path in _SCAN_FILES
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1)
+        for match in SRC_ZREG_PATH_RE.findall(line)
+        if not (REPO_ROOT / match).exists()
+    ]
+    assert not missing, "src/zreg paths that do not exist:\n" + "\n".join(missing)
+
+
 def test_stale_reference_scan_has_no_exclusions() -> None:
     """Guard against silently narrowing the stale-reference scan."""
-    assert STALE_SCAN_ROOTS == ("src", "eval", "scripts", "baseline_experiments/scripts", "run_eval.py")
+    assert STALE_SCAN_ROOTS == ("src", "eval", "scripts", "baseline_experiments/scripts", "run_eval.py", "tests")
     rel = {p.relative_to(REPO_ROOT).as_posix() for p in _SCAN_FILES}
     assert rel, "stale-reference scan collected no files"
     for required in (
         "src/zreg/core/transforms/__init__.py",
         "src/zreg/algorithms/dtw/core.py",
         "run_eval.py",
+        "tests/test_generators.py",
     ):
         assert required in rel, f"{required} missing from the stale-reference scan"
     assert STALE_MODULE_RE.search("from zreg.metrics import chamfer")
     assert not STALE_MODULE_RE.search("from zreg.core.transforms import Affine")
     assert not STALE_MODULE_RE.search("zreg.data_generation.transforms")
     assert not STALE_MODULE_RE.search("import zreg.dtw")
+    assert STALE_MODULE_RE.search("from zreg.generators.labels import generate_labels")
+    assert STALE_MODULE_RE.search("zreg.registration")
+    assert not STALE_MODULE_RE.search("zreg.data_generation.generators")

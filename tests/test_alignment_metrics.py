@@ -1,4 +1,4 @@
-"""Tests for zreg.metrics.alignment module (Plan 13-01, Tasks 2 & 3).
+"""Tests for zreg.evaluation.alignment module (Plan 13-01, Tasks 2 & 3).
 
 Covers:
 - chamfer: known-distance assertions, symmetric, squared flag, shape guard, NaN guard

@@ -1,4 +1,4 @@
-"""Tests for zreg.metrics.label_transfer module (compute_f1)."""
+"""Tests for zreg.evaluation.label_transfer module (compute_f1)."""
 
 import inspect
 
@@ -145,7 +145,7 @@ class TestComputeF1PackageImport:
     """Tests for compute_f1 package-level re-export."""
 
     def test_importable_from_package(self):
-        """compute_f1 is importable from zreg.metrics package."""
+        """compute_f1 is importable from zreg.evaluation package."""
         from zreg.evaluation import compute_f1 as cf  # noqa: F401
         assert cf is compute_f1
 

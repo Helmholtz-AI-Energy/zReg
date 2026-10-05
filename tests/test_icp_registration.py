@@ -1,6 +1,6 @@
 """Tests for ICP (Iterative Closest Point) registration wrapper.
 
-Unit tests for zreg.registration.ICPRegistration class and integration
+Unit tests for zreg.algorithms.icp.ICPRegistration class and integration
 with the AlignmentStage dispatcher (Phase 39).
 """
 

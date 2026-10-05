@@ -24,7 +24,7 @@ import yaml
 
 from eval.config import EvalConfig, EvalConfigError
 
-# zreg.dataset MUST be imported before torch on macOS ARM to avoid libomp SIGABRT
+# zreg.core.dataset MUST be imported before torch on macOS ARM to avoid libomp SIGABRT
 from zreg.core.dataset import zRegPointCloud
 
 import torch

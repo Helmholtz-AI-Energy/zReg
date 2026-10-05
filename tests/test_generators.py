@@ -1,4 +1,4 @@
-"""Tests for zreg.generators module.
+"""Tests for zreg.data_generation.generators module.
 
 Four test classes cover all seven public symbols across Plans 01 and 02:
 - TestGenerateTrajectory  — generate_trajectory factory
@@ -8,7 +8,7 @@ Four test classes cover all seven public symbols across Plans 01 and 02:
 
 Each class verifies: return shape/dtype contracts (D-07), immutability
 (D-03), seed reproducibility, ValueError raises, and downstream
-compatibility with zreg.metrics.compute_f1 (D-07 dtype contract).
+compatibility with zreg.evaluation.label_transfer.compute_f1 (D-07 dtype contract).
 """
 
 import copy

@@ -16,7 +16,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-# zreg.dataset before torch — macOS-ARM SIGABRT rule
+# zreg.core.dataset before torch — macOS-ARM SIGABRT rule
 from zreg.core.dataset import zRegPointCloud
 
 import torch

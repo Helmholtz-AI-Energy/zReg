@@ -1,4 +1,4 @@
-"""Tests for zreg.distances module."""
+"""Tests for zreg.distance_metrics module."""
 
 import pytest
 import torch

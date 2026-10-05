@@ -1,4 +1,4 @@
-"""Tests for zreg.dataset module."""
+"""Tests for zreg.core.dataset module."""
 
 import numpy as np
 import pytest

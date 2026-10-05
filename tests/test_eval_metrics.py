@@ -1,4 +1,4 @@
-"""Tests for zreg.metrics module."""
+"""Tests for zreg.evaluation metrics (alignment and label_transfer)."""
 
 import inspect
 

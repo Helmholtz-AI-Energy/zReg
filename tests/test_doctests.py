@@ -43,6 +43,11 @@ REPO = Path(__file__).resolve().parent.parent
 # 30 passed + 1 skipped under ``pytest --doctest-modules src/zreg``).
 MIN_DOCTEST_ITEMS = 31
 
+# The child ``pytest --doctest-modules`` run takes ~10 s; a hanging example
+# (CUDA/MPI init on a cluster node, a blocking Open3D call) must fail the gate
+# instead of hanging the whole session.
+DOCTEST_SUBPROCESS_TIMEOUT_S = 600
+
 DOCTESTS: list[doctest.DocTest] = []
 IMPORT_FAILURES: list[tuple[str, str]] = []
 
@@ -166,7 +171,31 @@ def _run(test: doctest.DocTest) -> tuple[doctest.TestResults, str]:
 
 def test_doctest_modules_src_zreg_pass() -> None:
     """The literal ``pytest --doctest-modules src/zreg`` run is green."""
-    proc = subprocess.run(
+    try:
+        proc = _run_doctest_modules()
+    except subprocess.TimeoutExpired as exc:
+        partial = "".join(
+            out.decode(errors="replace") if isinstance(out, bytes) else out
+            for out in (exc.stdout, exc.stderr)
+            if out
+        )
+        pytest.fail(
+            f"pytest --doctest-modules src/zreg did not finish within {DOCTEST_SUBPROCESS_TIMEOUT_S} s"
+            f" (a docstring example hangs?):\n{partial}"
+        )
+    output = proc.stdout + proc.stderr
+    assert proc.returncode == 0, f"pytest --doctest-modules src/zreg failed:\n{output}"
+    assert not re.search(r"\b\d+ failed\b", output), output
+    assert not re.search(r"\b\d+ errors?\b", output), output
+    passed = sum(int(n) for n in re.findall(r"\b(\d+) passed\b", output))
+    skipped = sum(int(n) for n in re.findall(r"\b(\d+) skipped\b", output))
+    assert passed + skipped >= MIN_DOCTEST_ITEMS, (
+        f"only {passed} passed + {skipped} skipped doctest items (expected >= {MIN_DOCTEST_ITEMS}):\n{output}"
+    )
+
+
+def _run_doctest_modules() -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
         [
             sys.executable,
             "-m",
@@ -184,15 +213,7 @@ def test_doctest_modules_src_zreg_pass() -> None:
         cwd=REPO,
         capture_output=True,
         text=True,
-    )
-    output = proc.stdout + proc.stderr
-    assert proc.returncode == 0, f"pytest --doctest-modules src/zreg failed:\n{output}"
-    assert not re.search(r"\b\d+ failed\b", output), output
-    assert not re.search(r"\b\d+ errors?\b", output), output
-    passed = sum(int(n) for n in re.findall(r"\b(\d+) passed\b", output))
-    skipped = sum(int(n) for n in re.findall(r"\b(\d+) skipped\b", output))
-    assert passed + skipped >= MIN_DOCTEST_ITEMS, (
-        f"only {passed} passed + {skipped} skipped doctest items (expected >= {MIN_DOCTEST_ITEMS}):\n{output}"
+        timeout=DOCTEST_SUBPROCESS_TIMEOUT_S,
     )
 
 

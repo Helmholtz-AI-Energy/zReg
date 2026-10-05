@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.8
 milestone_name: Code Review Remediation
 status: completed
-stopped_at: "Phase 64 complete (plans, code review, verification passed); v1.8 ready for /gsd:complete-milestone"
-last_updated: "2026-10-05T15:50:00.000Z"
-last_activity: 2026-10-05
+stopped_at: "Milestone v1.8 completed and archived (milestones/v1.8-ROADMAP.md, v1.8-REQUIREMENTS.md, v1.8-MILESTONE-AUDIT.md)"
+last_updated: "2026-10-05T16:54:13.587Z"
+last_activity: 2026-10-05 — Milestone v1.8 completed and archived
 progress:
   total_phases: 6
   completed_phases: 6
@@ -18,20 +18,19 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-10-02 at v1.8 milestone start)
+See: .planning/PROJECT.md (updated 2026-10-05 after v1.8 milestone)
 
 **Core value:** Every existing capability works correctly, fails informatively, and is covered by tests.
-**Current focus:** Phase 64 — tech-debt-cleanup-doctests-stale-refs-validation-bookkeeping
+**Current focus:** Planning next milestone (run /gsd:new-milestone; phase numbering continues at 65)
 
 ## Current Position
 
-Milestone: v1.8 Code Review Remediation (Phases 59–64)
-Phase: 64 (tech-debt-cleanup-doctests-stale-refs-validation-bookkeeping) — Complete (5/5 plans)
-Plan: 5 of 5
-Status: Milestone ready to complete (audit passed, Nyquist compliant 59–64; next: /gsd:complete-milestone v1.8)
-Last activity: 2026-10-05 — 64-05 audit finalization (status passed), Phase 64 recorded complete
+Phase: Milestone v1.8 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-10-05 — Milestone v1.8 completed and archived
 
-Progress: [██████████] 100%
+Progress: [██████████] 100% (v1.8: 6/6 phases, 37/37 plans)
 
 ## Shipped Milestones
 
@@ -41,10 +40,13 @@ Progress: [██████████] 100%
 | v1.1 Code Quality & Refactoring | 6–11.1 | 2026-05-13 |
 | v1.2 Evaluation Framework & Debt Resolution | 12–38 | 2026-06-26 |
 | v1.4 Trajectory Alignment & Optimization Enhancements | 39–43 | 2026-07-08 |
+| v1.8 Code Review Remediation | 59–64 | 2026-10-05 |
+
+v1.5 (44–50), v1.6 (51–54) and v1.7 (57–58) are complete but not formally archived.
 
 Full history: .planning/MILESTONES.md · Retrospective: .planning/RETROSPECTIVE.md
 
-## v1.8 Phases — Code Review Remediation (Phases 59–64, current milestone)
+## v1.8 Phases — Code Review Remediation (Phases 59–64, shipped 2026-10-05)
 
 | Phase | Name | Requirements | Status |
 |-------|------|---------------|--------|
@@ -169,7 +171,7 @@ Note: v1.7 was originally planned as Phases 56–57. Phase 55 was already consum
 
 ### Requirements
 
-See: `.planning/REQUIREMENTS.md`
+v1.8 requirements (RUN/NUM/CPD/DIST/DATA/LT/HPC/VIZ/DOC, 37/37 satisfied) archived to `.planning/milestones/v1.8-REQUIREMENTS.md`; `.planning/REQUIREMENTS.md` was removed at milestone close and is recreated by /gsd:new-milestone. Earlier (unarchived) requirement groups:
 
 - GT-01/02/03: ground-truth field consistency — `pc["label"]` not `pc["id"]`, correspondence-preserving y_true/y_pred pairing, config audit (Phase 57)
 - GT-04/05/06: synthetic labeled subsample-pair generation — YAML-configurable, DataFactory method, EvaluationRunner/HyperparamOptimizer support (Phase 58)
@@ -188,7 +190,6 @@ None open. v1.5, v1.6, and v1.7 are all complete; none are formally closed via /
 ### Blockers/Concerns
 
 - Baseline/HPO numbers produced with the defective CPD/ICP/SWD code are suspect; re-runs are tracked as a v1.8 Future Requirement, not in scope.
-- PROJECT.md "Active" section refers to "REV-* requirements"; actual IDs are RUN/NUM/CPD/DIST/DATA/LT/HPC/VIZ/DOC.
 
 ### Quick Tasks Completed
 
@@ -210,8 +211,33 @@ None open. v1.5, v1.6, and v1.7 are all complete; none are formally closed via /
 | code-review | Open CR/WR items (matplotlib Agg backend leak; `subprocess.run` timeout in `trajectory.py`; `eval/` excluded from `--cov`) | Non-blocking; carried forward |
 | test-flakiness | `tests/test_icp_registration.py::TestICPRegistration::test_icp_translation_recovery`/`test_icp_rotation_recovery` fail only in full-suite runs, pass in isolation (found during Phase 56 Plan 02) | **Resolved 2026-08-05**: seeded RNG (`torch.manual_seed(42)`) + reduced `test_icp_rotation_recovery`'s target angle from 45° to 10° (45° was outside ICP's convergence basin for unstructured random clouds) + `max_iterations=100`. Verified: 1426 passed, 0 failed in full-suite order. |
 
+## Deferred Items
+
+Items acknowledged and deferred at v1.8 milestone close on 2026-10-05 (`audit-open`: 14 items; none belong to v1.8 work — Phases 61–63 UAT files are already `resolved`):
+
+| Category | Item | Status |
+|----------|------|--------|
+| quick_task | 20260717-02-revise-tutorial-cross-platform | missing (no status marker; completed per Quick Tasks table) |
+| quick_task | 20260718-02-tutorials-directory-restructure | missing (no status marker; completed per Quick Tasks table) |
+| quick_task | 20260718-03-remove-notebooks-dir | missing (no status marker; completed per Quick Tasks table) |
+| quick_task | 20260718-tutorial-to-notebook | missing (no status marker; completed per Quick Tasks table) |
+| quick_task | 260728-q01-model-dispatch-label-transfer | missing (no status marker; completed per Quick Tasks table) |
+| uat_gap | Phase 18 (18-HUMAN-UAT.md) | passed |
+| uat_gap | Phase 26 (26-HUMAN-UAT.md) | partial, 0 pending |
+| uat_gap | Phase 28 (28-HUMAN-UAT.md) | passed |
+| uat_gap | Phase 51 (51-HUMAN-UAT.md) | partial, 1 pending |
+| uat_gap | Phase 61 (61-HUMAN-UAT.md) | resolved |
+| uat_gap | Phase 62 (62-HUMAN-UAT.md) | resolved |
+| uat_gap | Phase 63 (63-HUMAN-UAT.md) | resolved |
+| verification | Phase 26 (26-VERIFICATION.md) | human_needed (live mpirun later exercised on HoreKa, Phase 52) |
+| verification | Phase 51 (51-VERIFICATION.md) | human_needed |
+
 ## Session Continuity
 
-Last session: 2026-10-05T14:40:25.000Z
-Stopped at: Completed 64-05-PLAN.md
-Next action: Phase 64 code review / verification, then /gsd:complete-milestone v1.8
+Last session: 2026-10-05T16:54:13.587Z
+Stopped at: Milestone v1.8 completed and archived
+Next action: /gsd:new-milestone
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone

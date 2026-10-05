@@ -210,6 +210,56 @@
 
 ---
 
+## Milestone: v1.8 — Code Review Remediation
+
+**Shipped:** 2026-10-05
+**Phases:** 6 (59–64) | **Plans:** 37 | **Timeline:** 4 days (2026-10-02 → 2026-10-05), 142 commits since `6c1c37f`
+
+### What Was Built
+
+- P0 runnability: all config YAMLs load (glob test, duplicate-key rejection, `label_source` restored), `zreg.dtw` shim, example scripts import (Phase 59)
+- Silent-corruption fixes: exact ICP/SWD `D_inv`, aligned-dict HPO scoring, list-seed tiers, Shah→Kobitski transfer direction, degenerate metrics/failed trials never score `1.0` (Phase 59)
+- CPD/DTW numerics per Myronenko & Song, identity defaults, AffineCPD warm start, DTW callable save/load (Phase 60)
+- MPI-deadlock-free pairwise matrix, dtype/device-correct SW variants, SWD proper rotations, degenerate-cloud rejection, one `cdist` per frame (Phase 61)
+- CUDA-correct data/label-transfer path, config-time label validation, NaN-safe `pmat` policy (Phase 62)
+- HPC warm start/resume/shared output dir, figure/export fixes, strict JSON, restructure leftovers (Phase 63); whole-package doctests, stale-ref gate, planning bookkeeping (Phase 64)
+
+### What Worked
+
+- **External review as the requirement source:** 77 finding IDs mapped one-to-one onto 37 requirements gave an unambiguous traceability target; the audit could check finding coverage mechanically.
+- **"Fails on the baseline, no mocking the unit" rule:** RED-first regression tests against `6c1c37f` caught several fixes that would otherwise have been vacuous (e.g. a CR-01 assertion that passed on broken code).
+- **Parallel phases 60/61/62 after a P0 phase:** fixing failure semantics first (NUM-05) meant later regression tests could assert loud failures instead of `0.0`.
+- **Audit → tech-debt phase → re-audit:** the first audit found the doctest claim had never been run; Phase 64 closed it with a real `tox -e doctests` run instead of a paper fix.
+- **Running the suite on a second architecture (JUPITER GH200):** surfaced the Open3D aarch64 gap and led to pure-torch geometry ops.
+
+### What Was Inefficient
+
+- **Requirement wording outran verification:** DOC-01 claimed "`tox -e doctests` passes" before anyone ran it (23 doctest failures at the first audit).
+- **Planning bookkeeping drift:** SUMMARY `requirements-completed`, ROADMAP checkboxes and VALIDATION rows were not updated during execution and needed a dedicated plan (64-04).
+- **CPD/ICP/SWD-based HPO numbers produced before v1.8 are now suspect** and must be re-run — remediation cost lands on the next milestone.
+
+### Patterns Established
+
+- Every fix ships with a regression test that fails on the review baseline and exercises the real contract (no mocking the unit under test)
+- Degenerate outcomes return non-finite or raise; failed HPO trials are recorded as failed and merged across MPI ranks
+- `tests/test_doc_hygiene.py` (stale module/path refs) and `tests/test_doctests.py` (pytest + empty-namespace doctest gates) as standing gates
+- Status flips in audits only via a gate script cross-checked by the orchestrator
+
+### Key Lessons
+
+1. **Run the claimed gate before writing it into a requirement.** "Doctests pass" was true only for the scoped module.
+2. **Update SUMMARY/ROADMAP/VALIDATION frontmatter at plan completion, not at audit time.**
+3. **Test on every target architecture before calling HPC work done.** JUPITER aarch64 exposed hard Open3D dependencies that x86 CI never would.
+4. **Line coverage over mocks is not evidence.** Contract-level tests found real bugs that 100%-coverage mocked tests had hidden.
+
+### Cost Observations
+
+- Model: quality profile (Opus-class orchestrator and executors), cross-AI plan review convergence enabled
+- Sessions: multiple per day over 4 days
+- Notable: largest plan count per day of any milestone (37 plans in 4 days), driven by parallel phases 60–62
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -220,6 +270,7 @@
 | v1.1 | 7 | 14 | Restructuring milestone — package splits, Protocol APIs, inserted phase for audit gap |
 | v1.2 | 27 | 55 | Feature milestone — repo-root `eval/` framework wrapping existing `zreg.*`; dual-mode evaluation; live-suite audit caught a close-time regression |
 | v1.4 | 5 | 11 | Algorithm expansion — ICP + SWD + preprocessing + Sobol + standardization; all 5 phases independent; gaps closed at close (no audit run) |
+| v1.8 | 6 | 37 | Remediation milestone driven by an external code review; RED-first contract tests against the review baseline; audit → tech-debt phase → re-audit; tested on a second architecture (JUPITER GH200) |
 
 ### Cumulative Quality
 
@@ -229,3 +280,4 @@
 | v1.1 | +116 (391 total) | 29/29 | 5 items (typing inconsistency, Protocol doc-only, absolute import, config not top-level, no VALIDATION.md) |
 | v1.2 | +585 (976 total) | 30/30 | 5 items (Propulate live-mpirun unverified, 14 phases no VALIDATION.md, empty SUMMARY frontmatter, EXT untracked until close, open CR/WR items) |
 | v1.4 | +180 (1156 total) | 28/28 | 3 items (MaxSWD deferred v1.5, ALIGN-06-05 integration test gap, planning docs only in worktrees) |
+| v1.8 | 2575 total (incl. unarchived v1.5–v1.7 additions) | 37/37 (77/77 review findings) | 5 accepted items (AffineCPD near-singular solve, tox doctests on aarch64, no production Propulate warm-start run, pre-63 HPO results not comparable, cosmetic 59–61 VALIDATION rows) |

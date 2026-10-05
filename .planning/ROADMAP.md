@@ -2,7 +2,7 @@
 
 ## Milestones
 
-- 🚧 **v1.8 Code Review Remediation** — Phases 59–64 (in progress)
+- ✅ **v1.8 Code Review Remediation** — Phases 59–64 (shipped 2026-10-05) — [archive](.planning/milestones/v1.8-ROADMAP.md)
 - ✅ **v1.7 Minor Adjustments** — Phases 57–58 (shipped 2026-08-04)
 - ✅ **v1.6 HoreKa Cluster Execution** — Phases 51–54 (shipped 2026-07-23)
 - ✅ **v1.5 Learned Label Transfer Methods** — Phases 44–50 (shipped 2026-07-31)
@@ -15,20 +15,23 @@
 
 **Phase Numbering:**
 
-- Integer phases (59–64): Active milestone v1.8; 44–58 are complete
+- Integer phases: 1–64 are complete (v1.8 shipped 2026-10-05); the next milestone continues at Phase 65
 - Decimal phases (e.g. 44.1): Urgent insertions (marked with INSERTED)
 - Note: Phase 55 was already consumed by an ad-hoc out-of-band phase (spherical-cap/Gaussian label generators for `zreg.data_generation.labels`, unrelated to any numbered milestone), completed 2026-07-30. Phase 56 was also already consumed — by a separate ad-hoc phase developed concurrently on `feature/evaluation_framework` (Configurable multi-label region-based labeling, completed 2026-07-31) before this milestone's branch merged back in. v1.7 was originally planned as Phases 56–57, but was renumbered to 57–58 on merge to resolve that collision — see Phase Details below for the corresponding `.planning/phases/` directory renames.
 
-### 🚧 v1.8 Code Review Remediation (In Progress)
+<details>
+<summary>✅ v1.8 Code Review Remediation (Phases 59–64) — SHIPPED 2026-10-05</summary>
 
-**Milestone Goal:** Every finding of the 8-unit external code review (`.planning/reviews/`, target `feature/evaluation_framework` @ `6c1c37f`, 2026-09-17) is fixed and pinned by a contract-level regression test that fails on `6c1c37f`, passes after the fix, and does not mock the unit under test.
+- [x] Phase 59: P0 Runnability & Silent Number Corruption (8/8 plans) — completed 2026-10-02
+- [x] Phase 60: CPD/DTW Numerics (5/5 plans) — completed 2026-10-03
+- [x] Phase 61: Distances, Aligners & MPI (4/4 plans) — completed 2026-10-03
+- [x] Phase 62: Data, Label Transfer & GPU Path (6/6 plans) — completed 2026-10-03
+- [x] Phase 63: HPC Orchestration, Viz/Export & Docs (9/9 plans) — completed 2026-10-03
+- [x] Phase 64: Tech debt cleanup: doctests, stale refs, validation bookkeeping (5/5 plans) — completed 2026-10-05
 
-- [x] **Phase 59: P0 Runnability & Silent Number Corruption** - HoreKa configs and scripts run again; ICP/SWD round-trips, HPO scoring and paired transfer direction are correct; degenerate outcomes fail loudly instead of scoring 1.0
-- [x] **Phase 60: CPD/DTW Numerics** - CPD convergence, `q` and `sigma2` follow Myronenko & Song; identity defaults, warm start, DTW save/load and stale paths fixed
-- [x] **Phase 61: Distances, Aligners & MPI** - Pairwise matrix never deadlocks; SW variants are dtype/device-correct; SWD/ICP return proper rotations or reject degenerate clouds; one `cdist` per frame
-- [x] **Phase 62: Data, Label Transfer & GPU Path** - `device: cuda` runs end-to-end; label configs validated at config time; label-transfer weighting NaN-safe and correctly indexed
-- [x] **Phase 63: HPC Orchestration, Viz/Export & Docs** - Warm start, resume and shared output dir work on HoreKa; figures/metadata complete and consistent; restructure leftovers cleaned
-- [x] **Phase 64: Tech debt cleanup: doctests, stale refs, validation bookkeeping** - Whole-package doctests pass (pytest and the `tox -e doctests` Sphinx builder), no stale module/file references remain, and the v1.8 planning record matches reality
+Full details: [.planning/milestones/v1.8-ROADMAP.md](.planning/milestones/v1.8-ROADMAP.md)
+
+</details>
 
 ### ✅ v1.7 Minor Adjustments (Complete)
 
@@ -47,180 +50,6 @@
 - [x] **Phase 54: Budget Calibration & Full-Suite Gate** - Full 7-run suite is calibrated and verified to fit the 3-hour GPU cap before the full allocation is submitted (completed 2026-07-23, UAT 9/9 passed — see `.planning/phases/54-budget-calibration-full-suite-gate/54-UAT.md`; this milestone's completion had drifted out of STATE.md/ROADMAP.md tracking after the branch that completed it diverged from `feature/evaluation_framework` before merging back — reconciled 2026-08-05)
 
 ## Phase Details
-
-### Phase 59: P0 Runnability & Silent Number Corruption
-
-**Goal**: The HoreKa suite and example scripts start again, and no aligner, HPO path or label-transfer direction produces a silently wrong number. Degenerate results show up as failures, not as perfect scores.
-**Depends on**: Nothing (first phase of v1.8; baseline is `6c1c37f`)
-**Requirements**: RUN-01, RUN-02, NUM-01, NUM-02, NUM-03, NUM-04, NUM-05
-**Success Criteria** (what must be TRUE):
-
-  1. Every YAML under `configs/`, `configs_horeka/` and `baseline_experiments/configs*/` loads through `EvalConfig.from_yaml` (enforced by one test that globs them all). `generate_real_previews.py`, `label_transfer_example.py`, `example_plots.py` and `dtw_testing.py` import without error, and `from zreg.dtw import X` works.
-  2. An identity ICP or SWD registration returns its input coordinates unchanged (for example, `[3,5,7]` stays `[3,5,7]` and does not become `[-1,1,3]`). Denormalised results use the bounds of the frame they live in. A paired-mode run transfers Shah (target, real germ-layer labels) labels onto the aligned Kobitski source, not Kobitski's arbitrary colour indices onto Shah (restores `c60a943` semantics).
-  3. In multi-seed subsample-pair HPO, a deliberately misaligned trial scores worse chamfer/hausdorff than an aligned one, because the aligned per-frame dicts are scored. A list-valued `seed` runs sanity and dev tiers on `seed[0]`, and those tiers no longer swallow `ValueError`/`TypeError`.
-  4. Degenerate outcomes cannot normalise to `1.0`. An empty frame-key intersection returns a non-finite value or raises, partial overlap is flagged, and a raising trial is recorded as failed. `sanity_check` reports each case.
-  5. Each fix has a regression test that fails on `6c1c37f`, passes after the fix, and does not mock the unit under test. In particular, the HPO scoring tests call the real `compute_stage_metrics` and `_score_subsample_pair_multiseed`.
-
-**Plans:** 8 plans (revised 2026-10-02 for cross-AI review 59-REVIEWS.md)
-
-Plans:
-**Wave 1**
-
-- [x] 59-01-PLAN.md — Restore `EvalConfig.label_source`, reject duplicate YAML keys, glob-load all 84 configs; shared label-direction helper; all 27 Kobitski->Shah configs take labels from Shah, no exemption (RUN-01, NUM-04) [wave 1]
-- [x] 59-02-PLAN.md — `zreg.dtw` sys.modules shim; repair 4 scripts to current module paths, import-safe, main() smoke tests + runtime fixes, no xfail escape hatch (library blockers fixed in-phase) (RUN-02) [wave 1] (revised for cycle 2 review)
-- [x] 59-03-PLAN.md — Shared normalisation helper with exact D_inv; ICP/SWD shared bounds; ICP CUDA-safe; seeded SWD tests (NUM-01) [wave 1]
-- [x] 59-04-PLAN.md — Frame-averaged chamfer/hausdorff: empty -> inf, partial/degenerate flagged via StageMetrics.coverage_flags + sanity_check; direct FrameAverage tests (NUM-05 metrics) [wave 1]
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 59-05-PLAN.md — Eval runner follows label provider/receiver (runner, export, viz); F1-unavailable flag; disabled alignment reported as inf + "stage unavailable"; disabled-stage fixtures keep one stage enabled (NUM-04 runner, NUM-05 runner) [wave 2] (revised for cycle 2 review)
-- [x] 59-06-PLAN.md — Multiseed HPO scores aligned dicts (averaged objective asserted); list seed runs every tier on seed[0]; `_objective` honours label_source (NUM-02, NUM-03, NUM-04 HPO) [wave 2]
-
-**Wave 3** *(blocked on Wave 2 completion)*
-
-- [x] 59-08-PLAN.md — cpd_weighted supports label_source="target" via the row-normalised CPD posterior; runner tests cover rigid and the real.yaml non-rigid settings (NUM-04) [wave 3] (revised for cycle 2 review)
-
-**Wave 4** *(blocked on Wave 3 completion)*
-
-- [x] 59-07-PLAN.md — Failed trials recorded, -inf, per-run counter reset; failures AND successful histories of all MPI ranks merged on rank 0 (gather + bcast, finite-score filter, explicit Propulate contract), failed_trials.json, raise only on empty global history; full-suite gate (NUM-05 optimizer) [wave 4] (revised for cycle 2 review)
-
-**Note**: NUM-05 changes failure semantics (`0.0` becomes non-finite or raises). Phases 60–63 build on this, so later regression tests can assert loud failure.
-
-### Phase 60: CPD/DTW Numerics
-
-**Goal**: CPD registration follows Myronenko & Song (convergence, `q`, `sigma2`), starts from honest defaults, and every CPD/DTW variant either works end-to-end or rejects unsupported input clearly.
-**Depends on**: Phase 59
-**Requirements**: CPD-01, CPD-02, CPD-03, CPD-04, CPD-05, CPD-06, CPD-07, CPD-08, CPD-09
-**Success Criteria** (what must be TRUE):
-
-  1. Scaling the input by 0.1% leaves CPD `n_iters` essentially unchanged; the bug at `6c1c37f` flips it from 12 to 1. Convergence is only tested after four real `q` values exist.
-  2. Rigid CPD `q` matches the affine form, so it is non-negative-consistent as a DTW cost. Fixed-scale `sigma2` matches Eq. 23 (`tr_xp1x − 2·tr_atr + tr_yp1y`) on a hand-computed reference, and converged `sigma2` is near the true residual (not 1.33 against about 1e-4).
-  3. A fresh `RigidCPD` and a default `AffineTransformation()` start from the identity; the dataset-specific pose applies only through `tf_init_params`. `init_cpd_from_existing` warm-starts `AffineCPD` from the given transform. `ConstrainedNonRigidCPD` exposes `self.transformation` like `NonRigidCPD`.
-  4. DTW `save()`/`load()` round-trips a config whose `distance_metric` is a callable. `use_color=True` either works end-to-end or raises a clear error. Non-rigid CPD accepts sources wider than 3 columns. `rbf_kernel_matrix` matches CPD's kernel (or is gone). The TPS docstring example runs, and stale module paths in `cpd/`, `dtw/`, `core/transforms/` and `eval/stages/alignment.py` are updated.
-  5. Each fix has a regression test that fails on `6c1c37f`, passes after the fix, and runs the real CPD/DTW code without mocks.
-
-**Plans**: 5 plans (wave 1: 60-01, 60-02, 60-03 in parallel; wave 2: 60-04; wave 3: 60-05)
-
-Plans:
-**Wave 1**
-
-- [x] 60-01-PLAN.md — EM numerics: rigid sigma2/q (CPD-02/03), 4-value convergence window (CPD-01), identity RigidCPD + opt-in SHAH_KOBITSKI_EMPIRICAL_INIT (CPD-08), target_colors guard (CPD-05)
-- [x] 60-02-PLAN.md — Variants: identity AffineTransformation + AffineCPD warm start (CPD-06), ConstrainedNonRigidCPD.transformation (CPD-04), use_color rejection (CPD-05), wide sources / rbf_kernel_matrix / transform docstrings (CPD-09)
-- [x] 60-03-PLAN.md — DTW: sigma2 cpd cost via _cpd_dtw_cost (CPD-02/D-02), callable-metric save/load (CPD-07), stale paths + CR-01 comment (CPD-09)
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 60-04-PLAN.md — Wide sources: xyz-only E-step, shape/rank checks for all CPD variants (CPD-09)
-
-**Wave 3** *(blocked on Wave 2 completion)*
-
-- [x] 60-05-PLAN.md — Integration gate: rigid cpd DTW end-to-end, alignment fallback identity, strict full suite, D-02/D-04 decision records
-
-**Note**: CPD-02 changes the `q` that `distance_metric="cpd"` uses as DTW cost. Phase 61's DIST-03 (cpd-branch handling in the pairwise sweep) should run after or alongside this phase so its tests assert the corrected `q`.
-
-### Phase 61: Distances, Aligners & MPI
-
-**Goal**: Pairwise distance computation never deadlocks and works for any dtype, device and frame-key layout. The SWD/ICP aligners return valid rotations or reject degenerate input. HPO metrics cost one `cdist` per frame.
-**Depends on**: Phase 59 (NUM-01's `D_inv` fix and NUM-05's failure semantics; DIST-04 edits the same `icp.py`/`swd_aligner.py`)
-**Requirements**: DIST-01, DIST-02, DIST-03, DIST-04, DIST-05
-**Success Criteria** (what must be TRUE):
-
-  1. The pairwise distance matrix completes, under a timeout, on both code paths when some rank owns no pair in a row. This is checked by a multi-rank run or a rank-simulating test.
-  2. MaxSWD, GSWD and PSWD work on float64 and on CUDA inputs, keeping projections on the input dtype/device. Changing `max_sw_num_iters`/`max_sw_lr` measurably changes the optimisation.
-  3. A pairwise sweep over non-zero-based frame keys produces the right matrix. The cpd branch with `fn is None` and a leading-`None` `distance_kwargs` behave consistently.
-  4. The SWD aligner registers clouds with unequal point counts and returns a rotation with `det=+1` that is orthogonal at return. ICP and SWD raise an informative error on empty or degenerate clouds.
-  5. Frame-averaged chamfer/hausdorff gives the same values as before but uses one `cdist` per frame. Each fix has a regression test that fails on `6c1c37f` and does not mock the unit under test.
-
-**Plans**: 4 plans
-
-Plans:
-- [x] 61-01-PLAN.md — SW variants follow input dtype/device, MaxSWD honours its kwargs without gradient leak, unequal-N quantile coupling (legacy max(N, M) scaling), empty-set guard (DIST-02, DIST-04)
-- [x] 61-02-PLAN.md — ICP/SWD reject empty/coincident/non-finite/mis-shaped clouds via registration_bounds; SWD projects to SO(3) every step and at return (DIST-04)
-- [x] 61-03-PLAN.md — MPI-safe per-row allgather, positional key sweep, kwargs normalisation, cpd guard; runs only after Phase 60-03 has landed (DIST-01, DIST-03)
-- [x] 61-04-PLAN.md — chamfer and hausdorff from one cdist per frame with a single batched transfer (DIST-05)
-
-### Phase 62: Data, Label Transfer & GPU Path
-
-**Goal**: A `device: cuda` run works end-to-end. Data augmentation and label configs keep correspondences and labels valid. Every label-transfer method (kNN, Gaussian, CPD `pmat`, model-based) and label metric gives finite, correctly indexed results.
-**Depends on**: Phase 59
-**Requirements**: DATA-01, DATA-02, DATA-03, DATA-04, LT-01, LT-02, LT-03, LT-04
-**Success Criteria** (what must be TRUE):
-
-  1. A run with `device: cuda` gets through `get_synthetic_ground_truth` gather and label-id indexing without a device-mismatch error, because buffers are created on the input device.
-  2. After `augment()` with outliers and dropout, correspondence indices still point at matching points. Empty `label_specs`, `n_labels: 0` and an unknown `mode` fail when the config is built. The `subsample_pair` synthesize path uses `config.label_generation`. The RGB-to-index remap considers all non-empty frames.
-  3. Model-based transfer takes `n_classes` from the model and accepts 1-D label tensors. Gaussian-kernel and CPD-`pmat` weighting stay NaN-free on zero row sums. The transposed-`pmat` guard is correct when `n_source == n_target`. A missing `source["label"]` raises clearly, and the caller's input is not mutated.
-  4. `sample_bowl` rejects an invalid `d_ratio`/`radius` instead of hanging. `knn_consistency` excludes the query point by index. `temporal_stability` raises the documented exception type. WR-01 truncation passes consistent `labels_for_knn`/positions in `_objective` and the multi-seed path.
-  5. Each fix has a regression test that fails on `6c1c37f` and does not mock the unit under test; the model-based path runs a real (tiny) model. CUDA-only tests are marked to skip without a GPU and must be run once on a CUDA host (for example HoreKa).
-
-**Plans**: 6 plans
-
-Plans:
-- [x] 62-01-PLAN.md — DataFactory: device-following GT gather, outlier correspondence tracking, LabelGenerationConfig constraints, synthesize honours label_generation, drop source_corr (DATA-01..04, wave 1)
-- [x] 62-02-PLAN.md — zreg data generation & loader: label ids on pos device, generate_labels mode/empty-spec guards, sample_bowl validation + d_ratio bound + total candidate budget, canonical colour normalisation + RGB remap over non-empty frames with long labels in every frame (DATA-01, DATA-03, DATA-04, LT-03, wave 1)
-- [x] 62-03-PLAN.md — Library label transfer: pmat_layout contract, one shared pmat zero-row policy (repair_pmat_rows: input validation, zero-receiver contract, NN fallback, -1 for non-finite positions, 50% bound; IN-09a/c), softmax Gaussian, label None-check, model.n_classes + 1-D labels with real tiny models, stage CUDA hardening (LT-01, LT-02, wave 1)
-- [x] 62-04-PLAN.md — Label metrics: knn_consistency self-exclusion by index, temporal_stability TypeError (LT-04, wave 1)
-- [x] 62-05-PLAN.md — Optimizer: wave-1 gate, consistent kNN inputs (U5-3 WR-01), cpd_weighted align_result wiring in HPO, Trial.flags incl. non-empty multiseed/MPI tests (IN-09b) (LT-02, LT-04, wave 2)
-- [x] 62-06-PLAN.md — Optimizer Propulate path keeps real Trial payloads (metrics + flags, IN-09b), flagged placeholders for checkpoint-restored individuals; fully green full-suite gate + HoreKa CUDA/real-Propulate test list (all phase reqs, wave 3)
-
-### Phase 63: HPC Orchestration, Viz/Export & Docs
-
-**Goal**: HoreKa orchestration does what its scripts claim (warm start, resume, one output directory), exported figures and metadata are complete and consistent, and the restructure's leftover stale references are gone.
-**Depends on**: Phase 59 (RUN-01 makes the HoreKa configs loadable)
-**Requirements**: HPC-01, HPC-02, HPC-03, HPC-04, VIZ-01, VIZ-02, VIZ-03, DOC-01
-**Success Criteria** (what must be TRUE):
-
-  1. In `baseline_with_combined`, the first HPO trial evaluates the injected combined parameters; where the active search strategy can't, it fails loudly. `merge_combined_params` returns only calibrated values, with no defaults dilution.
-  2. Resubmitting the HoreKa baseline job resumes HPO from existing checkpoints. All MPI ranks write into one timestamped output directory chosen by rank 0. Eval jobs run a single rank. The SLURM log directory exists before submission, and `test_propulate_interactive.sh` guards against an empty directory.
-  3. Saved superposed-trajectory and label-trajectory PDFs/PNGs contain their legends, and dataset-preview titles are not clipped. With `step: 2`, the source panel shows the same frames as the aligned panel. `label_metadata.json` frame count and indices match `label_trajectory.csv`.
-  4. `tox -e doctests` passes. No docstring references `zreg.metrics`, `zreg.distances` or `zreg.dataset`. The `eval_runner.py` frame-convention docstrings agree, and the `pyproject.toml` coverage `omit` points at an existing path.
-  5. Each fix has a regression test that fails on `6c1c37f` and does not mock the unit under test. Shell and SLURM fixes get a test that runs the script logic (for example in dry-run or with a stubbed `sbatch` binary), not just a grep.
-
-**Plans**: 9 plans
-
-Plans:
-- [x] 63-01-PLAN.md — `merge_combined_params` averages only calibrated values per regime, with no defaults dilution (HPC-02)
-- [x] 63-02-PLAN.md — Exported figures keep their legends and unclipped titles; source panel mirrors the aligned panel's `step`; label metadata matches the CSV (VIZ-01, VIZ-02)
-- [x] 63-03-PLAN.md — HoreKa launchers resume HPO by default (`ZREG_CLEAR_CHECKPOINTS=1` opt-in clear) (HPC-03, HPC-04)
-- [x] 63-04-PLAN.md — Eval jobs run a single rank, SLURM log directory created before submission, interactive Propulate test guards an empty directory (HPC-04)
-- [x] 63-05-PLAN.md — All MPI ranks share rank 0's timestamped output directory and only rank 0 runs `EvaluationRunner` (HPC-04)
-- [x] 63-06-PLAN.md — Config consistency: eval-side `dtw_dist_fn` validator (no non-DTW `cosine` searches), F1 weight 0.0 where F1 is unavailable by construction (HPC-01)
-- [x] 63-07-PLAN.md — `HyperparamOptimizer` consumes `config.default_params` and the combined warm start; Propulate warm-start seeds evaluated as recorded trials (D-09, HPC-01)
-- [x] 63-08-PLAN.md — Strict JSON for non-finite metrics (null + marker) instead of literal `Infinity` (VIZ-03)
-- [x] 63-09-PLAN.md — Restructure leftovers: stale `zreg.metrics/distances/dataset/transforms` refs, frame-convention docstrings, coverage `omit` path, doctest gate (DOC-01)
-
-### Phase 64: Tech debt cleanup: doctests, stale refs, validation bookkeeping
-
-**Goal:** DOC-01's "doctests pass" holds for the whole `zreg` package (pytest `--doctest-modules src/zreg` and the `tox -e doctests` Sphinx builder), no stale module/file references remain, and the v1.8 planning record (ROADMAP, SUMMARY frontmatter, VALIDATION/UAT, milestone audit) matches reality. No registration/HPO numerics change.
-**Requirements**: DOC-01 (residual), v1.8 audit tech debt (63 items 1-2, planning-bookkeeping items 1-3)
-**Depends on:** Phase 63
-**Success Criteria** (what must be TRUE):
-
-  1. `pytest --doctest-modules src/zreg` reports 0 failed on a CPU-only host; the config doctest no longer leaks a CUDA default device or matmul precision; the Open3D example is guarded inside its docstring (`# doctest: +SKIP`, honoured by both pytest and Sphinx) and executed by a test wherever Open3D imports.
-  2. Every docstring example runs with an empty namespace (Sphinx-equivalent); `sphinx-build -b doctest` (the tox doctests command) reports 0 failures with and without Open3D, and a real `tox -e doctests` run is attempted (if tox cannot install, the record says "passed via equivalent sphinx-build command" and never claims a tox run); `tests/test_doctests.py` pins the pytest and empty-namespace gates.
-  3. The `id=None` downsampling crash exposed by the DTW example is fixed with a regression test that fails on the pre-fix code.
-  4. No stale slash-path or dotted references (`src/zreg/metrics|transforms|registration|generators/...`, `zreg.generators`) remain; `tests/test_doc_hygiene.py` checks them.
-  5. ROADMAP, all 59-63 SUMMARY `requirements-completed` fields, 63-HUMAN-UAT, 63-VERIFICATION and every enumerated stale location of the v1.8 audit are updated; `/gsd:validate-phase 62` and `63` are run by the orchestrator at the 64-04 checkpoint, and the audit's Nyquist block/status flip to compliant/passed (64-05) only if both VALIDATION.md files then show `nyquist_compliant: true` with no pending rows; otherwise the gap stays recorded as open debt.
-
-**Plans:** 5 plans
-
-Plans:
-
-**Wave 1**
-- [x] 64-01-PLAN.md — `id=None` downsampling fix (RED-first, both random branches), self-contained imports for import-only docstrings, stale refs in models/_ops.py and eval/data_factory.py
-
-**Wave 2** *(depends on 64-01)*
-- [x] 64-02-PLAN.md — config.py leak (restores saved device/precision), 9 genuine doctest fixes, utils/generators imports, data_generation stale refs, Open3D example guarded inline with `+SKIP`
-
-**Wave 3** *(depends on 64-01, 64-02)*
-- [x] 64-03-PLAN.md — tests/test_doctests.py gate (subprocess literal + guarded empty-namespace runner + Open3D example runner), hygiene extension, Sphinx evidence with/without Open3D, time-boxed real `tox -e doctests`, full suite
-
-**Wave 4** *(depends on 64-01..03; non-autonomous)*
-- [x] 64-04-PLAN.md — Bookkeeping: SUMMARY requirements-completed, ROADMAP 59-63, 63 UAT/VERIFICATION, enumerated audit refresh; ORCHESTRATOR POST-STEP: `/gsd:validate-phase 62` and `63`
-
-**Wave 5** *(depends on 64-04)*
-- [x] 64-05-PLAN.md — Gated audit Nyquist/status finalization, Phase 64 ROADMAP/STATE completion, 64-VALIDATION, consistency check
-
----
 
 ### Phase 57: Ground-Truth Field Consistency
 
@@ -603,17 +432,8 @@ Full details: [.planning/milestones/v1.0-ROADMAP.md](.planning/milestones/v1.0-R
 
 ## Progress
 
-**Execution Order (v1.8):**
-Phase 59 first (P0; NUM-05 changes failure semantics everything else builds on). Phases 60, 61 and 62 each depend only on 59 and may run in parallel, with two coordination points: 61 (DIST-04) edits the same `icp.py`/`swd_aligner.py` as 59 (NUM-01), and 61's DIST-03 cpd-branch tests should assert the `q` corrected in 60 (CPD-02). Phase 63 depends on 59. Default order: 59 → 60 → 61 → 62 → 63.
-
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|-----------------|--------|-----------|
-| 59. P0 Runnability & Silent Number Corruption | v1.8 | 8/8 | Complete   | 2026-10-02 |
-| 60. CPD/DTW Numerics | v1.8 | 5/5 | Complete    | 2026-10-03 |
-| 61. Distances, Aligners & MPI | v1.8 | 4/4 | Complete   | 2026-10-03 |
-| 62. Data, Label Transfer & GPU Path | v1.8 | 6/6 | Complete   | 2026-10-03 |
-| 63. HPC Orchestration, Viz/Export & Docs | v1.8 | 9/9 | Complete   | 2026-10-03 |
-| 64. Tech Debt Cleanup (doctests, stale refs, bookkeeping) | v1.8 | 5/5 | Complete | 2026-10-05 |
 | 44. CPD-Weighted Label Transfer | v1.5 | 4/4 | ✅ Complete | 2026-07-15 |
 | 45. eGNN/PointNet++ Framework Selection | v1.5 | 1/1 | ✅ Complete | 2026-07-15 |
 | 46. Training Data Pipeline | v1.5 | 3/3 | ✅ Complete | 2026-07-15 |
@@ -637,6 +457,6 @@ Phase 59 first (P0; NUM-05 changes failure semantics everything else builds on).
 | v1.5 Learned Label Transfer Methods | 44–50 (7) | 18 | ✅ Complete | 2026-07-31 |
 | v1.6 HoreKa Cluster Execution | 51–54 (4) | 9 | ✅ Complete | 2026-07-23 |
 | v1.7 Minor Adjustments | 57–58 (2) | 6 | ✅ Complete | 2026-08-04 |
-| v1.8 Code Review Remediation | 59–64 (6) | 37 | 🚧 In progress | - |
+| v1.8 Code Review Remediation | 59–64 (6) | 37 | ✅ Complete | 2026-10-05 |
 
-_v1.8 Code Review Remediation (Phases 59–64) is active. v1.5 (44–50), v1.6 (51–54) and v1.7 (57–58) are complete but not yet formally archived via `/gsd:complete-milestone`. Phases 55 and 56 were ad-hoc out-of-band phases (see the Phase Numbering note above)._
+_No active milestone — v1.8 Code Review Remediation (Phases 59–64) shipped 2026-10-05 and is archived in `.planning/milestones/v1.8-ROADMAP.md`. v1.5 (44–50), v1.6 (51–54) and v1.7 (57–58) are complete but not yet formally archived via `/gsd:complete-milestone`. Phases 55 and 56 were ad-hoc out-of-band phases (see the Phase Numbering note above). Next: `/gsd:new-milestone` (continues at Phase 65)._

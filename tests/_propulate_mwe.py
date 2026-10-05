@@ -11,7 +11,7 @@ import tempfile
 from pathlib import Path
 
 # zreg.* → torch → eval.* import order (macOS-ARM libomp SIGABRT rule)
-from zreg.dataset import zRegPointCloud  # noqa: F401
+from zreg.core.dataset import zRegPointCloud  # noqa: F401
 import torch  # noqa: F401
 
 from eval.search_strategies import PropulateSearch

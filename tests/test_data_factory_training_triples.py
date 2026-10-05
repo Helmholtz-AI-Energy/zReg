@@ -25,11 +25,11 @@ generate_training_triple()/generate_training_set() (RED, then GREEN). Task 3
 finalizes the file by adding the remaining mandated classes not yet covered.
 """
 
-# zreg.dataset/zreg.generators MUST precede import torch on macOS ARM to avoid
+# zreg.core.dataset/zreg.data_generation MUST precede import torch on macOS ARM to avoid
 # a libomp SIGABRT (enforced in tests/conftest.py:20-24; matches the convention
 # in tests/test_data_factory.py).
-from zreg.dataset import zRegPointCloud
-from zreg.generators import add_gaussian_noise, generate_trajectory
+from zreg.core.dataset import zRegPointCloud
+from zreg.data_generation import add_gaussian_noise, generate_trajectory
 
 import torch
 
@@ -210,7 +210,7 @@ class TestLabelVsIdDiscipline:
     def test_source_id_is_none_and_label_is_long(self):
         cfg = EvalConfig(data_path="x")
         factory = DataFactory(cfg)
-        triple = factory.generate_training_triple(seed=0, n_classes=6)
+        triple = factory.generate_training_triple(seed=0, n_labels=6)
         assert triple.source_cloud["id"] is None
         assert triple.source_labels.dtype == torch.long
         assert triple.source_labels.min() >= 0
@@ -222,7 +222,7 @@ class TestLabelVsIdDiscipline:
         points ever appear in the target)."""
         cfg = EvalConfig(data_path="x")
         factory = DataFactory(cfg)
-        triple = factory.generate_training_triple(seed=0, n_classes=6)
+        triple = factory.generate_training_triple(seed=0, n_labels=6)
         assert triple.target_labels is not None
         assert triple.target_labels.dtype == torch.long
         assert triple.target_labels.min() >= 0

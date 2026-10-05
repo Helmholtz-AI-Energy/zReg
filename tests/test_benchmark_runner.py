@@ -31,7 +31,7 @@ import pytest
 
 # zreg.* / eval.* MUST precede torch — macOS-ARM libomp SIGABRT rule
 # (tests/conftest.py:20-24, eval/data_factory.py:19-35, eval/types.py:48-53).
-from zreg.generators import generate_trajectory, generate_labels
+from zreg.data_generation import generate_trajectory, generate_labels
 from zreg.models import PointNet2LabelTransfer, EGNNLabelTransfer
 
 import torch
@@ -75,7 +75,7 @@ def benchmark_smoke_checkpoint(tmp_path):
     not model quality; the real, meaningful benchmark run happens later
     against a real trained checkpoint).
 
-    n_classes=N_CLASSES MUST match the data's ``generate_labels(n_classes=...)``
+    n_classes=N_CLASSES MUST match the data's ``generate_labels(n_labels=...)``
     vocabulary or ``one_hot`` raises ``RuntimeError`` (Pitfall 1).
     """
 
@@ -144,7 +144,7 @@ class TestCpdWeightedRawInput:
         """cpd_weighted succeeds against raw source/target + a real align_result."""
         source = generate_labels(
             generate_trajectory(n_points=15, n_frames=3, seed=100),
-            n_classes=N_CLASSES,
+            n_labels=N_CLASSES,
             seed=100,
         )
         target = generate_trajectory(n_points=15, n_frames=3, seed=101)
@@ -304,7 +304,7 @@ def _build_holdout_pair(config: EvalConfig, seeds):
     triples into one multi-frame dict keyed by seed INDEX (not seed value) for
     LabelTransferStage's contiguous sequential pairing.
     """
-    triples = DataFactory(config).generate_training_set(seeds, n_classes=N_CLASSES)
+    triples = DataFactory(config).generate_training_set(seeds, n_labels=N_CLASSES)
     source = {i: t.source_cloud for i, t in enumerate(triples)}
     target = {i: t.target_cloud for i, t in enumerate(triples)}
     return source, target

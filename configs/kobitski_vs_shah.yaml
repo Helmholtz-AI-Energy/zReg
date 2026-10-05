@@ -1,10 +1,14 @@
 # Phase 32 HETERO-01: Kobitski ew06 (tracklets) as source, Shah sample-1 (csv) as target.
 # Exercises target_data_format to load a different format for the target dataset.
+#
+# F1 is unavailable here: the receiver (Kobitski) has no ground-truth class labels, so f1 is
+# zero-filled and its metric weight is 0.0 (Phase 63 D-05).
 data_path: /data/external/sample/kobitski_data/12_11_15_embryo_ew_06_Cleaned_BackTracked_Oriented.tracklets
 data_format: tracklets
 target_data_path: /data/external/sample/shah_data/sample-1/sample-1-cell-tracks.csv
 target_data_format: csv
 pipeline_mode: paired
+label_source: "target"  # Shah provides the 3-class germ-layer labels; Kobitski (unlabeled) receives them
 tier: sanity
 n_trials: 3
 run_alignment: true
@@ -20,3 +24,11 @@ default_params:
   smoothing: 0.0
   threshold: 0.5
 output_dir: experiments/runs/kobitski_vs_shah
+
+metric_weights:  # full block: a YAML metric_weights replaces the whole default dict
+  chamfer: 0.35
+  hausdorff: 0.15
+  path_smoothness: 0.10
+  temporal_stability: 0.10
+  f1: 0.0  # zero-filled in paired label_source=target runs (see header)
+  knn_consistency: 0.10

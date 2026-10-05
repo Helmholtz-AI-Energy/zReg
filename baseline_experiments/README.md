@@ -236,31 +236,59 @@ which shrinks the cost of each call but not how many there are. It was
 being searched over `[1, 2]` (a coin-flip between full resolution and a 2x
 cut), so half of all trials got no benefit.
 
-First attempt at fixing this was wrong and cost a wasted 15.5-hour run:
-setting `default_params.step: 8` and removing `step` from `search_space`
-does **not** work, because `HyperparamOptimizer._objective`
-(`eval/runners/optimizer.py:181-191,388`) merges its own **hardcoded**
-`self._default_params` dict (`step: 1` baked in at construction) with the
-trial's sampled `params` — not `config.default_params` from the YAML. Once
-`step` isn't a `search_space` key, no trial's `params` ever contains it, so
-the merge silently falls back to the optimizer's hardcoded `1` regardless
-of what the YAML says. Verified directly: a run left going overnight with
-this "fix" in place stayed at `iteration N/370` (full, unstrided frame
-count) the entire time.
+History: before Phase 63, `HyperparamOptimizer` ignored
+`config.default_params` and merged its own hardcoded defaults (`step: 1`)
+into every trial, so `default_params.step: 8` alone did not take effect
+during HPO (a wasted 15.5-hour run). The workaround was `step: [8]` as a
+single-value list in `search_space` of all 5 optimize configs. Every trial
+now uses ~46 of Kobitski's 370 frames / ~53 of Shah's 420.
 
-Correct fix, verified against a real `HyperparamOptimizer.run()` call
-before relaunching (all 5 trials confirmed to use `step=8`, not just
-constructed-but-untested): `step: [8]` as a **single-value list** in
-`search_space` (not `default_params`) in all 5 optimize configs (selfcal
-x3, ground_truth x2). A single-choice categorical search key still flows
-through the trial's sampled `params` dict, so it correctly overrides the
-optimizer's hardcoded fallback. Every trial now uses ~46 of Kobitski's 370
-frames / ~53 of Shah's 420, instead of always using all of them.
-`default_params.step: 8` is also kept (harmless, used by the separate
-eval-mode merge path in `run_all.py`/`run_eval.py`, just not by the
-optimizer's trial loop).
+**PROVISIONAL (pending user confirmation) — warm start and `default_params` (Phase 63 HPC-01, D-09):**
 
-This fix alone was still not enough: closing apps + `caffeinate` helped for
+- Since Phase 63 the optimizer uses each config's `default_params` for every
+  key it does not search (builtin fallbacks only fill keys the config
+  omits). This changes HPO behaviour and results for about 19 configs that
+  fix keys such as `step`, `cpd_penalty` or `window_size` in
+  `default_params`; HPO results produced before Phase 63 are not directly
+  comparable with new ones. The single-value `step: [8]` search-space
+  entries are now redundant but harmless.
+- `baseline_with_combined` evaluates the merged selfcal/ground_truth
+  calibration as its first HPO trial (warm start), in addition to using it
+  as `default_params`. The merged params and every upstream
+  `best_params.json` are validated through `EvalConfig.model_validate`
+  before any trial runs.
+- Under Propulate (`search_strategy: propulate`, or `auto` on HoreKa) the
+  warm-start seeds of each tier are evaluated on rank 0 as ordinary trials
+  before the Propulate search starts, and one WARNING per tier says that
+  Propulate's population itself is not seeded. The seed's score competes
+  for `best_params.json`, but the evolutionary search does not start from it.
+- HoreKa launchers resume unfinished HPO from its Propulate checkpoints.
+  `run_all.py` records the search space next to the checkpoints
+  (`search_space_fingerprint.json`). If the checkpoints were written under a
+  different search space, the run stops before any trial with an error that
+  asks for `ZREG_CLEAR_CHECKPOINTS=1`. Checkpoints from before this record
+  existed resume with a WARNING; if the search space changed since (e.g.
+  Phase 63 D-08), re-submit once with `ZREG_CLEAR_CHECKPOINTS=1`.
+- `ZREG_CLEAR_CHECKPOINTS=1` / `--clear-checkpoints` only removes Propulate
+  checkpoint files of the runs that actually execute; it does not delete
+  best_params.json. After a search-space change such as Phase 63 D-08
+  (`cosine` removed from `dtw_dist_fn`), redo the `selfcal` and
+  `ground_truth` phases with `--force` (HoreKa launchers:
+  `ZREG_FORCE=1 sbatch <launcher>`). `--force` redoes every completed
+  optimize run from scratch: `run_all.py` first discards that run's
+  Propulate checkpoints and `eval_report.json`, so a redo interrupted by the
+  wall clock resumes its own new search on the next submission. Unfinished
+  runs (no `eval_report.json`) still resume under `--force`.
+- To redo a single run, delete its `eval_report.json` and its Propulate
+  checkpoints (`*.pickle`, `*.pkl`, `*.bkp` in the run's output dir), or
+  delete `eval_report.json` and submit once with `ZREG_CLEAR_CHECKPOINTS=1`
+  (this also restarts every other unfinished run of the job). Deleting only
+  `eval_report.json` resumes the finished search, whose generation budget is
+  used up, so `best_params.json` would be rewritten without a real HPO.
+  `baseline_with_combined` rejects a stale `best_params.json` with an error
+  that names the artifact and these recovery paths.
+
+The `step` fix alone was still not enough: closing apps + `caffeinate` helped for
 a while, but system swap crept back up (7.2GB -> 9.2GB -> 11.3GB total
 over one day) and per-row iteration cost degraded again (~5min/row ->
 ~30min/row, with a 94-minute single-row spike), even for `rigid`/`affine`

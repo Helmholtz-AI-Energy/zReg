@@ -1,9 +1,9 @@
 """LabelTransferStage: thin color-transfer wrapper for FRAME-06 evaluation framework.
 
 This module implements ``LabelTransferStage(PipelineStage)``, a thin orchestration
-layer over ``zreg.color_transfer.transfer_colors()``.  No kNN or distance logic is
+layer over ``zreg.label_transfer.transfer_labels()`` (imported as ``transfer_colors``).  No kNN or distance logic is
 reimplemented here — all numerical computation delegates to the existing
-``zreg.color_transfer.*`` package via KNN_VOTING or CPD_WEIGHTED (Phase 44).
+``zreg.label_transfer`` package via KNN_VOTING or CPD_WEIGHTED (Phase 44).
 
 Hyperparam mapping:
 
@@ -36,15 +36,36 @@ Phase 19.  ``isinstance(x, bool)`` must be tested before ``isinstance(x, int)``
 because ``bool`` is a subclass of ``int`` in Python.
 
 **CPD-weighted label transfer (Phase 44):**
-``method='cpd_weighted'`` reuses ``zreg.color_transfer``'s existing
+``method='cpd_weighted'`` reuses ``zreg.label_transfer``'s existing
 CPD-posterior-weighted-average math, fixing two call-site bugs so
-``zreg.color_transfer`` itself never needs to change:
+``zreg.label_transfer`` itself never needs to change:
 
-- **pmat transpose (D-04):** ``EstepResult.pmat`` from
-  ``expectation_step()`` is shaped ``(n_source, n_target)``, but the
-  underlying color-transfer helper requires ``(n_target, n_source)``.
-  The stage builds a transposed copy of the E-step result (via the
-  namedtuple's ``_replace``) before every CPD-weighted call.
+- **pmat orientation (D-04, Phase 59 NUM-04):** ``EstepResult.pmat`` from
+  ``expectation_step()`` is shaped ``(n_aligned_source, n_target)``, while
+  the underlying label-transfer helper requires ``(n_receiver, n_provider)``
+  and row-normalises it.  The orientation is chosen from
+  ``config.label_source`` (never inferred from shapes):
+
+  * ``"source"`` (default): provider = aligned source, receiver = target.
+    The stage builds a transposed copy of the E-step result (via the
+    namedtuple's ``_replace``), so labels flow aligned source -> target.
+  * ``"target"``: provider = target, receiver = aligned source.  The
+    posterior is used as stored; each aligned-source point gets the
+    posterior-weighted vote of the target's labels (target -> aligned
+    source).
+
+  Zero-row policy (Phase 62 RD-1..RD-3, shared with the library through
+  ``zreg.label_transfer.repair_pmat_rows``): a receiver point whose
+  posterior row sums to zero (or is non-finite), e.g. through float
+  underflow far from every provider point, gets the label of its nearest
+  provider point instead of a NaN-derived label.  The frame and count are
+  logged once and recorded in ``LabelResult.flags``.  Non-finite positions
+  in any paired frame are rejected with ``ValueError`` before any transfer
+  (``_check_alignment``, 62-REVIEW WR-05); the ``-1`` (no label) sentinel the
+  repair assigns to a non-finite receiver position is defence in depth only
+  and is not reachable through ``run()``.  A frame raises
+  ``ValueError`` when *every* receiver row is bad or when more than
+  ``MAX_PMAT_FALLBACK_FRACTION`` (0.5) of its rows would fall back.
 - **categorical one-hot/argmax (D-05):** a literal weighted average of
   raw class indices is meaningless, so source labels are one-hot encoded
   before the call and the resulting soft scores are discretized back via
@@ -72,9 +93,10 @@ from typing import Any
 # zreg.* MUST precede torch on macOS-ARM (libomp SIGABRT).
 # Enforced in tests/conftest.py:20-24, eval/data_factory.py:18-35,
 # eval/metrics.py:53-67, eval/types.py:48-53.
-from zreg.color_transfer import transfer_colors, ColorTransferMethod
-from zreg.dataset import zRegPointCloud
-from zreg.metrics import chamfer
+from zreg.label_transfer import transfer_labels as transfer_colors, LabelTransferMethod as ColorTransferMethod
+from zreg.label_transfer import repair_pmat_rows
+from zreg.core.dataset import zRegPointCloud
+from zreg.evaluation import chamfer
 from zreg.models import PointNet2LabelTransfer, EGNNLabelTransfer
 
 import torch  # consistent import order for downstream callers (macOS-ARM zreg-before-torch rule)
@@ -284,6 +306,14 @@ class LabelTransferStage(PipelineStage):
         pairs are evaluated.
 
         Returns 0.0 when there are no paired frames.
+
+        Raises
+        ------
+        ValueError
+            If a paired source or target frame has a non-finite position
+            (62-REVIEW WR-05).  Label transfer, the Chamfer diagnostic and
+            the downstream kNN consistency all require finite positions, so
+            such a frame is rejected here with a frame-specific message.
         """
         source_keys = sorted(source.keys())
         target_keys = sorted(target.keys())
@@ -294,6 +324,14 @@ class LabelTransferStage(PipelineStage):
         for k in range(n_pairs):
             src_pos = source[source_keys[k]]["pos"]
             tgt_pos = target[target_keys[k]]["pos"]
+            for side, key, pos in (("source", source_keys[k], src_pos),
+                                   ("target", target_keys[k], tgt_pos)):
+                n_bad = int((~torch.isfinite(pos).all(dim=1)).sum().item()) if pos.numel() else 0
+                if n_bad > 0:
+                    raise ValueError(
+                        f"LabelTransferStage: {side} frame {key} has {n_bad} point(s) with a "
+                        "non-finite position; label transfer requires finite positions"
+                    )
             if src_pos.shape[0] == 0 or tgt_pos.shape[0] == 0:
                 continue  # skip empty frames — chamfer(empty) returns nan
             dist = chamfer(src_pos, tgt_pos)
@@ -349,8 +387,15 @@ class LabelTransferStage(PipelineStage):
             entry for the current frame pair's target key (D-08) — this
             happens when ``alignment_method`` is not ``"cpd"`` or
             ``cpd_penalty`` is ``None``, since the CPD posterior is only
-            captured for CPD-registered frames.  See ``validate_params``
-            for the other ``ValueError`` cases.
+            captured for CPD-registered frames.  Also raised when every
+            receiver point of a frame has an oriented CPD posterior row with
+            zero or non-finite mass (Phase 59 D-05), or when more than
+            ``MAX_PMAT_FALLBACK_FRACTION`` (0.5) of a frame's rows are bad
+            (Phase 62 RD-3); isolated bad rows fall back to the nearest
+            provider label and are recorded in ``LabelResult.flags``.  Also
+            raised, before any transfer, when a paired source or target frame
+            has a non-finite position (62-REVIEW WR-05).  See
+            ``validate_params`` for the other ``ValueError`` cases.
 
         Notes
         -----
@@ -370,8 +415,10 @@ class LabelTransferStage(PipelineStage):
         ``smoothing``, ``threshold``, ``dist_metric`` are validated but
         no-op in Phase 20.  D-04/D-05/D-06.
 
-        **CPD-weighted path (Phase 44):** see module docstring for the
-        pmat-transpose (D-04) and one-hot/argmax (D-05) fixes applied here.
+        **CPD-weighted path (Phase 44, Phase 59 NUM-04):** see module
+        docstring for the pmat orientation (D-04; transposed for the default
+        ``label_source='source'``, as stored for ``label_source='target'``),
+        the zero-mass row guard and the one-hot/argmax (D-05) handling.
         """
         self.validate_params(params)
 
@@ -408,6 +455,7 @@ class LabelTransferStage(PipelineStage):
 
         n_pairs = min(len(source_keys), len(target_keys))
         transferred: dict[int, torch.Tensor] = {}
+        flags: list[str] = []
 
         # Phase 48: load the learned model ONCE per run() call, before the
         # per-frame loop (Pattern 3) — never reloaded per frame pair.
@@ -419,6 +467,11 @@ class LabelTransferStage(PipelineStage):
                 else self.config.egnn_checkpoint_path
             )
             learned_model = self._load_learned_model(params["method"], checkpoint_path)
+            # Phase 62 (Research Open Q2) / 62-REVIEW WR-08: the checkpoint is
+            # loaded on CPU; move the model ONCE to the frames' device (first
+            # source frame) instead of re-moving a shared module per frame.
+            model_device = source[sorted(source.keys())[0]]["pos"].device
+            learned_model.to(model_device)
 
         for k in range(n_pairs):
             sk = source_keys[k]
@@ -431,11 +484,11 @@ class LabelTransferStage(PipelineStage):
                     f"k_neighbours={params['k_neighbours']} exceeds source frame "
                     f"{sk} point count ({n_src})"
                 )
-            labels_tensor = src_frame.get("label")
+            labels_tensor = src_frame.get(self.config.label_field)
             if labels_tensor is None:
                 raise ValueError(
-                    f"Source frame {sk} has no 'label' field. "
-                    "Label transfer requires annotated data."
+                    f"Source frame {sk} has no '{self.config.label_field}' field. "
+                    "Label transfer requires annotated data. Check config.label_field."
                 )
 
             if params["method"] == "cpd_weighted":
@@ -451,17 +504,62 @@ class LabelTransferStage(PipelineStage):
                         "or cpd_penalty is None — CPD posterior is only captured for CPD-"
                         "registered frames."
                     )
+                # The aligned cloud carries exactly the target's keys, so the
+                # receiver key tk finds the posterior in both directions.
                 estep_result = align_result.estep_results[tk]
-                transposed = estep_result._replace(pmat=estep_result.pmat.T)
+                # AlignmentStage stores expectation_step(t_source=aligned_source,
+                # target=target): pmat[m, n] is the posterior that target point n
+                # was generated by aligned-source component m, shape
+                # (n_aligned_source, n_target).  transfer_colors expects
+                # (n_receiver, n_provider) and row-normalises it.
+                # - label_source == "target" (Phase 59 NUM-04): provider = target,
+                #   receiver = aligned source -> use pmat as stored; row m is the
+                #   soft correspondence of aligned-source point m over target points.
+                # - default ("source"): provider = aligned source, receiver =
+                #   target -> transpose (D-04).
+                # The orientation comes from the config, never from shapes (square
+                # frames would be ambiguous).
+                if self.config.label_source == "target":
+                    oriented = estep_result
+                else:
+                    oriented = estep_result._replace(pmat=estep_result.pmat.T)
+                # Phase 62 RD-1..RD-3 (59-REVIEW IN-09a/c): one policy for all
+                # pmat consumers. The shared helper decides bad rows (zero or
+                # non-finite mass, or a non-finite receiver position) and their
+                # nearest-provider fallback, and raises when every row is bad or
+                # more than MAX_PMAT_FALLBACK_FRACTION of them would fall back.
+                # Provider = src_frame, receiver = tgt_frame, exactly as passed
+                # to transfer_colors below.
+                repair = repair_pmat_rows(
+                    oriented.pmat, src_frame["pos"], tgt_frame["pos"], context=f"frame {tk}"
+                )
+                if repair.n_bad > 0:
+                    # The only report for this frame (RD-1b): the library reuses
+                    # the repair below and neither repairs again nor warns.
+                    _log.warning(repair.message)
+                    flags.append(repair.message)
                 one_hot = torch.nn.functional.one_hot(labels_tensor.long()).float()
                 soft_scores = transfer_colors(
                     src_frame["pos"],
                     tgt_frame["pos"],
                     method=ColorTransferMethod.CPD_WEIGHTED,
                     source_colors=one_hot,
-                    estep_result=transposed,
+                    pmat_repair=repair,
                 )
-                transferred[tk] = soft_scores.argmax(dim=1)
+                frame_labels = soft_scores.argmax(dim=1)
+                if repair.n_bad > 0:
+                    # RD-2: nearest provider label, or -1 (no label, defence in
+                    # depth: _check_alignment rejects non-finite positions) for a
+                    # receiver whose position is non-finite.
+                    idx = repair.fallback_idx
+                    provider_labels = labels_tensor.long().to(idx.device)
+                    fallback = torch.where(
+                        idx >= 0,
+                        provider_labels[idx.clamp(min=0)],
+                        torch.full_like(idx, -1),
+                    )
+                    frame_labels[repair.bad_rows] = fallback.to(frame_labels.dtype)
+                transferred[tk] = frame_labels
             elif params["method"] in ("pointnet2", "egnn"):
                 # Phase 48: joint-cloud construction MUST byte-for-byte mirror
                 # train_label_transfer.py:train_step's encoding (48-RESEARCH.md
@@ -471,9 +569,16 @@ class LabelTransferStage(PipelineStage):
                 # the data (Anti-Patterns — data-derived n_classes could
                 # silently under-size joint_feat).
                 joint_pos = torch.cat([src_frame["pos"], tgt_frame["pos"]], dim=0)
-                joint_feat = torch.zeros(joint_pos.shape[0], n_classes + 1)
+                dev = joint_pos.device
+                if dev != model_device:
+                    raise ValueError(
+                        f"frame pair ({sk}, {tk}) is on {dev} but the learned model was "
+                        f"placed on {model_device} (device of the first source frame); "
+                        "all frames must share one device"
+                    )
+                joint_feat = torch.zeros(joint_pos.shape[0], n_classes + 1, device=dev)
                 joint_feat[:n_src, :n_classes] = torch.nn.functional.one_hot(
-                    labels_tensor.long(), num_classes=n_classes
+                    labels_tensor.to(dev).long(), num_classes=n_classes
                 ).float()
                 joint_feat[n_src:, -1] = 1.0  # "unknown" flag for target rows
                 with torch.no_grad():
@@ -492,4 +597,5 @@ class LabelTransferStage(PipelineStage):
             transferred_labels=transferred,
             params_used=dict(params),
             pre_transfer_alignment=alignment_dist,
+            flags=flags,
         )

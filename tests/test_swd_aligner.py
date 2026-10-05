@@ -1,6 +1,6 @@
 """Tests for Sliced Wasserstein Distance-based registration wrapper.
 
-Unit tests for zreg.registration.SlicedWassersteinAligner class.
+Unit tests for zreg.algorithms.swd_aligner.SlicedWassersteinAligner class.
 Tests verify convergence on synthetic data, orthogonality enforcement,
 denormalization matrix composition, batch dimension handling, and
 reproducibility across all 6 SWD variants.
@@ -11,9 +11,9 @@ import torch
 import numpy as np
 from copy import deepcopy
 
-from zreg.dataset import zRegPointCloud
-from zreg.registration import SlicedWassersteinAligner
-from zreg.types import StoredTransform
+from zreg.core.dataset import zRegPointCloud
+from zreg.algorithms import SlicedWassersteinAligner
+from zreg.core.types import StoredTransform
 
 
 class TestSlicedWassersteinAligner:

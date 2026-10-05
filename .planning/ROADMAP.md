@@ -2,8 +2,10 @@
 
 ## Milestones
 
-- 🚧 **v1.6 HoreKa Cluster Execution** — Phases 51–54 (in progress)
-- 🚧 **v1.5 Learned Label Transfer Methods** — Phases 44–50 (in progress — Phase 50 pending)
+- ✅ **v1.8 Code Review Remediation** — Phases 59–64 (shipped 2026-10-05) — [archive](.planning/milestones/v1.8-ROADMAP.md)
+- ✅ **v1.7 Minor Adjustments** — Phases 57–58 (shipped 2026-08-04)
+- ✅ **v1.6 HoreKa Cluster Execution** — Phases 51–54 (shipped 2026-07-23)
+- ✅ **v1.5 Learned Label Transfer Methods** — Phases 44–50 (shipped 2026-07-31)
 - ✅ **v1.4 Trajectory Alignment & Optimization Enhancements** — Phases 39–43 (shipped 2026-07-08) — [archive](.planning/milestones/v1.4-ROADMAP.md)
 - ✅ **v1.2 Evaluation Framework & Debt Resolution** — Phases 12–38 (shipped 2026-06-26) — [archive](.planning/milestones/v1.2-ROADMAP.md)
 - ✅ **v1.1 Code Quality & Refactoring** — Phases 6–11.1 (shipped 2026-05-13) — [archive](.planning/milestones/v1.1-ROADMAP.md)
@@ -13,19 +15,89 @@
 
 **Phase Numbering:**
 
-- Integer phases (44–54): Active or planned work
+- Integer phases: 1–64 are complete (v1.8 shipped 2026-10-05); the next milestone continues at Phase 65
 - Decimal phases (e.g. 44.1): Urgent insertions (marked with INSERTED)
+- Note: Phase 55 was already consumed by an ad-hoc out-of-band phase (spherical-cap/Gaussian label generators for `zreg.data_generation.labels`, unrelated to any numbered milestone), completed 2026-07-30. Phase 56 was also already consumed — by a separate ad-hoc phase developed concurrently on `feature/evaluation_framework` (Configurable multi-label region-based labeling, completed 2026-07-31) before this milestone's branch merged back in. v1.7 was originally planned as Phases 56–57, but was renumbered to 57–58 on merge to resolve that collision — see Phase Details below for the corresponding `.planning/phases/` directory renames.
 
-### 🚧 v1.6 HoreKa Cluster Execution (In Progress)
+<details>
+<summary>✅ v1.8 Code Review Remediation (Phases 59–64) — SHIPPED 2026-10-05</summary>
+
+- [x] Phase 59: P0 Runnability & Silent Number Corruption (8/8 plans) — completed 2026-10-02
+- [x] Phase 60: CPD/DTW Numerics (5/5 plans) — completed 2026-10-03
+- [x] Phase 61: Distances, Aligners & MPI (4/4 plans) — completed 2026-10-03
+- [x] Phase 62: Data, Label Transfer & GPU Path (6/6 plans) — completed 2026-10-03
+- [x] Phase 63: HPC Orchestration, Viz/Export & Docs (9/9 plans) — completed 2026-10-03
+- [x] Phase 64: Tech debt cleanup: doctests, stale refs, validation bookkeeping (5/5 plans) — completed 2026-10-05
+
+Full details: [.planning/milestones/v1.8-ROADMAP.md](.planning/milestones/v1.8-ROADMAP.md)
+
+</details>
+
+### ✅ v1.7 Minor Adjustments (Complete)
+
+**Milestone Goal:** General-purpose catch-all milestone for small, unrelated fixes and additions that don't warrant their own themed milestone — fixing the ground-truth field mismatch in the evaluation framework and adding a synthetic labeled subsample-pair generation mechanism. (v1.6 HoreKa work was believed paused at Phase 54 when this milestone started, but turned out to already be complete — see v1.6 section below.)
+
+- [x] **Phase 57: Ground-Truth Field Consistency** - Label-transfer F1 ground truth is drawn from the same field `LabelTransferStage` actually transfers, and stays correctly paired even when `transform_spec` changes point counts (completed 2026-08-04)
+- [x] **Phase 58: Synthetic Labeled Subsample-Pair Generation** - Label-transfer HPO can run against a config-driven synthetic subsample-pair ground truth mechanism, alongside the existing `transform_spec` mechanism (completed 2026-08-04)
+
+### ✅ v1.6 HoreKa Cluster Execution (Complete)
 
 **Milestone Goal:** Run the `baseline_experiments` evaluation suite on the HoreKa HPC cluster with GPU support, replacing the current laptop-constrained (CPU-only, subsampled) execution, within a 3-hour GPU time budget.
 
 - [x] **Phase 51: Environment & Access** - Operator can activate the HoreKa environment, transfer real datasets, and submit a working end-to-end job script *(1 plan — ready to execute)* (completed 2026-07-15)
-- [ ] **Phase 52: Multi-Rank Parallelism & Validation** - HPO trials run concurrently across MPI ranks via propulate, orchestration stays single-writer, validated on a short test job
-- [ ] **Phase 53: GPU Acceleration** - Real per-operation GPU acceleration threaded through EvalConfig, DataFactory, and AlignmentStage
-- [ ] **Phase 54: Budget Calibration & Full-Suite Gate** - Full 7-run suite is calibrated and verified to fit the 3-hour GPU cap before the full allocation is submitted
+- [x] **Phase 52: Multi-Rank Parallelism & Validation** - HPO trials run concurrently across MPI ranks via propulate, orchestration stays single-writer, validated on a short test job (completed)
+- [x] **Phase 53: GPU Acceleration** - Real per-operation GPU acceleration threaded through EvalConfig, DataFactory, and AlignmentStage (completed)
+- [x] **Phase 54: Budget Calibration & Full-Suite Gate** - Full 7-run suite is calibrated and verified to fit the 3-hour GPU cap before the full allocation is submitted (completed 2026-07-23, UAT 9/9 passed — see `.planning/phases/54-budget-calibration-full-suite-gate/54-UAT.md`; this milestone's completion had drifted out of STATE.md/ROADMAP.md tracking after the branch that completed it diverged from `feature/evaluation_framework` before merging back — reconciled 2026-08-05)
 
 ## Phase Details
+
+### Phase 57: Ground-Truth Field Consistency
+
+**Goal**: Label-transfer F1 scoring is computed against the correct ground-truth field (`pc["label"]`, the field `LabelTransferStage` actually transfers) with correct per-point correspondence preserved even when `transform_spec`'s `dropout_fraction`/`n_new_points` change point counts between source and target, and existing ground-truth configs are audited/updated to the corrected convention.
+**Depends on**: Nothing (first phase of v1.7)
+**Requirements**: GT-01, GT-02, GT-03
+**Success Criteria** (what must be TRUE):
+
+  1. `DataFactory.get_ground_truth()` and `get_synthetic_ground_truth()` read `pc["label"]` (not `pc["id"]`) for both `pipeline_mode: paired` and `pipeline_mode: synthetic`, matching the field `LabelTransferStage` actually transfers
+  2. When `transform_spec`'s `dropout_fraction`/`n_new_points` cause source and target point counts to diverge, `eval_runner._run_single`'s `y_true`/`y_pred` pairing preserves correct per-point correspondence instead of truncating both arrays to `min(len(y_true), len(y_pred))` by position
+  3. Existing ground-truth configs (`baseline_experiments/configs/ground_truth/shah_sample1.yaml`, `kobitski_ew06.yaml`, and `configs/experiments/stage2_label_transfer/*/synthetic.yaml`) are audited and updated so label-transfer F1 remains meaningful under the corrected GT-field convention
+  4. A label-transfer evaluation run against a `transform_spec` config with nonzero `dropout_fraction`/`n_new_points` produces a non-degenerate F1 score (not silently near-zero or spuriously perfect from misaligned arrays)
+
+**Plans**: 2 plans
+
+Plans:
+
+- [x] 57-01-PLAN.md — EvalConfig.ground_truth_field + DataFactory correspondence-tracking (drop_points/sample_new_points) + GT extraction rewrite + eval_runner WR-01 re-scoping (GT-01, GT-02)
+- [x] 57-02-PLAN.md — Ground-truth config audit: Shah/Kobitski comment fixes + degenerate-label documentation on stage2_label_transfer synthetic.yaml configs (GT-03)
+
+### Phase 58: Synthetic Labeled Subsample-Pair Generation
+
+**Goal**: Users can configure a synthetic evaluation dataset pair generated by subsampling a larger labeled point cloud into two views (source/target) with known per-point correspondence, and run label-transfer HPO against it — a sibling mechanism to the existing known-transform (`transform_spec: rigid`/`noise`) path.
+**Depends on**: Phase 57
+**Requirements**: GT-04, GT-05, GT-06
+**Success Criteria** (what must be TRUE):
+
+  1. User can specify, via YAML config, a synthetic dataset pair generated by subsampling a larger labeled point cloud into two views (source/target) with known per-point correspondence
+  2. `DataFactory` exposes a method that generates/retrieves such labeled subsample pairs, reusing `generate_training_triple()`'s geometry -> `generate_labels()` -> `generate_target()` composition pattern
+  3. `EvaluationRunner` and `HyperparamOptimizer` can run a label-transfer HPO sweep end-to-end against subsample-pair-generated ground truth (not just the training pipeline that originally consumed `generate_training_triple()`)
+  4. The subsample-pair mechanism coexists with the existing `transform_spec` known-transform mechanism — both remain independently selectable via config without one breaking the other
+
+**Plans**: 4 plans
+
+Plans:
+
+**Wave 1**
+
+- [x] 58-01-PLAN.md — DataFactory.generate_subsample_pair() + _subsample_source_view attribute + config docstring (GT-04, GT-05)
+
+**Wave 2** *(both depend on 57-01, no file overlap between them)*
+
+- [x] 58-02-PLAN.md — EvaluationRunner.run() subsample_pair dispatch branch (GT-04, GT-06)
+- [x] 58-03-PLAN.md — HyperparamOptimizer single-seed subsample_pair wiring across run()/_tier_dataset()/_objective() (GT-06)
+
+**Wave 3** *(depends on 57-03, same file)*
+
+- [x] 58-04-PLAN.md — D-07 opt-in multi-seed averaging, gated to the full tier (GT-04, GT-06)
 
 ### Phase 51: Environment & Access
 
@@ -59,6 +131,7 @@ Plans:
 
 **Plans**: 3 plans
 Plans:
+
 - [x] 52-01-PLAN.md — run_all.py rank-awareness + --configs-dir arg (PARA-01, PARA-02)
 - [x] 52-02-PLAN.md — Cluster configs (configs_horeka/ — 7 mirrored YAMLs) (PARA-03, BUDG-01)
 - [x] 52-03-PLAN.md — Multi-rank test job (smoke config + launch_horeka_multirank_test.sbatch) (BUDG-04)
@@ -76,8 +149,9 @@ Plans:
 
 **Plans**: 2 plans
 Plans:
-- [ ] 53-01-PLAN.md — EvalConfig device field + DataFactory device threading + tests (GPU-01, GPU-02)
-- [ ] 53-02-PLAN.md — 8 cluster YAML configs + sbatch GPU-03 annotation (GPU-03)
+
+- [x] 53-01-PLAN.md — EvalConfig device field + DataFactory device threading + tests (GPU-01, GPU-02)
+- [x] 53-02-PLAN.md — 8 cluster YAML configs + sbatch GPU-03 annotation (GPU-03)
 
 ### Phase 54: Budget Calibration & Full-Suite Gate
 
@@ -95,12 +169,14 @@ Plans:
 Plans:
 
 **Wave 1**
+
 - [x] 54-01-PLAN.md — aggregate_cost.py argparse (--calibration, --configs-dir, --budget-hours) + calibration JSON files (BUDG-02, BUDG-03)
 
 **Wave 2** *(blocked on Wave 1 completion)*
+
 - [x] 54-02-PLAN.md — extract_calibration.py new script + tests for aggregate_cost.py and extract_calibration.py (BUDG-02, BUDG-03)
 
-### 🚧 v1.5 Learned Label Transfer Methods (Phases 44–49 complete, Phase 50 pending)
+### ✅ v1.5 Learned Label Transfer Methods (Complete)
 
 **Milestone Goal:** Extend LabelTransferStage with learned point-cloud methods (CPD-weighted, eGNN, PointNet++) — full stack from architecture selection through training infrastructure, inference integration, and evaluation/benchmarking.
 
@@ -110,9 +186,44 @@ Plans:
 - [x] **Phase 47: eGNN/PointNet++ Model Implementation & Training Infrastructure** — completed 2026-07-15
 - [x] **Phase 48: LabelTransferStage Integration for Learned Methods** — completed 2026-07-15
 - [x] **Phase 49: Evaluation & Benchmarking of Learned Label-Transfer Methods** — completed 2026-07-15
-- [ ] **Phase 50: GPU-Native Geometry Ops** — pending (blocked on cluster verification)
+- [x] **Phase 50: GPU-Native Geometry Ops** — completed 2026-07-31 (VERIFICATION.md: passed)
 
----
+### Phase 55: Spherical-cap and Gaussian label generators for zreg.data_generation.labels ✅ 2026-07-30
+
+**Goal:** zreg.data_generation.labels exposes assign_cap_labels (hard spherical-cap boundary) and assign_gaussian_labels (angle-dependent Bernoulli labels), both following the immutable deep-copy contract and exported from the package.
+**Requirements**: none mapped
+**Depends on:** Phase 54
+**Plans:** 4/4 plans complete
+
+Plans:
+
+- [x] 55-01-PLAN.md — Implement assign_cap_labels + assign_gaussian_labels, export them, and add tests
+
+### Phase 56: Configurable multi-label region-based labeling: rework generate_labels() to support arbitrary n_labels, voronoi/gaussian-blob/gaussian-cone region shapes, deterministic and probabilistic assignment modes, and config-driven specification via EvalConfig ✅ 2026-07-31
+
+**Goal:** zreg.data_generation.labels.generate_labels() becomes the single, config-driven entry point for labeling a point cloud trajectory — any number of labels, each defined by one or more region components (voronoi/gaussian blob/gaussian cone), assigned deterministically or probabilistically, with region centers fixed once per trajectory (not redrawn per frame) so label change is spatially traceable. assign_cap_labels/assign_gaussian_labels (Phase 55) are deleted entirely, absorbed as the cone shape's special case. EvalConfig.label_generation lets scenario YAML declare a label spec instead of hardcoded Python literals.
+**Requirements**: none mapped (see 56-CONTEXT.md D-01 through D-13 — phase added ad hoc, no formal REQUIREMENTS.md IDs)
+**Depends on:** Phase 55
+**Plans:** 5/5 plans complete
+
+Plans:
+
+**Wave 1**
+
+- [x] 56-01-PLAN.md — LabelComponentSpec/LabelSpec pydantic models + per-shape scoring (_component_score) + mixture aggregation (_label_scores) (D-08, D-09, D-10, D-11)
+
+**Wave 2** *(depends on Wave 1)*
+
+- [x] 56-02-PLAN.md — Assignment modes (_assign_deterministic/_assign_probabilistic) + reworked generate_labels() orchestrator with D-07 center-once fix + deletion of assign_cap_labels/assign_gaussian_labels and their 13 tests (D-01, D-04, D-05, D-06, D-07, D-12)
+
+**Wave 3** *(depends on Wave 2)*
+
+- [x] 56-03-PLAN.md — EvalConfig.label_generation field + n_classes->n_labels rename cascade through DataFactory/optimizer.py/benchmark_runner.py/train_label_transfer.py + example scenario YAML (D-04, D-13)
+
+**Wave 4** *(depends on Waves 2+3, parallel)*
+
+- [x] 56-04-PLAN.md — Comprehensive new tests: per-shape correctness, assignment-mode behavior, D-07 regression, LabelGenerationConfig coverage (D-07, D-08, D-09, D-10, D-11, D-12, D-13)
+- [x] 56-05-PLAN.md — Fix rename-cascade breakage across the remaining existing test suite (9 files) (D-04)
 
 ### Phase 50: GPU-Native Geometry Ops for Cluster Deployment
 
@@ -126,12 +237,12 @@ packaged implementation exists at any point-cloud scale), not platform-driven, a
 unchanged regardless of this phase's outcome.
 **Requirements**: TBD (see 50-CONTEXT.md — phase added ad hoc, no formal REQUIREMENTS.md IDs)
 **Depends on:** Phase 49
-**Plans:** 1/1 plans complete
+**Plans:** 2/2 plans complete
 
 Plans:
 
-- [ ] 50-01-PLAN.md — HoreKa torch_cluster install verification gate (autonomous: false, human-executed) (D-01, D-02)
-- [ ] 50-02-PLAN.md — torch_cluster dual-path in _ops.py for all three ops + setup.cfg cluster extra + smoke tests (D-03–D-08)
+- [x] 50-01-PLAN.md — HoreKa torch_cluster install verification gate (autonomous: false, human-executed) (D-01, D-02)
+- [x] 50-02-PLAN.md — torch_cluster dual-path in _ops.py for all three ops + setup.cfg cluster extra + smoke tests (D-03–D-08)
 
 ### Phase 44: CPD-Weighted Label Transfer Method
 
@@ -321,9 +432,6 @@ Full details: [.planning/milestones/v1.0-ROADMAP.md](.planning/milestones/v1.0-R
 
 ## Progress
 
-**Execution Order (v1.6):**
-Phases execute in numeric order: 51 → 52 → 53 → 54
-
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|-----------------|--------|-----------|
 | 44. CPD-Weighted Label Transfer | v1.5 | 4/4 | ✅ Complete | 2026-07-15 |
@@ -332,11 +440,13 @@ Phases execute in numeric order: 51 → 52 → 53 → 54
 | 47. eGNN/PointNet++ Models & Training | v1.5 | 5/5 | ✅ Complete | 2026-07-15 |
 | 48. LabelTransferStage Integration | v1.5 | 2/2 | ✅ Complete | 2026-07-15 |
 | 49. Benchmarking of Learned Methods | v1.5 | 3/3 | ✅ Complete | 2026-07-15 |
-| 50. GPU-Native Geometry Ops | v1.5 | 0/TBD | Pending | - |
+| 50. GPU-Native Geometry Ops | v1.5 | 2/2 | Complete    | 2026-07-31 |
 | 51. Environment & Access | v1.6 | 1/1 | Complete    | 2026-07-15 |
-| 52. Multi-Rank Parallelism & Validation | v1.6 | 0/TBD | Not started | - |
-| 53. GPU Acceleration | v1.6 | 0/TBD | Not started | - |
-| 54. Budget Calibration & Full-Suite Gate | v1.6 | 0/TBD | Not started | - |
+| 52. Multi-Rank Parallelism & Validation | v1.6 | 3/3 | Complete    | 2026-07-23 |
+| 53. GPU Acceleration | v1.6 | 2/2 | Complete    | 2026-07-23 |
+| 54. Budget Calibration & Full-Suite Gate | v1.6 | 2/2 | Complete    | 2026-07-23 |
+| 57. Ground-Truth Field Consistency | v1.7 | 2/2 | Complete    | 2026-08-04 |
+| 58. Synthetic Labeled Subsample-Pair Generation | v1.7 | 4/4 | Complete    | 2026-08-04 |
 
 | Milestone | Phases | Plans | Status | Shipped |
 |-----------|--------|-------|--------|---------|
@@ -344,7 +454,9 @@ Phases execute in numeric order: 51 → 52 → 53 → 54
 | v1.1 Code Quality & Refactoring | 6–11.1 (7) | 14 | ✅ Complete | 2026-05-13 |
 | v1.2 Evaluation Framework & Debt Resolution | 12–38 (27) | 55 | ✅ Complete | 2026-06-26 |
 | v1.4 Trajectory Alignment & Optimization Enhancements | 39–43 (5) | 11 | ✅ Complete | 2026-07-08 |
-| v1.5 Learned Label Transfer Methods | 44–50 (7) | 18 | 🚧 In progress (50 pending) | - |
-| v1.6 HoreKa Cluster Execution | 51–54 (4) | TBD | 🚧 In progress | - |
+| v1.5 Learned Label Transfer Methods | 44–50 (7) | 18 | ✅ Complete | 2026-07-31 |
+| v1.6 HoreKa Cluster Execution | 51–54 (4) | 9 | ✅ Complete | 2026-07-23 |
+| v1.7 Minor Adjustments | 57–58 (2) | 6 | ✅ Complete | 2026-08-04 |
+| v1.8 Code Review Remediation | 59–64 (6) | 37 | ✅ Complete | 2026-10-05 |
 
-_Next: `/gsd:execute-phase 51` to run Phase 51 (Environment & Access)._
+_No active milestone — v1.8 Code Review Remediation (Phases 59–64) shipped 2026-10-05 and is archived in `.planning/milestones/v1.8-ROADMAP.md`. v1.5 (44–50), v1.6 (51–54) and v1.7 (57–58) are complete but not yet formally archived via `/gsd:complete-milestone`. Phases 55 and 56 were ad-hoc out-of-band phases (see the Phase Numbering note above). Next: `/gsd:new-milestone` (continues at Phase 65)._

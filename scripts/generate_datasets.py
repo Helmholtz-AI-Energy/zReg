@@ -31,7 +31,7 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT))
 
 # zreg imports must precede torch (libomp SIGABRT workaround — see data_factory.py)
-from zreg.dataset import load_data_from_tracklets, load_shah_from_csv, zRegPointCloud
+from zreg.core.dataset import load_data_from_tracklets, load_shah_from_csv, zRegPointCloud
 from eval.data_factory import DataFactory
 from eval.config import EvalConfig
 
@@ -54,6 +54,16 @@ SEMI_DIR  = ROOT / "data" / "synthetic" / "semi_synthetic"
 R_0 = 1.0
 GROWTH_FACTOR = 1.47
 BOWL_D_RATIO  = 0.5   # d = 0.5 * R at every frame; d ∝ R → bowl volume ∝ R³
+
+# Labeled-region parameters (spherical cap on ball surface, north pole)
+CAP_POLE      = np.array([0.0, 0.0, 1.0], dtype=np.float64)
+CAP_THETA_DEG = 60.0   # half-angle of hard cap in degrees
+CAP_SIGMA_DEG = 40.0   # std-dev for Gaussian soft-label variant (in degrees)
+
+LABELED_BALL_VARIANTS: dict[str, dict] = {
+    "small_labeled_cap":      {"n_frames": 20, "n_base": 100, "kind": "cap"},
+    "small_labeled_gaussian": {"n_frames": 20, "n_base": 100, "kind": "gaussian"},
+}
 
 SIZE_VARIANTS: dict[str, dict] = {
     "small":               {"n_frames": 20,  "n_base": 100},
@@ -111,6 +121,36 @@ def in_bowl(pts: np.ndarray, R: float, d: float) -> np.ndarray:
     norm_sq  = (pts ** 2).sum(axis=1)
     carve_sq = pts[:, 0] ** 2 + pts[:, 1] ** 2 + (pts[:, 2] - d) ** 2
     return (norm_sq <= R ** 2) & (carve_sq > R ** 2 + d ** 2) & (pts[:, 2] <= 0.0)
+
+
+def _assign_cap_labels(pts: np.ndarray, pole: np.ndarray, theta_deg: float) -> np.ndarray:
+    """Label 2 for points within theta_deg of pole direction, label 1 for the rest."""
+    norms = np.linalg.norm(pts, axis=1)
+    safe  = np.where(norms < 1e-9, 1.0, norms)
+    cos_a = np.einsum("ij,j->i", pts, pole) / safe
+    in_cap = (cos_a >= np.cos(np.deg2rad(theta_deg))) & (norms >= 1e-9)
+    return np.where(in_cap, 2, 1).astype(np.int32)
+
+
+def _assign_gaussian_labels(
+    pts: np.ndarray,
+    pole: np.ndarray,
+    sigma_deg: float,
+    rng: np.random.Generator,
+) -> np.ndarray:
+    """Stochastic binary labels: p(label=2) = exp(-θ²/(2σ²)), θ = angle from pole.
+
+    Labels are drawn once per point — call this only at birth, not every frame,
+    so that existing particles keep a stable label across the trajectory.
+    """
+    norms = np.linalg.norm(pts, axis=1)
+    safe  = np.where(norms < 1e-9, 1.0, norms)
+    cos_a = np.einsum("ij,j->i", pts, pole) / safe
+    theta = np.degrees(np.arccos(np.clip(cos_a, -1.0, 1.0)))
+    prob  = np.exp(-(theta ** 2) / (2.0 * sigma_deg ** 2))
+    prob[norms < 1e-9] = 0.0
+    u = rng.uniform(0.0, 1.0, len(pts))
+    return np.where(u < prob, 2, 1).astype(np.int32)
 
 
 def _delta_r(n_frames: int) -> float:
@@ -193,11 +233,16 @@ def _make_trajectory(
     n_frames: int,
     n_base: int,
     rng: np.random.Generator,
+    label_fn=None,
 ) -> dict[int, dict]:
     """Build a growing-{ball,bowl} trajectory frame by frame.
 
     Existing points are scaled outward each frame; new points are born in the
     expanded outer shell to keep point density (points/volume) constant.
+
+    label_fn: optional callable(pts, rng) -> int32 labels array.  Called once
+    per point at birth so that existing particles keep a stable label across
+    frames.  None → all labels are 1.
     """
     dr = _delta_r(n_frames)
 
@@ -209,6 +254,7 @@ def _make_trajectory(
 
     ids     = np.arange(n_base, dtype=np.int32)
     next_id = n_base
+    labels  = label_fn(pts, rng) if label_fn is not None else np.ones(n_base, dtype=np.int32)
     traj: dict[int, dict] = {}
 
     for i in range(n_frames):
@@ -232,11 +278,17 @@ def _make_trajectory(
                     [ids, np.arange(next_id, next_id + n_new, dtype=np.int32)]
                 )
                 next_id += n_new
+                new_lbl = (
+                    label_fn(new_pts, rng)
+                    if label_fn is not None
+                    else np.ones(n_new, dtype=np.int32)
+                )
+                labels = np.concatenate([labels, new_lbl])
 
         traj[i] = {
             "pos":   pts.copy(),
             "id":    ids.copy(),
-            "label": np.ones(len(pts), dtype=np.int32),
+            "label": labels.copy(),
         }
 
         if (i + 1) % max(n_frames // 10, 1) == 0 or i == n_frames - 1:
@@ -387,11 +439,118 @@ def generate_semi_synthetic() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Labeled ball generators
+# ---------------------------------------------------------------------------
+
+def generate_labeled_balls() -> None:
+    """Generate ball_small_labeled_cap and ball_small_labeled_gaussian datasets."""
+    print("\n=== Labeled ball datasets ===")
+
+    def cap_fn(pts: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+        return _assign_cap_labels(pts, CAP_POLE, CAP_THETA_DEG)
+
+    def gaussian_fn(pts: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+        return _assign_gaussian_labels(pts, CAP_POLE, CAP_SIGMA_DEG, rng)
+
+    label_fns = {"cap": cap_fn, "gaussian": gaussian_fn}
+
+    rng = np.random.default_rng(SEED + 1000)
+    for size_name, cfg in LABELED_BALL_VARIANTS.items():
+        name     = f"ball_{size_name}"
+        out_path = FULLY_DIR / name / f"{name}.csv"
+        if out_path.exists():
+            print(f"  skip (exists): {name}")
+            continue
+        print(f"\n  {name}  ({cfg['n_frames']} frames, {cfg['n_base']:,} base pts)")
+        traj = _make_trajectory(
+            "ball", cfg["n_frames"], cfg["n_base"], rng,
+            label_fn=label_fns[cfg["kind"]],
+        )
+        save_as_csv(traj, out_path)
+
+
+# ---------------------------------------------------------------------------
+# Labeled preview renderer
+# ---------------------------------------------------------------------------
+
+def render_labeled_preview(csv_path: Path, name: str, out_dir: Path, dpi: int = 150) -> Path:
+    """Two-color 1×3 triptych for a labeled dataset (layer column = 1 or 2)."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    frames = sorted(pd.read_csv(csv_path, usecols=["t"])["t"].unique())
+    n = len(frames)
+    t_first, t_mid, t_last = frames[0], frames[n // 2], frames[-1]
+    wanted = {t_first, t_mid, t_last}
+
+    parts = []
+    for chunk in pd.read_csv(csv_path, usecols=["x", "y", "z", "t", "layer"], chunksize=60_000):
+        sub = chunk[chunk["t"].isin(wanted)]
+        if len(sub):
+            parts.append(sub)
+    df = pd.concat(parts, ignore_index=True)
+
+    COLOR1 = "#2a6496"   # label 1 — background
+    COLOR2 = "#e8741a"   # label 2 — cap / patch
+    MAX_PTS = 4_000
+    rng_vis = np.random.default_rng(0)
+
+    fig = plt.figure(figsize=(13, 4.2))
+    fig.suptitle(name, fontsize=12, fontweight="bold", y=1.01)
+
+    for col, (t, label) in enumerate([(t_first, "first"), (t_mid, "mid"), (t_last, "last")]):
+        ax = fig.add_subplot(1, 3, col + 1, projection="3d")
+        frame = df[df["t"] == t]
+        n_orig = len(frame)
+
+        if n_orig > MAX_PTS:
+            idx = rng_vis.choice(n_orig, MAX_PTS, replace=False)
+            frame = frame.iloc[idx]
+
+        for lval, color in ((1, COLOR1), (2, COLOR2)):
+            sub = frame[frame["layer"] == lval]
+            if len(sub):
+                ax.scatter(sub["x"], sub["y"], sub["z"],
+                           s=1.5, alpha=0.5, c=color, linewidths=0)
+
+        ax.set_title(f"t = {t}  ({label})\nn = {n_orig:,}", fontsize=9, pad=4)
+        for lbl in ax.get_xticklabels() + ax.get_yticklabels() + ax.get_zticklabels():
+            lbl.set_fontsize(6)
+        ax.set_xlabel("x", fontsize=7, labelpad=2)
+        ax.set_ylabel("y", fontsize=7, labelpad=2)
+        ax.set_zlabel("z", fontsize=7, labelpad=2)
+        ax.xaxis.pane.fill = False
+        ax.yaxis.pane.fill = False
+        ax.zaxis.pane.fill = False
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"{name}.png"
+    fig.savefig(out_path, dpi=dpi)
+    plt.close(fig)
+    return out_path
+
+
+def generate_labeled_previews() -> None:
+    out_dir = ROOT / "reports" / "dataset_previews" / "fully_synthetic"
+    for size_name in LABELED_BALL_VARIANTS:
+        name     = f"ball_{size_name}"
+        csv_path = FULLY_DIR / name / f"{name}.csv"
+        if not csv_path.exists():
+            print(f"  skip preview (no data): {name}")
+            continue
+        p = render_labeled_preview(csv_path, name, out_dir)
+        print(f"  preview → {p.relative_to(ROOT)}")
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     rng = np.random.default_rng(SEED)
     generate_fully_synthetic(rng)
+    generate_labeled_balls()
+    generate_labeled_previews()
     generate_semi_synthetic()
     print("\nDone.")

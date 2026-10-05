@@ -1,13 +1,13 @@
 """DataFactory: lazy, cached orchestrator for real and synthetic point cloud trajectories.
 
 Wraps the four existing data primitives (``load_data_from_tracklets``,
-``load_shah_from_csv``, the ``zreg.generators`` package, and the two corruption
+``load_shah_from_csv``, the ``zreg.data_generation`` package, and the two corruption
 functions) behind a single class driven by an ``EvalConfig``.  All five public
 methods return ``dict[int, zRegPointCloud]`` (or a split tuple).  Construction
 is cheap (no I/O) per D-08; data is loaded/generated lazily on first method
 call per D-09.  The returned dicts must not be mutated in place — downstream
 phases should treat them as read-only (copy.deepcopy them first if mutation is
-required).  The generators in ``zreg.generators`` already deep-copy their
+required).  The generators in ``zreg.data_generation`` already deep-copy their
 inputs, so chaining ``augment(load_real())`` is inherently safe.
 """
 
@@ -17,14 +17,14 @@ import math
 import random
 from pathlib import Path  # noqa: F401  (available for future use)
 
-# zreg.dataset MUST precede import torch (libomp SIGABRT lesson from Phase 12;
+# zreg.core.dataset MUST precede import torch (libomp SIGABRT lesson from Phase 12;
 # enforced in tests/conftest.py:20-24)
-from zreg.dataset import (
+from zreg.core.dataset import (
     load_data_from_tracklets,
     load_shah_from_csv,
     zRegPointCloud,
 )
-from zreg.generators import (
+from zreg.data_generation import (
     add_gaussian_noise,
     add_outliers,
     apply_affine,  # noqa: F401  (available; not used in Phase 17 minimal generate_synthetic)
@@ -34,7 +34,7 @@ from zreg.generators import (
     sample_ball,
     sample_bowl,
 )
-from zreg.transforms import RigidTransformation
+from zreg.core.transforms import RigidTransformation
 
 # torch AFTER zreg.* imports
 import torch
@@ -98,8 +98,8 @@ class DataFactory:
 
     **DO NOT mutate** the returned dicts in place — downstream phases must treat
     them as immutable.  If mutation is required, ``copy.deepcopy`` the returned
-    dict before modifying it.  The generators in ``zreg.generators`` already
-    deep-copy their inputs (verified in ``src/zreg/generators/corruption.py``),
+    dict before modifying it.  The generators in ``zreg.data_generation`` already
+    deep-copy their inputs (verified in ``src/zreg/data_generation/corruption.py``),
     so the common pattern ``augment(load_real())`` is inherently safe: augment()
     returns a new dict whose frames are deep-copies of the originals.
 
@@ -146,6 +146,18 @@ class DataFactory:
         self._source_dataset: dict[int, zRegPointCloud] | None = None
         self._transform_spec: dict | None = None
         self._preprocessing_stats: dict | None = None
+        # Phase 56 D-03/D-04: per-frame original-index correspondence map,
+        # populated by drop_points()/sample_new_points() and consumed by
+        # get_synthetic_ground_truth() to gather (not truncate) y_true when
+        # dropout/new-points change point counts. Deliberately reusable by
+        # Phase 57 (subsample-pair generation has the same need).
+        self._correspondence_idx: dict[int, torch.Tensor] | None = None
+        # Phase 57 D-01: populated by generate_subsample_pair() — the source
+        # view is a SEPARATE subsample from the base dataset, distinct from
+        # self._source_dataset (which holds the pre-subsampling base, for
+        # GT-extraction compatibility) and from self._synthetic_target (which
+        # holds the target view).
+        self._subsample_source_view: dict[int, zRegPointCloud] | None = None
 
     def load_real(self) -> dict[int, zRegPointCloud]:
         """Load the real dataset from disk (lazy, cached).
@@ -327,6 +339,8 @@ class DataFactory:
             )
         # D-02: save original augmentation_params and restore in finally
         original_params = self.config.augmentation_params
+        # D-03/D-04 (Phase 56): augment() resets self._correspondence_idx itself
+        # (62-REVIEW WR-07), so this call composes a fresh correspondence map.
         try:
             self.config.augmentation_params = augment_params
             result = self.augment(dataset)
@@ -338,10 +352,239 @@ class DataFactory:
         self._transform_spec = transform_spec
         return result
 
+    def generate_subsample_pair(
+        self,
+        dataset: dict[int, zRegPointCloud] | None,
+        transform_spec: dict,
+    ) -> tuple[dict[int, zRegPointCloud], dict[int, zRegPointCloud]]:
+        """Generate a labeled (source, target) subsample-pair with tracked correspondence.
+
+        Sibling mechanism to :meth:`generate_target`'s known-transform path
+        (Phase 57 GT-04/GT-05): instead of applying a fixed geometric
+        transform to a single dataset, this method subsamples a base labeled
+        point cloud TWICE — once per view — using
+        :meth:`drop_points`/``self._correspondence_idx`` (Phase 56 D-01),
+        producing two independently-dropped views with per-point
+        correspondence tracked back to the base dataset.
+
+        Two input modes (D-02):
+
+        - Real/already-loaded data: pass an explicit ``dataset`` (e.g. from
+          :meth:`load_real`/:meth:`load_target`) and leave
+          ``transform_spec["synthesize"]`` unset/``False``.
+        - Synthesize-from-scratch: set ``transform_spec["synthesize"] =
+          True`` and ``dataset=None``; a base cloud is built via the same
+          ``sample_ball``/``sample_bowl`` + :func:`generate_labels` geometry
+          pipeline used by :meth:`generate_training_triple` (which itself is
+          NOT called or modified — this is a sibling, not a wrapper).
+
+        Whether a rigid/noise-style perturbation is layered onto the target
+        view is derived from ``self.config.run_alignment`` (D-03), not a new
+        user-facing flag: when ``True``, a genuine registration challenge is
+        added via :meth:`generate_target`; when ``False``, source and target
+        stay in the same coordinate frame.
+
+        Parameters
+        ----------
+        dataset : dict[int, zRegPointCloud] or None
+            Already-loaded base dataset to subsample from. Required
+            (non-``None``) unless ``transform_spec["synthesize"]`` is
+            ``True``.
+        transform_spec : dict
+            Subsample-pair specification. Recognised keys:
+
+            - ``"seed"`` (int, default 42): drives base-cloud synthesis (if
+              ``synthesize``), the source view's subsample selection, and the
+              default target-view perturbation (when ``run_alignment=True``
+              and no explicit perturbation keys are given). MUST be a single
+              ``int`` — a ``list`` is rejected (see Raises); multi-seed
+              averaging is an ``optimizer.py``-level concern (D-06/D-07).
+            - ``"source_fraction"`` / ``"target_fraction"`` (float, default
+              0.8 each): fraction of ``base_dataset`` points RETAINED in each
+              view. Must be in ``(0.0, 1.0]``.
+            - ``"synthesize"`` (bool, default ``False``): when ``True``,
+              build ``base_dataset`` from scratch instead of requiring
+              ``dataset``.
+            - ``"n_labels"`` (or legacy ``"n_classes"`` alias), ``"shape"``,
+              ``"n_points"``: forwarded to the synthesize-from-scratch
+              geometry pipeline (only consulted when ``synthesize`` is
+              ``True``); mirrors :meth:`generate_training_triple`'s own
+              parameters/defaults (post-merge ``n_labels`` rename).
+              Label precedence (D-13, Phase 62 U4-8): an explicit
+              ``"n_labels"``/``"n_classes"`` wins; otherwise
+              ``config.label_generation`` (``n_labels``, ``label_specs``,
+              ``mode``) is used; otherwise 6 auto-random Voronoi labels.
+              ``label_generation.seed`` is NOT used here — the per-call
+              ``"seed"`` keeps priority, as in
+              :meth:`generate_training_triple`.
+            - ``"rotation_deg"``, ``"rotation_axis"``, ``"scale_factor"``,
+              ``"sigma"``: optional explicit perturbation keys applied to the
+              target view when ``run_alignment=True``. When none of these are
+              present, a default rotation+scale perturbation is derived from
+              ``"seed"`` (mirrors :meth:`generate_training_triple`'s default
+              transform construction). ``"dropout_fraction"``,
+              ``"n_outliers"``, ``"n_new_points"``, and ``"augment_seed"`` are
+              deliberately NOT forwarded here — a second dropout on top of
+              the view subsampling is out of this method's scope and would
+              require additional correspondence composition this method does
+              not perform.
+
+        Returns
+        -------
+        tuple[dict[int, zRegPointCloud], dict[int, zRegPointCloud]]
+            ``(source_view, target_view)`` — two independently-subsampled
+            labeled views of ``base_dataset``. Also stored as
+            ``self._subsample_source_view`` (source) and
+            ``self._synthetic_target`` (target).
+
+        Raises
+        ------
+        ValueError
+            If ``transform_spec["seed"]`` is a ``list`` — this method accepts
+            a single ``int`` seed only; ``HyperparamOptimizer`` resolves seed
+            lists into individual per-seed calls (D-06/D-07).
+        ValueError
+            If ``source_fraction`` or ``target_fraction`` is not in
+            ``(0.0, 1.0]``.
+        ValueError
+            If ``dataset is None`` and ``transform_spec["synthesize"]`` is
+            not ``True`` — naming ``transform_spec['synthesize']`` as the
+            flag to set instead.
+
+        Notes
+        -----
+        - D-01: reuses Phase 56's ``drop_points()``/``self._correspondence_idx``
+          machinery rather than reimplementing index tracking.
+        - Producer contract match (GT-extraction compatibility): after this
+          call, ``self._source_dataset`` is the BASE (pre-subsampling)
+          dataset and ``self._correspondence_idx`` is the target view's
+          correspondence back to that base — exactly matching
+          :meth:`generate_target`'s producer contract, so
+          :meth:`get_synthetic_ground_truth` works unmodified.
+        - CRITICAL: :meth:`drop_points` COMPOSES with any prior
+          ``self._correspondence_idx`` when it is non-``None`` rather than
+          starting fresh, so each of the two ``drop_points`` calls below is
+          preceded by an explicit ``self._correspondence_idx = None`` reset —
+          omitting either reset raises ``IndexError`` on any realistic call
+          (see 57-PATTERNS.md Analog 3).
+        """
+        # Step 1: seed extraction + list-seed rejection (D-06/D-07)
+        seed = transform_spec.get("seed", 42)
+        if isinstance(seed, list):
+            raise ValueError(
+                "DataFactory.generate_subsample_pair: transform_spec['seed'] "
+                "must be a single int, not a list. Multi-seed averaging is an "
+                "optimizer.py-level concern — HyperparamOptimizer resolves "
+                "seed lists into individual per-seed calls (D-06/D-07); this "
+                "method never silently averages or picks one entry from a list."
+            )
+
+        # Step 2: fraction validation
+        source_fraction = transform_spec.get("source_fraction", 0.8)
+        target_fraction = transform_spec.get("target_fraction", 0.8)
+        if not (0.0 < source_fraction <= 1.0):
+            raise ValueError(
+                "DataFactory.generate_subsample_pair: source_fraction must be "
+                f"in (0.0, 1.0]; got {source_fraction!r}"
+            )
+        if not (0.0 < target_fraction <= 1.0):
+            raise ValueError(
+                "DataFactory.generate_subsample_pair: target_fraction must be "
+                f"in (0.0, 1.0]; got {target_fraction!r}"
+            )
+
+        # Step 3: base_dataset — synthesize-from-scratch (D-02) or use the
+        # supplied already-loaded dataset
+        synthesize = transform_spec.get("synthesize", False)
+        if synthesize:
+            explicit_n_labels = transform_spec.get("n_labels", transform_spec.get("n_classes"))
+            shape = transform_spec.get("shape")
+            n_points = transform_spec.get("n_points")
+            geom_rng = random.Random(seed)
+            if n_points is None:
+                n_points = geom_rng.randint(100, 300)
+            if shape is None:
+                shape = "ball" if seed % 2 == 0 else "bowl"
+            if shape == "ball":
+                pos = sample_ball(n_points, seed=seed)
+            elif shape == "bowl":
+                pos = sample_bowl(n_points, seed=seed)
+            else:
+                raise ValueError(
+                    "DataFactory.generate_subsample_pair: unknown shape "
+                    f"{shape!r}; expected 'ball' or 'bowl'"
+                )
+            base_frame = {0: zRegPointCloud(pos=pos)}
+            # D-13 three-way precedence (Phase 62 U4-8, copied from
+            # generate_training_triple): explicit transform_spec
+            # n_labels/n_classes > config.label_generation > hardcoded 6.
+            if explicit_n_labels is not None:
+                base_dataset = generate_labels(base_frame, n_labels=explicit_n_labels, seed=seed)
+            elif self.config.label_generation is not None:
+                lg = self.config.label_generation
+                base_dataset = generate_labels(
+                    base_frame,
+                    n_labels=lg.n_labels,
+                    label_specs=lg.label_specs,
+                    mode=lg.mode,
+                    seed=seed,
+                )
+            else:
+                base_dataset = generate_labels(base_frame, n_labels=6, seed=seed)
+        else:
+            if dataset is None:
+                raise ValueError(
+                    "DataFactory.generate_subsample_pair: dataset is None but "
+                    "transform_spec['synthesize'] is not True. Either pass an "
+                    "already-loaded dataset or set transform_spec['synthesize'] "
+                    "= True to generate one from scratch."
+                )
+            base_dataset = dataset
+
+        # Step 4: subsample TWICE from base_dataset using DIFFERENT seeds so
+        # the two views are genuinely different point subsets. drop_points()
+        # COMPOSES with any prior self._correspondence_idx when non-None, so
+        # each call below MUST be preceded by an explicit reset (see Notes).
+        self._correspondence_idx = None  # defensive reset (reused/non-fresh instance)
+        source_view = self.drop_points(base_dataset, 1.0 - source_fraction, seed=seed)
+        self._correspondence_idx = None  # required reset — prevents composing against the source view's map
+        target_view = self.drop_points(base_dataset, 1.0 - target_fraction, seed=seed + 1)
+        target_corr = self._correspondence_idx
+
+        # Step 5: optional D-03-conditional perturbation of the target view
+        if self.config.run_alignment:
+            perturb_keys = ("rotation_deg", "rotation_axis", "scale_factor", "sigma")
+            perturb_spec = {k: transform_spec[k] for k in perturb_keys if k in transform_spec}
+            if not perturb_spec:
+                perturb_rng = random.Random(seed)
+                perturb_spec = {
+                    "rotation_deg": perturb_rng.uniform(0, 360),
+                    "rotation_axis": [0.0, 0.0, 1.0],
+                    "scale_factor": perturb_rng.uniform(0.8, 1.2),
+                }
+            # generate_target() overwrites self._source_dataset (to the
+            # pre-perturbation target_view) and leaves self._correspondence_idx
+            # None (perturb_spec never contains dropout_fraction/n_new_points).
+            # Restore the correct base-dataset GT contract immediately after.
+            target_view = self.generate_target(target_view, perturb_spec)
+            self._correspondence_idx = target_corr
+            self._source_dataset = base_dataset
+        else:
+            self._correspondence_idx = target_corr
+            self._source_dataset = base_dataset
+            self._synthetic_target = target_view
+
+        # Step 6: regardless of branch — finalize instance state (D-05)
+        self._subsample_source_view = source_view
+        self._transform_spec = transform_spec
+        self._synthetic_target = target_view
+
+        return source_view, target_view
+
     def generate_training_triple(
         self,
         seed: int,
-        n_classes: int = 6,
+        n_labels: int | None = None,
         shape: str | None = None,
         n_points: int | None = None,
     ) -> TrainingTriple:
@@ -380,13 +623,28 @@ class DataFactory:
         (46-RESEARCH.md Anti-Patterns): points added by ``sample_new_points``
         get a ``-1`` label sentinel, which is not a valid supervised target.
 
+        Label-generation precedence (D-13, three-way, in order):
+
+        1. If the caller passes an explicit ``n_labels`` (not ``None``), use
+           ``generate_labels(base, n_labels=n_labels, seed=seed)`` exactly —
+           preserves every existing explicit-``n_labels=N`` call site.
+        2. Else, if ``self.config.label_generation`` is not ``None``, use it:
+           ``generate_labels(base, n_labels=self.config.label_generation.n_labels,
+           label_specs=self.config.label_generation.label_specs,
+           mode=self.config.label_generation.mode, seed=seed)``.
+        3. Else, fall back to ``generate_labels(base, n_labels=6, seed=seed)``
+           (today's hardcoded default, preserved as the final fallback).
+
         Parameters
         ----------
         seed : int
             Seed driving base-cloud geometry, label assignment, transform
             parameters, and augmentation RNG (threaded as ``"augment_seed"``).
-        n_classes : int, optional
-            Voronoi label vocabulary size (default 6).
+        n_labels : int or None, optional
+            Explicit Voronoi label vocabulary size override. ``None``
+            (default) means "no explicit override" — falls through to
+            ``self.config.label_generation`` then the hardcoded ``n_labels=6``
+            fallback (see precedence above).
         shape : {"ball", "bowl"} or None, optional
             Force a specific geometry; ``None`` (default) alternates by seed
             parity (see above).
@@ -417,7 +675,16 @@ class DataFactory:
             )
 
         base = {0: zRegPointCloud(pos=pos)}
-        source = generate_labels(base, n_classes=n_classes, seed=seed)
+        # D-13 three-way precedence: explicit caller override > config.label_generation > hardcoded fallback.
+        if n_labels is not None:
+            source = generate_labels(base, n_labels=n_labels, seed=seed)
+        elif self.config.label_generation is not None:
+            lg = self.config.label_generation
+            source = generate_labels(
+                base, n_labels=lg.n_labels, label_specs=lg.label_specs, mode=lg.mode, seed=seed
+            )
+        else:
+            source = generate_labels(base, n_labels=6, seed=seed)
 
         transform_spec = {
             "type": "rigid",
@@ -434,7 +701,7 @@ class DataFactory:
     def generate_training_set(
         self,
         seeds,
-        n_classes: int = 6,
+        n_labels: int | None = None,
     ) -> list[TrainingTriple]:
         """Batch :meth:`generate_training_triple` over an iterable of seeds.
 
@@ -446,16 +713,19 @@ class DataFactory:
         seeds : Iterable[int]
             Seeds to generate triples for, e.g. a ``range`` from
             :func:`split_seeds`.
-        n_classes : int, optional
-            Forwarded to every :meth:`generate_training_triple` call
-            (default 6).
+        n_labels : int or None, optional
+            Forwarded unchanged to every :meth:`generate_training_triple`
+            call (D-13 three-way precedence). ``None`` (default) lets each
+            triple resolve its own label vocabulary via
+            ``self.config.label_generation`` or the hardcoded ``n_labels=6``
+            fallback — see :meth:`generate_training_triple`.
 
         Returns
         -------
         list[TrainingTriple]
             One triple per seed, in the order ``seeds`` was iterated.
         """
-        return [self.generate_training_triple(s, n_classes=n_classes) for s in seeds]
+        return [self.generate_training_triple(s, n_labels=n_labels) for s in seeds]
 
     def generate_synthetic(self) -> dict[int, zRegPointCloud]:
         """Generate a synthetic trajectory (lazy, cached).
@@ -519,12 +789,23 @@ class DataFactory:
         Dispatch order: sigma → n_outliers → scale_factor → rotation_deg →
         dropout_fraction → n_new_points.
 
+        Correspondence tracking (Phase 56 D-03, Phase 62 D-02):
+        ``n_outliers``, ``dropout_fraction`` and ``n_new_points`` change the
+        per-frame point count, so each of them updates
+        ``self._correspondence_idx`` (outliers and new points map to ``-1``,
+        dropout composes the retained indices).  This keeps
+        :meth:`get_synthetic_ground_truth` aligned with the target for any
+        combination of the three.  ``augment`` resets
+        ``self._correspondence_idx`` to ``None`` at entry (62-REVIEW WR-07):
+        the map always describes this call's output relative to its input,
+        never a composition with an earlier call's map.
+
         Missing keys skip the corresponding step.  An empty dict (or a dict
         containing only ``"augment_seed"``) is a no-op and returns the input
         dataset unchanged.
 
         Both ``add_gaussian_noise`` and ``add_outliers`` deep-copy their inputs
-        (verified in ``src/zreg/generators/corruption.py``), so the input
+        (verified in ``src/zreg/data_generation/corruption.py``), so the input
         ``dataset`` is never mutated.
 
         Parameters
@@ -541,18 +822,28 @@ class DataFactory:
         """
         params = self.config.augmentation_params
         augment_seed = params.get("augment_seed", 42)
+        # 62-REVIEW WR-07: augment() owns the correspondence map.  Every call
+        # starts from a fresh (identity) map, so outliers / dropout / new
+        # points never compose onto a map left by an earlier
+        # generate_target() / generate_subsample_pair() call.
+        self._correspondence_idx = None
         result = dataset
         # Step 1: Gaussian noise
         if "sigma" in params:
             result = add_gaussian_noise(result, sigma=params["sigma"], seed=augment_seed)
         # Step 2: outlier injection
         if "n_outliers" in params:
+            before_outliers = result
             result = add_outliers(
                 result,
                 n_outliers=params["n_outliers"],
                 scale=params.get("scale", 3.0),
                 seed=augment_seed,
             )
+            # Phase 62 D-02 (U4-5): outliers are appended at the end of every
+            # frame and have no source point — track them as -1 so a later
+            # drop_points/sample_new_points composes against the right map.
+            self._extend_correspondence_with_sentinels(before_outliers, params["n_outliers"])
         # Step 3: uniform scaling
         if "scale_factor" in params:
             result = self.scale(result, params["scale_factor"])
@@ -630,48 +921,65 @@ class DataFactory:
         self,
         dataset: dict[int, zRegPointCloud],
     ) -> dict[int, torch.Tensor]:
-        """Extract cell-identity labels from a loaded dataset.
+        """Extract ground-truth labels from a loaded dataset.
 
-        Returns one id tensor per frame, keyed by frame index.  Mirrors the
-        structure of the dataset itself (D-11).
+        Returns one label tensor per frame, keyed by frame index.  Mirrors
+        the structure of the dataset itself (D-11).
 
-        By default (``config.ground_truth_path is None``) extracts ``pc["id"]``
-        from each frame in the supplied ``dataset`` (D-10).  If
-        ``config.ground_truth_path`` is explicitly set, the external file is
-        loaded using the same loader as ``config.data_format`` and its ``id``
-        fields are returned instead.
-
-        This method is intended for **real data** (where ``pc["id"]`` is the
-        canonical cell id from upstream tracking/annotation).  Synthetic data
-        flows should use ``pc["label"]`` from ``generate_labels`` instead.
+        Reads ``pc[config.ground_truth_field]`` from each frame in the
+        supplied ``dataset`` (Phase 56 D-01) when ``config.ground_truth_path
+        is None`` (D-10).  ``config.ground_truth_field`` defaults to
+        ``"label"`` — matching what ``LabelTransferStage.run()``
+        (``eval/stages/label_transfer.py:434``) actually transfers — and may
+        be overridden to ``"id"`` for datasets whose real class labels live
+        in that field instead (D-02).  If ``config.ground_truth_path`` is
+        explicitly set, the external file is loaded using the same loader as
+        ``config.data_format`` and its ``config.ground_truth_field`` fields
+        are returned instead.
 
         Parameters
         ----------
         dataset : dict[int, zRegPointCloud]
             In-memory dataset.  Ignored when ``config.ground_truth_path`` is
-            set (the external file is loaded and its ``id`` fields are used).
+            set (the external file is loaded and its
+            ``config.ground_truth_field`` fields are used).
 
         Returns
         -------
         dict[int, torch.Tensor]
-            One 1-D id tensor per frame, keyed by integer frame index.
+            One 1-D ground-truth tensor per frame, keyed by integer frame
+            index.
         """
+        field = self.config.ground_truth_field
         if self.config.ground_truth_path is not None:
             if self.config.data_format == "tracklets":
                 gt_ds, _ = load_data_from_tracklets(self.config.ground_truth_path, device=self.config.device)
             else:
                 gt_ds = load_shah_from_csv(self.config.ground_truth_path, device=self.config.device)
-            return {i: pc["id"] for i, pc in gt_ds.items()}
-        return {i: pc["id"] for i, pc in dataset.items()}
+            return {i: pc[field] for i, pc in gt_ds.items()}
+        return {i: pc[field] for i, pc in dataset.items()}
 
     def get_synthetic_ground_truth(self) -> dict[int, torch.Tensor]:
-        """Return per-frame cell-identity labels for synthetic mode (D-04, D-05, D-06).
+        """Return per-frame ground-truth labels for synthetic mode (D-04, D-05, D-06).
 
-        For rigid, affine, and noise transforms the correspondence between source
-        and target is identity: ``source[k][i]`` maps to ``target[k][i]``.
-        This method encodes that identity correspondence as per-frame label
-        tensors derived from ``self._source_dataset`` (set by
-        :meth:`generate_target`).
+        Reads ``pc[config.ground_truth_field]`` from ``self._source_dataset``
+        (set by :meth:`generate_target`) — defaulting to ``"label"``,
+        overridable to ``"id"`` (Phase 56 D-01/D-02).
+
+        For rigid, affine, and noise transforms the correspondence between
+        source and target is identity: ``source[k][i]`` maps to
+        ``target[k][i]``, so the source-frame field values are returned
+        unchanged.  When ``n_outliers``/``dropout_fraction``/``n_new_points``
+        were applied (tracked via ``self._correspondence_idx``, populated by
+        :meth:`augment` for outliers and by
+        :meth:`drop_points`/:meth:`sample_new_points`), the returned tensor
+        is instead **gathered** by that tracked correspondence so its length
+        matches the target's actual (post-dropout/new-points) per-frame
+        point count — points with no original-source correspondence
+        (injected outliers, points added by ``sample_new_points``) receive a
+        ``-1`` sentinel label,
+        which ``zreg.evaluation.label_transfer.compute_f1`` already excludes
+        from scoring (Phase 56 D-03/D-04, GT-02).
 
         This method is for **synthetic mode only**.  For real-data paired mode,
         use :meth:`get_ground_truth` (which accepts an explicit dataset argument).
@@ -686,14 +994,18 @@ class DataFactory:
             Per-frame 1-D tensors of dtype ``torch.long``, keyed by integer
             frame index.  Values are either:
 
-            - ``pc["id"].to(torch.long)`` when ``pc["id"]`` is not ``None``
-              (D-04); or
+            - ``pc[config.ground_truth_field].to(torch.long)`` when that
+              field is not ``None`` (D-04); or
             - ``torch.arange(n_points, dtype=torch.long)`` as an ordinal
-              fallback when ``pc["id"] is None`` (D-05).
+              fallback when the field is ``None`` (D-05);
 
-            Dtype is always ``torch.long`` regardless of the source
-            ``pc["id"]`` dtype (D-06), consistent with ``compute_f1``
-            expectations.
+            gathered by ``self._correspondence_idx[k]`` (with ``-1``
+            sentinel for uncorrelated new points) when a correspondence map
+            is present for frame ``k``, otherwise returned unchanged
+            (identity — no dropout/new-points were applied).
+
+            Dtype is always ``torch.long`` regardless of the source field's
+            dtype (D-06), consistent with ``compute_f1`` expectations.
 
         Raises
         ------
@@ -705,22 +1017,45 @@ class DataFactory:
         Notes
         -----
         - D-04: identity correspondence for rigid/affine/noise transforms.
-        - D-05: ordinal fallback when source frames have no cell-id labels.
+        - D-05: ordinal fallback when source frames have no ground-truth
+          field values.
         - D-06: ``torch.long`` dtype guarantee — consistent with
           ``compute_f1`` label expectations.
         - Guard checks ``self._synthetic_target is None`` (D-03 contract).
+        - Phase 56 D-03/D-04: correspondence-gather fix for GT-02 — see
+          class docstring for ``self._correspondence_idx``.
         """
         if self._synthetic_target is None:
             raise RuntimeError(
                 "DataFactory.get_synthetic_ground_truth: generate_target() must be "
                 "called first to populate _synthetic_target and _source_dataset."
             )
+        field = self.config.ground_truth_field
         result: dict[int, torch.Tensor] = {}
         for k, pc in self._source_dataset.items():
-            if pc["id"] is not None:
-                result[k] = pc["id"].to(torch.long)  # D-04 + D-06: id cast to torch.long
+            # Phase 62 D-01 (U4-3): every buffer follows the source frame's
+            # pos device, so a cuda (or meta) run never mixes devices here.
+            dev = pc["pos"].device
+            field_values = pc[field]
+            if field_values is not None:
+                base = field_values.to(device=dev, dtype=torch.long)  # D-04 + D-06: cast to torch.long
             else:
-                result[k] = torch.arange(pc["pos"].shape[0], dtype=torch.long)  # D-05 + D-06: ordinal fallback
+                base = torch.arange(pc["pos"].shape[0], dtype=torch.long, device=dev)  # D-05 + D-06: ordinal fallback
+
+            if self._correspondence_idx is not None and k in self._correspondence_idx:
+                # Phase 56 D-03/D-04 (GT-02): gather by tracked correspondence
+                # instead of returning positionally — produces a tensor
+                # already sized to match the target's actual point count.
+                # Phase 62 D-01: torch.where instead of a boolean-mask
+                # assignment (data-dependent shapes have no meta support).
+                corr = self._correspondence_idx[k].to(device=dev, dtype=torch.long)
+                sentinel = torch.full_like(corr, -1)
+                if base.numel() == 0:
+                    result[k] = sentinel
+                else:
+                    result[k] = torch.where(corr >= 0, base[corr.clamp(min=0)], sentinel)
+            else:
+                result[k] = base
         return result
 
     def scale(
@@ -946,9 +1281,21 @@ class DataFactory:
         -------
         dict[int, zRegPointCloud]
             New trajectory with fewer points per frame.
+
+        Notes
+        -----
+        Phase 56 D-03: also updates ``self._correspondence_idx`` — a
+        per-frame map from retained-position to original-source-position,
+        composed with any prior correspondence from an earlier
+        ``drop_points``/``sample_new_points`` call in the same
+        ``augment()``/``generate_target()`` chain. Outliers injected earlier
+        in the same chain by :meth:`augment` (the ``"n_outliers"`` key) are
+        already in that prior map as ``-1`` entries (Phase 62 D-02), so a
+        retained outlier keeps its ``-1`` sentinel here.
         """
         torch.manual_seed(seed)
         result: dict[int, zRegPointCloud] = {}
+        new_corr: dict[int, torch.Tensor] = {}
         for i, pc in dataset.items():
             n = pc["pos"].shape[0]
             keep = max(1, round(n * (1.0 - fraction)))
@@ -959,6 +1306,12 @@ class DataFactory:
                 id=pc["id"][idx] if pc["id"] is not None else None,
             )
             result[i]["fps-idx"] = pc["fps-idx"][idx] if pc["fps-idx"] is not None else None
+            # Phase 56 D-03: compose with prior correspondence, or start fresh
+            if self._correspondence_idx is not None and i in self._correspondence_idx:
+                new_corr[i] = self._correspondence_idx[i][idx]
+            else:
+                new_corr[i] = idx.clone()
+        self._correspondence_idx = new_corr
         return result
 
     def sample_new_points(
@@ -975,7 +1328,7 @@ class DataFactory:
         the loop would make all frames receive identical points.
 
         Sentinel fill convention (mirrors ``add_outliers`` in
-        ``src/zreg/generators/corruption.py``):
+        ``src/zreg/data_generation/corruption.py``):
         - 1-D fields (``id``, 1-D ``color``, ``fps-idx``): sentinel -1
         - 2-D fields (RGB ``color``): zero rows
 
@@ -995,6 +1348,13 @@ class DataFactory:
         -------
         dict[int, zRegPointCloud]
             New trajectory with ``n_extra`` additional points per frame.
+
+        Notes
+        -----
+        Phase 56 D-03: also updates ``self._correspondence_idx`` — appends
+        ``-1`` sentinel entries (no original-source correspondence) for the
+        newly-sampled points, composed with any prior correspondence from an
+        earlier ``drop_points``/``sample_new_points`` call in the same chain.
         """
         torch.manual_seed(seed)
         result: dict[int, zRegPointCloud] = {}
@@ -1020,4 +1380,45 @@ class DataFactory:
                 id=_extend(pc["id"]),
             )
             result[i]["fps-idx"] = _extend(pc["fps-idx"])
+        # Phase 56 D-03: compose with prior correspondence, or start fresh
+        # from an identity map over the PRE-extension point count.
+        self._extend_correspondence_with_sentinels(dataset, n_extra)
         return result
+
+    def _extend_correspondence_with_sentinels(
+        self,
+        dataset_before: dict[int, zRegPointCloud],
+        n_extra: int,
+    ) -> None:
+        """Append ``n_extra`` ``-1`` sentinels per frame to ``self._correspondence_idx``.
+
+        Shared by :meth:`augment` (after ``add_outliers``, Phase 62 D-02 /
+        U4-5) and :meth:`sample_new_points`: both append points with no
+        source correspondence at the END of every frame.
+
+        For every frame ``i`` of ``dataset_before`` (the dataset BEFORE the
+        points were appended), the prior map ``self._correspondence_idx[i]``
+        is used when present, otherwise an identity map
+        ``arange(n_before)`` on that frame's ``pos`` device; ``n_extra``
+        ``-1`` entries are appended on the same device.  The map is replaced
+        by one covering exactly the frames of ``dataset_before`` (same
+        semantics as :meth:`drop_points`).  No RNG is consumed.
+
+        Parameters
+        ----------
+        dataset_before : dict[int, zRegPointCloud]
+            Frames before the extension (only ``pos`` shape/device are read).
+        n_extra : int
+            Number of appended points per frame.
+        """
+        new_corr: dict[int, torch.Tensor] = {}
+        for i, pc in dataset_before.items():
+            pos = pc["pos"]
+            if self._correspondence_idx is not None and i in self._correspondence_idx:
+                base = self._correspondence_idx[i]
+            else:
+                base = torch.arange(pos.shape[0], dtype=torch.long, device=pos.device)
+            new_corr[i] = torch.cat(
+                [base, torch.full((n_extra,), -1, dtype=torch.long, device=base.device)]
+            )
+        self._correspondence_idx = new_corr

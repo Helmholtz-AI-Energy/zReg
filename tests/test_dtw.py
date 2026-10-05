@@ -8,11 +8,11 @@ import torch
 from pathlib import Path
 import tempfile
 
-from zreg import dtw
-from zreg.dtw import DynamicTimeWarping, DTWResult
-from zreg.dataset import zRegPointCloud
-from zreg.distances import euclidean_distance
-from zreg.pairwise_distance_matrix import create_pairwise_distance_matrix
+from zreg.algorithms import dtw
+from zreg.algorithms.dtw import DynamicTimeWarping, DTWResult
+from zreg.core.dataset import zRegPointCloud
+from zreg.distance_metrics import euclidean_distance
+from zreg.algorithms.pairwise_distance_matrix import create_pairwise_distance_matrix
 
 
 @pytest.fixture
@@ -389,6 +389,23 @@ class TestDTWCompute:
         for i, j in result.warping_path:
             assert abs(i - j) <= 1
 
+    def test_compute_cpd_metric_without_cpd_type_raises(self, small_trajectory_pair):
+        """distance_metric='cpd' with cpd_type=None raises ValueError instead of producing all-inf cost matrix.
+
+        This is the root cause of the multirank-test DTW backtrace failure: when
+        best_params.json is empty, default_params supplies cpd_penalty=null combined
+        with dtw_dist_fn=cpd, making every cost matrix cell inf and crashing backtrace.
+        """
+        x, y = small_trajectory_pair
+        dtw_obj = DynamicTimeWarping(
+            x, y,
+            distance_metric="cpd",
+            cpd_type=None,
+            downsample_method=None,
+        )
+        with pytest.raises(ValueError, match="cpd_type"):
+            dtw_obj.compute()
+
 
 class TestDTWAccessors:
     """Tests for DTW accessor methods."""
@@ -624,15 +641,15 @@ class TestExports:
 
     def test_import_dtwresult_from_package(self):
         """Test that DTWResult is importable from dtw package."""
-        from zreg.dtw import DTWResult
-        from zreg.dtw.result import DTWResult as DTWResultDirect
+        from zreg.algorithms.dtw import DTWResult
+        from zreg.algorithms.dtw.result import DTWResult as DTWResultDirect
 
         assert DTWResult is DTWResultDirect
 
     def test_import_compose_constraints(self):
         """Test that compose_constraints is importable from dtw package."""
-        from zreg.dtw import compose_constraints
-        from zreg.dtw.constraints import compose_constraints as direct
+        from zreg.algorithms.dtw import compose_constraints
+        from zreg.algorithms.dtw.constraints import compose_constraints as direct
 
         assert compose_constraints is direct
 
@@ -669,8 +686,9 @@ class TestDTWMetricsAndBoundaries:
         result = dtw_obj.compute()
 
         assert isinstance(result, DTWResult)
-        # CPD quality metric (reg.q) can be negative, so check finite instead of >= 0
+        # CPD DTW cost is the converged sigma2 (D-02), hence non-negative
         assert math.isfinite(result.distance)
+        assert result.distance >= 0
         assert len(result.warping_path) >= 3
         assert result.warping_path[0] == (0, 0)
         assert result.warping_path[-1] == (2, 2)
@@ -799,7 +817,7 @@ class TestComposeConstraints:
 
     def test_no_constraints_allows_all(self):
         """Test that no constraints means all cells allowed."""
-        from zreg.dtw.constraints import compose_constraints
+        from zreg.algorithms.dtw.constraints import compose_constraints
 
         composed = compose_constraints()
         # All cells should be allowed
@@ -809,7 +827,7 @@ class TestComposeConstraints:
 
     def test_single_constraint_passthrough(self):
         """Test that single constraint is passed through correctly."""
-        from zreg.dtw.constraints import compose_constraints
+        from zreg.algorithms.dtw.constraints import compose_constraints
 
         def sakoe_chiba(i, j, n, m, window=2):
             return abs(i - j) <= window
@@ -827,7 +845,7 @@ class TestComposeConstraints:
 
     def test_multiple_constraints_intersection(self):
         """Test that multiple constraints are ANDed together."""
-        from zreg.dtw.constraints import compose_constraints
+        from zreg.algorithms.dtw.constraints import compose_constraints
 
         # Constraint 1: i >= 2
         constraint1 = lambda i, j, n, m: i >= 2
@@ -851,7 +869,7 @@ class TestComposeConstraints:
 
     def test_constraint_receives_matrix_dimensions(self):
         """Test that constraints receive correct n and m values."""
-        from zreg.dtw.constraints import compose_constraints
+        from zreg.algorithms.dtw.constraints import compose_constraints
 
         received_args = []
 
@@ -910,6 +928,45 @@ class TestAlignTrajectoryDuplicateIndex:
         assert set(aligned.keys()) == {0, 1}
         # y_idx=0 gets x[0] (first match), not x[1]
         assert aligned[0] is x[0]
+
+
+class TestAlignTrajectoryKeyLayouts:
+    """get_aligned_trajectory maps warping-path positions to dict keys (61 WR-02)."""
+
+    def _dtw(self, x, y, path):
+        dtw_obj = DynamicTimeWarping(x, y, distance_metric="euclidean")
+        cost = torch.ones(len(x), len(y))
+        acc = torch.cumsum(torch.cumsum(cost, dim=0), dim=1)
+        dtw_obj.result = DTWResult(
+            cost_matrix=cost, accumulated_cost=acc, warping_path=path,
+            distance=float(acc[-1, -1]), rotations=None,
+        )
+        return dtw_obj
+
+    @pytest.mark.parametrize("x_keys, y_keys", [((0, 2, 4), (1, 3, 5)), ((5, 6, 7), (10, 11, 12))],
+                             ids=["gapped", "offset"])
+    def test_positions_resolve_to_keys(self, x_keys, y_keys):
+        x = {k: zRegPointCloud(pos=torch.randn(5, 3)) for k in x_keys}
+        y = {k: zRegPointCloud(pos=torch.randn(5, 3)) for k in y_keys}
+        dtw_obj = self._dtw(x, y, [(0, 0), (1, 2), (2, 2)])
+
+        by_x = dtw_obj.get_aligned_trajectory(y, reference="x")
+        assert list(by_x) == list(x_keys)
+        assert by_x[x_keys[0]] is y[y_keys[0]]
+        assert by_x[x_keys[1]] is y[y_keys[2]]
+        assert by_x[x_keys[2]] is y[y_keys[2]]
+
+        by_y = dtw_obj.get_aligned_trajectory(x, reference="y")
+        assert list(by_y) == [y_keys[0], y_keys[2]]
+        assert by_y[y_keys[0]] is x[x_keys[0]]
+        assert by_y[y_keys[2]] is x[x_keys[1]]
+
+    def test_too_short_trajectory_raises(self):
+        x = {k: zRegPointCloud(pos=torch.randn(5, 3)) for k in range(3)}
+        y = {k: zRegPointCloud(pos=torch.randn(5, 3)) for k in range(3)}
+        dtw_obj = self._dtw(x, y, [(0, 0), (1, 1), (2, 2)])
+        with pytest.raises(ValueError, match="warping path references position 2"):
+            dtw_obj.get_aligned_trajectory({0: y[0], 1: y[1]}, reference="x")
 
 
 class TestPlotAlignmentNoMatplotlib:
@@ -1010,7 +1067,7 @@ class TestAnnotationWideningRED:
 
     def test_dtw_accepts_callable_without_type_error(self):
         """DynamicTimeWarping must accept a callable distance_metric without raising."""
-        from zreg.distances import euclidean_distance
+        from zreg.distance_metrics import euclidean_distance
         x = {i: zRegPointCloud(pos=torch.randn(5, 3), id=torch.arange(5)) for i in range(2)}
         y = {i: zRegPointCloud(pos=torch.randn(5, 3), id=torch.arange(5)) for i in range(2)}
         d = DynamicTimeWarping(x, y, distance_metric=euclidean_distance, downsample_method=None)
@@ -1094,7 +1151,7 @@ class TestDTWResultStoredTransforms:
 
     def test_dtw_result_accepts_stored_transforms_kwarg(self):
         """DTWResult can be constructed with an explicit stored_transforms dict."""
-        from zreg.types import StoredTransform
+        from zreg.core.types import StoredTransform
         cost = torch.zeros(2, 2)
         acc = torch.zeros(2, 2)
         st = StoredTransform(

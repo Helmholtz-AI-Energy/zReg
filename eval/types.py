@@ -51,10 +51,10 @@ from typing import Any, TypeAlias, Union
 
 from pydantic import BaseModel, ConfigDict, Field
 
-# zreg.dataset MUST precede import torch (libomp SIGABRT lesson from Phase 12;
+# zreg.core.dataset MUST precede import torch (libomp SIGABRT lesson from Phase 12;
 # enforced in tests/conftest.py:20-24 and eval/data_factory.py:19-35).
-from zreg.dataset import zRegPointCloud
-from zreg.cpd import EstepResult
+from zreg.core.dataset import zRegPointCloud
+from zreg.algorithms.cpd import EstepResult
 
 # torch AFTER zreg.* imports
 import torch
@@ -90,10 +90,10 @@ class AlignResult(BaseModel):
         ``Keys == set(target.keys())``.
     warp_path : list[tuple[int, int]]
         Optimal DTW alignment path as ``(source_idx, target_idx)`` pairs.
-        Matches ``zreg.dtw.DTWResult.warping_path`` exactly.
+        Matches the ``warping_path`` field of ``zreg.algorithms.dtw.DTWResult`` exactly.
     dtw_distance : float
         Total DTW accumulated cost at the end of the path.  Matches
-        ``zreg.dtw.DTWResult.distance``.
+        the ``distance`` field of ``zreg.algorithms.dtw.DTWResult``.
     n_changepoints : int
         Number of change-points detected by the CPD stage of the pipeline.
     params_used : dict[str, Any]
@@ -155,12 +155,18 @@ class LabelResult(BaseModel):
         Mean Chamfer distance between source and target before label transfer.
         Computed per-frame pair using the same sequential pairing as ``run()``.
         Value of 0.0 indicates identical clouds or unchecked (default).
+    flags : list[str]
+        Per-frame label-transfer problems that were handled locally instead
+        of aborting the run (e.g. ``cpd_weighted`` receiver points with zero
+        posterior mass that fell back to the nearest provider label).
+        Surfaced by ``MetricsEngine.sanity_check``.  Empty by default.
 
     Attributes
     ----------
     transferred_labels : dict[int, torch.Tensor]
     params_used : dict[str, Any]
     pre_transfer_alignment : float
+    flags : list[str]
     """
 
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
@@ -168,6 +174,7 @@ class LabelResult(BaseModel):
     transferred_labels: dict[int, torch.Tensor]
     params_used: dict[str, Any]
     pre_transfer_alignment: float = Field(default=0.0, ge=0.0)
+    flags: list[str] = Field(default_factory=list)
 
 
 class StageMetrics(BaseModel):
@@ -182,22 +189,24 @@ class StageMetrics(BaseModel):
     ----------
     chamfer_distance : float
         Chamfer distance between source and aligned target point clouds.
-        Lower is better.  Source: ``zreg.metrics.chamfer``.
+        Lower is better.  Source: ``zreg.evaluation.chamfer_hausdorff``
+        (per-frame, averaged by ``MetricsEngine``).
     hausdorff_distance : float
         95th-percentile Hausdorff distance.  Lower is better.  Source:
-        ``zreg.metrics.hausdorff``.
+        ``zreg.evaluation.chamfer_hausdorff`` (per-frame, averaged).
     path_smoothness : float
-        Variance of slope changes along the DTW warping path.  Lower is
-        better.  Source: ``zreg.metrics.path_smoothness``.
+        Variance of the 2-D cross products of consecutive DTW warping-path
+        steps (curvature of the path).  Lower is better.  Source:
+        ``zreg.evaluation.path_smoothness``.
     temporal_stability : float
         Mean Frobenius norm of consecutive transform differences.  Lower
-        is better.  Source: ``zreg.metrics.temporal_stability``.
+        is better.  Source: ``zreg.evaluation.temporal_stability``.
     f1_score : float
         Weighted F1 score of transferred labels vs ground truth, already in
-        ``[0, 1]``.  Higher is better.  Source: ``zreg.metrics.compute_f1``.
+        ``[0, 1]``.  Higher is better.  Source: ``zreg.evaluation.compute_f1``.
     knn_consistency : float
         Fraction of k-NN-consistent labels, already in ``[0, 1]``.  Higher
-        is better.  Source: ``zreg.metrics.knn_consistency``.
+        is better.  Source: ``zreg.evaluation.knn_consistency``.
     normalized : dict[str, float]
         Populated by ``MetricsEngine.normalize`` (Plan 18-02).  Default
         empty dict.  Canonical short-name key set (Pitfall 4): ``"chamfer"``,
@@ -205,6 +214,14 @@ class StageMetrics(BaseModel):
         ``"f1"``, ``"knn_consistency"``.  These keys match
         ``EvalConfig.metric_weights`` so ``compute_score`` is a clean dot
         product.
+    coverage_flags : list[str]
+        Human-readable frame-coverage problems found while computing
+        chamfer/hausdorff (no shared frame keys, non-dict inputs, partial
+        key overlap, skipped degenerate frames); reported by
+        ``MetricsEngine.sanity_check``.  Entries start with
+        ``"frame coverage:"``, or ``"metric unavailable:"`` for a metric
+        that could not be measured (e.g. ``temporal_stability`` without
+        per-frame transforms, WR-06).  Default empty list.
 
     Attributes
     ----------
@@ -215,6 +232,9 @@ class StageMetrics(BaseModel):
     f1_score : float
     knn_consistency : float
     normalized : dict[str, float]
+    coverage_flags : list[str]
+        Human-readable frame-coverage problems found while computing
+        chamfer/hausdorff; reported by ``MetricsEngine.sanity_check``.
     """
 
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
@@ -226,6 +246,7 @@ class StageMetrics(BaseModel):
     f1_score: float
     knn_consistency: float
     normalized: dict[str, float] = Field(default_factory=dict)
+    coverage_flags: list[str] = Field(default_factory=list)
 
 
 class Trial(BaseModel):
@@ -249,6 +270,11 @@ class Trial(BaseModel):
         trial.
     tier : str
         Search-tier label: one of ``"sanity"``, ``"dev"``, ``"full"``.
+    flags : list[str], optional
+        Label-transfer problems handled locally during the trial, copied
+        from ``LabelResult.flags`` (e.g. cpd_weighted nearest-neighbour
+        fallbacks). Multiseed trials prefix each with ``'seed {s}: '``
+        (59-REVIEW IN-09b). Default: empty list.
 
     Attributes
     ----------
@@ -256,6 +282,8 @@ class Trial(BaseModel):
     score : float
     metrics : StageMetrics
     tier : str
+    flags : list[str]
+        Label-transfer flags of this trial (see Parameters).
     """
 
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
@@ -264,6 +292,7 @@ class Trial(BaseModel):
     score: float
     metrics: StageMetrics
     tier: str
+    flags: list[str] = Field(default_factory=list)
 
 
 class SearchResult(BaseModel):
@@ -285,6 +314,9 @@ class SearchResult(BaseModel):
         All trials in the search, in execution order.
     tier : str
         Search-tier label: one of ``"sanity"``, ``"dev"``, ``"full"``.
+    failed_trials : list[dict[str, Any]], optional
+        Records of trials that raised or produced a non-finite score
+        (Phase 59 NUM-05).  Default empty list.
 
     Attributes
     ----------
@@ -292,6 +324,11 @@ class SearchResult(BaseModel):
     best_score : float
     history : list[Trial]
     tier : str
+    failed_trials : list[dict[str, Any]]
+        Records of trials that raised or produced a non-finite score, each
+        with keys ``params``, ``tier``, ``error`` (repr of the exception or a
+        non-finite-score description), ``error_type`` and ``rank``.  On rank 0
+        of an MPI run this holds every rank's records.
     """
 
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
@@ -300,6 +337,7 @@ class SearchResult(BaseModel):
     best_score: float
     history: list[Trial]
     tier: str
+    failed_trials: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class EvalReport(BaseModel):

@@ -1,37 +1,36 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.6
-milestone_name: HoreKa Cluster Execution
-status: Phase 54 complete — UAT 9/9 passed
-stopped_at: Phase 54 complete (2026-07-23)
-last_updated: "2026-07-23T00:00:00.000Z"
-last_activity: 2026-07-23 - Phase 54 complete; BUDG-02 + BUDG-03 delivered; 1353 tests pass
+milestone: v1.8
+milestone_name: Code Review Remediation
+status: completed
+stopped_at: "Milestone v1.8 completed and archived (milestones/v1.8-ROADMAP.md, v1.8-REQUIREMENTS.md, v1.8-MILESTONE-AUDIT.md)"
+last_updated: "2026-10-05T16:54:13.587Z"
+last_activity: 2026-10-05 — Milestone v1.8 completed and archived
 progress:
-  total_phases: 4
-  completed_phases: 3
-  total_plans: 7
-  completed_plans: 8
-  percent: 75
+  total_phases: 6
+  completed_phases: 6
+  total_plans: 37
+  completed_plans: 37
+  percent: 100
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-07-15 after v1.5/v1.6 roadmap creation)
+See: .planning/PROJECT.md (updated 2026-10-05 after v1.8 milestone)
 
 **Core value:** Every existing capability works correctly, fails informatively, and is covered by tests.
-**Current focus:** v1.6 milestone complete — pending HoreKa full-allocation submission (BUDG-02 operator gate)
+**Current focus:** Planning next milestone (run /gsd:new-milestone; phase numbering continues at 65)
 
 ## Current Position
 
-Phase: 54 (complete)
-Plan: 2/2 plans complete
-Status: Phase 54 complete — UAT 9/9 passed, BUDG-02 + BUDG-03 delivered
-Tests: 1353 passed, 19 skipped, 1 xpassed (+23 new in Phase 54)
-Last activity: 2026-07-23 - Phase 54 complete; aggregate_cost.py budget gate + extract_calibration.py + test suite
+Phase: Milestone v1.8 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-10-05 — Milestone v1.8 completed and archived
 
-Progress (v1.6): [████████░░] 75%
+Progress: [██████████] 100% (v1.8: 6/6 phases, 37/37 plans)
 
 ## Shipped Milestones
 
@@ -41,10 +40,35 @@ Progress (v1.6): [████████░░] 75%
 | v1.1 Code Quality & Refactoring | 6–11.1 | 2026-05-13 |
 | v1.2 Evaluation Framework & Debt Resolution | 12–38 | 2026-06-26 |
 | v1.4 Trajectory Alignment & Optimization Enhancements | 39–43 | 2026-07-08 |
+| v1.8 Code Review Remediation | 59–64 | 2026-10-05 |
+
+v1.5 (44–50), v1.6 (51–54) and v1.7 (57–58) are complete but not formally archived.
 
 Full history: .planning/MILESTONES.md · Retrospective: .planning/RETROSPECTIVE.md
 
-## v1.5 Phases — Learned Label Transfer Methods (Phases 44–49 complete, 50 pending)
+## v1.8 Phases — Code Review Remediation (Phases 59–64, shipped 2026-10-05)
+
+| Phase | Name | Requirements | Status |
+|-------|------|---------------|--------|
+| 59 | P0 Runnability & Silent Number Corruption | RUN-01, RUN-02, NUM-01..NUM-05 | Complete |
+| 60 | CPD/DTW Numerics | CPD-01..CPD-09 | Complete |
+| 61 | Distances, Aligners & MPI | DIST-01..DIST-05 | Complete |
+| 62 | Data, Label Transfer & GPU Path | DATA-01..DATA-04, LT-01..LT-04 | Complete |
+| 63 | HPC Orchestration, Viz/Export & Docs | HPC-01..HPC-04, VIZ-01..VIZ-03, DOC-01 | Complete |
+| 64 | Tech debt cleanup | DOC-01 (residual), audit tech debt | Complete |
+
+Source: `.planning/reviews/00-INDEX.md` + `unit-01..08` (review of `feature/evaluation_framework` @ `6c1c37f`).
+
+## v1.7 Phases — Minor Adjustments (Phases 57–58, Complete)
+
+| Phase | Name | Requirements | Status |
+|-------|------|---------------|--------|
+| 57 | Ground-Truth Field Consistency | GT-01, GT-02, GT-03 | ✅ Complete (2026-08-04) |
+| 58 | Synthetic Labeled Subsample-Pair Generation | GT-04, GT-05, GT-06 | ✅ Complete (2026-08-04) |
+
+Note: v1.7 was originally planned as Phases 56–57. Phase 55 was already consumed by an ad-hoc out-of-band phase (spherical-cap/Gaussian label generators), completed 2026-07-30 — shared history on both branches. Phase 56 was independently consumed by a *different* ad-hoc phase developed concurrently on `feature/evaluation_framework` (Configurable multi-label region-based labeling, completed 2026-07-31, see `.planning/phases/56-configurable-multi-label-region-based-labeling-rework-genera/`) — discovered only when this branch merged back in on 2026-08-05. v1.7 was renumbered to Phases 57–58 to resolve the collision. v1.6 (Phases 51-54) is fully complete (UAT 9/9 passed 2026-07-23) - its completion had drifted out of STATE.md/ROADMAP.md tracking after the completing branch diverged from feature/evaluation_framework before merging back; reconciled 2026-08-05.
+
+## v1.5 Phases — Learned Label Transfer Methods (Complete)
 
 | Phase | Name | Plans | Status |
 |-------|------|-------|--------|
@@ -54,16 +78,16 @@ Full history: .planning/MILESTONES.md · Retrospective: .planning/RETROSPECTIVE.
 | 47 | eGNN and PointNet++ Model Implementation & Training Infrastructure | 5 | ✅ Completed |
 | 48 | LabelTransferStage Integration for Learned Methods | 2 | ✅ Completed |
 | 49 | Evaluation & Benchmarking of Learned Label-Transfer Methods | 3 | ✅ Completed |
-| 50 | GPU-Native Geometry Ops for Cluster Deployment | 0/TBD | Pending |
+| 50 | GPU-Native Geometry Ops for Cluster Deployment | 2/2 | ✅ Completed (2026-07-31) |
 
-## v1.6 Phases — HoreKa Cluster Execution
+## v1.6 Phases — HoreKa Cluster Execution (Complete)
 
 | Phase | Name | Requirements | Status |
 |-------|------|---------------|--------|
 | 51 | Environment & Access | ENV-01, ENV-02, ENV-03, OUT-01 | ✅ Completed |
 | 52 | Multi-Rank Parallelism & Validation | PARA-01, PARA-02, PARA-03, BUDG-01, BUDG-04 | ✅ Completed (HoreKa smoke + multirank tests passed) |
 | 53 | GPU Acceleration | GPU-01, GPU-02, GPU-03 | ✅ Completed (EvalConfig.device + cluster configs device: cuda) |
-| 54 | Budget Calibration & Full-Suite Gate | BUDG-02, BUDG-03 | Not started |
+| 54 | Budget Calibration & Full-Suite Gate | BUDG-02, BUDG-03 | ✅ Completed (UAT 9/9 passed 2026-07-23) |
 
 ## Performance Metrics (v1.5 ML track)
 
@@ -87,8 +111,43 @@ Full history: .planning/MILESTONES.md · Retrospective: .planning/RETROSPECTIVE.
 | 49 | 01 | ~20min | 2 | 2 |
 | 49 | 02 | ~15min | 2 | 3 |
 | 49 | 03 | ~20min | 2 | 2 |
+| 56 | 01 | ~15min | 2 | 1 |
+| 56 | 02 | ~17min | 2 | 11 |
+| 56 | 03 | ~20min | 3 | 5 |
+| 56 | 04 | ~25min | 2 | 2 |
+| 56 | 05 | ~15min | 2 | 4 |
+| Phase 60 P01 | 25min | 3 tasks | 4 files |
+| Phase 60 P02 | 35 min | 3 tasks | 15 files |
+| Phase 60 P03 | 35min | 3 tasks | 11 files |
+| Phase 60 P04 | 20min | 2 tasks | 3 files |
+| Phase 60 P05 | 12min | 2 tasks | 1 files |
+| Phase 62 P02 | 13 min | 3 tasks | 5 files |
+| Phase 62 P03 | 45 min | 3 tasks | 6 files |
+| Phase 62 P04 | 6min | 2 tasks | 2 files |
+| Phase 62 P05 | 19 min | 2 tasks | 4 files |
+| Phase 62 P06 | 40 min | 2 tasks | 4 files |
+| Phase 64 P04 | 25min | 3 tasks | 37 files |
+| Phase 64 P05 | 10min | 3 tasks | 4 files |
 
 ## Accumulated Context
+
+### Roadmap Evolution
+
+- Phase 56 added: Configurable multi-label region-based labeling — rework generate_labels() to support arbitrary n_labels, voronoi/gaussian-blob/gaussian-cone region shapes, deterministic and probabilistic assignment modes, and config-driven specification via EvalConfig
+- Phase 56 completed (5/5 plans, verified) and merged into feature/evaluation_framework on 2026-07-31, alongside this branch's own concurrent Phase 50/51 progress
+- v1.7 Minor Adjustments (Phases 57-58, originally planned as 56-57 on a separate branch before this merge — renumbered to resolve the Phase 56 collision with the entry above) added and completed: Phase 57 Ground-Truth Field Consistency (GT-01/02/03) and Phase 58 Synthetic Labeled Subsample-Pair Generation (GT-04/05/06), merged into feature/evaluation_framework on 2026-08-05
+- v1.8 Code Review Remediation (Phases 59–63) roadmap created 2026-10-02 from the 8-unit external review; 37 requirements, user-approved 5-phase structure
+- Phase 64 added (tech-debt cleanup: doctests, stale refs, validation bookkeeping) after the first v1.8 audit; completed 2026-10-05 (5/5 plans), v1.8 now spans Phases 59–64 (37 plans)
+
+### v1.8 Design Decisions
+
+- **Phase 59 first**: P0 runnability and silent number corruption; NUM-05 changes failure semantics (degenerate → non-finite/raise, failed trial ≠ 0.0) which all later regression tests build on
+- **60/61/62 depend only on 59** and may run in parallel; coordination points: NUM-01 (Phase 59) and DIST-04 (Phase 61) both edit `icp.py`/`swd_aligner.py`; DIST-03 cpd-branch tests should assert the `q` corrected by CPD-02 (Phase 60)
+- **63 depends on 59** (RUN-01 makes the HoreKa configs loadable)
+- **Cross-cutting test rule**: every fix ships with a regression test that fails on `6c1c37f`, passes after, and does not mock the unit under test (review pattern 3)
+- CUDA-only regression tests (DATA-01, DIST-02 CUDA leg) skip without a GPU and must be exercised once on a CUDA host
+- Phase 64 Plan 05: audit status flipped to `passed` / Nyquist `overall: compliant` only via the gate script (`nyq_gate_64.py` → COMPLIANT: 62/63 `nyquist_compliant: true`, `PENDING_ROWS=0`) agreeing with the orchestrator's `VALIDATE_62_63: compliant`; 59-61 unflipped per-task rows accepted as cosmetic
+- Phase 64 Plan 05: STATE progress frontmatter scoped to the v1.8 milestone (6/6 phases, 37/37 plans) to match the ROADMAP milestone row; the all-phase disk count (75 plans / 77 summaries) is skewed by summary-only legacy phases 51 and 55
 
 ### v1.6 Design Decisions
 
@@ -104,11 +163,18 @@ Full history: .planning/MILESTONES.md · Retrospective: .planning/RETROSPECTIVE.
 - Phase 47: joint-cloud logits[n_source:] slicing contract single-sourced in test_zreg_models_joint_cloud.py; D-03 (Open3D ops benchmark) resolved sub-50ms
 - Phase 48: VALID_METHODS now ("knn_voting", "cpd_weighted", "pointnet2", "egnn"); checkpoint loaded once per run() call
 - Phase 49: cpd_weighted proven to work on raw non-CPD-aligned input (Assumption A1); leakage guard requires explicit held_out_seeds arg (Assumption A2)
+- Phase 56 Plan 01: `weight` resolved as a relative log-space multiplier (`+log(weight)` before `logsumexp`), not a normalized/softmax prior; voronoi deterministic score is unscaled `-dist_sq` (argmax-preserving, no division)
+- Phase 56 Plan 02: `generate_labels()` rewritten as config-driven orchestrator (`n_labels`/`label_specs` paths, `mode` switch); D-07 fixed by resolving all region/component centers once before the per-frame loop; `assign_cap_labels`/`assign_gaussian_labels` deleted (D-06, dead-clean, no shims); the `n_classes`→`n_labels` rename broke 8 additional call sites beyond `56-CONTEXT.md`'s documented 2 (eval/data_factory.py, eval/runners/optimizer.py, and 6 test files) — fixed as a Rule-1 deviation, which makes Plan 56-05's Task 1 (5 of those same files) a no-op when it runs later
+- Phase 56 Plan 03: `EvalConfig.label_generation` (`LabelGenerationConfig` model) added, defaulting to `None`; `DataFactory.generate_training_triple`/`generate_training_set` renamed `n_classes`→`n_labels` with a sentinel `int | None = None` three-way precedence (explicit caller arg > `self.config.label_generation` > hardcoded `n_labels=6` fallback); `optimizer.py`'s sanity tier consults `self.config.label_generation` with a hardcoded `n_labels=4` fallback; `benchmark_runner.py`/`train_label_transfer.py`'s own public `n_classes`-named surfaces left unchanged (out of D-04 scope), only their internal forwarding calls updated; `configs/label_generation_example.yaml` added. Full suite: 1335 passed/22 skipped/1 xpassed/17 failed — all 17 failures are pre-existing and out of this plan's scope (14 are `n_classes=` kwarg TypeErrors in test files deferred to Plan 56-05's Task 2; 2 are the already-logged `test_icp_registration.py` full-suite-order flake)
+- Phase 56 Plan 04: added `TestLabelRegionShapes`/`TestLabelAssignmentModes`/`TestLabelGenerationD07Regression` (15 tests) to `tests/test_generators.py` and a new `tests/test_label_generation_config.py` (10 tests) mirroring `test_alignment_preprocessing_config.py`'s style; the D-07 regression tests prove `torch.equal` labels across frames with an identical point position, for both the `n_labels` and `label_specs` paths; the end-to-end `EvalConfig.label_generation`-vs-explicit-`n_labels` precedence test uses `seed=2` (not the plan's illustrative `seed=0`) because `seed=0` leaves a Voronoi label with zero points for this ball-shape/point-count combination, which would make the "exactly N unique values" assertion fail on a correct implementation. Full suite: 1359 passed/22 skipped/1 xpassed/17 failed — same 17 pre-existing failures as Plan 56-03's baseline, unchanged (24 new tests added, zero new failures)
+- Phase 56 Plan 05 (final plan, Phase 56 complete): closed the `n_classes`->`n_labels` rename cascade's last real call sites — `tests/test_benchmark_runner.py`'s `generate_training_set`, plus `tests/test_data_factory_training_triples.py`/`tests/test_zreg_models_pointnet2.py`/`tests/test_train_label_transfer.py`'s `generate_training_triple`/`generate_training_set` calls (5 sites, 4 files); Task 1's 5 target files (`test_optimizer.py`, `test_viz.py`, `test_trajectory_export.py`, `test_label_transfer_stage.py`, `test_eval_runner.py`) needed no edits, confirmed already fixed by Plan 56-02's Rule-1 deviation. Full suite: 1374 passed/22 skipped/1 xpassed/2 failed — the 2 failures are the pre-existing `test_icp_registration.py` full-suite-order flake (unrelated, already logged); all 14 `n_classes=` `TypeError`s are resolved.
 
 ### Requirements
 
-See: `.planning/REQUIREMENTS.md`
+v1.8 requirements (RUN/NUM/CPD/DIST/DATA/LT/HPC/VIZ/DOC, 37/37 satisfied) archived to `.planning/milestones/v1.8-REQUIREMENTS.md`; `.planning/REQUIREMENTS.md` was removed at milestone close and is recreated by /gsd:new-milestone. Earlier (unarchived) requirement groups:
 
+- GT-01/02/03: ground-truth field consistency — `pc["label"]` not `pc["id"]`, correspondence-preserving y_true/y_pred pairing, config audit (Phase 57)
+- GT-04/05/06: synthetic labeled subsample-pair generation — YAML-configurable, DataFactory method, EvaluationRunner/HyperparamOptimizer support (Phase 58)
 - ENV-01/02/03: environment setup, data transfer, SLURM job script (Phase 51)
 - PARA-01/02/03: propulate multi-rank HPO, run_all.py rank-awareness, separate cluster configs (Phase 52)
 - GPU-01/02/03: EvalConfig device field, DataFactory device loading, verified GPU execution (Phase 53)
@@ -117,11 +183,13 @@ See: `.planning/REQUIREMENTS.md`
 
 ### Pending Todos
 
-Phase 54 planning not yet started — requires real HoreKa timing data from Phase 52/53 runs. Phase 50 (GPU-native geometry ops) still pending.
+- (v1.8, from Phase 59 planning) `configs/experiments/stage2_label_transfer/cpd_weighted/real.yaml` lacks `k_neighbours`, `dist_metric`, `smoothing` required by label transfer → `run_eval.py --mode eval` fails with "Missing required param". → Pulled into Phase 59 plan 59-08 after cycle-3 Codex review (resolved in plan).
+
+None open. v1.5, v1.6, and v1.7 are all complete; none are formally closed via /gsd:complete-milestone yet (optional housekeeping, not blocking v1.8).
 
 ### Blockers/Concerns
 
-None — test_search_strategies mock fixed (FakeIndividual k=int→str) to align with Phase 52 categorical string encoding.
+- Baseline/HPO numbers produced with the defective CPD/ICP/SWD code are suspect; re-runs are tracked as a v1.8 Future Requirement, not in scope.
 
 ### Quick Tasks Completed
 
@@ -133,6 +201,7 @@ None — test_search_strategies mock fixed (FakeIndividual k=int→str) to align
 | 20260718-02 | Create docs/tutorials/ with eval framework + revised notebook tutorials | 2026-07-18 | beec1d8 | [20260718-02-tutorials-directory-restructure](./quick/20260718-02-tutorials-directory-restructure/) |
 | 20260718-03 | Remove notebooks/ directory (content in docs/tutorials/) | 2026-07-18 | f4e8f30 | [20260718-03-remove-notebooks-dir](./quick/20260718-03-remove-notebooks-dir/) |
 | 20260722 | Add --clear-checkpoints to run_all.py; split window_size=20 into separate HorEKA job | 2026-07-22 | cff2a81 | [20260722-baseline-checkpoint-and-job-split](./quick/20260722-baseline-checkpoint-and-job-split/) |
+| 260728-q01 | Add EGNN and POINTNET2 to LabelTransferMethod with model dispatch | 2026-07-28 | 0fea346 | [260728-q01-model-dispatch-label-transfer](./quick/260728-q01-model-dispatch-label-transfer/) |
 
 ## Deferred Items (from v1.4 close, still open)
 
@@ -140,9 +209,35 @@ None — test_search_strategies mock fixed (FakeIndividual k=int→str) to align
 |----------|------|--------|
 | verification | Phase 26 SC-4 — live `mpirun -n 2` Propulate integration | Resolved on HoreKa — smoke + multirank tests passed in Phase 52 |
 | code-review | Open CR/WR items (matplotlib Agg backend leak; `subprocess.run` timeout in `trajectory.py`; `eval/` excluded from `--cov`) | Non-blocking; carried forward |
+| test-flakiness | `tests/test_icp_registration.py::TestICPRegistration::test_icp_translation_recovery`/`test_icp_rotation_recovery` fail only in full-suite runs, pass in isolation (found during Phase 56 Plan 02) | **Resolved 2026-08-05**: seeded RNG (`torch.manual_seed(42)`) + reduced `test_icp_rotation_recovery`'s target angle from 45° to 10° (45° was outside ICP's convergence basin for unstructured random clouds) + `max_iterations=100`. Verified: 1426 passed, 0 failed in full-suite order. |
+
+## Deferred Items
+
+Items acknowledged and deferred at v1.8 milestone close on 2026-10-05 (`audit-open`: 14 items; none belong to v1.8 work — Phases 61–63 UAT files are already `resolved`):
+
+| Category | Item | Status |
+|----------|------|--------|
+| quick_task | 20260717-02-revise-tutorial-cross-platform | missing (no status marker; completed per Quick Tasks table) |
+| quick_task | 20260718-02-tutorials-directory-restructure | missing (no status marker; completed per Quick Tasks table) |
+| quick_task | 20260718-03-remove-notebooks-dir | missing (no status marker; completed per Quick Tasks table) |
+| quick_task | 20260718-tutorial-to-notebook | missing (no status marker; completed per Quick Tasks table) |
+| quick_task | 260728-q01-model-dispatch-label-transfer | missing (no status marker; completed per Quick Tasks table) |
+| uat_gap | Phase 18 (18-HUMAN-UAT.md) | passed |
+| uat_gap | Phase 26 (26-HUMAN-UAT.md) | partial, 0 pending |
+| uat_gap | Phase 28 (28-HUMAN-UAT.md) | passed |
+| uat_gap | Phase 51 (51-HUMAN-UAT.md) | partial, 1 pending |
+| uat_gap | Phase 61 (61-HUMAN-UAT.md) | resolved |
+| uat_gap | Phase 62 (62-HUMAN-UAT.md) | resolved |
+| uat_gap | Phase 63 (63-HUMAN-UAT.md) | resolved |
+| verification | Phase 26 (26-VERIFICATION.md) | human_needed (live mpirun later exercised on HoreKa, Phase 52) |
+| verification | Phase 51 (51-VERIFICATION.md) | human_needed |
 
 ## Session Continuity
 
-Last session: 2026-07-22T22:14:42.823Z
-Stopped at: context exhaustion at 76% (2026-07-22)
-Next action: `/gsd:plan-phase 54` — Budget Calibration & Full-Suite Gate (BUDG-02, BUDG-03); requires real HoreKa timing data from Phase 52/53 full run
+Last session: 2026-10-05T16:54:13.587Z
+Stopped at: Milestone v1.8 completed and archived
+Next action: /gsd:new-milestone
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone

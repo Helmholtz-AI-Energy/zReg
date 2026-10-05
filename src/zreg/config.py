@@ -6,9 +6,24 @@ users must call configure_pytorch() explicitly if they want these defaults.
 
 Examples
 --------
+>>> import torch
 >>> from zreg.config import configure_pytorch
+>>> previous = torch.get_float32_matmul_precision()
 >>> configure_pytorch()  # Apply recommended settings
 >>> configure_pytorch(matmul_precision="highest")  # Custom precision
+>>> torch.get_float32_matmul_precision()
+'highest'
+>>> torch.set_float32_matmul_precision(previous)  # restore
+
+Setting a global default device is process-wide. Restoring it with
+``torch.set_default_device(previous)`` leaves a ``DeviceContext`` active, and
+``torch.set_default_device(None)`` breaks ``torch.get_default_device()`` on
+torch 2.9, so prefer a scoped ``torch.device`` block where possible:
+
+>>> configure_pytorch(default_device="cuda")  # doctest: +SKIP
+>>> with torch.device("cpu"):  # scoped, no global state changes
+...     torch.zeros(1).device
+device(type='cpu')
 """
 
 import logging
@@ -43,16 +58,31 @@ def configure_pytorch(
 
     Examples
     --------
+    >>> import torch
     >>> from zreg.config import configure_pytorch
+    >>> previous = torch.get_float32_matmul_precision()
     >>> configure_pytorch()  # Use recommended defaults
     >>> configure_pytorch(matmul_precision="highest")  # Maximum precision
-    >>> configure_pytorch(default_device="cuda:0")  # GPU default (use carefully)
+    >>> torch.get_float32_matmul_precision()
+    'highest'
+    >>> torch.set_float32_matmul_precision(previous)  # restore
+
+    Setting a global default device is process-wide. Restoring it with
+    ``torch.set_default_device(previous)`` leaves a ``DeviceContext`` active,
+    and ``torch.set_default_device(None)`` breaks
+    ``torch.get_default_device()`` on torch 2.9 (use carefully). A scoped
+    ``torch.device`` block leaves no global state:
+
+    >>> configure_pytorch(default_device="cuda")  # doctest: +SKIP
+    >>> with torch.device("cpu"):
+    ...     torch.zeros(1).device
+    device(type='cpu')
 
     Notes
     -----
     Previously, zReg set these configurations at import time:
-    - torch.set_float32_matmul_precision("high") in cpd/base.py
-    - torch.set_default_device(device) in distances/sw_varients.py
+    - torch.set_float32_matmul_precision("high") in ``zreg.algorithms.cpd``
+    - torch.set_default_device(device) in ``zreg.distance_metrics``
 
     This was problematic because:
     1. Users embedding zReg had these settings silently applied

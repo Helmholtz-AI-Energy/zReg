@@ -13,8 +13,11 @@
 # continuous RGB-like noise (N,3 floats, not discrete classes) and its "id"
 # field is a unique per-point tracking identity (every point its own
 # singleton — verified directly against the real tracklets file: 6930/6930
-# unique ids in frame 0), unlike Shah's "id" which carries real small-integer
-# class labels. Running label transfer against Kobitski would score against
+# unique ids in frame 0). Corrected (Phase 56 D-05/D-06): Shah's real
+# cell-type classes live in its "label" field (populated from the CSV
+# "layer" column by load_shah_from_csv), NOT its "id" field — an earlier
+# version of this comment backwards-attributed the real classes to Shah's
+# "id". Running label transfer against Kobitski would score against
 # a meaningless "ground truth". ground_truth/shah_sample1.yaml is the one
 # that exercises both stages (Shah's label field is genuine classes).
 #
@@ -45,7 +48,8 @@ search_space:
   cpd_penalty: ["rigid"]  # fixed to rigid — null/affine excluded; see README.md Runtime section for nonrigid exclusion reason
   window_size: [5, 10, 20]
   step: [8]  # single-value list, not a real search - see README.md Runtime section: HyperparamOptimizer._objective merges its own hardcoded _default_params (step=1) with the trial's sampled params, so default_params.step alone is silently ignored unless step is also a search_space key
-  dtw_dist_fn: [euclidean, cosine]
+  # single-value list; cosine is not a DTW distance (Phase 63 D-08)
+  dtw_dist_fn: [euclidean]
 
 default_params:
   window_size: 10

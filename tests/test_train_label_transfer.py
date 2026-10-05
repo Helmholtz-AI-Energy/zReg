@@ -23,7 +23,7 @@ converges. Four properties are checked, for BOTH models
 # zreg (and scipy) must be imported before torch/torch_geometric on macOS ARM
 # to avoid duplicate libomp initialisation (SIGABRT) -- 47-RESEARCH.md
 # Pitfall 1, mirrors tests/conftest.py and train_label_transfer.py.
-from zreg.dataset import zRegPointCloud  # noqa: F401
+from zreg.core.dataset import zRegPointCloud  # noqa: F401
 
 import math
 import sys
@@ -120,7 +120,7 @@ def test_train_step_forward_backward(model_name, local_device):
     model = _make_model(model_name).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
     factory = _make_factory()
-    triple = factory.generate_training_triple(seed=0, n_classes=N_CLASSES)
+    triple = factory.generate_training_triple(seed=0, n_labels=N_CLASSES)
 
     loss = train_step(model, triple, optimizer, device, N_CLASSES)
 
@@ -143,7 +143,7 @@ def test_loss_decreases_over_a_handful_of_steps(model_name):
     model = _make_model(model_name).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-2)
     factory = _make_factory()
-    triples = factory.generate_training_set(range(16), n_classes=N_CLASSES)
+    triples = factory.generate_training_set(range(16), n_labels=N_CLASSES)
 
     losses = [train_step(model, t, optimizer, device, N_CLASSES) for t in triples]
 
@@ -202,7 +202,7 @@ def test_mps_train_step_runs_on_mps(model_name):
     model = _make_model(model_name).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
     factory = _make_factory()
-    triple = factory.generate_training_triple(seed=0, n_classes=N_CLASSES)
+    triple = factory.generate_training_triple(seed=0, n_labels=N_CLASSES)
 
     loss = train_step(model, triple, optimizer, device, N_CLASSES)
 

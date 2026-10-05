@@ -6,7 +6,9 @@ Two public functions produce figures:
   alignment branch (source, target, aligned, superposed) plus two pairs for
   the label branch (source labels, transferred labels).  Returns a list of
   written path strings.
-- ``plot_metrics`` — horizontal bar chart of 6 normalised metrics per D-09.
+- ``plot_metrics`` — horizontal bar chart of 6 normalised metrics per D-09,
+  grouped and colour-coded as alignment vs. label-transfer metrics with a
+  legend, and labelled with the "higher is better" convention.
 
 Notes
 -----
@@ -18,17 +20,21 @@ Notes
 2. ``plt.close(fig)`` is mandatory after every ``fig.savefig`` call
    (RESEARCH Matplotlib Agg Patterns).  Without it, matplotlib accumulates
    open figure handles that are never freed.
-3. ``bbox_inches="tight"`` is enforced on every ``fig.savefig`` call per
-   FRAME-08 mandatory rules.
+3. The 2-D metrics figure is saved with ``bbox_inches="tight"``.  Figures
+   with 3-D axes are saved with ``bbox_inches=None`` at their declared
+   figsize (commit 13ee2f8: a tight bbox on 3-D axes can exceed Agg's 2^16
+   pixel limit); their legends and titles are placed inside the canvas with
+   ``subplots_adjust`` and in-canvas anchors instead (VIZ-01).
 4. PDF + PNG output; both files are written per figure.
 5. mathtext only — no system TeX dependencies.
 """
 
+import math
 from pathlib import Path
 from typing import Union
 
 # zreg.* MUST precede torch on macOS-ARM (libomp SIGABRT).
-from zreg.dataset import zRegPointCloud  # noqa: F401 — ensures import order
+from zreg.core.dataset import zRegPointCloud  # noqa: F401 — ensures import order
 
 import torch  # noqa: F401 — must follow zreg.* (libomp SIGABRT rule)
 
@@ -67,29 +73,6 @@ def _deduplicate_frames(candidates: list[int]) -> list[int]:
     """
     seen: set[int] = set()
     return [k for k in candidates if not (k in seen or seen.add(k))]
-
-
-def _warp_source_map(warp_path: list[tuple[int, int]]) -> dict[int, int]:
-    """Build a ``target_idx -> source_idx`` mapping from *warp_path*.
-
-    Takes the **first** occurrence per target index (DTW paths may repeat
-    a target index).
-
-    Parameters
-    ----------
-    warp_path : list of (src_idx, tgt_idx) tuples
-        DTW warp path as stored in ``AlignResult.warp_path``.
-
-    Returns
-    -------
-    dict[int, int]
-        Mapping from target frame index to source frame index.
-    """
-    mapping: dict[int, int] = {}
-    for src, tgt in warp_path:
-        if tgt not in mapping:
-            mapping[tgt] = src
-    return mapping
 
 
 def _subsample(arr: np.ndarray, max_pts: int = 4000) -> np.ndarray:
@@ -138,20 +121,56 @@ def _ax_style(ax, title: str) -> None:
     ax.zaxis.pane.fill = False
 
 
-def _save_fig(fig, base: Path, paths: list[str]) -> None:
+def _save_fig(fig, base: Path, paths: list[str], bbox_inches: "str | None" = "tight") -> None:
     """Save *fig* as PDF + PNG at *base* (no suffix), close fig, extend *paths*.
 
     ``paths.extend`` is placed after both ``savefig`` calls so that paths are
     only recorded when the full pair succeeds (atomic pair semantics).  If the
     PNG save raises, neither path is appended.  ``plt.close`` always runs via
     the ``finally`` block to prevent figure handle leaks.
+
+    ``bbox_inches`` controls cropping behaviour.  Pass ``None`` for figures
+    with 3-D axes: ``bbox_inches="tight"`` triggers a matplotlib bug where
+    the 3-D perspective transform produces a degenerate bounding box that
+    exceeds the Agg renderer's 2^16 pixel-per-side limit.
     """
     try:
-        fig.savefig(base.with_suffix(".pdf"), bbox_inches="tight")
-        fig.savefig(base.with_suffix(".png"), dpi=150, bbox_inches="tight")
+        fig.savefig(base.with_suffix(".pdf"), bbox_inches=bbox_inches)
+        fig.savefig(base.with_suffix(".png"), dpi=150, bbox_inches=bbox_inches)
         paths.extend([str(base.with_suffix(".pdf")), str(base.with_suffix(".png"))])
     finally:
         plt.close(fig)
+
+
+# Legend anchor just inside the right edge of the figure canvas (VIZ-01).
+_LEGEND_ANCHOR = (0.995, 0.5)
+# Label legends wrap into extra columns beyond this many rows (VIZ-01).
+_LEGEND_MAX_ROWS = 10
+
+
+def _reserve_legend_space(fig, legend, pad: float = 0.04) -> None:
+    """Shrink the subplot area so *legend* fits inside the fixed canvas.
+
+    The legend is anchored at the right edge of the figure
+    (``loc="center right"``, ``bbox_to_anchor=_LEGEND_ANCHOR``); its rendered
+    width is measured and the subplots' right edge is moved left of it.  The
+    figure size is not changed: 3-D figures are saved with
+    ``bbox_inches=None`` (commit 13ee2f8), so anything outside the declared
+    canvas would be cut off.
+
+    Parameters
+    ----------
+    fig : matplotlib.figure.Figure
+        Figure that owns *legend*.
+    legend : matplotlib.legend.Legend
+        Figure-level legend placed at ``_LEGEND_ANCHOR``.
+    pad : float
+        Gap between subplots and legend, in figure-width fractions; leaves
+        room for the 3-D z-axis tick labels, which extend past the axes box.
+    """
+    renderer = fig.canvas.get_renderer()
+    width = legend.get_window_extent(renderer).width / fig.bbox.width
+    fig.subplots_adjust(right=max(0.5, 1.0 - (1.0 - _LEGEND_ANCHOR[0]) - width - pad))
 
 
 def _write_single_cloud_figure(
@@ -186,7 +205,7 @@ def _write_single_cloud_figure(
         ax.scatter(pos[:, 0], pos[:, 1], pos[:, 2],
                    c=color, s=1.5, alpha=1.0, linewidths=0)
         _ax_style(ax, f"Frame {fk}")
-    _save_fig(fig, Path(output_dir) / stem, paths)
+    _save_fig(fig, Path(output_dir) / stem, paths, bbox_inches=None)
 
 
 def _write_superposed_figure(
@@ -235,8 +254,11 @@ def _write_superposed_figure(
     # "Target" when at least one subplot actually drew target scatter points.
     has_target = tgt_pos_map is not None and any(fk in tgt_pos_map for fk in frame_indices)
     legend_labels = ["Source", "Aligned"] + (["Target"] if has_target else [])
-    fig.legend(legend_labels, loc="center right", bbox_to_anchor=(1.12, 0.5))
-    _save_fig(fig, Path(output_dir) / "alignment_superposed_trajectory", paths)
+    # VIZ-01 / 13ee2f8: tight bbox on 3-D axes exceeded Agg's 2^16 px limit;
+    # legend kept inside the fixed canvas instead.
+    legend = fig.legend(legend_labels, loc="center right", bbox_to_anchor=_LEGEND_ANCHOR)
+    _reserve_legend_space(fig, legend)
+    _save_fig(fig, Path(output_dir) / "alignment_superposed_trajectory", paths, bbox_inches=None)
 
 
 def _write_label_figure(
@@ -291,8 +313,226 @@ def _write_label_figure(
         for lab in sorted(color_for_label)
     ]
     if patches:
-        fig.legend(handles=patches, loc="center right", bbox_to_anchor=(1.15, 0.5))
-    _save_fig(fig, Path(output_dir) / stem, paths)
+        # VIZ-01 / 13ee2f8: tight bbox on 3-D axes exceeded Agg's 2^16 px limit;
+        # legend kept inside the fixed canvas instead (extra columns for many labels).
+        legend = fig.legend(
+            handles=patches, loc="center right", bbox_to_anchor=_LEGEND_ANCHOR,
+            ncol=math.ceil(len(patches) / _LEGEND_MAX_ROWS),
+            fontsize=7 if len(patches) > _LEGEND_MAX_ROWS else None,
+        )
+        _reserve_legend_space(fig, legend)
+    _save_fig(fig, Path(output_dir) / stem, paths, bbox_inches=None)
+
+
+def _label_figure_data(
+    label_result: "LabelResult",
+    label_frame_indices: "list[int]",
+    *,
+    dataset: "dict[int, zRegPointCloud]",
+    target: "dict[int, zRegPointCloud] | None",
+    align_result: "AlignResult | None",
+    label_provider: "dict[int, zRegPointCloud] | None" = None,
+    label_receiver: "dict[int, zRegPointCloud] | None" = None,
+) -> tuple:
+    """Prepare palette and per-frame position/colour maps for the label figures.
+
+    Pure data preparation for the label branch of ``plot_trajectory`` (no
+    figure I/O), so the provider/receiver semantics are unit-testable.
+
+    Parameters
+    ----------
+    label_result : LabelResult
+        Label-transfer result; ``transferred_labels`` is keyed by the
+        receiver's frames.
+    label_frame_indices : list[int]
+        Frames to render (keys of ``transferred_labels``).
+    dataset : dict[int, zRegPointCloud]
+        Original source dataset.  Supplies the original labels only when
+        ``label_provider`` is ``None`` (legacy behaviour).
+    target : dict[int, zRegPointCloud] or None
+        Target dataset (legacy position source for transferred labels).
+    align_result : AlignResult or None
+        Alignment result (legacy fallback position source).
+    label_provider : dict[int, zRegPointCloud] or None, keyword-only
+        Trajectory whose labels were transferred (Phase 59 D-01).  When
+        given, the "source" figure shows its positions and labels.
+    label_receiver : dict[int, zRegPointCloud] or None, keyword-only
+        Trajectory that received the labels.  When given, transferred labels
+        are drawn at its positions and a point-count mismatch raises.
+
+    Returns
+    -------
+    tuple
+        ``(color_for_label, source_pos_map, source_colors_map,
+        target_pos_map, target_colors_map)``.
+
+    Raises
+    ------
+    ValueError
+        If a ``label_receiver`` frame's point count differs from its
+        transferred labels (no silent truncation when a receiver is given).
+    KeyError
+        Legacy path only: a label frame is missing from target, aligned cloud
+        and dataset alike.
+    """
+    original = label_provider if label_provider is not None else dataset
+
+    # 10-colour tab10 palette — supports up to 10 distinct classes before wrapping.
+    _tab10 = [matplotlib.colormaps["tab10"](i) for i in range(10)]
+    _label_palette = [
+        f"#{int(r*255):02x}{int(g*255):02x}{int(b*255):02x}"
+        for r, g, b, _ in _tab10
+    ]
+
+    # Union of all label IDs across both figures for a consistent palette.
+    # Always collect transferred labels (keyed by receiver frames); original labels
+    # are optional and only available when the frame key exists in the original side.
+    union_labels: set[int] = set()
+    for fk in label_frame_indices:
+        if fk in original:
+            src = _get_source_labels(original[fk])
+            if src is not None:
+                union_labels.update(int(v) for v in torch.unique(src).tolist())
+        union_labels.update(
+            int(v) for v in torch.unique(label_result.transferred_labels[fk]).tolist()
+        )
+    color_for_label = {
+        lab: _label_palette[i % len(_label_palette)]
+        for i, lab in enumerate(sorted(union_labels))
+    }
+
+    # "Source" figure data: the original labels (provider when known).
+    source_pos_map: dict[int, np.ndarray] = {}
+    source_colors_map: dict[int, "list[str] | None"] = {}
+    for fk in label_frame_indices:
+        if fk not in original:
+            continue
+        src_labels = _get_source_labels(original[fk])
+        raw_pos = original[fk]["pos"].detach().cpu().numpy()
+        if src_labels is not None:
+            raw_labels = src_labels.tolist()
+            n = min(len(raw_pos), len(raw_labels))
+            raw_pos = raw_pos[:n]
+            raw_labels = raw_labels[:n]
+            if n > 4000:
+                keep = np.random.default_rng(0).choice(n, 4000, replace=False)
+                raw_pos = raw_pos[keep]
+                raw_labels = [raw_labels[i] for i in keep]
+            source_pos_map[fk] = raw_pos
+            source_colors_map[fk] = [color_for_label[int(v)] for v in raw_labels]
+        else:
+            source_pos_map[fk] = _subsample(raw_pos)
+            source_colors_map[fk] = None
+
+    # Transferred-label figure data: receiver positions first, else the legacy
+    # D-07 chain (target -> aligned_cloud -> dataset).
+    target_pos_map: dict[int, np.ndarray] = {}
+    target_colors_map: dict[int, "list[str]"] = {}
+    for fk in label_frame_indices:
+        t_labels = label_result.transferred_labels[fk]
+        c_vals = [color_for_label[int(v)] for v in t_labels.tolist()]
+        if label_receiver is not None and fk in label_receiver:
+            pos = label_receiver[fk]["pos"].detach().cpu().numpy()
+            if len(pos) != len(c_vals):
+                raise ValueError(
+                    f"frame {fk}: receiver has {len(pos)} points but "
+                    f"transferred_labels has {len(c_vals)}"
+                )
+        elif target is not None and fk in target:
+            pos = target[fk]["pos"].detach().cpu().numpy()
+        elif align_result is not None and fk in align_result.aligned_cloud:
+            pos = align_result.aligned_cloud[fk]["pos"].detach().cpu().numpy()
+        else:
+            if fk not in dataset:
+                raise KeyError(
+                    f"Label frame key {fk!r} not found in dataset. "
+                    "For label-only runs, dataset must be the target trajectory."
+                )
+            pos = dataset[fk]["pos"].detach().cpu().numpy()
+        n_pts = min(len(pos), len(c_vals))
+        rng = np.random.default_rng(0)
+        if n_pts > 4000:
+            keep = rng.choice(n_pts, 4000, replace=False)
+            pos = pos[keep]
+            c_vals = [c_vals[i] for i in keep]
+        else:
+            pos = pos[:n_pts]
+            c_vals = c_vals[:n_pts]
+        target_pos_map[fk] = pos
+        target_colors_map[fk] = c_vals
+
+    return color_for_label, source_pos_map, source_colors_map, target_pos_map, target_colors_map
+
+
+# Normalised metric key -> raw StageMetrics field (IN-10).
+_METRIC_FIELDS: dict[str, str] = {
+    "chamfer": "chamfer_distance",
+    "hausdorff": "hausdorff_distance",
+    "path_smoothness": "path_smoothness",
+    "temporal_stability": "temporal_stability",
+    "f1": "f1_score",
+    "knn_consistency": "knn_consistency",
+}
+
+# Flag prefix -> metric keys it marks as never computed (IN-10).  Flags come
+# from EvaluationRunner._run_single ("stage unavailable: ...") and
+# eval.runners._label_direction ("f1 unavailable: ...").  "metric unavailable:"
+# flags (eval.metrics) name their metric and are parsed separately.
+_UNAVAILABLE_FLAG_PREFIXES: dict[str, tuple[str, ...]] = {
+    "stage unavailable: alignment disabled": (
+        "chamfer", "hausdorff", "path_smoothness", "temporal_stability",
+    ),
+    "stage unavailable: label transfer disabled": ("f1", "knn_consistency"),
+    "f1 unavailable:": ("f1",),
+}
+
+
+def _unavailable_metric_keys(report: EvalReport) -> set[str]:
+    """Return the normalised metric keys that were never computed (IN-10).
+
+    A key is unavailable when any of the following holds:
+
+    - a sanity flag (``report.sanity_flags`` or ``report.metrics.coverage_flags``)
+      starts with one of ``_UNAVAILABLE_FLAG_PREFIXES``;
+    - a ``"metric unavailable: <name> ..."`` flag names the metric (short key
+      or raw field name), e.g. ``temporal_stability`` from
+      ``MetricsEngine.compute_stage_metrics``;
+    - its raw ``report.metrics`` value is non-finite (unavailable stages
+      report ``+inf``);
+    - it is missing from ``report.metrics.normalized`` or its normalised value
+      is non-finite (no score to draw).
+
+    Parameters
+    ----------
+    report : EvalReport
+        Report whose metrics and flags are inspected.
+
+    Returns
+    -------
+    set[str]
+        Subset of the 6 canonical short-name metric keys.
+    """
+    metrics = report.metrics
+    flags = list(report.sanity_flags) + list(getattr(metrics, "coverage_flags", []) or [])
+    unavailable: set[str] = set()
+    for flag in flags:
+        for prefix, keys in _UNAVAILABLE_FLAG_PREFIXES.items():
+            if flag.startswith(prefix):
+                unavailable.update(keys)
+        if flag.startswith("metric unavailable:"):
+            rest = flag[len("metric unavailable:"):].strip()
+            name = rest.split()[0].strip(",;:()") if rest else ""
+            for key, field in _METRIC_FIELDS.items():
+                if name in (key, field):
+                    unavailable.add(key)
+    for key, field in _METRIC_FIELDS.items():
+        raw = getattr(metrics, field, None)
+        if raw is None or not np.isfinite(raw):
+            unavailable.add(key)
+        norm = metrics.normalized.get(key)
+        if norm is None or not np.isfinite(norm):
+            unavailable.add(key)
+    return unavailable
 
 
 # ---------------------------------------------------------------------------
@@ -307,6 +547,9 @@ def plot_trajectory(
     label_names: "dict[int, str] | None",
     output_dir: Path,
     target: "dict[int, zRegPointCloud] | None" = None,
+    *,
+    label_provider: "dict[int, zRegPointCloud] | None" = None,
+    label_receiver: "dict[int, zRegPointCloud] | None" = None,
 ) -> list[str]:
     """Render trajectory figures for alignment and/or label-transfer stages (EXT-02).
 
@@ -322,9 +565,10 @@ def plot_trajectory(
 
     Label branch (written when ``label_result is not None``):
 
-    - ``label_source_trajectory.{pdf,png}`` — source cloud coloured by source
-      labels (``dataset[fk]["label"]``).
-    - ``label_target_trajectory.{pdf,png}`` — target/aligned cloud coloured by
+    - ``label_source_trajectory.{pdf,png}`` — the label provider's cloud
+      coloured by its original labels (``label_provider[fk]["label"]``; falls
+      back to ``dataset[fk]["label"]`` when ``label_provider`` is ``None``).
+    - ``label_target_trajectory.{pdf,png}`` — the receiver's cloud coloured by
       transferred labels (``label_result.transferred_labels``).
 
     Return value length depends on which stages ran and whether *target* is
@@ -360,6 +604,16 @@ def plot_trajectory(
     target : dict[int, zRegPointCloud] or None
         Optional target dataset.  When provided, a separate target figure
         is written and the superposed figure includes the target cloud.
+    label_provider : dict[int, zRegPointCloud] or None, keyword-only
+        Trajectory whose labels were transferred (``result["label_provider"]``
+        from ``EvaluationRunner._run_single``; Phase 59 D-01).  When given,
+        the label source figure shows its positions and labels instead of
+        ``dataset``'s.  Default ``None`` keeps the legacy behaviour.
+    label_receiver : dict[int, zRegPointCloud] or None, keyword-only
+        Trajectory that received the labels (``result["label_receiver"]``).
+        When given, transferred labels are drawn at its positions and a
+        point-count mismatch raises ``ValueError`` instead of truncating.
+        Default ``None`` keeps the legacy target -> aligned -> dataset chain.
 
     Returns
     -------
@@ -373,13 +627,19 @@ def plot_trajectory(
     D-04: Each figure uses first, middle, and last frame from the relevant
     cloud's sorted keys, deduplicated via ``_deduplicate_frames``.
 
-    D-07: Positions for the label figure use ``align_result.aligned_cloud``
-    when ``align_result is not None`` (post-alignment coordinate space,
-    consistent with label assignment); otherwise ``dataset[frame]["pos"]``
-    is used (label-only run).
+    D-07: Positions for the transferred-label figure come from
+    ``label_receiver`` when given; otherwise from ``target``, then
+    ``align_result.aligned_cloud``, then ``dataset[frame]["pos"]``
+    (label-only run).  Data preparation lives in ``_label_figure_data``.
 
-    FRAME-08 mandatory rules apply: ``plt.close(fig)`` after every
-    ``fig.savefig``, ``bbox_inches="tight"`` on every savefig call.
+    VIZ-02: the source panel for a plotted target frame shows exactly the
+    source frame ``AlignmentStage._build_aligned_cloud`` paired with it,
+    ``sorted(dataset)[::step][src_sub]`` with ``step`` taken from
+    ``align_result.params_used`` (default 1).
+
+    FRAME-08 rules: ``plt.close(fig)`` after every ``fig.savefig``.  All
+    figures here have 3-D axes and are saved with ``bbox_inches=None`` at
+    their declared size (13ee2f8); legends are kept inside the canvas.
     """
     paths: list[str] = []
 
@@ -401,8 +661,29 @@ def plot_trajectory(
             align_sorted[-1],
         ])
 
-        # Build source-frame mapping from warp path
-        src_map = _warp_source_map(align_result.warp_path)
+        # Build a mapping from full-resolution target key → full-resolution source key.
+        # warp_path holds (src_sub_idx, tgt_sub_idx) — zero-based indices into the
+        # strided sub-dicts, NOT original frame keys.  This mirrors
+        # AlignmentStage._build_aligned_cloud exactly (VIZ-02): the target
+        # position is mapped proportionally onto the strided target index, and
+        # the source frame is source_sorted[::step][src_sub] — never a
+        # proportional rescale of src_sub onto the full source key list.
+        _step = int(align_result.params_used.get("step", 1) or 1)
+        _warp = align_result.warp_path
+        _tgt_to_src_sub: dict[int, int] = {}
+        for _s, _t in _warp:
+            if _t not in _tgt_to_src_sub:
+                _tgt_to_src_sub[_t] = _s
+        _n_tgt_full = len(align_sorted)  # aligned_cloud is keyed by all target keys
+        _n_sub_tgt = len(align_sorted[::_step])  # == len(target_sub)
+        _src_strided = sorted(dataset.keys())[::_step]  # == source_sorted[::step]
+        _fallback_sub = _warp[0][0] if _warp else 0
+
+        def _source_key_for(fk: int) -> int:
+            pos = align_sorted.index(fk)
+            tgt_sub = min(round(pos * _n_sub_tgt / _n_tgt_full), _n_sub_tgt - 1)
+            src_sub = _tgt_to_src_sub.get(tgt_sub, _fallback_sub)
+            return _src_strided[min(src_sub, len(_src_strided) - 1)]
 
         # Pre-compute subsampled arrays once per cloud per frame (Task 4)
         per_frame_source: dict[int, np.ndarray] = {}
@@ -410,9 +691,8 @@ def plot_trajectory(
         per_frame_target: dict[int, np.ndarray] = {}
 
         for fk in align_frame_indices:
-            source_fk = src_map.get(fk, fk)  # fallback: use fk if no warp mapping
             per_frame_source[fk] = _subsample(
-                dataset[source_fk]["pos"].detach().cpu().numpy()
+                dataset[_source_key_for(fk)]["pos"].detach().cpu().numpy()
             )
             per_frame_aligned[fk] = _subsample(
                 align_result.aligned_cloud[fk]["pos"].detach().cpu().numpy()
@@ -472,92 +752,36 @@ def plot_trajectory(
             label_sorted[-1],
         ])
 
-        # 10-colour tab10 palette — supports up to 10 distinct classes before wrapping.
-        _tab10 = [matplotlib.colormaps["tab10"](i) for i in range(10)]
-        _label_palette = [
-            f"#{int(r*255):02x}{int(g*255):02x}{int(b*255):02x}"
-            for r, g, b, _ in _tab10
-        ]
-
-        # Task 4: union of all label IDs across both figures for consistent palette
-        union_labels: set[int] = set()
-        for fk in label_frame_indices:
-            if fk not in dataset:
-                continue
-            src = _get_source_labels(dataset[fk])
-            if src is not None:
-                union_labels.update(int(v) for v in torch.unique(src).tolist())
-            union_labels.update(
-                int(v) for v in torch.unique(label_result.transferred_labels[fk]).tolist()
-            )
-        color_for_label = {
-            lab: _label_palette[i % len(_label_palette)]
-            for i, lab in enumerate(sorted(union_labels))
-        }
-
-        # Task 3: pre-compute source figure data
-        source_pos_map: dict[int, np.ndarray] = {}
-        source_colors_map: dict[int, "list[str] | None"] = {}
-        for fk in label_frame_indices:
-            if fk not in dataset:
-                continue
-            src_labels = _get_source_labels(dataset[fk])
-            raw_pos = dataset[fk]["pos"].detach().cpu().numpy()
-            if src_labels is not None:
-                raw_labels = src_labels.tolist()
-                n = min(len(raw_pos), len(raw_labels))
-                raw_pos = raw_pos[:n]
-                raw_labels = raw_labels[:n]
-                if n > 4000:
-                    keep = np.random.default_rng(0).choice(n, 4000, replace=False)
-                    raw_pos = raw_pos[keep]
-                    raw_labels = [raw_labels[i] for i in keep]
-                source_pos_map[fk] = raw_pos
-                source_colors_map[fk] = [color_for_label[int(v)] for v in raw_labels]
-            else:
-                source_pos_map[fk] = _subsample(raw_pos)
-                source_colors_map[fk] = None
-
-        # Task 3: pre-compute target figure data (preserves D-07 position logic)
-        target_pos_map: dict[int, np.ndarray] = {}
-        target_colors_map: dict[int, "list[str]"] = {}
-        for fk in label_frame_indices:
-            if target is not None and fk in target:
-                pos = target[fk]["pos"].detach().cpu().numpy()
-            elif align_result is not None and fk in align_result.aligned_cloud:
-                pos = align_result.aligned_cloud[fk]["pos"].detach().cpu().numpy()
-            else:
-                if fk not in dataset:
-                    raise KeyError(
-                        f"Label frame key {fk!r} not found in dataset. "
-                        "For label-only runs, dataset must be the target trajectory."
-                    )
-                pos = dataset[fk]["pos"].detach().cpu().numpy()
-            t_labels = label_result.transferred_labels[fk]
-            c_vals = [color_for_label[int(v)] for v in t_labels.tolist()]
-            n_pts = min(len(pos), len(c_vals))
-            rng = np.random.default_rng(0)
-            if n_pts > 4000:
-                keep = rng.choice(n_pts, 4000, replace=False)
-                pos = pos[keep]
-                c_vals = [c_vals[i] for i in keep]
-            else:
-                pos = pos[:n_pts]
-                c_vals = c_vals[:n_pts]
-            target_pos_map[fk] = pos
-            target_colors_map[fk] = c_vals
+        (
+            color_for_label,
+            source_pos_map,
+            source_colors_map,
+            target_pos_map,
+            target_colors_map,
+        ) = _label_figure_data(
+            label_result,
+            label_frame_indices,
+            dataset=dataset,
+            target=target,
+            align_result=align_result,
+            label_provider=label_provider,
+            label_receiver=label_receiver,
+        )
 
         # Figure 1: source cloud coloured by source labels
-        # Only pass frames that ended up in source_pos_map (guard for mismatched keys)
+        # Only pass frames that ended up in source_pos_map (guard for mismatched keys).
+        # Skip entirely when source and target frame key sets are disjoint — avoids
+        # writing a blank figure with no subplots.
         source_frame_indices = [fk for fk in label_frame_indices if fk in source_pos_map]
-        # If all source frames lack labels, pass empty color_for_label to suppress legend
-        all_none_source = all(source_colors_map.get(fk) is None for fk in source_frame_indices)
-        _write_label_figure(
-            source_frame_indices, source_pos_map, source_colors_map,
-            {} if all_none_source else color_for_label, label_names,
-            stem="label_source_trajectory",
-            output_dir=Path(output_dir), paths=paths,
-        )
+        if source_frame_indices:
+            # If all source frames lack labels, pass empty color_for_label to suppress legend
+            all_none_source = all(source_colors_map.get(fk) is None for fk in source_frame_indices)
+            _write_label_figure(
+                source_frame_indices, source_pos_map, source_colors_map,
+                {} if all_none_source else color_for_label, label_names,
+                stem="label_source_trajectory",
+                output_dir=Path(output_dir), paths=paths,
+            )
 
         # Figure 2: target/aligned cloud coloured by transferred labels
         _write_label_figure(
@@ -570,12 +794,17 @@ def plot_trajectory(
     return paths
 
 
-def plot_metrics(report: EvalReport, path: Union[str, Path]) -> None:
-    """Render a horizontal bar chart of 6 normalised metric scores to PDF.
+def plot_metrics(report: EvalReport, path: Union[str, Path]) -> list[str]:
+    """Render a horizontal bar chart of 6 normalised metric scores to PDF + PNG.
 
-    Produces a single horizontal bar chart with 6 bars, one per canonical
-    short-name metric key from ``StageMetrics.normalized``.  The x-axis spans
-    ``[0, 1]`` (normalised score range per D-09).
+    Produces a single horizontal bar chart with 6 rows, one per canonical
+    short-name metric key from ``StageMetrics.normalized``, grouped and
+    colour-coded by which pipeline stage they measure — alignment vs. label
+    transfer — with a legend identifying the two groups and an axis label
+    stating the "higher is better" convention that ``MetricsEngine.normalize``
+    guarantees for every one of the six values (see ``eval/metrics.py`` module
+    docstring, "Interpreting normalized metrics", for what the raw metrics are
+    normalised against).
 
     Parameters
     ----------
@@ -585,26 +814,48 @@ def plot_metrics(report: EvalReport, path: Union[str, Path]) -> None:
         ``"chamfer"``, ``"hausdorff"``, ``"path_smoothness"``,
         ``"temporal_stability"``, ``"f1"``, ``"knn_consistency"``.
 
-        Missing keys default to ``0.0`` via ``.get(k, 0.0)`` — the function
-        will always render 6 bars regardless of dict completeness.
+        Every key keeps its row.  A metric that was never computed is shown
+        as an "n/a (not computed)" row without a bar, so it cannot be read as
+        a score of zero (IN-10).  A metric is unavailable when a
+        ``"stage unavailable: ..."``, ``"f1 unavailable: ..."`` or
+        ``"metric unavailable: <name>"`` flag names it, when its raw value
+        is non-finite, or when its key is missing from (or non-finite in)
+        ``metrics.normalized``.
 
     path : str or Path
-        Destination PDF file path.  The parent directory must already exist;
-        this function does NOT call ``mkdir``.
+        Destination path.  The suffix is replaced: a PDF and a PNG are written
+        at ``path.with_suffix('.pdf')`` and ``path.with_suffix('.png')``.
+        The parent directory must already exist; this function does NOT call
+        ``mkdir``.
 
     Returns
     -------
-    None
+    list[str]
+        Absolute path strings of the two files written: ``[pdf_path, png_path]``.
 
     Notes
     -----
     D-09: Horizontal bar chart chosen for immediate readability of 6
     normalised metric scores.  Values from ``report.metrics.normalized``
-    are already in ``[0, 1]`` after ``MetricsEngine.normalize``.
+    are already in ``[0, 1]`` after ``MetricsEngine.normalize``, and every
+    value follows the same convention — 1.0 is always best, 0.0 is always
+    worst — regardless of whether the underlying raw metric is originally
+    lower-is-better (chamfer, hausdorff, path_smoothness, temporal_stability)
+    or higher-is-better (f1, knn_consistency).  This is stated explicitly on
+    the x-axis so the chart is self-describing without the caption.
 
     The 6 canonical short-name keys (Pitfall 4 from RESEARCH.md) are
     hardcoded in this function to guarantee consistent bar order regardless
     of dict insertion order.  They match the keys in ``EvalConfig.metric_weights``.
+    The first four keys are alignment-stage metrics; the last two are
+    label-transfer-stage metrics.  Bars are coloured accordingly (blue /
+    orange, a validated colour-blind-safe adjacent pair) with a thin
+    separator rule between the two groups and a two-entry legend.
+
+    Style is deliberately minimal — flat fills, no chart title, hairline
+    axis and gridlines, no top/right spines — closer to a journal figure
+    than a dashboard widget, since this plot is meant to sit in a paper or
+    report figure alongside a caption rather than stand alone.
 
     FRAME-08 mandatory rules:
     - ``plt.close(fig)`` is called after ``fig.savefig``.
@@ -612,7 +863,7 @@ def plot_metrics(report: EvalReport, path: Union[str, Path]) -> None:
 
     The x-axis limit is set to ``[0, 1]`` via ``ax.set_xlim(0, 1)`` per D-09.
     """
-    labels = [
+    metric_keys = [
         "chamfer",
         "hausdorff",
         "path_smoothness",
@@ -620,16 +871,70 @@ def plot_metrics(report: EvalReport, path: Union[str, Path]) -> None:
         "f1",
         "knn_consistency",
     ]
-    values = [report.metrics.normalized.get(k, 0.0) for k in labels]
+    display_names = {
+        "chamfer": "Chamfer",
+        "hausdorff": "Hausdorff",
+        "path_smoothness": "Path smoothness",
+        "temporal_stability": "Temporal stability",
+        "f1": "F1",
+        "knn_consistency": "kNN consistency",
+    }
+    # First 4 keys are alignment-stage metrics, last 2 are label-transfer-stage
+    # metrics (Pitfall 4 key order) — grouping below relies on this split index.
+    n_alignment = 4
+    alignment_keys = set(metric_keys[:n_alignment])
 
-    fig, ax = plt.subplots(figsize=(8, 4))
-    ax.barh(labels, values)
+    # Colour-blind-safe adjacent pair (validated categorical slots 1 & 2).
+    ALIGNMENT_COLOR = "#2a78d6"
+    LABEL_TRANSFER_COLOR = "#eb6834"
+
+    labels = [display_names[k] for k in metric_keys]
+    # IN-10: never-computed metrics get no bar (a zero bar would read as
+    # "scored zero") and an "n/a" annotation instead.
+    unavailable = _unavailable_metric_keys(report)
+    y_pos = list(range(len(labels)))
+    bar_rows = [i for i, k in enumerate(metric_keys) if k not in unavailable]
+    values = [report.metrics.normalized[metric_keys[i]] for i in bar_rows]
+    colors = [
+        ALIGNMENT_COLOR if metric_keys[i] in alignment_keys else LABEL_TRANSFER_COLOR
+        for i in bar_rows
+    ]
+
+    fig, ax = plt.subplots(figsize=(6.5, 3.6))
+    ax.barh(bar_rows, values, color=colors, height=0.6, zorder=3)
+    for i, k in enumerate(metric_keys):
+        if k in unavailable:
+            ax.text(0.01, i, "n/a (not computed)", va="center", fontsize=8,
+                    color="#76746e", zorder=3)
+    ax.set_yticks(y_pos)
+    ax.set_yticklabels(labels, fontsize=9)
+    ax.invert_yaxis()  # first metric on top
     ax.set_xlim(0, 1)
-    ax.set_xlabel("Normalised Score")
-    try:
-        fig.savefig(path, bbox_inches="tight")
-    finally:
-        plt.close(fig)
+    ax.set_xlabel("Normalised score (higher is better →)", fontsize=9)
+
+    # Minimal / journal-figure style: no title, no top/right/left spines,
+    # hairline gridlines behind the bars, thin bottom axis.
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["left"].set_visible(False)
+    ax.spines["bottom"].set_color("#c3c2b7")
+    ax.tick_params(axis="both", length=0, labelsize=9)
+    ax.xaxis.grid(True, color="#e1e0d9", linewidth=0.8, zorder=0)
+    ax.set_axisbelow(True)
+
+    # Separator rule between the alignment and label-transfer groups.
+    ax.axhline(n_alignment - 0.5, color="#c3c2b7", linewidth=0.8, zorder=2)
+
+    legend_patches = [
+        mpatches.Patch(color=ALIGNMENT_COLOR, label="Alignment"),
+        mpatches.Patch(color=LABEL_TRANSFER_COLOR, label="Label transfer"),
+    ]
+    ax.legend(handles=legend_patches, loc="lower right", frameon=False, fontsize=8)
+
+    fig.tight_layout()
+    written: list[str] = []
+    _save_fig(fig, Path(path).with_suffix(""), written)
+    return written
 
 
 def render_dataset_triptych(
@@ -694,7 +999,10 @@ def render_dataset_triptych(
     MAX_PTS = 4_000
 
     fig = plt.figure(figsize=(13, 4.2))
-    fig.suptitle(name, fontsize=12, fontweight="bold", y=1.01)
+    # VIZ-01 / 13ee2f8: tight bbox on 3-D axes exceeded Agg's 2^16 px limit;
+    # suptitle kept inside the fixed canvas instead (y < 1, axes moved down).
+    fig.suptitle(name, fontsize=12, fontweight="bold", y=0.98)
+    fig.subplots_adjust(top=0.86)
 
     for col, (t, label) in enumerate(
         [(t_first, "first"), (t_mid, "mid"), (t_last, "last")]
@@ -730,7 +1038,7 @@ def render_dataset_triptych(
 
     out_path = output_dir / f"{name}.png"
     try:
-        fig.savefig(out_path, dpi=dpi, bbox_inches="tight")
+        fig.savefig(out_path, dpi=dpi)  # bbox_inches="tight" breaks 3-D axes on Agg
     finally:
         plt.close(fig)  # D-12: mandatory
 

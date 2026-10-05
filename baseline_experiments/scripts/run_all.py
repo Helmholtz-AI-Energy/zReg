@@ -5,7 +5,7 @@ Runs four phases, in order, against the zReg evaluation framework
 ``eval.runners.EvaluationRunner``) imported directly rather than shelled out
 through run_eval.py — this avoids run_eval.py's per-invocation timestamped
 output_dir (it would make it impossible to predict the path where selfcal
-writes best_params.json before baseline_with_selfcal needs to read it).
+writes best_params.json before baseline_with_combined needs to read it).
 
 Phases (see baseline_experiments/README.md for the full design rationale):
 
@@ -17,18 +17,24 @@ Phases (see baseline_experiments/README.md for the full design rationale):
 3. ground_truth        — optimize+eval self-registration HPO with a random
                          (not fixed) transform_spec; Kobitski ew_06 alone,
                          Shah sample-1 alone; both stages. Produces
-                         best_params.json consumed by phase 5.
-4. baseline_with_selfcal — eval-only, ew06_vs_shah, params merged from phase
-                         1's three best_params.json (see merge_params.py).
-5. baseline_with_groundtruth — eval-only, ew06_vs_shah, params merged from
-                         phase 3's two best_params.json. Validates whether
-                         HPO calibrated against a random unseen perturbation
-                         generalises better than selfcal to the real cross-
-                         embryo task.
+                         best_params.json consumed by phase 4.
+4. baseline_with_combined — optimize+eval, ew06_vs_shah (real cross-embryo task).
+                         Merged params from phases 1 + 3 (merge_combined_params,
+                         see merge_params.py) are snapped onto the combined
+                         config's search space (nearest choice per key) and
+                         injected as default_params and as the warm start
+                         (first HPO trial). Every
+                         upstream best_params.json and the merged params are
+                         validated through EvalConfig.model_validate first
+                         (Phase 63 HPC-01). Uses same search space as the
+                         selfcal/ground_truth full-pipeline runs.
 
 Each run is idempotent: if ``eval_report.json`` already exists in a run's
 output_dir, it is skipped unless ``--force`` is passed. This lets the full
-suite be safely re-invoked after a crash or interruption.
+suite be safely re-invoked after a crash or interruption. ``--force`` redoes a
+completed optimize run from scratch: its Propulate checkpoints and
+``eval_report.json`` are discarded first (63-REVIEW WR-02); runs without
+``eval_report.json`` resume from their checkpoints as usual.
 
 **Runtime:** tier=dev → 5 sanity trials (tiny synthetic data, fast) + 20 dev
 trials (real data, step=8 temporal subsampling, max_points=1000 spatial
@@ -76,12 +82,12 @@ except ImportError:
 from eval.config import EvalConfig, EvalConfigError  # noqa: E402
 from eval.runners import EvaluationRunner, HyperparamOptimizer  # noqa: E402
 
-from merge_params import merge_groundtruth_params, merge_selfcal_params  # noqa: E402
+from merge_params import merge_combined_params  # noqa: E402
 
 log = logging.getLogger("run_all")
 
 # PHASE_ORDER does not reference CONFIGS and stays as a module-level constant.
-PHASE_ORDER = ["selfcal", "baseline_no_hpo", "ground_truth", "baseline_with_selfcal", "baseline_with_groundtruth"]
+PHASE_ORDER = ["selfcal", "baseline_no_hpo", "ground_truth", "baseline_with_combined"]
 
 
 def _build_phase_lists(configs_dir: Path) -> dict[str, list]:
@@ -97,7 +103,7 @@ def _build_phase_lists(configs_dir: Path) -> dict[str, list]:
     -------
     dict
         Keys: ``"selfcal"``, ``"baseline_no_hpo"``, ``"ground_truth"``,
-        ``"baseline_with_selfcal"``.  Values: lists of
+        ``"baseline_with_combined"``.  Values: lists of
         ``(phase, name, config_path)`` tuples.
     """
     # (phase, name, config_path) — order within a phase is execution order.
@@ -111,9 +117,8 @@ def _build_phase_lists(configs_dir: Path) -> dict[str, list]:
     # testing showed even a single eval-only pass on full-resolution Kobitski
     # data can take 30-90+ min; running all 4 pairs here on top of the 5
     # optimize-mode runs was not worth the added wall-clock. configs/baseline_
-    # no_hpo/{ew08,ew11,ew12}_vs_shah.yaml and configs/baseline_with_selfcal/
-    # {ew08,ew11,ew12}_vs_shah.yaml still exist on disk if you want to run any
-    # of them manually later (see README.md "Running").
+    # no_hpo/{ew08,ew11,ew12}_vs_shah.yaml still exist on disk if you want to run
+    # any of them manually later (see README.md "Running").
     baseline_no_hpo = [
         ("baseline_no_hpo", name, configs_dir / "baseline_no_hpo" / f"{name}.yaml")
         for name in ("ew06_vs_shah",)
@@ -122,20 +127,15 @@ def _build_phase_lists(configs_dir: Path) -> dict[str, list]:
         ("ground_truth", "kobitski_ew06", configs_dir / "ground_truth" / "kobitski_ew06.yaml"),
         ("ground_truth", "shah_sample1", configs_dir / "ground_truth" / "shah_sample1.yaml"),
     ]
-    baseline_with_selfcal = [
-        ("baseline_with_selfcal", name, configs_dir / "baseline_with_selfcal" / f"{name}.yaml")
-        for name in ("ew06_vs_shah",)
-    ]
-    baseline_with_groundtruth = [
-        ("baseline_with_groundtruth", name, configs_dir / "baseline_with_groundtruth" / f"{name}.yaml")
+    baseline_with_combined = [
+        ("baseline_with_combined", name, configs_dir / "baseline_with_combined" / f"{name}.yaml")
         for name in ("ew06_vs_shah",)
     ]
     return {
         "selfcal": selfcal,
         "baseline_no_hpo": baseline_no_hpo,
         "ground_truth": ground_truth,
-        "baseline_with_selfcal": baseline_with_selfcal,
-        "baseline_with_groundtruth": baseline_with_groundtruth,
+        "baseline_with_combined": baseline_with_combined,
     }
 
 
@@ -158,6 +158,82 @@ def _already_done(output_dir: Path) -> bool:
     return (output_dir / "eval_report.json").exists()
 
 
+def _propulate_checkpoint_files(output_dir: Path) -> list[Path]:
+    """Propulate checkpoint files in ``output_dir`` (``*.pkl``, ``*.pickle``, ``*.bkp``)."""
+    if not output_dir.exists():
+        return []
+    return [f for pattern in ("*.pkl", "*.pickle", "*.bkp") for f in output_dir.glob(pattern)]
+
+
+# Records the search space the Propulate checkpoints in an output_dir were
+# written under (63-REVIEW WR-03).
+SEARCH_SPACE_FINGERPRINT = "search_space_fingerprint.json"
+
+
+class StaleCheckpointError(RuntimeError):
+    """Propulate checkpoints were written under another search space (63-REVIEW WR-03).
+
+    ``main()`` reports it as a one-line ``Error:`` instead of a traceback on
+    every rank (63-REVIEW IN-08).
+    """
+
+_CLEAR_HINT = (
+    "to discard them and restart this HPO run, re-submit with ZREG_CLEAR_CHECKPOINTS=1 "
+    "(or pass --clear-checkpoints to run_all.py)"
+)
+
+
+def _search_space_fingerprint(search_space: dict) -> str:
+    return json.dumps(search_space, sort_keys=True, default=str)
+
+
+def _checkpoint_search_space_error(output_dir: Path, search_space: dict) -> str | None:
+    """Compare the checkpoints' recorded search space with the current one (rank 0).
+
+    Propulate checkpoints written under a different search space break the
+    resumed run inside ``_decode_param`` (e.g. a ``dtw_dist_fn: cosine``
+    individual after Phase 63 D-08). Checkpoints are never deleted here; the
+    operator decides (63-REVIEW WR-03).
+
+    - No checkpoints: the current search space is recorded in
+      ``SEARCH_SPACE_FINGERPRINT`` (a fresh or freshly cleared run).
+    - Checkpoints and a matching record: ``None`` (normal resume).
+    - Checkpoints and a different record: an error message that names
+      ``ZREG_CLEAR_CHECKPOINTS=1`` / ``--clear-checkpoints``.
+    - Checkpoints without a record (written before this check existed): a
+      WARNING with the same hint, and the resume proceeds. No record is
+      written, so it never vouches for those checkpoints.
+
+    Returns
+    -------
+    str or None
+        The error message, or ``None`` when the run may proceed.
+    """
+    record = output_dir / SEARCH_SPACE_FINGERPRINT
+    current = _search_space_fingerprint(search_space)
+    if not _propulate_checkpoint_files(output_dir):
+        output_dir.mkdir(parents=True, exist_ok=True)
+        record.write_text(current)
+        return None
+    if not record.exists():
+        log.warning(
+            "[checkpoints] %s holds Propulate checkpoints without a recorded search space; "
+            "resuming from them. If the search space changed since they were written (e.g. "
+            "Phase 63 D-08), the resume fails while decoding old individuals; %s.",
+            output_dir,
+            _CLEAR_HINT,
+        )
+        return None
+    recorded = record.read_text()
+    if recorded != current:
+        return (
+            f"{output_dir}: the Propulate checkpoints were written under a different search space "
+            f"({recorded}) than the current config ({current}), so resuming from them would fail "
+            f"while decoding old individuals; {_CLEAR_HINT}."
+        )
+    return None
+
+
 def _clear_propulate_checkpoints(output_dir: Path) -> None:
     """Delete propulate checkpoint files from output_dir (rank-0 only).
 
@@ -167,17 +243,36 @@ def _clear_propulate_checkpoints(output_dir: Path) -> None:
     between runs (e.g. a param that allowed None is later fixed to a single value).
     This removes only checkpoint files; eval_report.json and other outputs are kept.
     """
-    if not output_dir.exists():
-        return
-    removed = [
-        f
-        for pattern in ("*.pkl", "*.pickle")
-        for f in output_dir.glob(pattern)
-    ]
+    removed = _propulate_checkpoint_files(output_dir)
     for f in removed:
         f.unlink()
     if removed:
         log.info("[clear-checkpoints] removed %d checkpoint file(s) from %s", len(removed), output_dir)
+
+
+def _start_forced_redo(name: str, output_dir: Path) -> None:
+    """Reset a completed optimize run that ``--force`` redoes (rank 0).
+
+    63-REVIEW (iteration 2) WR-02: a completed run leaves its Propulate
+    checkpoints in ``output_dir``. Resuming from them would not redo the HPO:
+    the generation budget is already used up, so ``best_params.json`` would be
+    rewritten from little more than rank 0's re-evaluated seeds. A forced
+    redo therefore discards the checkpoints (the search-space record is then
+    rewritten by ``_checkpoint_search_space_error``) and the completion marker
+    ``eval_report.json``. Removing the marker means that a redo interrupted by
+    the wall clock resumes from its own new checkpoints on the next
+    submission (with or without ``--force``) instead of being restarted, or
+    skipped next to an old report. Runs without ``eval_report.json`` are not
+    complete and resume as usual under ``--force``.
+    """
+    log.info(
+        "[%s] --force: redoing the completed run from scratch; discarding its Propulate "
+        "checkpoints and eval_report.json in %s",
+        name,
+        output_dir,
+    )
+    _clear_propulate_checkpoints(output_dir)
+    (output_dir / "eval_report.json").unlink(missing_ok=True)
 
 
 def _read_json(path: Path) -> dict:
@@ -185,11 +280,140 @@ def _read_json(path: Path) -> dict:
         return json.load(f)
 
 
-def run_optimize_then_eval(name: str, config_path: Path, force: bool, dry_run: bool, clear_checkpoints: bool = False) -> None:
+def _with_params_validated(config: EvalConfig, extra_params: dict, *, source: str | Path, phase: str | None = None) -> EvalConfig:
+    """Return ``config`` with ``extra_params`` merged into ``default_params``, re-validated.
+
+    ``model_copy(update=...)`` skips every pydantic validator, so a merged
+    value such as ``dtw_dist_fn: cosine`` (unsupported since Phase 63 D-08)
+    would pass unnoticed and only fail inside each HPO trial. The merged
+    config is therefore rebuilt with ``EvalConfig.model_validate``, which runs
+    all field and model validators (Phase 63-07, Review cycle 1 MEDIUM-3).
+
+    Parameters
+    ----------
+    config:
+        Loaded config whose ``default_params`` the extra params override.
+    extra_params:
+        Params to merge over ``config.default_params``.
+    source:
+        Where ``extra_params`` came from (an artifact path or a description);
+        named in the error message.
+    phase:
+        Suite phase that produced the artifact (``"selfcal"`` /
+        ``"ground_truth"``). When given, the error message says how to
+        regenerate a stale artifact.
+
+    Returns
+    -------
+    EvalConfig
+        A new, fully validated config.
+
+    Raises
+    ------
+    ValueError
+        If the merged config fails validation. The message names ``source``,
+        the config's output_dir and the first validation error.
+    """
+    from pydantic import ValidationError
+
+    try:
+        return EvalConfig.model_validate(
+            {**config.model_dump(), "default_params": {**config.default_params, **extra_params}}
+        )
+    except ValidationError as e:
+        first = e.errors()[0]
+        loc = ".".join(str(x) for x in first["loc"])
+        detail = f"{loc + ': ' if loc else ''}{first['msg']}"
+        msg = f"{source}: invalid params for config with output_dir {config.output_dir}: {detail}."
+        if phase is not None:
+            # 63-REVIEW WR-04: name a recovery the HoreKa launchers can perform.
+            report = Path(source).parent / "eval_report.json"
+            msg += (
+                f" The artifact predates a config change such as Phase 63 D-08. Regenerate it "
+                f"with a fresh HPO: re-run the '{phase}' phase with --force (HoreKa launchers: "
+                "ZREG_FORCE=1 sbatch <launcher>); this redoes every completed run of the phase "
+                "from scratch and discards their Propulate checkpoints. To redo only this run, "
+                f"delete {report} and re-run the '{phase}' phase with --clear-checkpoints "
+                "(ZREG_CLEAR_CHECKPOINTS=1 sbatch <launcher>), or delete the run's Propulate "
+                f"checkpoint files (*.pickle, *.pkl, *.bkp in {report.parent}) by hand; without "
+                "that the run resumes its finished search instead of redoing it. "
+                "--clear-checkpoints alone does not delete best_params.json."
+            )
+        raise ValueError(msg) from e
+
+
+def _is_number(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _project_to_search_space(params: dict, search_space: dict) -> tuple[dict, dict]:
+    """Snap every searched key of ``params`` onto one of its search-space choices.
+
+    ``merge_params.merge_two`` averages numeric keys, so a merged warm start
+    can hold values that are not choices of the combined config's search space
+    (e.g. ``k_neighbours`` 3/10 -> 6). Such a seed makes ``BayesianSearch``
+    raise before any trial, and under Propulate/Sobol it is evaluated with
+    values the config forbids (Phase 63 review CR-01 / WR-02).
+
+    Rules, per key that is in both ``params`` and ``search_space``:
+
+    - value already a choice: kept;
+    - numeric value with numeric choices: nearest numeric choice (ties go to
+      the choice listed first);
+    - anything else (e.g. ``dtw_dist_fn: euclidean`` vs ``[cpd]``): the first
+      choice.
+
+    Keys outside ``search_space`` and keys with an empty choice list are
+    returned unchanged.
+
+    Returns
+    -------
+    tuple[dict, dict]
+        ``(projected, changed)`` where ``changed`` maps each replaced key to
+        ``(old_value, new_value)``.
+    """
+    out = dict(params)
+    changed: dict = {}
+    for key, choices in search_space.items():
+        if key not in out or not choices:
+            continue
+        value = out[key]
+        if value in choices:
+            continue
+        numeric = [c for c in choices if _is_number(c)]
+        if _is_number(value) and numeric:
+            new = min(numeric, key=lambda c: abs(c - value))
+        else:
+            new = choices[0]
+        out[key] = new
+        changed[key] = (value, new)
+    return out, changed
+
+
+def run_optimize_then_eval(name: str, config_path: Path, force: bool, dry_run: bool, clear_checkpoints: bool = False, warmstart_params: dict | None = None) -> None:
     config = _load_config(config_path)
+    if warmstart_params is not None:
+        # Validated merge (never model_copy for params): runs on every rank
+        # before the skip bcast below, so every rank raises identically and
+        # none blocks in a collective.
+        source = "baseline_with_combined merged warm start"
+        # Validate the raw merge first so an unsupported value (e.g. a stale
+        # dtw_dist_fn) fails loudly instead of being silently snapped away.
+        _with_params_validated(config, warmstart_params, source=source)
+        # CR-01 / WR-02: snap averaged / foreign values onto this config's
+        # search space so the seed is a legal trial for every strategy.
+        warmstart_params, changed = _project_to_search_space(warmstart_params, config.search_space)
+        if changed and RANK == 0:
+            log.warning(
+                "[%s] warm start projected onto the search space: %s",
+                name,
+                ", ".join(f"{k}: {old!r} -> {new!r}" for k, (old, new) in changed.items()),
+            )
+        config = _with_params_validated(config, warmstart_params, source=source)
     output_dir = Path(config.output_dir)
 
     skip = False
+    error: str | None = None
     if RANK == 0:
         if not force and _already_done(output_dir):
             log.info("[%s] SKIP (eval_report.json already exists at %s)", name, output_dir)
@@ -199,22 +423,31 @@ def run_optimize_then_eval(name: str, config_path: Path, force: bool, dry_run: b
             if dry_run:
                 skip = True
             else:
-                if clear_checkpoints:
+                if force and _already_done(output_dir):
+                    _start_forced_redo(name, output_dir)
+                elif clear_checkpoints:
                     _clear_propulate_checkpoints(output_dir)
-                _write_run_config(config_path, output_dir)
+                error = _checkpoint_search_space_error(output_dir, config.search_space)
+                if error is None:
+                    _write_run_config(config_path, output_dir)
 
-    # Broadcast skip decision so every rank agrees before the collective call.
-    # Without this, rank-0 returning early leaves other ranks deadlocked on
-    # the internal comm.Barrier() inside HyperparamOptimizer.run().
+    # Broadcast the skip decision (and a stale-checkpoint error) so every rank
+    # agrees before the collective call. Without this, rank-0 returning early
+    # leaves other ranks deadlocked on the internal comm.Barrier() inside
+    # HyperparamOptimizer.run().
     if COMM is not None:
-        skip = COMM.bcast(skip, root=0)
+        skip, error = COMM.bcast((skip, error), root=0)
+    if error is not None:
+        raise StaleCheckpointError(f"[{name}] {error}")
     if skip:
         return
 
     # HyperparamOptimizer.run() is a collective MPI operation — every rank
     # must call this (propulate needs all ranks to participate; gating on
     # rank-0 only would deadlock on the internal comm.Barrier()).
-    HyperparamOptimizer(config).run()
+    # Phase 63 HPC-01: the injected params are also the first HPO trial (warm
+    # start), not just the fallback for non-searched keys.
+    HyperparamOptimizer(config, warm_start=[warmstart_params] if warmstart_params else None).run()
 
     if RANK == 0:
         best_params_path = output_dir / "best_params.json"
@@ -249,83 +482,56 @@ def run_eval_only(name: str, config_path: Path, params: dict | None, force: bool
     log.info("[%s] done", name)
 
 
-def _selfcal_best_params(configs_dir: Path) -> tuple[dict, dict, dict, dict]:
-    """Load the three selfcal best_params.json files plus a defaults dict.
-
-    Parameters
-    ----------
-    configs_dir:
-        Root configs directory used for this run (resolved absolute path).
+def _combined_best_params(configs_dir: Path) -> tuple[dict, dict, dict, dict, dict, dict]:
+    """Load all five HPO best_params.json files plus a defaults dict.
 
     Returns
     -------
     tuple
-        ``(kobitski_alignment, shah_alignment, shah_label_transfer, defaults)``.
+        ``(kobitski_sc_alignment, shah_sc_alignment, shah_sc_label_transfer,
+        kobitski_gt_alignment, shah_gt_both, defaults)``.
 
     Raises
     ------
     FileNotFoundError
-        If a selfcal run hasn't produced best_params.json yet — run the
-        ``selfcal`` phase first.
+        If any selfcal or ground_truth run hasn't produced best_params.json yet.
+    ValueError
+        If an artifact fails validation against its own config (e.g. a stale
+        ``dtw_dist_fn: cosine`` from before Phase 63 D-08). The message names
+        the artifact and says how to regenerate it.
     """
-    paths = {
-        "kobitski_alignment": configs_dir / "selfcal" / "kobitski_ew06_alignment.yaml",
-        "shah_alignment": configs_dir / "selfcal" / "shah_alignment.yaml",
-        "shah_label_transfer": configs_dir / "selfcal" / "shah_label_transfer.yaml",
+    selfcal_paths = {
+        "kobitski_sc_alignment": configs_dir / "selfcal" / "kobitski_ew06_alignment.yaml",
+        "shah_sc_alignment": configs_dir / "selfcal" / "shah_alignment.yaml",
+        "shah_sc_label_transfer": configs_dir / "selfcal" / "shah_label_transfer.yaml",
+    }
+    gt_paths = {
+        "kobitski_gt_alignment": configs_dir / "ground_truth" / "kobitski_ew06.yaml",
+        "shah_gt_both": configs_dir / "ground_truth" / "shah_sample1.yaml",
     }
     results = {}
-    for key, cfg_path in paths.items():
-        config = _load_config(cfg_path)
-        bp_path = Path(config.output_dir) / "best_params.json"
-        if not bp_path.exists():
-            raise FileNotFoundError(
-                f"{bp_path} not found — run the 'selfcal' phase before 'baseline_with_selfcal'."
-            )
-        results[key] = _read_json(bp_path)
+    sources = [("selfcal", selfcal_paths), ("ground_truth", gt_paths)]
+    for phase, paths in sources:
+        for key, cfg_path in paths.items():
+            config = _load_config(cfg_path)
+            bp_path = Path(config.output_dir) / "best_params.json"
+            if not bp_path.exists():
+                raise FileNotFoundError(
+                    f"{bp_path} not found — run the 'selfcal' and 'ground_truth' phases before 'baseline_with_combined'."
+                )
+            params = _read_json(bp_path)
+            # Phase 63-07 (MEDIUM-3): reject a stale artifact loudly instead of
+            # merging it; the validated config is discarded, the dict is kept.
+            _with_params_validated(config, params, source=bp_path, phase=phase)
+            results[key] = params
 
-    defaults_config = _load_config(configs_dir / "baseline_with_selfcal" / "ew06_vs_shah.yaml")
+    defaults_config = _load_config(configs_dir / "baseline_with_combined" / "ew06_vs_shah.yaml")
     return (
-        results["kobitski_alignment"],
-        results["shah_alignment"],
-        results["shah_label_transfer"],
-        defaults_config.default_params,
-    )
-
-
-def _groundtruth_best_params(configs_dir: Path) -> tuple[dict, dict, dict]:
-    """Load ground_truth best_params.json files plus a defaults dict.
-
-    Returns
-    -------
-    tuple
-        ``(kobitski_alignment, shah_both, defaults)``.
-        ``shah_both`` is from ground_truth/shah_sample1 which runs both alignment
-        and label transfer, so it covers all param keys needed for the merge.
-
-    Raises
-    ------
-    FileNotFoundError
-        If a ground_truth run hasn't produced best_params.json yet — run the
-        ``ground_truth`` phase first.
-    """
-    paths = {
-        "kobitski": configs_dir / "ground_truth" / "kobitski_ew06.yaml",
-        "shah": configs_dir / "ground_truth" / "shah_sample1.yaml",
-    }
-    results = {}
-    for key, cfg_path in paths.items():
-        config = _load_config(cfg_path)
-        bp_path = Path(config.output_dir) / "best_params.json"
-        if not bp_path.exists():
-            raise FileNotFoundError(
-                f"{bp_path} not found — run the 'ground_truth' phase before 'baseline_with_groundtruth'."
-            )
-        results[key] = _read_json(bp_path)
-
-    defaults_config = _load_config(configs_dir / "baseline_with_groundtruth" / "ew06_vs_shah.yaml")
-    return (
-        results["kobitski"],
-        results["shah"],
+        results["kobitski_sc_alignment"],
+        results["shah_sc_alignment"],
+        results["shah_sc_label_transfer"],
+        results["kobitski_gt_alignment"],
+        results["shah_gt_both"],
         defaults_config.default_params,
     )
 
@@ -341,45 +547,34 @@ def run_phase(phase: str, phases_map: dict[str, list], configs_dir: Path, force:
         for _, name, cfg_path in runs:
             run_eval_only(name, cfg_path, params=None, force=force, dry_run=dry_run)
 
-    elif phase == "baseline_with_selfcal":
-        selfcal_runs = phases_map["selfcal"]
+    elif phase == "baseline_with_combined":
+        upstream_runs = phases_map["selfcal"] + phases_map["ground_truth"]
         if dry_run and not all(
-            (Path(_load_config(sc[2]).output_dir) / "best_params.json").exists() for sc in selfcal_runs
+            (Path(_load_config(r[2]).output_dir) / "best_params.json").exists() for r in upstream_runs
         ):
-            log.info("[baseline_with_selfcal] DRY-RUN: selfcal best_params.json not yet available — would merge at real run time")
+            log.info("[baseline_with_combined] DRY-RUN: best_params.json not yet available — would merge at real run time")
             for _, name, cfg_path in runs:
-                run_eval_only(name, cfg_path, params=None, force=force, dry_run=True)
+                run_optimize_then_eval(name, cfg_path, force=force, dry_run=True, clear_checkpoints=clear_checkpoints)
             return
 
-        kobitski_align, shah_align, shah_lt, defaults = _selfcal_best_params(configs_dir)
-        merged = merge_selfcal_params(kobitski_align, shah_align, shah_lt, defaults)
-        log.info("[baseline_with_selfcal] merged params: %s", merged)
+        kobitski_sc, shah_sc_align, shah_sc_lt, kobitski_gt, shah_gt, defaults = _combined_best_params(configs_dir)
+        merged = merge_combined_params(kobitski_sc, shah_sc_align, shah_sc_lt, kobitski_gt, shah_gt, defaults)
+        log.info("[baseline_with_combined] warmstart params (default_params override): %s", merged)
         for _, name, cfg_path in runs:
-            run_eval_only(name, cfg_path, params=merged, force=force, dry_run=dry_run)
-
-    elif phase == "baseline_with_groundtruth":
-        gt_runs = phases_map["ground_truth"]
-        if dry_run and not all(
-            (Path(_load_config(gt[2]).output_dir) / "best_params.json").exists() for gt in gt_runs
-        ):
-            log.info("[baseline_with_groundtruth] DRY-RUN: ground_truth best_params.json not yet available — would merge at real run time")
-            for _, name, cfg_path in runs:
-                run_eval_only(name, cfg_path, params=None, force=force, dry_run=True)
-            return
-
-        kobitski_gt, shah_gt, defaults = _groundtruth_best_params(configs_dir)
-        # shah_gt produced both alignment and label-transfer params (run_label_transfer=true);
-        # merge_groundtruth_params passes it as both shah_alignment and shah_label_transfer.
-        merged = merge_groundtruth_params(kobitski_gt, shah_gt, defaults)
-        log.info("[baseline_with_groundtruth] merged params: %s", merged)
-        for _, name, cfg_path in runs:
-            run_eval_only(name, cfg_path, params=merged, force=force, dry_run=dry_run)
+            run_optimize_then_eval(name, cfg_path, force=force, dry_run=dry_run, clear_checkpoints=clear_checkpoints, warmstart_params=merged)
 
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Run the baseline_experiments suite")
     parser.add_argument("--phase", choices=[*PHASE_ORDER, "all"], default="all")
-    parser.add_argument("--force", action="store_true", help="Re-run even if eval_report.json already exists")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help=(
+            "Re-run even if eval_report.json already exists. A completed optimize run is redone "
+            "from scratch: its Propulate checkpoints and eval_report.json are discarded first."
+        ),
+    )
     parser.add_argument("--dry-run", action="store_true", help="Print the execution plan without running any pipeline")
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument(
@@ -416,7 +611,7 @@ def main(argv=None) -> int:
         for phase in phases:
             log.info("=== phase: %s ===", phase)
             run_phase(phase, phases_map, configs_dir, force=args.force, dry_run=args.dry_run, clear_checkpoints=args.clear_checkpoints)
-    except (EvalConfigError, FileNotFoundError) as e:
+    except (EvalConfigError, FileNotFoundError, StaleCheckpointError) as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
 

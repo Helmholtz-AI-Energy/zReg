@@ -1,5 +1,32 @@
 # Milestones
 
+## v1.8 Code Review Remediation (Shipped: 2026-10-05)
+
+**Delivered:** Every finding of the 8-unit external code review of `feature/evaluation_framework` @ `6c1c37f` is fixed and pinned by a contract-level regression test that fails on `6c1c37f`, passes after the fix, and does not mock the unit under test.
+
+**Phases completed:** 6 phases (59–64, Phase 64 added after the first audit), 37 plans
+**Timeline:** 2026-10-02 → 2026-10-05 (4 days)
+**Stats:** 142 commits since `6c1c37f`, 196 files changed, +19,662 / −1,771 lines
+**Tests:** local full suite 2575 passed, 50 skipped, 1 xpassed, 0 failed; JUPITER GH200 2464 passed, 0 failed; `tox -e doctests` 0 failures
+**Git range:** `6c1c37f` (review baseline) → `f94cf46`
+
+**Key accomplishments:**
+
+- P0 runnability restored: every YAML under `configs/` and `baseline_experiments/configs*/` loads through `EvalConfig.from_yaml` (glob-load test, duplicate keys rejected), the `zreg.dtw` shim and the example scripts import again (Phase 59)
+- Silent number corruption removed: exact ICP/SWD `D_inv`, multi-seed HPO scores the aligned dicts, list seeds run every tier, paired transfer takes Shah labels onto aligned Kobitski, and degenerate metrics/failed trials surface as non-finite or failed instead of a perfect `1.0` (Phase 59)
+- CPD/DTW numerics follow Myronenko & Song: four-value convergence window, rigid `q` and fixed-scale `sigma2`, identity defaults, AffineCPD warm start, DTW save/load with callable metrics, wide-source handling (Phase 60)
+- Distances, aligners and MPI: no pairwise-matrix deadlock, dtype/device-correct SW variants, SWD returns proper rotations, ICP/SWD reject degenerate clouds, one `cdist` per frame for chamfer/hausdorff (Phase 61)
+- Data, label transfer and GPU path: `device: cuda` end-to-end, label configs validated at config time, one NaN-safe `pmat` zero-row policy, correct kNN self-exclusion (Phase 62)
+- HPC orchestration, viz/export and docs: real HPO warm start, checkpoint resume by default, shared rank-0 output dir, complete figures and consistent label metadata, strict JSON for non-finite metrics, whole-package doctests passing and no stale module references (Phases 63–64)
+
+**Requirements:** 37/37 satisfied (RUN/NUM/CPD/DIST/DATA/LT/HPC/VIZ/DOC), covering all 77 distinct review findings. Audit: `status: passed`, Nyquist compliant 59–64 (`.planning/milestones/v1.8-MILESTONE-AUDIT.md`).
+
+**Known deferred items at close:** 14 (see STATE.md Deferred Items) — all from pre-v1.8 phases or already resolved (stale quick-task/UAT/verification status markers). Accepted tech debt is listed in `.planning/milestones/v1.8-ROADMAP.md`.
+
+**Note:** v1.5, v1.6 and v1.7 shipped earlier but were never formally archived; they remain listed in ROADMAP.md.
+
+---
+
 ## v1.0 Consolidation (Shipped: 2026-04-09)
 
 **Phases completed:** 5 phases, 13 plans, 18 tasks
@@ -60,6 +87,7 @@
 **Requirements:** 28/28 satisfied
 
 **Gaps closed at milestone close (2026-07-08):**
+
 - IN-01 (43): dtype inconsistency in stats dict — all_pos cast to float32 before stats block
 - IN-04 (43): strengthened `test_load_target_without_prior_load_real_computes_own_stats` with allclose check
 - OSWD num_projs constraint: fixed in `test_swd_aligner.py` and `test_distances.py` (num_projs=3 for 3D data)

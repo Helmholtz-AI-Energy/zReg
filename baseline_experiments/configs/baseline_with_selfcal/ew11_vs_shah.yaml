@@ -4,11 +4,15 @@
 # merging selfcal/kobitski_ew06_alignment + selfcal/shah_alignment +
 # selfcal/shah_label_transfer best_params.json (see merge_params.py) and passing the
 # merged dict directly to EvaluationRunner — no optimizer runs in this stage.
+#
+# F1 is unavailable here: the receiver (Kobitski) has no ground-truth class labels, so f1 is
+# zero-filled and its metric weight is 0.0 (Phase 63 D-05).
 data_path: data/external/sample/kobitski_data/12_11_30_embryo_ew_11_Cleaned_BackTracked_Oriented.tracklets
 data_format: tracklets
 target_data_path: data/external/sample/shah_data/sample-1/sample-1-cell-tracks.csv
 target_data_format: csv
 pipeline_mode: paired
+label_source: "target"  # Shah provides the 3-class germ-layer labels; Kobitski (unlabeled) receives them
 tier: dev
 run_alignment: true
 run_label_transfer: true
@@ -25,3 +29,11 @@ default_params:
   method: knn_voting
 val_split: 0.2
 output_dir: baseline_experiments/experiments/baseline_with_selfcal/ew11_vs_shah
+
+metric_weights:  # full block: a YAML metric_weights replaces the whole default dict
+  chamfer: 0.35
+  hausdorff: 0.15
+  path_smoothness: 0.10
+  temporal_stability: 0.10
+  f1: 0.0  # zero-filled in paired label_source=target runs (see header)
+  knn_consistency: 0.10

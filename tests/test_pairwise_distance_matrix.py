@@ -1,11 +1,11 @@
-"""Tests for zreg.pairwise_distance_matrix module."""
+"""Tests for zreg.algorithms.pairwise_distance_matrix module."""
 
 import pytest
 import torch
 from unittest.mock import MagicMock
 
-from zreg import pairwise_distance_matrix
-from zreg.dataset import zRegPointCloud
+from zreg.algorithms import pairwise_distance_matrix
+from zreg.core.dataset import zRegPointCloud
 
 
 @pytest.fixture
@@ -540,7 +540,7 @@ class TestPairwiseASWDRemoveHistory:
 
     def test_aswd_distance_calls_remove_history(self, small_trajectory_pair):
         """Using aswd metric calls fn.remove_history() each iteration (line 202)."""
-        from zreg.distances.sw_varients import AdaptiveSlicedWassersteinDistance
+        from zreg.distance_metrics.sw_varients import AdaptiveSlicedWassersteinDistance
         x, y = small_trajectory_pair
         result = pairwise_distance_matrix.create_pairwise_distance_matrix(
             x, y,
@@ -590,7 +590,7 @@ class TestASDWPropsHistoryFileNotFound:
         hist_file = tmp_path / "projs_history.txt"
         hist_file.write_text("dummy")
         monkeypatch.chdir(tmp_path)
-        with _patch("zreg.pairwise_distance_matrix.os.remove", side_effect=FileNotFoundError):
+        with _patch("zreg.algorithms.pairwise_distance_matrix.os.remove", side_effect=FileNotFoundError):
             # Must not raise; FileNotFoundError is swallowed (lines 555-556)
             pairwise_distance_matrix._sanitize_pairwise_distance_matrix(
                 distance_kwargs=None,
@@ -602,15 +602,16 @@ class TestASDWPropsHistoryFileNotFound:
 
 
 class TestGivenRigidRotCPDMetric:
-    """create_pairwise_distance_matrix_given_rigid_rot with cpd metric (line 380)."""
+    """create_pairwise_distance_matrix_given_rigid_rot with the cpd metric."""
 
     def test_cpd_metric_fn_is_none_path(self, small_trajectory_pair):
-        """distance_metric='cpd' makes fn=None, which hits 'if fn is None: continue' (line 380)."""
+        """distance_metric='cpd' resolves to fn=None; given_rigid_rot runs no CPD and rejects it."""
         x, y = small_trajectory_pair
         rotation = torch.eye(3, dtype=torch.float32)
         translation = torch.zeros(3, dtype=torch.float32)
-        # fn=None → line 380 covered; dists stays empty → IndexError on dists[di]
-        with pytest.raises(IndexError):
+        # Rejected up front with a ValueError (DIST-03), consistent with the cpd_type=None
+        # guard of create_pairwise_distance_matrix (previously an index error mid-sweep).
+        with pytest.raises(ValueError, match="cpd"):
             pairwise_distance_matrix.create_pairwise_distance_matrix_given_rigid_rot(
                 x, y,
                 rotation=rotation,
@@ -643,13 +644,25 @@ class TestMPIPaths:
         comm = MagicMock()
         comm.rank = rank
         comm.size = size
-        comm.allgather.side_effect = lambda row: [row, np.zeros_like(row)]
+
+        def _fake_allgather(payload):
+            # Row payload: (row, error); end-of-sweep payload: (stored_transforms, rot_entries).
+            first, _ = payload
+            if isinstance(first, dict):
+                return [payload, ({}, [])]
+            return [payload, (np.zeros_like(first), None)]
+
+        comm.allgather.side_effect = _fake_allgather
         return comm
 
-    def test_mpi_skip_and_empty_row_continue(self):
-        """rank=1, size=2 with 1-sample pair: iteration fc=0 is skipped (148-150) → empty row → continue (233)."""
+    def test_mpi_rank_without_local_pairs_joins_allgather(self):
+        """rank=1, size=2 with 1-sample pair: the only pair (fc=0) belongs to rank 0.
+
+        Rank 1 computes no pair in the row yet still joins the per-row allgather (no
+        `continue`), so the collective stays in lock-step with rank 0 (DIST-01).
+        """
         from unittest.mock import patch as _patch, MagicMock as _MagicMock
-        import zreg.pairwise_distance_matrix as pmat
+        import zreg.algorithms.pairwise_distance_matrix as pmat
 
         comm = self._make_comm(rank=1, size=2)
         mock_mpi = _MagicMock()
@@ -663,13 +676,15 @@ class TestMPIPaths:
                 distance_metric="euclidean",
                 mpi_distribute=True,
             ).cost_matrix
-        # rank=1 skips fc=0 (0%2 ≠ 1), so distance stays inf
+        # rank=1 owns no pair (0 % 2 != 1) but must still join the single row's allgather,
+        # plus the end-of-sweep transform/rotation gather (WR-03)
+        assert comm.allgather.call_count == 2
         assert matrix.shape[1] == 1
 
     def test_mpi_allgather_path(self):
         """rank=0, size=2 with 2-sample pair: fc=1 skipped, fc=0,2 processed → allgather called (89-90, 256-262)."""
         from unittest.mock import patch as _patch, MagicMock as _MagicMock
-        import zreg.pairwise_distance_matrix as pmat
+        import zreg.algorithms.pairwise_distance_matrix as pmat
 
         comm = self._make_comm(rank=0, size=2)
         mock_mpi = _MagicMock()
@@ -686,10 +701,14 @@ class TestMPIPaths:
         assert comm.allgather.called
         assert matrix.shape[1] == 2
 
-    def test_mpi_given_rigid_rot_skip_and_empty_row(self):
-        """rank=1, size=2 with given_rigid_rot: fc=0 skipped (348-350) → empty row → continue (418)."""
+    def test_mpi_given_rigid_rot_rank_without_local_pairs_joins_allgather(self):
+        """rank=1, size=2 with given_rigid_rot and a 1-sample pair: the only pair belongs to rank 0.
+
+        Rank 1 computes no pair in the row yet still joins the per-row allgather (no
+        `continue`), so the collective stays in lock-step with rank 0 (DIST-01).
+        """
         from unittest.mock import patch as _patch, MagicMock as _MagicMock
-        import zreg.pairwise_distance_matrix as pmat
+        import zreg.algorithms.pairwise_distance_matrix as pmat
 
         comm = self._make_comm(rank=1, size=2)
         mock_mpi = _MagicMock()
@@ -707,12 +726,13 @@ class TestMPIPaths:
                 distance_metric="euclidean",
                 mpi_distribute=True,
             )
+        assert comm.allgather.call_count == 1
         assert matrix.shape[1] == 1
 
     def test_mpi_given_rigid_rot_allgather(self):
         """rank=0, size=2 with given_rigid_rot: allgather called (286-287, 439-445)."""
         from unittest.mock import patch as _patch, MagicMock as _MagicMock
-        import zreg.pairwise_distance_matrix as pmat
+        import zreg.algorithms.pairwise_distance_matrix as pmat
 
         comm = self._make_comm(rank=0, size=2)
         mock_mpi = _MagicMock()
@@ -734,15 +754,19 @@ class TestMPIPaths:
         assert matrix.shape[1] == 2
 
     def _make_asymmetric_pair(self):
-        """x has 2 samples, y has 1 sample — for loop back-edge branch tests."""
+        """x has 2 samples, y has 1 sample — rank 1 owns no pair in row 0."""
         pcs_x = {i: zRegPointCloud(pos=torch.randn(10, 3), label=torch.rand(10, 3), id=torch.arange(10)) for i in range(2)}
         pcs_y = {0: zRegPointCloud(pos=torch.randn(10, 3), label=torch.rand(10, 3), id=torch.arange(10))}
         return pcs_x, pcs_y
 
-    def test_mpi_loop_back_edge_create(self):
-        """rank=1, size=2, x=2 samples, y=1 sample: i=0 is fully skipped → continue back to i=1 (261->133)."""
+    def test_mpi_row_without_local_pairs_still_allgathers_create(self):
+        """rank=1, size=2, x=2 samples, y=1 sample: rank 1 computes no pair in row 0.
+
+        It still joins the allgather of row 0 (no `continue`) and of row 1, so it issues
+        exactly one collective per row, like rank 0 (DIST-01).
+        """
         from unittest.mock import patch as _patch, MagicMock as _MagicMock
-        import zreg.pairwise_distance_matrix as pmat
+        import zreg.algorithms.pairwise_distance_matrix as pmat
 
         comm = self._make_comm(rank=1, size=2)
         mock_mpi = _MagicMock()
@@ -756,12 +780,18 @@ class TestMPIPaths:
                 distance_metric="euclidean",
                 mpi_distribute=True,
             ).cost_matrix
+        # one per row plus the end-of-sweep transform/rotation gather (WR-03)
+        assert comm.allgather.call_count == 3
         assert matrix.shape[1] == 2
 
-    def test_mpi_loop_back_edge_given_rigid_rot(self):
-        """rank=1, size=2, x=2 samples, y=1 sample: i=0 fully skipped → continue back to i=1 (444->333)."""
+    def test_mpi_row_without_local_pairs_still_allgathers_given_rigid_rot(self):
+        """rank=1, size=2, x=2 samples, y=1 sample (given_rigid_rot): rank 1 computes no pair in row 0.
+
+        It still joins the allgather of row 0 (no `continue`) and of row 1, so it issues
+        exactly one collective per row, like rank 0 (DIST-01).
+        """
         from unittest.mock import patch as _patch, MagicMock as _MagicMock
-        import zreg.pairwise_distance_matrix as pmat
+        import zreg.algorithms.pairwise_distance_matrix as pmat
 
         comm = self._make_comm(rank=1, size=2)
         mock_mpi = _MagicMock()
@@ -779,6 +809,7 @@ class TestMPIPaths:
                 distance_metric="euclidean",
                 mpi_distribute=True,
             )
+        assert comm.allgather.call_count == 2
         assert matrix.shape[1] == 2
 
 
@@ -796,14 +827,14 @@ class TestCallableMetricPassThrough:
         return x, y
 
     def test_distance_metric_protocol_is_importable(self):
-        """DistanceMetric Protocol must be importable from zreg.distances."""
-        from zreg.distances import DistanceMetric  # noqa: F401 (import-only test)
+        """DistanceMetric Protocol must be importable from zreg.distance_metrics."""
+        from zreg.distance_metrics import DistanceMetric  # noqa: F401 (import-only test)
         assert DistanceMetric is not None
 
     def test_callable_metric_returned_unchanged_by_sanitize(self, small_pair):
         """A callable passed to _sanitize must be returned as-is (no string lookup)."""
-        from zreg.distances.general import euclidean_distance
-        from zreg.pairwise_distance_matrix import _sanitize_pairwise_distance_matrix
+        from zreg.distance_metrics.general import euclidean_distance
+        from zreg.algorithms.pairwise_distance_matrix import _sanitize_pairwise_distance_matrix
         x, y = small_pair
         fns, _, _ = _sanitize_pairwise_distance_matrix(
             distance_kwargs=None,
@@ -816,7 +847,7 @@ class TestCallableMetricPassThrough:
 
     def test_invalid_string_still_raises_value_error(self, small_pair):
         """An unrecognised string must still raise ValueError (regression guard)."""
-        from zreg.pairwise_distance_matrix import _sanitize_pairwise_distance_matrix
+        from zreg.algorithms.pairwise_distance_matrix import _sanitize_pairwise_distance_matrix
         x, y = small_pair
         with pytest.raises(ValueError):
             _sanitize_pairwise_distance_matrix(
@@ -829,8 +860,8 @@ class TestCallableMetricPassThrough:
 
     def test_callable_skips_swd_downsampling_guard(self, small_pair):
         """A callable metric must not trigger the SWD downsampling RuntimeError."""
-        from zreg.distances.general import euclidean_distance
-        from zreg.pairwise_distance_matrix import _sanitize_pairwise_distance_matrix
+        from zreg.distance_metrics.general import euclidean_distance
+        from zreg.algorithms.pairwise_distance_matrix import _sanitize_pairwise_distance_matrix
         x, y = small_pair
         # With a string metric (non-euclidean) and no downsampling → RuntimeError
         # With a callable + no downsampling → should succeed
@@ -853,9 +884,21 @@ class TestPairwiseDistanceMatrixCPDTypes:
     """pairwise_distance_matrix.py:185,187 — nonrigid and affine CPD paths."""
 
     def _make_small_pair(self):
-        """Two tiny 3-frame trajectories (10 points each) for fast CPD tests."""
-        x = {i: zRegPointCloud(pos=torch.randn(10, 3), label=None, id=torch.arange(10)) for i in range(3)}
-        y = {i: zRegPointCloud(pos=torch.randn(10, 3), label=None, id=torch.arange(10)) for i in range(3)}
+        """Two tiny 3-frame trajectories (10 points each) for fast CPD tests.
+
+        Seeded with a local generator: drawn from the global RNG, the points
+        depended on test order, and about 2% of draws make AffineCPD's
+        ``torch.linalg.solve`` singular on 10 random points.
+        """
+        gen = torch.Generator().manual_seed(0)
+        x = {
+            i: zRegPointCloud(pos=torch.randn(10, 3, generator=gen), label=None, id=torch.arange(10))
+            for i in range(3)
+        }
+        y = {
+            i: zRegPointCloud(pos=torch.randn(10, 3, generator=gen), label=None, id=torch.arange(10))
+            for i in range(3)
+        }
         return x, y
 
     def test_cpd_type_nonrigid(self):
@@ -893,7 +936,7 @@ class TestPairwiseResult:
 
     def test_returns_pairwise_result_instance(self, small_trajectory_pair):
         """create_pairwise_distance_matrix must return a PairwiseResult, not a 2-tuple."""
-        from zreg.types import PairwiseResult
+        from zreg.core.types import PairwiseResult
         x, y = small_trajectory_pair
         result = pairwise_distance_matrix.create_pairwise_distance_matrix(
             x, y,
@@ -928,7 +971,7 @@ class TestPairwiseResult:
 
     def test_stored_transforms_populated_with_cpd(self, small_trajectory_pair):
         """stored_transforms has entries when cpd_type is not None."""
-        from zreg.types import StoredTransform
+        from zreg.core.types import StoredTransform
         x, y = small_trajectory_pair
         result = pairwise_distance_matrix.create_pairwise_distance_matrix(
             x, y,

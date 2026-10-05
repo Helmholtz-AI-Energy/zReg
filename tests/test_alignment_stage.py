@@ -6,8 +6,8 @@ Six test classes cover Phase 19 deliverables per FRAME-05 gate criteria.
 import pytest
 
 # zreg.* before torch — macOS-ARM libomp SIGABRT rule
-from zreg.dataset import zRegPointCloud
-from zreg.generators import generate_trajectory
+from zreg.core.dataset import zRegPointCloud
+from zreg.data_generation import generate_trajectory
 
 import torch
 
@@ -157,6 +157,18 @@ class TestAlignmentStageValidateParams:
         params = {**default_params, key: bad_value}
         stage = AlignmentStage(eval_config)
         with pytest.raises(ValueError, match=match_str):
+            stage.validate_params(params)
+
+    def test_dtw_dist_fn_cpd_with_null_cpd_penalty_raises(self, default_params, eval_config):
+        """dtw_dist_fn='cpd' combined with cpd_penalty=None raises ValueError.
+
+        This is the cross-constraint that prevents the multirank-test DTW backtrace
+        failure: cpd_penalty=None causes all cost matrix cells to be inf when
+        dtw_dist_fn='cpd', crashing the backtrace with a misleading window error.
+        """
+        params = {**default_params, "dtw_dist_fn": "cpd", "cpd_penalty": None}
+        stage = AlignmentStage(eval_config)
+        with pytest.raises(ValueError, match="dtw_dist_fn='cpd' requires cpd_penalty"):
             stage.validate_params(params)
 
 
@@ -441,7 +453,7 @@ class TestAlignmentStageCoverageGaps:
         NonRigidCPD may still raise on tiny datasets (upstream bug) — accepted.
         """
         from unittest.mock import MagicMock, patch
-        from zreg.dtw.result import DTWResult
+        from zreg.algorithms.dtw.result import DTWResult
 
         params = {
             "window_size": 10,
@@ -538,8 +550,8 @@ class TestBuildAlignedCloudStoredTransformsSignature:
         Verifies via patching that stored_transforms is forwarded from DTWResult.
         """
         from unittest.mock import MagicMock, patch
-        from zreg.dtw.result import DTWResult
-        from zreg.types import StoredTransform
+        from zreg.algorithms.dtw.result import DTWResult
+        from zreg.core.types import StoredTransform
 
         fake_stored = {(0, 0): MagicMock(spec=StoredTransform)}
         fake_dtw_result = MagicMock(spec=DTWResult)
@@ -645,7 +657,7 @@ class TestAlignmentStageICPIntegration:
         """Minimal EvalConfig for ICP tests."""
         return EvalConfig(data_path=str(tmp_path / "unused.mat"))
 
-    @pytest.mark.parametrize("alignment_method", ["cpd", "icp", "swd"])
+    @pytest.mark.parametrize("alignment_method", ["cpd", pytest.param("icp", marks=pytest.mark.open3d), "swd"])
     def test_alignment_stage_run_with_both_methods(
         self,
         alignment_method,
@@ -683,6 +695,7 @@ class TestAlignmentStageICPIntegration:
             assert not torch.isnan(frame["pos"]).any()
             assert not torch.isinf(frame["pos"]).any()
 
+    @pytest.mark.open3d
     def test_alignment_stage_icp_specific_behavior(
         self,
         eval_config,
@@ -751,6 +764,7 @@ class TestAlignmentStageICPIntegration:
         # params_used should have alignment_method filled in from config
         assert result.params_used["alignment_method"] == eval_config.alignment_method
 
+    @pytest.mark.open3d
     def test_cpd_and_icp_produce_different_results(
         self,
         eval_config,
@@ -788,6 +802,7 @@ class TestAlignmentStageICPIntegration:
         assert set(result_cpd.aligned_cloud.keys()) == set(target.keys())
         assert set(result_icp.aligned_cloud.keys()) == set(target.keys())
 
+    @pytest.mark.open3d
     def test_icp_with_rigid_cpd_penalty_ignored(
         self,
         eval_config,
@@ -814,6 +829,7 @@ class TestAlignmentStageICPIntegration:
         assert isinstance(result, AlignResult)
         assert len(result.aligned_cloud) == len(target)
 
+    @pytest.mark.open3d
     def test_alignment_method_in_params_used(
         self,
         eval_config,
@@ -865,7 +881,7 @@ class TestStoredTransformReuse:
         """
         from copy import deepcopy
         from unittest.mock import MagicMock
-        from zreg.types import StoredTransform
+        from zreg.core.types import StoredTransform
 
         src_pos = torch.rand(10, 3)
         tgt_pos = torch.rand(10, 3)
@@ -998,7 +1014,7 @@ class TestStoredTransformReuse:
         """
         from copy import deepcopy
         from unittest.mock import MagicMock
-        from zreg.types import StoredTransform
+        from zreg.core.types import StoredTransform
 
         src_pos = torch.rand(10, 3)
         tgt_pos = torch.rand(10, 3)
@@ -1226,6 +1242,7 @@ class TestEstepResultsCapture:
 
         assert result.estep_results == {}
 
+    @pytest.mark.open3d
     def test_icp_estep_results_empty(
         self, eval_config, synthetic_dataset_a, synthetic_dataset_b
     ):
@@ -1260,3 +1277,74 @@ class TestEstepResultsCapture:
         result = stage.run(synthetic_dataset_a, synthetic_dataset_b, params)
 
         assert result.estep_results == {}
+
+
+class TestBuildAlignedCloudDegenerateFrames:
+    """61 WR-04: a degenerate frame skips ICP/SWD registration instead of aborting the stage."""
+
+    @pytest.mark.parametrize("method", [pytest.param("icp", marks=pytest.mark.open3d), "swd"])
+    def test_single_point_frame_kept_unregistered(self, method, caplog):
+        torch.manual_seed(0)
+        source_sub = {0: zRegPointCloud(pos=torch.rand(10, 3)), 1: zRegPointCloud(pos=torch.rand(1, 3))}
+        target = {0: zRegPointCloud(pos=torch.rand(10, 3)), 1: zRegPointCloud(pos=torch.rand(10, 3))}
+        with caplog.at_level("WARNING", logger="eval.stages.alignment"):
+            aligned, _ = AlignmentStage._build_aligned_cloud(
+                source=source_sub,
+                target=target,
+                source_sub=source_sub,
+                target_sub=target,
+                warp_path=[(0, 0), (1, 1)],
+                cpd_penalty=None,
+                alignment_method=method,
+                swd_num_iterations=2,
+            )
+        assert set(aligned) == {0, 1}
+        # Degenerate frame: unregistered copy of the matched source frame.
+        assert torch.equal(aligned[1]["pos"], source_sub[1]["pos"])
+        assert aligned[1] is not source_sub[1]
+        assert aligned[0]["pos"].shape == (10, 3)
+        assert any("target frame 1" in r.getMessage() and "zero extent" in r.getMessage() for r in caplog.records)
+
+    def test_registrable_pair_has_no_reason(self):
+        torch.manual_seed(0)
+        a, b = zRegPointCloud(pos=torch.rand(5, 3)), zRegPointCloud(pos=torch.rand(5, 3))
+        assert AlignmentStage._degenerate_registration_reason(a, b) is None
+        empty = zRegPointCloud(pos=torch.empty(0, 3))
+        assert "empty" in AlignmentStage._degenerate_registration_reason(empty, b)
+
+    def test_non_finite_frame_has_reason(self):
+        a = zRegPointCloud(pos=torch.rand(5, 3))
+        a["pos"][0, 0] = float("nan")
+        b = zRegPointCloud(pos=torch.rand(5, 3))
+        assert AlignmentStage._degenerate_registration_reason(a, b) is not None
+
+    @pytest.mark.parametrize("bad_shape", [(5, 2), (5, 6)])
+    def test_mis_shaped_cloud_is_not_skipped(self, bad_shape):
+        """61 review iter 2 WR-01: a (N, k!=3) cloud is systemic, not a per-frame skip."""
+        a, b = zRegPointCloud(pos=torch.rand(*bad_shape)), zRegPointCloud(pos=torch.rand(5, 3))
+        assert AlignmentStage._degenerate_registration_reason(a, b) is None
+        assert AlignmentStage._degenerate_registration_reason(b, a) is None
+
+    def test_device_mismatch_is_not_skipped(self):
+        """61 review iter 2 WR-01: a device mismatch is systemic and must propagate."""
+        a = zRegPointCloud(pos=torch.rand(5, 3))
+        b = zRegPointCloud(pos=torch.empty(5, 3, device="meta"))
+        assert AlignmentStage._degenerate_registration_reason(a, b) is None
+
+    @pytest.mark.parametrize("method", ["icp", "swd"])
+    def test_mis_shaped_cloud_raises_from_stage(self, method):
+        """The stage fails loudly on mis-shaped clouds instead of returning unregistered frames."""
+        torch.manual_seed(0)
+        source_sub = {0: zRegPointCloud(pos=torch.rand(10, 2))}
+        target = {0: zRegPointCloud(pos=torch.rand(10, 3))}
+        with pytest.raises(ValueError, match=r"shape \(N, 3\)"):
+            AlignmentStage._build_aligned_cloud(
+                source=source_sub,
+                target=target,
+                source_sub=source_sub,
+                target_sub=target,
+                warp_path=[(0, 0)],
+                cpd_penalty=None,
+                alignment_method=method,
+                swd_num_iterations=2,
+            )

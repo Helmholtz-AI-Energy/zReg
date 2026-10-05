@@ -4,28 +4,47 @@
 # Submit AFTER launch_horeka.sbatch has completed successfully — this job reads
 # best_params.json from selfcal/ and ground_truth/ output directories.
 #
-# No propulate/MPI needed: eval-only passes run on rank 0 only. Single node,
-# single GPU keeps resource usage minimal.
+# Resources: 4 nodes x 4 GPUs (16 ranks). baseline_no_hpo runs eval-only as a single
+# process on the batch host; baseline_with_combined runs Propulate HPO on all 16 ranks
+# via srun.
 #
-# Runtime estimate (1 rank, GPU-accelerated, step=8, max_points=1000, w=10):
-# cpd_penalty fixed to "rigid" for all passes — baseline_no_hpo was previously null
-# (DTW-only, ~4 s/pass CPU); all three passes now run rigid CPD (~177 s/pass CPU).
-#   baseline_no_hpo/ew06_vs_shah          : 10–25 min  (1 eval pass, rigid CPD, ~756 pairs)
-#   baseline_with_selfcal/ew06_vs_shah    : 10–25 min  (1 eval pass, rigid CPD, merged params)
-#   baseline_with_groundtruth/ew06_vs_shah: 10–25 min  (1 eval pass, rigid CPD, merged params)
+# Runtime estimate (GPU-accelerated, step=8, max_points=1000):
+#   baseline_no_hpo/ew06_vs_shah        :  10–25 min  (1 rank, eval-only, rigid CPD, ~756 pairs)
+#   baseline_with_combined/ew06_vs_shah : 30–70 min  (16 ranks, 20 dev HPO trials, w=[5,10])
 #   -----------------------------------------------------------------------
-#   Total                                 : 30–75 min  (well within 2 h wall clock)
+#   Total                               : 40–95 min  (well within 4 h wall clock)
 #
 # Submit:  sbatch baseline_experiments/scripts/launch_horeka_baseline.sbatch
-# Resume:  re-submit; _already_done() skips completed runs.
+# Resume:  re-submit; _already_done() skips runs that have eval_report.json, unfinished
+#          HPO resumes from Propulate checkpoints. Set ZREG_CLEAR_CHECKPOINTS=1 for one
+#          submission to drop stale checkpoints (e.g. after a search-space change such as
+#          Phase 63 D-08):  ZREG_CLEAR_CHECKPOINTS=1 sbatch <this script>
+#          run_all.py records the search space next to the checkpoints and stops with an
+#          error naming ZREG_CLEAR_CHECKPOINTS=1 if they were written under another one.
+# Redo:    ZREG_FORCE=1 sbatch <this script> passes --force: every completed run of this
+#          job is redone from scratch (run_all.py discards its Propulate checkpoints and
+#          eval_report.json first; unfinished runs still resume). To redo one run only,
+#          delete that run's eval_report.json AND its Propulate checkpoints (*.pickle,
+#          *.pkl, *.bkp in its output dir), or delete eval_report.json and submit with
+#          ZREG_CLEAR_CHECKPOINTS=1 (also restarts every other unfinished run of the job).
+#          Deleting eval_report.json alone resumes the finished search; it is not a redo.
+# Env:     ZREG_VENV      venv to activate (default: $HOME/regvenv_horeka)
+#          ZREG_REPO_DIR  repo checkout to cd into
+#                         (default: /home/hk-project-starter-p0024807/uitog/BA/zReg).
+#                         #SBATCH lines cannot expand env vars, so the --output log
+#                         path below stays in the default checkout. With another
+#                         checkout, override it at submission (the directory must
+#                         already exist; Slurm does not create it):
+#                           ZREG_REPO_DIR=$PWD sbatch \
+#                             --output=$PWD/baseline_experiments/logs/slurm-%j.out <this script>
 
 #SBATCH --job-name=zreg-baseline-eval
 #SBATCH --partition=accelerated
-#SBATCH --nodes=1
-#SBATCH --ntasks-per-node=1
-#SBATCH --gres=gpu:1
-#SBATCH --time=01:00:00
-#SBATCH --mem-per-cpu=16G
+#SBATCH --nodes=4
+#SBATCH --ntasks-per-node=4
+#SBATCH --gres=gpu:4
+#SBATCH --time=04:00:00
+#SBATCH --mem-per-gpu=120G
 #SBATCH --output=/home/hk-project-starter-p0024807/uitog/BA/zReg/baseline_experiments/logs/slurm-%j.out
 
 module load devel/cuda/12.4
@@ -34,10 +53,23 @@ module load mpi/openmpi
 
 set -euo pipefail
 
-VENV=~/regvenv_horeka
+VENV="${ZREG_VENV:-$HOME/regvenv_horeka}"
+REPO_DIR="${ZREG_REPO_DIR:-/home/hk-project-starter-p0024807/uitog/BA/zReg}"
+
+# Checkpoint clearing is opt-in: a plain re-submit resumes HPO from Propulate checkpoints.
+CLEAR_FLAG=()
+if [[ "${ZREG_CLEAR_CHECKPOINTS:-0}" == "1" ]]; then
+  CLEAR_FLAG=(--clear-checkpoints)
+fi
+# Re-running completed runs is opt-in too (63-REVIEW WR-04).
+FORCE_FLAG=()
+if [[ "${ZREG_FORCE:-0}" == "1" ]]; then
+  FORCE_FLAG=(--force)
+fi
+
 source "$VENV/bin/activate"
 
-cd /home/hk-project-starter-p0024807/uitog/BA/zReg
+cd "${REPO_DIR}"
 mkdir -p baseline_experiments/logs
 
 export KMP_DUPLICATE_LIB_OK=TRUE
@@ -47,18 +79,16 @@ export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
 python -u baseline_experiments/scripts/run_all.py \
   --phase baseline_no_hpo \
   --configs-dir baseline_experiments/configs_horeka \
+  ${FORCE_FLAG[@]+"${FORCE_FLAG[@]}"} \
   --verbose
 
-# baseline_with_selfcal: eval with params merged from selfcal best_params.json.
-# Requires selfcal phase to have produced best_params.json in all three selfcal dirs.
-python -u baseline_experiments/scripts/run_all.py \
-  --phase baseline_with_selfcal \
-  --configs-dir baseline_experiments/configs_horeka \
-  --verbose
-
-# baseline_with_groundtruth: eval with params merged from ground_truth best_params.json.
-# Requires ground_truth phase to have produced best_params.json in both ground_truth dirs.
-python -u baseline_experiments/scripts/run_all.py \
-  --phase baseline_with_groundtruth \
-  --configs-dir baseline_experiments/configs_horeka \
-  --verbose
+# baseline_with_combined: HPO on the real cross-embryo task, warm-started from the
+# merged selfcal+ground_truth params. Requires both selfcal and ground_truth phases
+# to have produced best_params.json. Uses all 16 ranks via propulate.
+srun --mpi=pmix --label \
+  "$VENV/bin/python" -u baseline_experiments/scripts/run_all.py \
+    --phase baseline_with_combined \
+    --configs-dir baseline_experiments/configs_horeka \
+    ${CLEAR_FLAG[@]+"${CLEAR_FLAG[@]}"} \
+    ${FORCE_FLAG[@]+"${FORCE_FLAG[@]}"} \
+    --verbose

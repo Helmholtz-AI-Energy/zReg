@@ -1,9 +1,9 @@
 """AlignmentStage: thin DTW + CPD wrapper for FRAME-05 evaluation framework.
 
 This module implements ``AlignmentStage(PipelineStage)``, a thin orchestration
-layer over ``zreg.dtw.DynamicTimeWarping``.  No DTW or CPD logic is
+layer over ``zreg.algorithms.dtw.DynamicTimeWarping``.  No DTW or CPD logic is
 reimplemented here — all numerical computation delegates to the existing
-``zreg.dtw.*`` package (FRAME-05 explicit constraint).
+``zreg.algorithms.dtw.*`` package (FRAME-05 explicit constraint).
 
 Hyperparam mapping (D-07):
 
@@ -38,16 +38,17 @@ When ``cpd_type=None``, ``DTWResult.rotations`` is ``[]`` (empty list), NOT
 """
 
 from copy import deepcopy
+import logging
 from typing import Any
 
 # zreg.* MUST precede torch on macOS-ARM (libomp SIGABRT).
 # Enforced in tests/conftest.py:20-24, eval/data_factory.py:18-35,
 # eval/metrics.py:53-67, eval/types.py:48-53.
-from zreg.cpd import RigidCPD, AffineCPD, NonRigidCPD, EstepResult
-from zreg.dataset import zRegPointCloud
-from zreg.dtw import DynamicTimeWarping
-from zreg.registration import ICPRegistration, SlicedWassersteinAligner
-from zreg.types import StoredTransform
+from zreg.algorithms.cpd import RigidCPD, AffineCPD, NonRigidCPD, EstepResult
+from zreg.core.dataset import zRegPointCloud
+from zreg.algorithms.dtw import DynamicTimeWarping
+from zreg.algorithms import ICPRegistration, SlicedWassersteinAligner
+from zreg.core.types import StoredTransform
 import zreg.utils as utils
 
 import torch  # noqa: F401 — ensures consistent import order for downstream callers
@@ -57,6 +58,8 @@ from eval.stages.base import PipelineStage
 from eval.types import AlignResult
 
 __all__ = ["AlignmentStage"]
+
+log = logging.getLogger(__name__)
 
 
 class AlignmentStage(PipelineStage):
@@ -164,6 +167,13 @@ class AlignmentStage(PipelineStage):
 
         if not (isinstance(params["dtw_dist_fn"], str) and params["dtw_dist_fn"]):
             raise ValueError(f"dtw_dist_fn must be non-empty str; got {params['dtw_dist_fn']!r}")
+
+        if params["dtw_dist_fn"] == "cpd" and params["cpd_penalty"] is None:
+            raise ValueError(
+                "dtw_dist_fn='cpd' requires cpd_penalty to be set ('rigid', 'affine', or "
+                "'nonrigid'); cpd_penalty=None means no CPD registration runs, which produces "
+                "an all-inf DTW cost matrix and a backtrace failure."
+            )
 
         if not (isinstance(params["n_breakpoints"], int)
                 and not isinstance(params["n_breakpoints"], bool)
@@ -464,8 +474,8 @@ class AlignmentStage(PipelineStage):
                             log_freq=-1,
                         )
 
-                    # CR-01: use registration() return value — NonRigidCPD does not set
-                    # self.transformation (overrides maximization_step without super() call)
+                    # CR-01: use the registration() return value because it is the canonical
+                    # result; every CPD variant also sets .transformation after registration (CPD-04).
                     reg_result = cpd_obj.registration(matched_target_frame["pos"], w=0.0, maxiter=1000, tol=1e-5)
                     matched_source_frame["pos"] = reg_result.transformation.transform(matched_source_frame["pos"])
 
@@ -485,6 +495,18 @@ class AlignmentStage(PipelineStage):
                 )
                 estep_results[tk] = estep_result
 
+                aligned[tk] = matched_source_frame
+            elif alignment_method in ("icp", "swd") and (
+                reason := AlignmentStage._degenerate_registration_reason(matched_source_frame, matched_target_frame)
+            ):
+                # ICP/SWD reject empty, non-finite and zero-extent (e.g. single-point) clouds
+                # with a ValueError (DIST-04). One such frame must not abort the whole stage:
+                # keep the temporally matched frame unregistered and warn (61 WR-04).
+                log.warning(
+                    "%s registration skipped for target frame %s (source sub-frame %d): %s; "
+                    "keeping the temporally matched source frame unregistered",
+                    alignment_method.upper(), tk, src_sub_idx, reason,
+                )
                 aligned[tk] = matched_source_frame
             elif alignment_method == "icp":
                 # ICP spatial registration
@@ -522,6 +544,39 @@ class AlignmentStage(PipelineStage):
                 aligned[tk] = matched_source_frame
 
         return aligned, estep_results
+
+    @staticmethod
+    def _degenerate_registration_reason(source: zRegPointCloud, target: zRegPointCloud) -> str | None:
+        """Return why ICP/SWD cannot register this pair, or None if it can (61 WR-04).
+
+        Only per-frame data degeneracies are turned into a skip: an empty, non-finite
+        (NaN/inf) or zero-extent (all points coincide) cloud, as reported by the aligners'
+        own validation (``zreg.utils.registration_bounds``). Systemic misconfiguration
+        that would hit every frame -- a cloud not shaped ``(N, 3)`` or the two clouds on
+        different devices -- returns None, so ``register()`` raises and the stage fails
+        loudly instead of silently returning only unregistered frames.
+
+        Parameters
+        ----------
+        source, target : zRegPointCloud
+            Source and target frames of the pair.
+
+        Returns
+        -------
+        str | None
+            The validation message, or None if the pair is registrable or the error is
+            systemic (shape/device) and must propagate from ``register()``.
+        """
+        src_pos, tgt_pos = source["pos"], target["pos"]
+        if any(c.dim() != 2 or c.shape[1] != 3 for c in (src_pos, tgt_pos)):
+            return None  # mis-shaped clouds: systemic, let register() raise
+        if src_pos.device != tgt_pos.device:
+            return None  # device mismatch: systemic, let register() raise
+        try:
+            utils.registration_bounds(source["pos"], target["pos"])
+        except ValueError as exc:
+            return str(exc)
+        return None
 
     @staticmethod
     def _apply_stored_transform(

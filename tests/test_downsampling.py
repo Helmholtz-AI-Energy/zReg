@@ -1,10 +1,10 @@
-"""Tests for zreg.downsampling module."""
+"""Tests for zreg.preprocessing.downsampling module."""
 
 import pytest
 import torch
 
-from zreg.dataset import zRegPointCloud
-from zreg import downsampling
+from zreg.core.dataset import zRegPointCloud
+from zreg.preprocessing import downsampling
 
 @pytest.fixture
 def sample_pointcloud():
@@ -257,7 +257,7 @@ class TestFPSAndKNNExplicitMode:
         import logging
         pos = torch.randn(20, 3)
         batch = torch.tensor([0] * 10 + [1] * 10)
-        with caplog.at_level(logging.WARNING, logger="zreg.downsampling"):
+        with caplog.at_level(logging.WARNING, logger="zreg.preprocessing.downsampling"):
             edge_index = downsampling.knn_graph(pos, k=2, batch=batch, use_torch_cluster=False)
         assert any("single batch" in str(r.message) for r in caplog.records)
 
@@ -461,7 +461,7 @@ class TestDownsamplingWithOpen3D:
     def open3d_pointclouds(self):
         """Create Open3D point clouds for testing."""
         try:
-            from zreg.dataset import zreg_to_open3d
+            from zreg.core.dataset import zreg_to_open3d
             
             pc1 = zRegPointCloud(
                 pos=torch.randn(100, 3),
@@ -498,7 +498,7 @@ class TestDownsamplingWithOpen3D:
     @pytest.fixture
     def open3d_equal_pointclouds(self):
         """Create two equal-sized Open3D point clouds for testing early-return paths."""
-        from zreg.dataset import zreg_to_open3d
+        from zreg.core.dataset import zreg_to_open3d
 
         pc1 = zRegPointCloud(
             pos=torch.randn(50, 3),
@@ -564,8 +564,8 @@ class TestGetOpen3DDownsampling:
     def test_no_open3d(self):
         """Returns (None, False) when HAS_OPEN3D is False."""
         from unittest.mock import patch
-        from zreg.downsampling import _get_open3d
-        with patch("zreg.downsampling.HAS_OPEN3D", False):
+        from zreg.preprocessing.downsampling import _get_open3d
+        with patch("zreg.preprocessing.downsampling.HAS_OPEN3D", False):
             o3d, flag = _get_open3d()
         assert o3d is None and flag is False
 
@@ -573,16 +573,137 @@ class TestGetOpen3DDownsampling:
         """Returns (None, False) when open3d import raises ImportError."""
         import sys
         from unittest.mock import patch
-        from zreg.downsampling import _get_open3d
-        with patch("zreg.downsampling.HAS_OPEN3D", True):
+        from zreg.preprocessing.downsampling import _get_open3d
+        with patch("zreg.preprocessing.downsampling.HAS_OPEN3D", True):
             with patch.dict(sys.modules, {"open3d": None}):
                 o3d, flag = _get_open3d()
         assert o3d is None and flag is False
 
     def test_getattr_o3d_no_open3d(self):
         """downsampling.o3d raises AttributeError when HAS_OPEN3D is False."""
-        import zreg.downsampling
+        import zreg.preprocessing.downsampling
         from unittest.mock import patch
-        with patch("zreg.downsampling.HAS_OPEN3D", False):
+        with patch("zreg.preprocessing.downsampling.HAS_OPEN3D", False):
             with pytest.raises(AttributeError, match="open3d not installed"):
-                _ = zreg.downsampling.o3d
+                _ = zreg.preprocessing.downsampling.o3d
+
+
+def _fresh_pair_id_none(n_x=40, n_y=30):
+    """Two fresh clouds of different sizes without ids (the functions mutate inputs)."""
+    x = zRegPointCloud(pos=torch.randn(n_x, 3), label=torch.randn(n_x, 3), id=None)
+    y = zRegPointCloud(pos=torch.randn(n_y, 3), label=torch.randn(n_y, 3), id=None)
+    return x, y
+
+
+class TestIdNoneDownsampling:
+    """id=None must survive downsampling (Phase 64, D-01) instead of raising TypeError."""
+
+    def test_random_id_none_size_match(self):
+        x, y = _fresh_pair_id_none()
+        x_ds, y_ds = downsampling.random_down_sample(x, y)
+        assert x_ds["pos"].shape[0] == 30
+        assert y_ds["pos"].shape[0] == 30
+        assert x_ds["id"] is None
+        assert y_ds["id"] is None
+        assert x_ds["label"].shape[0] == 30
+
+    def test_random_id_none_points_branch(self):
+        x, y = _fresh_pair_id_none()
+        x_ds, y_ds = downsampling.random_down_sample(x, y, points=20)
+        assert x_ds["pos"].shape[0] == 20
+        assert y_ds["pos"].shape[0] == 20
+        assert x_ds["id"] is None
+        assert y_ds["id"] is None
+
+    def test_uniform_id_none(self):
+        x, y = _fresh_pair_id_none()
+        x_ds, y_ds = downsampling.uniform_down_sample(x, y)
+        assert x_ds["pos"].shape[0] == y_ds["pos"].shape[0] == 30
+        assert x_ds["id"] is None
+        assert y_ds["id"] is None
+
+    def test_fps_id_none(self):
+        x, y = _fresh_pair_id_none()
+        x_ds, y_ds = downsampling.farthest_point_down_sample(x, y)
+        assert x_ds["pos"].shape[0] == y_ds["pos"].shape[0] == 30
+        assert x_ds["id"] is None
+        assert y_ds["id"] is None
+
+    def test_random_id_none_return_o3d(self):
+        """return_o3d=True converts id=None clouds without a TypeError (no "labels" attribute)."""
+        pytest.importorskip("open3d")
+        x, y = _fresh_pair_id_none()
+        x_o3d, y_o3d = downsampling.random_down_sample(x, y, return_o3d=True)
+        assert x_o3d.point.positions.shape[0] == y_o3d.point.positions.shape[0] == 30
+        assert "labels" not in x_o3d.point
+        assert "labels" not in y_o3d.point
+        assert x_o3d.point.colors.shape[0] == 30
+
+    def test_zreg_to_open3d_id_and_label_none(self):
+        """zreg_to_open3d only maps optional fields that are present (torch and numpy input)."""
+        pytest.importorskip("open3d")
+        from zreg.core.dataset import zreg_to_open3d
+
+        pc = zRegPointCloud(pos=torch.randn(5, 3), label=None, id=None)
+        pc["fps-idx"] = None
+        out = zreg_to_open3d(pc)
+        assert out.point.positions.shape[0] == 5
+        assert "colors" not in out.point
+        assert "labels" not in out.point
+
+        import open3d as o3d
+
+        pc_np = zRegPointCloud(pos=o3d.core.Tensor(pc["pos"].numpy()), label=None, id=None)
+        pc_np["fps-idx"] = None
+        out_np = zreg_to_open3d(pc_np)
+        assert out_np.point.positions.shape[0] == 5
+        assert "labels" not in out_np.point
+
+    @pytest.mark.parametrize("to_torch", [True, False])
+    def test_open3d_round_trip_label_and_id_none(self, to_torch):
+        """A label=None / id=None cloud survives zreg_to_open3d -> open3d_to_zreg (no KeyError on colors)."""
+        pytest.importorskip("open3d")
+        from zreg.core.dataset import open3d_to_zreg, zreg_to_open3d
+
+        pos = torch.randn(5, 3)
+        pc = zRegPointCloud(pos=pos.clone(), label=None, id=None)
+        pc["fps-idx"] = None
+        back = open3d_to_zreg(zreg_to_open3d(pc), to_torch=to_torch)
+        assert back["label"] is None
+        assert back["id"] is None
+        assert back["fps-idx"] is None
+        back_pos = back["pos"] if to_torch else torch.from_numpy(back["pos"])
+        assert torch.equal(back_pos, pos)
+
+        # the point-attribute TensorMap branch tolerates the missing colors too
+        back_map = open3d_to_zreg(zreg_to_open3d(pc).point, to_torch=to_torch)
+        assert back_map["label"] is None
+        assert back_map["id"] is None
+
+    @pytest.mark.parametrize("points", [-1, 20])
+    def test_random_ids_follow_positions(self, points):
+        """With ids present, returned ids still index the returned positions row-for-row."""
+        orig_x = torch.randn(40, 3)
+        orig_y = torch.randn(30, 3)
+        x = zRegPointCloud(pos=orig_x.clone(), label=None, id=torch.arange(40))
+        y = zRegPointCloud(pos=orig_y.clone(), label=None, id=torch.arange(30))
+        x_ds, y_ds = downsampling.random_down_sample(x, y, points=points)
+        assert torch.equal(x_ds["pos"], orig_x[x_ds["id"]])
+        assert torch.equal(y_ds["pos"], orig_y[y_ds["id"]])
+
+    def test_dtw_random_downsample_id_none(self):
+        from zreg.algorithms.dtw import DynamicTimeWarping
+        from zreg.data_generation import generate_trajectory
+
+        traj_x = generate_trajectory(n_points=30, n_frames=4, seed=0)
+        traj_y = generate_trajectory(n_points=30, n_frames=5, seed=1)
+        dtw = DynamicTimeWarping(
+            x=traj_x,
+            y=traj_y,
+            distance_metric="swd",
+            downsample_method="random",
+            cpd_type="rigid",
+            window=10,
+        )
+        result = dtw.compute()
+        assert result.distance >= 0

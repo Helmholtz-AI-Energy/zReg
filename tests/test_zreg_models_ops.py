@@ -11,11 +11,12 @@ import time
 # zreg (and scipy) must be imported before torch/open3d/torch_geometric on macOS
 # ARM to avoid duplicate libomp initialisation (SIGABRT) — mirrors
 # tests/conftest.py:20-24 and 47-RESEARCH.md's Pitfall 1 import-order convention.
-from zreg.dataset import zRegPointCloud  # noqa: F401
+from zreg.core.dataset import zRegPointCloud  # noqa: F401
 
 import pytest
 import torch
 
+from zreg.models import _ops
 from zreg.models._ops import ball_query, build_radius_graph, farthest_point_sample
 
 
@@ -114,3 +115,73 @@ def test_ball_query_zero_max_neighbors_triggers_isolated_guard():
     groups = ball_query(pos, center_idx, radius=5.0, max_neighbors=0)
     assert len(groups) == 1
     assert groups[0].tolist() == [0]
+
+
+_requires_open3d = pytest.mark.skipif(not _ops._HAS_OPEN3D, reason="Open3D not available")
+
+
+@pytest.fixture
+def torch_fallback(monkeypatch):
+    """Force the pure-torch fallback even where Open3D is installed."""
+    monkeypatch.setattr(_ops, "_HAS_OPEN3D", False)
+
+
+@_requires_open3d
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_torch_fallback_matches_open3d(seed, monkeypatch):
+    """The no-Open3D fallback reproduces Open3D's FPS, ball-query and radius-graph output."""
+    gen = torch.Generator().manual_seed(seed)
+    pos = torch.rand(300, 3, generator=gen)
+
+    def run():
+        idx = farthest_point_sample(pos, 75)
+        return (idx, ball_query(pos, idx, radius=0.15, max_neighbors=16),
+                build_radius_graph(pos, 0.12, 8), _ops.knn(pos[idx], pos, 3))
+
+    idx_o3d, groups_o3d, edges_o3d, knn_o3d = run()
+    monkeypatch.setattr(_ops, "_HAS_OPEN3D", False)
+    idx_t, groups_t, edges_t, knn_t = run()
+
+    assert torch.equal(idx_t, idx_o3d)
+    assert [g.tolist() for g in groups_t] == [g.tolist() for g in groups_o3d]
+    assert torch.equal(edges_t, edges_o3d)
+    assert knn_t[0] == knn_o3d[0]
+    assert torch.allclose(torch.tensor(knn_t[1]), torch.tensor(knn_o3d[1]), rtol=1e-12, atol=1e-15)
+
+
+@pytest.mark.usefixtures("torch_fallback")
+def test_torch_fallback_contracts():
+    """Fallback keeps the public contracts: unique FPS indices, never-empty groups, no self-edges."""
+    pos = torch.randn(200, 3)
+    idx = farthest_point_sample(pos, 50)
+    assert idx.dtype == torch.long and idx.unique().numel() == 50
+    assert idx.tolist() == sorted(idx.tolist())
+
+    far = torch.cat([pos, torch.full((1, 3), 100.0)])
+    groups = ball_query(far, torch.tensor([200, 0]), radius=0.3, max_neighbors=4)
+    assert groups[0].tolist() == [200]  # isolated-point guard
+    assert 1 <= len(groups[1]) <= 4
+
+    edge_index = build_radius_graph(far, radius=0.5, max_neighbors=6)
+    src, tgt = edge_index
+    assert edge_index.shape[0] == 2
+    assert torch.unique(tgt).numel() == far.shape[0]  # every node has an incoming edge
+    self_loop_targets = set(tgt[src == tgt].tolist())
+    assert 200 in self_loop_targets  # isolated-point guard
+    for i in self_loop_targets:  # a self-loop is only ever a node's sole incoming edge
+        assert int((tgt == i).sum()) == 1
+
+    idx, d2 = _ops.knn(pos[:20], pos[:5], 3)
+    assert [row[0] for row in idx] == [0, 1, 2, 3, 4]  # each query is its own nearest point
+    assert all(row == sorted(row) for row in d2)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.usefixtures("torch_fallback")
+def test_torch_fallback_stays_on_cuda():
+    """The fallback computes on pos.device and returns CUDA tensors for CUDA input."""
+    pos = torch.randn(150, 3, device="cuda")
+    idx = farthest_point_sample(pos, 40)
+    assert idx.device == pos.device
+    assert all(g.device == pos.device for g in ball_query(pos, idx, radius=0.3, max_neighbors=16))
+    assert build_radius_graph(pos, radius=0.3, max_neighbors=16).device == pos.device

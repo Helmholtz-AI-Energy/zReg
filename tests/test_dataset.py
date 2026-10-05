@@ -1,12 +1,13 @@
-"""Tests for zreg.dataset module."""
+"""Tests for zreg.core.dataset module."""
 
+import numpy as np
 import pytest
 import torch
 import tempfile
 import os
 from unittest.mock import patch, MagicMock
 
-from zreg.dataset import zRegPointCloud, load_shah_from_csv, HAS_OPEN3D
+from zreg.core.dataset import zRegPointCloud, load_shah_from_csv, HAS_OPEN3D
 
 
 class TestZRegPointCloud:
@@ -144,7 +145,7 @@ class TestOpen3DConversions:
     def test_zreg_to_open3d(self, sample_pointcloud):
         """Test conversion from zRegPointCloud to Open3D."""
         try:
-            from zreg.dataset import zreg_to_open3d
+            from zreg.core.dataset import zreg_to_open3d
             import open3d as o3d
             
             o3d_pc = zreg_to_open3d(sample_pointcloud)
@@ -160,7 +161,7 @@ class TestOpen3DConversions:
     def test_open3d_to_zreg(self, sample_pointcloud):
         """Test conversion from Open3D to zRegPointCloud."""
         try:
-            from zreg.dataset import zreg_to_open3d, open3d_to_zreg
+            from zreg.core.dataset import zreg_to_open3d, open3d_to_zreg
 
             # Convert to Open3D and back
             o3d_pc = zreg_to_open3d(sample_pointcloud)
@@ -177,7 +178,7 @@ class TestOpen3DConversions:
 
     def test_open3d_to_zreg_numpy(self, sample_pointcloud):
         """Test open3d_to_zreg with to_torch=False returns numpy arrays."""
-        from zreg.dataset import zreg_to_open3d, open3d_to_zreg
+        from zreg.core.dataset import zreg_to_open3d, open3d_to_zreg
         import numpy as np
 
         o3d_pc = zreg_to_open3d(sample_pointcloud)
@@ -188,7 +189,7 @@ class TestOpen3DConversions:
 
     def test_zreg_to_open3d_with_fps_idx(self):
         """Test zreg_to_open3d preserves fps-idx when set."""
-        from zreg.dataset import zreg_to_open3d
+        from zreg.core.dataset import zreg_to_open3d
         import open3d as o3d
 
         pc = zRegPointCloud(
@@ -204,7 +205,7 @@ class TestOpen3DConversions:
 
     def test_open3d_to_zreg_no_labels(self):
         """Test open3d_to_zreg when PointCloud has no labels key."""
-        from zreg.dataset import open3d_to_zreg
+        from zreg.core.dataset import open3d_to_zreg
         import open3d as o3d
         import open3d.core as o3c
         import numpy as np
@@ -236,12 +237,12 @@ class TestLoadDataFromTracklets:
 
     def test_function_exists(self):
         """Test that the function is importable."""
-        from zreg.dataset import load_data_from_tracklets
+        from zreg.core.dataset import load_data_from_tracklets
         assert callable(load_data_from_tracklets)
 
     def test_missing_file_raises_error(self):
         """Test that missing file raises appropriate error."""
-        from zreg.dataset import load_data_from_tracklets
+        from zreg.core.dataset import load_data_from_tracklets
 
         with pytest.raises(FileNotFoundError):
             load_data_from_tracklets("nonexistent_file.mat")
@@ -274,7 +275,7 @@ class TestLoadDataFromTrackletsWithMock:
 
     def test_load_executes_full_body(self):
         """Mocked loadmat executes lines 129-163 of load_data_from_tracklets."""
-        from zreg.dataset import load_data_from_tracklets
+        from zreg.core.dataset import load_data_from_tracklets
         import numpy as np
 
         fake = self._make_fake_mat()
@@ -283,7 +284,7 @@ class TestLoadDataFromTrackletsWithMock:
             t["pos"] = np.array(t["pos"])
             t["color"] = np.array(t["color"])
 
-        with patch("zreg.dataset.sio.loadmat", return_value=fake):
+        with patch("zreg.core.dataset.sio.loadmat", return_value=fake):
             pc, tracklets = load_data_from_tracklets("fake.mat", device="cpu")
 
         assert 0 in pc
@@ -293,7 +294,7 @@ class TestLoadDataFromTrackletsWithMock:
 
     def test_load_cuda_not_available_falls_back_to_cpu(self):
         """device='cuda' with CUDA unavailable logs warning and uses cpu (lines 125-127)."""
-        from zreg.dataset import load_data_from_tracklets
+        from zreg.core.dataset import load_data_from_tracklets
         import numpy as np
 
         fake = self._make_fake_mat()
@@ -301,11 +302,158 @@ class TestLoadDataFromTrackletsWithMock:
             t["pos"] = np.array(t["pos"])
             t["color"] = np.array(t["color"])
 
-        with patch("zreg.dataset.sio.loadmat", return_value=fake), \
+        with patch("zreg.core.dataset.sio.loadmat", return_value=fake), \
              patch("torch.cuda.is_available", return_value=False):
             pc, _ = load_data_from_tracklets("fake.mat", device="cuda")
 
         assert pc[0]["pos"].device.type == "cpu"
+
+
+class TestTrackletRgbRemapRealMat:
+    """Real ``scipy.io.savemat`` round-trips through ``load_data_from_tracklets``.
+
+    Phase 62-02 (DATA-04, U4-9): colours are canonicalised before use, the
+    RGB remap is decided over all non-empty frames (not frame 0 only), and
+    every frame's label tensor has one consistent dtype (``torch.long`` for
+    RGB or integer colours), empty frames included. No loader stubbing:
+    every case writes and reads a real .mat file.
+    """
+
+    N_FRAMES = 4
+
+    @staticmethod
+    def _write(path, tracklets, n_frames):
+        import numpy as np
+        import scipy.io as sio
+
+        arr = np.empty(len(tracklets), dtype=object)
+        for k, t in enumerate(tracklets):
+            arr[k] = t
+        sio.savemat(path, {"tracklets": arr, "trackletsPerTimePoint": np.zeros(n_frames)})
+        return str(path)
+
+    @staticmethod
+    def _tracklet(tid, start, end, color):
+        import numpy as np
+
+        # 1-based MATLAB times; every tracklet spans >= 2 time points so
+        # squeeze_me keeps pos 2-D.
+        n = end - start + 1
+        pos = np.arange(n * 3, dtype=float).reshape(n, 3) + 10.0 * tid
+        return {"startTime": start, "endTime": end, "pos": pos, "id": tid, "color": color}
+
+    def test_rgb_remap_with_empty_leading_frames(self, tmp_path):
+        import numpy as np
+        from zreg.core.dataset import load_data_from_tracklets
+
+        red = np.array([1.0, 0.0, 0.0])
+        blue = np.array([0.0, 0.0, 1.0])
+        path = self._write(
+            tmp_path / "t.mat",
+            [self._tracklet(1, 3, 4, red), self._tracklet(2, 3, 4, blue), self._tracklet(3, 3, 4, red)],
+            self.N_FRAMES,
+        )
+        pc, _ = load_data_from_tracklets(path)
+
+        assert sorted(pc) == [0, 1, 2, 3]
+        for i in (0, 1):
+            assert pc[i]["label"].shape == (0,)
+            assert pc[i]["label"].dtype == torch.long
+        for i in (2, 3):
+            label = pc[i]["label"]
+            assert label.dim() == 1 and label.dtype == torch.long
+            assert label.shape == (3,)
+            # tracklets 1 and 3 are red, tracklet 2 is blue
+            assert label[0] == label[2]
+            assert label[0] != label[1]
+        assert torch.equal(pc[2]["label"], pc[3]["label"])
+        assert set(pc[2]["label"].tolist()) == {0, 1}
+
+    def test_scalar_int_colours_not_remapped(self, tmp_path):
+        import scipy.io as sio
+        from zreg.core.dataset import load_data_from_tracklets
+
+        path = self._write(
+            tmp_path / "t.mat",
+            [self._tracklet(1, 3, 4, 4), self._tracklet(2, 2, 4, 7)],
+            self.N_FRAMES,
+        )
+        raw = sio.loadmat(path, simplify_cells=True, squeeze_me=True)["tracklets"][0]["color"]
+        # Premise of Review cycle 1 HIGH: real loadmat returns a Python int.
+        assert isinstance(raw, int)
+
+        pc, _ = load_data_from_tracklets(path)
+        assert pc[0]["label"].shape == (0,)
+        assert pc[0]["label"].dtype == torch.long
+        assert pc[1]["label"].tolist() == [7]
+        assert pc[2]["label"].tolist() == [4, 7]
+        assert pc[3]["label"].tolist() == [4, 7]
+        for i in range(self.N_FRAMES):
+            assert pc[i]["label"].dtype == torch.long
+            assert pc[i]["label"].dim() == 1
+
+    def test_zero_time_points_returns_empty(self, tmp_path):
+        """Empty object array and empty trackletsPerTimePoint round-trip as len-0 arrays."""
+        from zreg.core.dataset import load_data_from_tracklets
+
+        path = self._write(tmp_path / "t.mat", [], 0)
+        pc, tracklets = load_data_from_tracklets(path)
+        assert pc == {}
+        assert len(tracklets) == 0
+
+    def test_mixed_scalar_and_rgb_colours_rejected(self, tmp_path):
+        import numpy as np
+        from zreg.core.dataset import load_data_from_tracklets
+
+        path = self._write(
+            tmp_path / "t.mat",
+            [self._tracklet(1, 1, 4, np.array([1.0, 0.0, 0.0])), self._tracklet(2, 1, 4, 4)],
+            self.N_FRAMES,
+        )
+        with pytest.raises(ValueError, match="mixed scalar and RGB colours"):
+            load_data_from_tracklets(path)
+
+    def test_empty_colour_rejected_not_reported_as_mixed(self, tmp_path):
+        """62-REVIEW WR-10: an empty MATLAB colour names the tracklet, not 'mixed' colours."""
+        import numpy as np
+        from zreg.core.dataset import load_data_from_tracklets
+
+        path = self._write(
+            tmp_path / "t.mat",
+            [self._tracklet(1, 1, 4, 4), self._tracklet(2, 1, 4, np.array([]))],
+            self.N_FRAMES,
+        )
+        with pytest.raises(ValueError, match=r"tracklet 1 \(id 2\) colour is empty"):
+            load_data_from_tracklets(path)
+
+    def test_canonical_colour_helper(self):
+        import numpy as np
+        from zreg.core.dataset import _canonical_colour
+
+        assert _canonical_colour(5) == 5
+        assert _canonical_colour(np.int64(5)) == 5
+        assert type(_canonical_colour(np.int64(5))) is int
+        assert _canonical_colour(np.array([1.0, 0.0, 0.0])) == (1.0, 0.0, 0.0)
+        assert _canonical_colour(torch.tensor([1, 2, 3])) == (1, 2, 3)
+        assert _canonical_colour(np.array([9])) == 9
+        assert _canonical_colour(np.array([1.0, 0.0, 0.0, 1.0])) == (1.0, 0.0, 0.0, 1.0)
+
+    @pytest.mark.parametrize(
+        "raw, match",
+        [
+            (np.array([]), "is empty"),
+            ([], "is empty"),
+            (np.array([1.0, 0.0]), "malformed"),
+            (np.array([1, 2, 3, 4, 5]), "malformed"),
+            (np.zeros((3, 3)), "malformed"),
+        ],
+    )
+    def test_canonical_colour_rejects_malformed(self, raw, match):
+        """62-REVIEW WR-10: empty / wrong-length colours raise a colour-specific error."""
+        from zreg.core.dataset import _canonical_colour
+
+        with pytest.raises(ValueError, match=match):
+            _canonical_colour(raw, context="tracklet 3 (id 7) colour")
 
 
 class TestDatasetNoOpen3D:
@@ -313,7 +461,7 @@ class TestDatasetNoOpen3D:
 
     def test_get_open3d_pc_raises_without_open3d(self):
         """get_open3d_pc raises RuntimeError when HAS_OPEN3D is False (line 44)."""
-        import zreg.dataset as ds
+        import zreg.core.dataset as ds
         pc = zRegPointCloud(pos=torch.randn(5, 3))
         with patch.object(ds, "HAS_OPEN3D", False):
             with pytest.raises(RuntimeError, match="open3d is not available"):
@@ -321,8 +469,8 @@ class TestDatasetNoOpen3D:
 
     def test_zreg_to_open3d_raises_without_open3d(self):
         """zreg_to_open3d raises RuntimeError when HAS_OPEN3D is False (line 187)."""
-        import zreg.dataset as ds
-        from zreg.dataset import zreg_to_open3d
+        import zreg.core.dataset as ds
+        from zreg.core.dataset import zreg_to_open3d
         pc = zRegPointCloud(pos=torch.randn(5, 3), label=torch.randn(5, 3), id=torch.arange(5))
         with patch.object(ds, "HAS_OPEN3D", False):
             with pytest.raises(RuntimeError, match="open3d is not available"):
@@ -330,8 +478,8 @@ class TestDatasetNoOpen3D:
 
     def test_open3d_to_zreg_raises_without_open3d(self):
         """open3d_to_zreg raises RuntimeError when HAS_OPEN3D is False (line 261)."""
-        import zreg.dataset as ds
-        from zreg.dataset import open3d_to_zreg
+        import zreg.core.dataset as ds
+        from zreg.core.dataset import open3d_to_zreg
         mock_pc = MagicMock()
         with patch.object(ds, "HAS_OPEN3D", False):
             with pytest.raises(RuntimeError, match="open3d is not available"):
@@ -346,7 +494,7 @@ class TestZRegToOpen3DWithOpen3DTensors:
         """Values that are o3c.Tensor (not torch.Tensor) take the else branch (lines 205-209)."""
         import open3d.core as o3c
         import numpy as np
-        from zreg.dataset import zreg_to_open3d
+        from zreg.core.dataset import zreg_to_open3d
         import open3d as o3d
 
         pc = zRegPointCloud()
@@ -362,7 +510,7 @@ class TestZRegToOpen3DWithOpen3DTensors:
         """Non-torch values with fps-idx set also use the else branch (line 209: fps_idx added)."""
         import open3d.core as o3c
         import numpy as np
-        from zreg.dataset import zreg_to_open3d
+        from zreg.core.dataset import zreg_to_open3d
         import open3d as o3d
 
         pc = zRegPointCloud()
@@ -382,7 +530,7 @@ class TestOpen3DToZRegNonPointCloud:
 
     def test_non_pointcloud_open3d_input(self):
         """Passing a mock with .positions/.colors/.labels attributes uses the else branch."""
-        from zreg.dataset import open3d_to_zreg
+        from zreg.core.dataset import open3d_to_zreg
         import numpy as np
 
         mock_pc = MagicMock()
@@ -399,7 +547,7 @@ class TestOpen3DToZRegNonPointCloud:
 
     def test_non_pointcloud_missing_labels(self):
         """Non-PointCloud input without labels attribute yields id=None (line 279-280)."""
-        from zreg.dataset import open3d_to_zreg
+        from zreg.core.dataset import open3d_to_zreg
         import numpy as np
 
         mock_pc = MagicMock()
@@ -420,8 +568,8 @@ class TestImportOpen3D:
         """_import_open3d returns (None, None, False) when open3d import raises ImportError."""
         import sys
         from unittest.mock import patch
-        from zreg.dataset import _import_open3d
-        with patch("zreg.dataset.HAS_OPEN3D", True):
+        from zreg.core.dataset import _import_open3d
+        with patch("zreg.core.dataset.HAS_OPEN3D", True):
             with patch.dict(sys.modules, {"open3d": None}):
                 o3dtgeo, o3c, flag = _import_open3d()
         assert o3dtgeo is None

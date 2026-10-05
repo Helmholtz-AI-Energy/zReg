@@ -25,7 +25,8 @@ search_space:
   cpd_penalty: ["rigid"]  # fixed to rigid — null/affine excluded
   window_size: [20]
   step: [8]
-  dtw_dist_fn: [euclidean, cosine]
+  # single-value list; cosine is not a DTW distance (Phase 63 D-08)
+  dtw_dist_fn: [euclidean]
 
 default_params:
   window_size: 20

@@ -1,7 +1,13 @@
 # HPO directly on the cross-embryo paired task — Kobitski ew_06 (source) vs Shah sample-1 (target).
 # Alignment + label transfer (kNN voting). No synthetic perturbation — optimizer scores trials
-# on proxy metrics (chamfer, hausdorff, path smoothness, temporal stability) plus label transfer
-# accuracy (f1, knn_consistency) using Shah's per-cell "id" labels on the held-out val split.
+# on proxy metrics (chamfer, hausdorff, path smoothness) plus kNN label consistency of Shah's
+# germ-layer labels transferred onto the aligned Kobitski source (label_source: "target").
+#
+# F1 is unavailable here: the receiver (Kobitski) has no ground-truth class labels, so f1 is
+# zero-filled in every trial (Phase 59 NUM-04) and its weight is 0.0 (ranking-neutral; a
+# positive weight only capped the score below 1.0). temporal_stability is reported unavailable
+# (no per-frame transforms), so it contributes a constant 0. best_score values from before
+# Phase 59 are therefore not comparable with later runs.
 #
 # Unlike selfcal/ground_truth configs this is pipeline_mode: paired, so there is no known ground
 # truth transform — the optimizer minimises the weighted metric composite directly on real data.
@@ -18,6 +24,7 @@ data_format: tracklets
 target_data_path: data/external/sample/shah_data/sample-1/sample-1-cell-tracks.csv
 target_data_format: csv
 pipeline_mode: paired
+label_source: "target"  # Shah provides the 3-class germ-layer labels; Kobitski (unlabeled) receives them
 device: "cuda"
 max_points_per_frame: 1000
 run_alignment: true
@@ -32,7 +39,7 @@ search_space:
   cpd_penalty: ["rigid"]
   window_size: [5, 10]
   step: [8]  # fixed temporal downsampling — single-value list so every trial uses step=8
-  dtw_dist_fn: [euclidean]
+  dtw_dist_fn: [cpd]
   k_neighbours: [3, 5, 10]
   dist_metric: [euclidean]
   smoothing: [0.0, 0.1, 0.3]
@@ -43,7 +50,7 @@ default_params:
   window_size: 10
   step: 8
   cpd_penalty: "rigid"
-  dtw_dist_fn: euclidean
+  dtw_dist_fn: cpd
   n_breakpoints: 5
   k_neighbours: 5
   dist_metric: euclidean
@@ -59,5 +66,5 @@ metric_weights:
   hausdorff: 0.15
   path_smoothness: 0.10
   temporal_stability: 0.10
-  f1: 0.25
+  f1: 0.0  # zero-filled in paired label_source=target runs (see header)
   knn_consistency: 0.10

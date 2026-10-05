@@ -9,10 +9,10 @@ files even though it does not apply inside ``src/zreg/`` itself.
 
 import pytest
 
-from zreg.dataset import zRegPointCloud
+from zreg.core.dataset import zRegPointCloud
 from zreg.preprocessing import compute_pca_rotation, detect_velocity_landmarks
 from zreg import preprocessing
-from zreg.generators import generate_trajectory
+from zreg.data_generation import generate_trajectory
 
 import torch
 

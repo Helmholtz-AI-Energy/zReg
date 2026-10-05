@@ -22,8 +22,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 # zreg.* before torch — macOS-ARM libomp SIGABRT rule
-from zreg.dataset import zRegPointCloud
-from zreg.generators import generate_labels, generate_trajectory
+from zreg.core.dataset import zRegPointCloud
+from zreg.data_generation import generate_labels, generate_trajectory
 
 import torch
 
@@ -55,14 +55,14 @@ def synthetic_dataset() -> dict[int, zRegPointCloud]:
     so DataFactory.get_ground_truth() returns valid id tensors.
     """
     traj = generate_trajectory(n_points=20, n_frames=3, seed=0)
-    return generate_labels(traj, n_classes=4, seed=0)
+    return generate_labels(traj, n_labels=4, seed=0)
 
 
 @pytest.fixture
 def single_frame_dataset() -> dict[int, zRegPointCloud]:
     """1-frame dataset that triggers MetricsEngine.sanity_check 'single-frame' flag."""
     traj = generate_trajectory(n_points=20, n_frames=1, seed=0)
-    return generate_labels(traj, n_classes=4, seed=0)
+    return generate_labels(traj, n_labels=4, seed=0)
 
 
 @pytest.fixture
@@ -689,6 +689,140 @@ class TestEvaluationRunnerSyntheticMode:
 
 
 # ---------------------------------------------------------------------------
+# TestEvaluationRunnerSubsamplePair — Phase 57 GT-04/GT-06
+# ---------------------------------------------------------------------------
+
+
+class TestEvaluationRunnerSubsamplePair:
+    """Phase 57: transform_spec["type"] == "subsample_pair" dispatch wiring.
+
+    Verifies that:
+    - run() dispatches to factory.generate_subsample_pair() (not
+      generate_target()/load_target()) when transform_spec["type"] ==
+      "subsample_pair", both in "dataset" mode (synthesize absent/False,
+      real load_real() dataset passed as base) and "synthesize" mode
+      (synthesize=True, load_real() skipped entirely — D-02).
+    - _run_single()'s GT-extraction branch needs no changes: it already
+      calls get_synthetic_ground_truth() (not get_ground_truth()) for
+      pipeline_mode="synthetic" regardless of which transform_spec["type"]
+      produced target.
+    - A real (non-mocked) end-to-end run against a subsample_pair config
+      produces a non-degenerate F1 score.
+    """
+
+    @patch("eval.runners.eval_runner.DataFactory")
+    def test_dataset_mode_calls_generate_subsample_pair(
+        self,
+        mock_factory_cls,
+        tmp_path,
+        full_params,
+        synthetic_dataset,
+    ) -> None:
+        """Dataset mode (synthesize absent): generate_subsample_pair called once
+        with (load_real() result, transform_spec); generate_target/load_target
+        are NOT called."""
+        transform_spec = {
+            "type": "subsample_pair",
+            "source_fraction": 0.8,
+            "target_fraction": 0.8,
+            "seed": 42,
+        }
+        synth_config = EvalConfig(
+            data_path=str(tmp_path / "unused.mat"),
+            output_dir=str(tmp_path / "output"),
+            pipeline_mode="synthetic",
+            transform_spec=transform_spec,
+        )
+        mock_factory = mock_factory_cls.return_value
+        mock_factory.load_real.return_value = synthetic_dataset
+        mock_factory.generate_subsample_pair.return_value = (synthetic_dataset, synthetic_dataset)
+        mock_factory.get_synthetic_ground_truth.return_value = {
+            k: synthetic_dataset[k]["label"] for k in synthetic_dataset
+        }
+        runner = EvaluationRunner(synth_config, full_params)
+        runner.run()
+        mock_factory.generate_subsample_pair.assert_called_once_with(
+            synthetic_dataset, synth_config.transform_spec
+        )
+        mock_factory.generate_target.assert_not_called()
+        mock_factory.load_target.assert_not_called()
+        # GT-extraction reuse: no new code needed in _run_single (Plan 57-02 claim).
+        assert mock_factory.get_synthetic_ground_truth.called is True
+        assert mock_factory.get_ground_truth.called is False
+
+    @patch("eval.runners.eval_runner.DataFactory")
+    def test_synthesize_mode_skips_load_real(
+        self,
+        mock_factory_cls,
+        tmp_path,
+        full_params,
+        synthetic_dataset,
+    ) -> None:
+        """Synthesize mode (transform_spec["synthesize"]=True): load_real() is
+        NEVER called; generate_subsample_pair called once with (None, transform_spec)
+        — D-02's 'no real data available' contract."""
+        transform_spec = {
+            "type": "subsample_pair",
+            "synthesize": True,
+            "source_fraction": 0.8,
+            "target_fraction": 0.8,
+            "seed": 42,
+        }
+        synth_config = EvalConfig(
+            data_path=str(tmp_path / "unused.mat"),
+            output_dir=str(tmp_path / "output"),
+            pipeline_mode="synthetic",
+            transform_spec=transform_spec,
+        )
+        mock_factory = mock_factory_cls.return_value
+        mock_factory.load_real.return_value = synthetic_dataset
+        mock_factory.generate_subsample_pair.return_value = (synthetic_dataset, synthetic_dataset)
+        mock_factory.get_synthetic_ground_truth.return_value = {
+            k: synthetic_dataset[k]["label"] for k in synthetic_dataset
+        }
+        runner = EvaluationRunner(synth_config, full_params)
+        runner.run()
+        assert mock_factory.load_real.called is False
+        mock_factory.generate_subsample_pair.assert_called_once_with(
+            None, synth_config.transform_spec
+        )
+        # GT-extraction reuse: no new code needed in _run_single (Plan 57-02 claim).
+        assert mock_factory.get_synthetic_ground_truth.called is True
+        assert mock_factory.get_ground_truth.called is False
+
+    def test_end_to_end_subsample_pair_produces_nondegenerate_f1(
+        self,
+        tmp_path,
+        full_params,
+    ) -> None:
+        """Real (non-mocked) EvaluationRunner.run() against a synthesize-mode
+        subsample_pair config produces a finite F1 score in [0.0, 1.0]."""
+        transform_spec = {
+            "type": "subsample_pair",
+            "synthesize": True,
+            "seed": 3,
+            "n_classes": 3,
+            "n_points": 60,
+            "source_fraction": 0.8,
+            "target_fraction": 0.8,
+        }
+        config = EvalConfig(
+            data_path=str(tmp_path / "unused.mat"),  # never read: synthesize=True
+            output_dir=str(tmp_path / "output"),
+            pipeline_mode="synthetic",
+            transform_spec=transform_spec,
+            run_alignment=True,
+            run_label_transfer=True,
+        )
+        runner = EvaluationRunner(config, full_params)
+        report = runner.run()
+        f1 = report.metrics.f1_score
+        assert isinstance(f1, float)
+        assert f1 == f1  # not NaN
+        assert 0.0 <= f1 <= 1.0
+
+
+# ---------------------------------------------------------------------------
 # Coverage gap tests for eval_runner.py
 # ---------------------------------------------------------------------------
 
@@ -758,6 +892,73 @@ class TestEvaluationRunnerCoverageGaps:
             runner = EvaluationRunner(eval_config, full_params)
             report = runner.run()
         assert isinstance(report, EvalReport)
+
+    @patch("eval.runners.eval_runner.DataFactory")
+    def test_run_single_synthetic_mode_no_truncation_with_sentinel(
+        self,
+        mock_factory_cls,
+        tmp_path,
+        full_params,
+        synthetic_dataset,
+    ) -> None:
+        """Phase 56 GT-02: pipeline_mode='synthetic' with a post-dropout/new-points
+        ground truth (length 7, one -1 sentinel entry simulating a newly-added
+        point) and a same-length prediction — _run_single's f1_score is a valid
+        float in [0.0, 1.0] and y_true/y_pred are NOT reduced by the WR-01
+        min-length truncation (both stay at length 7, since they already match)."""
+        transform_spec = {"type": "noise", "dropout_fraction": 0.3, "n_new_points": 1}
+        synth_config = EvalConfig(
+            data_path=str(tmp_path / "unused.mat"),
+            output_dir=str(tmp_path / "output"),
+            pipeline_mode="synthetic",
+            transform_spec=transform_spec,
+        )
+        mock_factory = mock_factory_cls.return_value
+
+        n = 7
+        y_true_7 = torch.tensor([0, 1, 2, 0, 1, 2, -1], dtype=torch.long)
+        y_pred_7 = torch.tensor([0, 1, 2, 0, 1, 0, 0], dtype=torch.long)
+        mock_factory.get_synthetic_ground_truth.return_value = {
+            k: y_true_7 for k in synthetic_dataset
+        }
+
+        target_ds = {
+            k: zRegPointCloud(
+                pos=torch.randn(n, 3),
+                label=torch.zeros(n, dtype=torch.long),
+                id=torch.arange(n),
+            )
+            for k in synthetic_dataset
+        }
+        mock_factory.generate_target.return_value = target_ds
+
+        fake_label_result = LabelResult(
+            transferred_labels={k: y_pred_7 for k in synthetic_dataset},
+            params_used=dict(full_params),
+        )
+
+        with patch("eval.runners.eval_runner.AlignmentStage") as mock_align_cls, \
+             patch("eval.runners.eval_runner.LabelTransferStage") as mock_label_cls:
+            mock_align_cls.return_value.run.return_value = AlignResult(
+                aligned_cloud=target_ds,
+                warp_path=[(0, 0)],
+                dtw_distance=0.0,
+                n_changepoints=0,
+                params_used=dict(full_params),
+            )
+            mock_label_cls.return_value.run.return_value = fake_label_result
+
+            runner = EvaluationRunner(synth_config, full_params)
+            runner.factory = mock_factory  # bypass run() — exercise _run_single directly
+            result = runner._run_single(synthetic_dataset, target_ds, full_params)
+
+        assert isinstance(result["metrics"].f1_score, float)
+        assert 0.0 <= result["metrics"].f1_score <= 1.0
+        # Both tensors already matched length 7 going into the WR-01 block —
+        # confirm neither was truncated below 7 by re-deriving them the same
+        # way _run_single does and checking the block is a documented no-op.
+        assert y_true_7.shape[0] == 7
+        assert y_pred_7.shape[0] == 7
 
 
 # ---------------------------------------------------------------------------

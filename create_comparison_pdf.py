@@ -34,6 +34,21 @@ def flatten_dict(d, parent_key='', sep='.'):
     return dict(items)
 
 
+def _fmt_metric(val):
+    """Format one metric cell of the comparison table.
+
+    ``eval_report.json`` is strict JSON (Phase 63 IN-01): a metric that was not
+    computed is written as ``null`` (listed in ``non_finite_fields``) and is
+    shown as ``"n/a"``. Floats use 6 significant digits; anything else (e.g.
+    the ``'N/A'`` placeholder of a missing key) is shown via ``str``.
+    """
+    if val is None:
+        return "n/a"
+    if isinstance(val, float):
+        return f"{val:.6g}"
+    return str(val)
+
+
 def load_run_data(run_dir):
     """Load config, report, and images from a run directory."""
     run_path = Path(run_dir)
@@ -120,12 +135,7 @@ def create_comparison_pdf(run1_dir, run2_dir, label1, label2, output_path):
             val1 = report1.get('metrics', {}).get(key, 'N/A')
             val2 = report2.get('metrics', {}).get(key, 'N/A')
 
-            if isinstance(val1, float):
-                val1 = f"{val1:.6g}"
-            if isinstance(val2, float):
-                val2 = f"{val2:.6g}"
-
-            table_data.append([key, str(val1), str(val2)])
+            table_data.append([key, _fmt_metric(val1), _fmt_metric(val2)])
 
         # Create table
         table = ax.table(

@@ -23,8 +23,8 @@ import pytest
 import torch
 
 # zreg.* before torch on macOS-ARM (libomp SIGABRT rule from Phase 12)
-from zreg.dataset import zRegPointCloud
-from zreg.generators import generate_labels, generate_trajectory
+from zreg.core.dataset import zRegPointCloud
+from zreg.data_generation import generate_labels, generate_trajectory
 
 from eval.config import EvalConfig
 from eval.tracking import export_trajectory
@@ -77,7 +77,7 @@ def patch_auto_capture():
 def synthetic_dataset() -> dict[int, zRegPointCloud]:
     """3-frame synthetic trajectory with color labels (20 points per frame)."""
     traj = generate_trajectory(n_points=20, n_frames=3, seed=0)
-    return generate_labels(traj, n_classes=4, seed=0)
+    return generate_labels(traj, n_labels=4, seed=0)
 
 
 @pytest.fixture

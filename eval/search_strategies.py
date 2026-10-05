@@ -42,7 +42,7 @@ from typing import Any
 
 # zreg.* MUST precede torch on macOS-ARM (libomp SIGABRT).
 # Enforced in tests/conftest.py:20-24, eval/data_factory.py:18-35.
-from zreg.dataset import zRegPointCloud
+from zreg.core.dataset import zRegPointCloud
 
 import torch
 
@@ -228,7 +228,7 @@ class SobolSearch:
         randomize:
             When ``True`` (default), uses scrambled Owen sequence (better
             uniformity, reproducible via ``seed``).  When ``False``, uses
-            classical Van der Corput sequence and ``seed`` is silently ignored
+            classical Van der Corput sequence and ``seed`` has no effect
             (D-04).
         warm_start:
             Optional list of param dicts to evaluate first (D-07).
@@ -301,6 +301,8 @@ class BayesianSearch:
 
     Warm-start params are seeded via ``study.enqueue_trial(skip_if_exists=True)``
     (D-04; Pitfall 6 — ``skip_if_exists`` REQUIRED to avoid duplicates on re-run).
+    Seed values are validated against the categorical choices first; an
+    off-choice seed raises ``ValueError`` before any trial (Phase 63 HPC-01).
     """
 
     def search(
@@ -330,7 +332,32 @@ class BayesianSearch:
         -------
         list[tuple[dict, float]]
             Each element is (params_dict, score) for every completed trial.
+
+        Raises
+        ------
+        ValueError
+            Before the study is created, if a ``warm_start`` entry holds a value
+            for a search-space key that is not one of that key's choices
+            (Phase 63 HPC-01 / D-09).  Optuna cannot enqueue such a seed and
+            would otherwise fail inside ``study.optimize`` with a message that
+            does not mention the warm start.  Seed keys outside
+            ``search_space`` are ignored (Optuna records only the
+            search-space keys; the optimizer fills the rest from
+            ``config.default_params``).
         """
+        # Phase 63 HPC-01 / D-09: validate every seed before anything is created
+        # or enqueued, so an off-choice seed fails loudly before any trial runs.
+        for i, p in enumerate(warm_start or []):
+            for key, value in p.items():
+                if key not in search_space:
+                    continue
+                choices = search_space[key]
+                if value not in choices:
+                    raise ValueError(
+                        f"warm-start seed {i}: {key}={value!r} is not one of the search-space "
+                        f"choices {choices!r} (Optuna cannot enqueue it)"
+                    )
+
         n_params = len(search_space)
         n_startup = max(10, 2 * n_params)  # FRAME-10: n_startup_trials >= 2 * N_params
 
@@ -378,9 +405,12 @@ class PropulateSearch:
     actual count may exceed ``n_trials`` by up to (world_size - 1).  Use
     ``mpirun -n N`` to control parallelism.
 
-    ``warm_start`` is accepted but silently ignored — Propulate's evolutionary
-    model manages its own population and does not accept warm-start seeds in
-    the same way (D-09).
+    Propulate does not seed its population from ``warm_start``.
+    ``HyperparamOptimizer`` therefore pre-evaluates each tier's incoming seeds
+    on rank 0 as ordinary trials before calling this search and passes
+    ``warm_start=None`` (Phase 63 HPC-01 / D-09, PROVISIONAL, pending user
+    confirmation).  A direct caller that passes seeds gets a WARNING that they
+    are not used.
 
     Checkpoints are written to ``checkpoint_path=Path(output_dir)`` (same
     directory passed as ``output_dir``).
@@ -414,7 +444,9 @@ class PropulateSearch:
         output_dir:
             Directory where Propulate checkpoint files are written.
         warm_start:
-            Accepted but silently ignored (D-09 — log only).
+            Not used to seed the population; a non-empty value logs a WARNING
+            (Phase 63 D-09).  ``HyperparamOptimizer`` evaluates the seeds
+            itself and passes ``None``.
 
         Returns
         -------
@@ -437,9 +469,15 @@ class PropulateSearch:
         rank = comm.Get_rank()
         world_size = comm.Get_size()
 
-        # D-09: warm_start silently ignored — log and continue
+        # Phase 63 D-09: Propulate cannot seed its population. Say so loudly;
+        # HyperparamOptimizer pre-evaluates the seeds and passes None.
         if warm_start:
-            _log.info("PropulateSearch: warm_start ignored (D-09)")
+            _log.warning(
+                "PropulateSearch: %d warm-start seed(s) given, but Propulate's population "
+                "is not seeded from them; evaluate them as ordinary trials before the "
+                "search (HyperparamOptimizer does this on rank 0, Phase 63 D-09)",
+                len(warm_start),
+            )
 
         # D-07: convert lists → tuples for Propulate's limits format.
         # Propulate infers parameter type from the first element: str→categorical,
@@ -466,7 +504,18 @@ class PropulateSearch:
         # D-08: closure inverts sign because Propulate minimises; framework maximises
         def _loss(ind) -> float:
             # Use explicit comprehension — Individual is not a dict subclass (Pitfall 1)
-            params = {k: _decode_param(k, ind[k]) for k in search_space}
+            try:
+                params = {k: _decode_param(k, ind[k]) for k in search_space}
+            except (ValueError, IndexError, KeyError) as e:
+                # 63-REVIEW WR-03: an individual bred from a checkpoint written
+                # under an older search space; say how to recover. KeyError:
+                # a key was added to the search space since (63-REVIEW IN-07).
+                raise ValueError(
+                    f"Propulate individual {dict(ind)} does not fit the current search space; "
+                    f"the checkpoints in {output_dir} were probably written under an older one. "
+                    "Discard them with ZREG_CLEAR_CHECKPOINTS=1 (HoreKa launchers) or "
+                    "--clear-checkpoints (run_all.py)."
+                ) from e
             return -objective_fn(params)
 
         # Per-rank reproducibility: deterministic seed offset keeps ranks independent
@@ -514,7 +563,7 @@ class PropulateSearch:
                 continue
             try:
                 params = {k: _decode_param(k, ind[k]) for k in search_space}
-            except (ValueError, IndexError):
+            except (ValueError, IndexError, KeyError):
                 # Stale checkpoint individual from an older search space (e.g. a param
                 # that previously allowed None/'__none__' but no longer does). Safe to
                 # skip — these individuals were evaluated under a different config and

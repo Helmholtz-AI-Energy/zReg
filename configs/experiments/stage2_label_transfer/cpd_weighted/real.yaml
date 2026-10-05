@@ -1,0 +1,43 @@
+# Stage 2 — Label Transfer: CPD-weighted (label_transfer_method: cpd_weighted).
+# Tier 3 — Real data: Kobitski ew06 (source) vs Shah sample-1 (target). Run with --mode eval.
+# Update default_params with best values from synthetic HPO before submitting.
+#
+# F1 is unavailable here: the receiver (Kobitski) has no ground-truth class labels, so f1 is
+# zero-filled and its metric weight is 0.0 (Phase 63 D-05).
+data_path: data/external/sample/kobitski_data/12_11_15_embryo_ew_06_Cleaned_BackTracked_Oriented.tracklets
+data_format: tracklets
+target_data_path: data/external/sample/shah_data/sample-1/sample-1-cell-tracks.csv
+target_data_format: csv
+pipeline_mode: paired
+label_source: "target"  # Shah provides the 3-class germ-layer labels; Kobitski (unlabeled) receives them
+# cpd_weighted uses the CPD posterior row-normalised for target->source transfer (Phase 59 NUM-04, plan 59-08).
+run_alignment: true
+run_label_transfer: true
+label_transfer_method: cpd_weighted
+tier: dev
+n_trials: 10
+search_strategy: auto
+sobol_seed: 42
+search_space: {}
+default_params:
+  window_size: 20
+  step: 2
+  cpd_penalty: nonrigid
+  dtw_dist_fn: cpd
+  n_breakpoints: 5
+  k_neighbours: 5
+  dist_metric: euclidean
+  smoothing: 0.0
+  threshold: 0.5
+max_points_per_frame: 200
+output_dir: experiments/runs/stage2_label_transfer/cpd_weighted/real
+save_plots: true
+verbose: false
+
+metric_weights:  # full block: a YAML metric_weights replaces the whole default dict
+  chamfer: 0.35
+  hausdorff: 0.15
+  path_smoothness: 0.10
+  temporal_stability: 0.10
+  f1: 0.0  # zero-filled in paired label_source=target runs (see header)
+  knn_consistency: 0.10

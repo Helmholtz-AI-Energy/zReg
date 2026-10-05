@@ -57,7 +57,7 @@ def _make_config():
 
 def _make_zreg_pc(n_points: int, seed: int = 0):
     """Return a zRegPointCloud instance with a 'pos' tensor."""
-    from zreg.dataset import zRegPointCloud
+    from zreg.core.dataset import zRegPointCloud
 
     torch.manual_seed(seed)
     pos = torch.randn(n_points, 3)

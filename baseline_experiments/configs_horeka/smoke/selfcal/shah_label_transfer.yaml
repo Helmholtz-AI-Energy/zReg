@@ -23,10 +23,10 @@ search_strategy: auto
 n_synthetic: 0
 
 search_space:
-  cpd_penalty: [null, "rigid", "affine"]
-  window_size: [5, 10, 20]
-  step: [8]
-  dtw_dist_fn: [euclidean]
+  cpd_penalty: ["rigid", "affine", "nonrigid"]  # null excluded: dtw_dist_fn=cpd uses CPD sigma2 as distance; cpd_metric=inf when cpd_type=None → all-inf cost matrix → DTW backtrace fails
+  window_size: [10, 20]  # 5 removed; smoke step=16 gives 27 frames; keep 10+20 to exercise both regimes
+  step: [16]  # smoke-only override: 420/16=27 frames; window=20 costs 27×41×0.7s≈13min/trial×5≈65min, fits in 1h; full configs keep step=8
+  dtw_dist_fn: [cpd]
   k_neighbours: [3, 5, 10]
   dist_metric: [euclidean, cosine]
   smoothing: [0.0, 0.1, 0.3]
@@ -34,9 +34,9 @@ search_space:
 
 default_params:
   window_size: 10
-  step: 8
-  cpd_penalty: null  # must be null/str — AlignmentStage.VALID_CPD rejects float 1.0
-  dtw_dist_fn: euclidean
+  step: 16  # smoke-only: matches search_space step=[16] above
+  cpd_penalty: "rigid"  # fallback when best_params.json is empty; dtw_dist_fn=cpd requires a non-null cpd_penalty
+  dtw_dist_fn: cpd
   n_breakpoints: 5
   k_neighbours: 5
   dist_metric: euclidean

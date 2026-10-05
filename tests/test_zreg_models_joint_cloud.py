@@ -16,7 +16,7 @@ contract.
 # zreg (and scipy) must be imported before torch/open3d/torch_geometric on macOS ARM to
 # avoid duplicate libomp initialisation (SIGABRT) -- 47-RESEARCH.md Pitfall 1, mirrors
 # tests/conftest.py, tests/test_zreg_models_pointnet2.py, tests/test_egnn_equivariance.py.
-from zreg.dataset import zRegPointCloud  # noqa: F401
+from zreg.core.dataset import zRegPointCloud  # noqa: F401
 
 import pytest
 import torch

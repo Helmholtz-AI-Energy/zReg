@@ -1,7 +1,7 @@
 """Merge selfcal-calibrated hyperparameters from two independent HPO runs.
 
-The "baseline_with_selfcal" pair runs need a single params dict, but selfcal
-produced three separate best_params.json files:
+The "baseline_with_combined" pair run needs a single params dict built from all
+five HPO sources. Selfcal produced three separate best_params.json files:
 
 - selfcal/kobitski_ew06_alignment  -> alignment params only (window_size,
   step, cpd_penalty, dtw_dist_fn, n_breakpoints)
@@ -9,7 +9,7 @@ produced three separate best_params.json files:
 - selfcal/shah_label_transfer      -> alignment + label-transfer params
   (k_neighbours, dist_metric, smoothing, threshold)
 
-Every baseline_with_selfcal pair uses a Kobitski embryo as source and Shah
+Every baseline_with_combined pair uses a Kobitski embryo as source and Shah
 sample-1 as target, so its alignment params draw from BOTH Kobitski and Shah
 selfcal calibration, and its label-transfer params draw from the Shah
 label-transfer run alone.
@@ -28,8 +28,8 @@ Merge rule (documented, deterministic — no hidden tie-breaking):
   directly (nothing to merge against).
 
 `defaults` is consulted ONLY for conflict resolution and, at the very end of
-:func:`merge_selfcal_params`, to fill any key still missing after combining
-all three real sources — it is never unioned into intermediate merge steps
+:func:`merge_selfcal_params` / :func:`merge_combined_params`, to fill any key
+still missing after combining all real sources — it is never unioned into intermediate merge steps
 (`merge_two`'s key set is `set(a) | set(b)` only). Earlier versions unioned
 `defaults` in at every stage, which meant Shah's calibrated label-transfer
 keys (absent from the two alignment-only dicts) got a defaults-sourced
@@ -130,6 +130,68 @@ def merge_groundtruth_params(
     return merge_selfcal_params(kobitski_alignment, shah_both, shah_both, defaults)
 
 
+def merge_combined_params(
+    kobitski_sc_alignment: dict,
+    shah_sc_alignment: dict,
+    shah_sc_label_transfer: dict,
+    kobitski_gt_alignment: dict,
+    shah_gt_both: dict,
+    defaults: dict | None = None,
+) -> dict:
+    """Merge all five HPO sources — selfcal (3 runs) + ground_truth (2 runs) — into one dict.
+
+    Calibrated values are merged first; defaults fill only keys no calibration
+    provides (Phase 63 D-02). The selfcal regime (three runs) and the ground-truth
+    regime (two runs, with ``shah_gt_both`` serving as both the alignment and the
+    label-transfer contributor) are each merged with :func:`_merge_selfcal_raw`,
+    which never fills defaults. The two raw regime merges are then combined via
+    :func:`merge_two` and only the result is completed from ``defaults``.
+
+    Consequences: a key calibrated by both regimes is averaged (numeric) or kept
+    if equal / resolved to its default on a categorical conflict; a key calibrated
+    by only one regime keeps that regime's value (it is NOT averaged with, or
+    reverted to, its default); a key calibrated by no run takes its default.
+
+    Parameters
+    ----------
+    kobitski_sc_alignment : dict
+        best_params.json from selfcal/kobitski_ew06_alignment.
+    shah_sc_alignment : dict
+        best_params.json from selfcal/shah_alignment.
+    shah_sc_label_transfer : dict
+        best_params.json from selfcal/shah_label_transfer.
+    kobitski_gt_alignment : dict
+        best_params.json from ground_truth/kobitski_ew06.
+    shah_gt_both : dict
+        best_params.json from ground_truth/shah_sample1 (alignment + LT).
+    defaults : dict or None
+        Fallback values (typically the pair config's default_params).
+    """
+    defaults = defaults or {}
+    raw_selfcal = _merge_selfcal_raw(
+        kobitski_sc_alignment, shah_sc_alignment, shah_sc_label_transfer, defaults
+    )
+    # Same argument mapping as merge_groundtruth_params (shah_gt_both twice).
+    raw_gt = _merge_selfcal_raw(kobitski_gt_alignment, shah_gt_both, shah_gt_both, defaults)
+    return {**defaults, **merge_two(raw_selfcal, raw_gt, defaults)}
+
+
+def _merge_selfcal_raw(
+    kobitski_alignment: dict,
+    shah_alignment: dict,
+    shah_label_transfer: dict,
+    defaults: dict,
+) -> dict:
+    """Merge three calibration dicts WITHOUT filling missing keys from defaults.
+
+    ``defaults`` is consulted only by :func:`merge_two` for categorical
+    conflict resolution. The returned dict contains exactly the keys that at
+    least one of the three inputs calibrated.
+    """
+    alignment_merged = merge_two(kobitski_alignment, shah_alignment, defaults)
+    return merge_two(alignment_merged, shah_label_transfer, defaults)
+
+
 def merge_selfcal_params(
     kobitski_alignment: dict,
     shah_alignment: dict,
@@ -169,6 +231,5 @@ def merge_selfcal_params(
         them.
     """
     defaults = defaults or {}
-    alignment_merged = merge_two(kobitski_alignment, shah_alignment, defaults)
-    combined = merge_two(alignment_merged, shah_label_transfer, defaults)
+    combined = _merge_selfcal_raw(kobitski_alignment, shah_alignment, shah_label_transfer, defaults)
     return {**defaults, **combined}

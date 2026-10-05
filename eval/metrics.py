@@ -1,4 +1,4 @@
-"""MetricsEngine: stateless engine wrapping all six ``zreg.metrics.*`` primitives.
+"""MetricsEngine: stateless engine wrapping the ``zreg.evaluation`` metric primitives.
 
 ``MetricsEngine`` is the computational core of the evaluation framework
 (FRAME-03).  It takes a validated ``EvalConfig`` and exposes four pure public
@@ -19,13 +19,19 @@ methods plus one convenience helper:
   cases (Pitfall 3): empty cloud, single-frame dataset, all-same labels,
   all-sentinel labels, non-finite metric values.
 - ``compute_stage_metrics(...)`` — optional helper (per A1) that runs all six
-  primitives, applies ``.item()`` coercion (Pitfall 5) for scalar
-  ``torch.Tensor`` returns from ``chamfer``/``hausdorff``/``temporal_stability``,
-  packs into a ``StageMetrics`` instance, and returns it with ``normalized``
-  pre-populated via ``model_copy``.
+  primitives, packs into a ``StageMetrics`` instance, and returns it with
+  ``normalized`` pre-populated via ``model_copy``.  ``chamfer`` and
+  ``hausdorff`` are computed per-frame between ``aligned_cloud`` and
+  ``target`` (every frame key shared by both) and then averaged — NOT on a
+  single frame pair — via the private ``_frame_averaged_chamfer_hausdorff``
+  helper, which derives both from one distance matrix per frame
+  (``chamfer_hausdorff``).  Host coercion (Pitfall 5) of the scalar
+  ``torch.Tensor`` returns happens inside that helper (one batched
+  transfer for all frames) and via ``.item()`` at the
+  ``temporal_stability`` call site.
 
 The engine is stateless aside from ``self.config``.  Construction performs no
-I/O.  Every metric call is a one-way delegation to ``zreg.metrics.*`` — no
+I/O.  Every metric call is a one-way delegation to ``zreg.evaluation`` — no
 reimplementation (FRAME-03 explicit constraint).
 
 Notes
@@ -44,24 +50,92 @@ uses the same short keys, so ``compute_score`` is a clean dot product.
 calls ``.item()`` on the tensor returns before packing into ``StageMetrics``
 (whose fields are typed ``float``) to avoid silent loss of precision or
 ``ValidationError`` from pydantic.
+
+Interpreting normalized metrics
+--------------------------------
+The six raw metrics fall into two families that are normalized very
+differently, and knowing which family a metric belongs to is necessary to
+read the normalized value correctly.
+
+**1. Distance-based metrics — chamfer, hausdorff, temporal_stability.**
+These are unbounded, lower-is-better values measured in the *coordinate
+units of the point cloud passed into the metric*, not in some fixed
+percentage or physical unit.  ``normalize()`` maps them through the
+saturating curve ``1 / (1 + x)``:
+
+- ``x = 0`` → ``1.0`` (identical clouds / zero drift — the best possible
+  score).
+- ``x = 1`` (one coordinate unit of average error) → ``0.5``.
+- As ``x → ∞``, the score → ``0`` but never reaches it.
+
+Crucially, "one coordinate unit" is **not** an absolute, cross-dataset
+constant — it is whatever scale the point cloud happens to be in when the
+metric is computed.  In this pipeline that scale is normally set by
+``EvalConfig.data_preprocessing`` (default ``method="standardize"``, i.e.
+z-score normalization applied per-dimension in ``DataFactory.load_real`` /
+``load_target`` — see ``eval/config.py:DataPreprocessingConfig``), so by
+default ``x = 1`` roughly corresponds to *one standard deviation* of the
+point spread in that trajectory, not to a fixed physical distance.  If
+preprocessing is disabled (``data_preprocessing=None``) or set to a
+different method, the same raw ``x`` value means something else again.
+**Practical consequence:** a normalized chamfer score of 0.8 in one run and
+0.8 in another run are only "equally good" if both runs used the same
+preprocessing config on datasets of comparable spread — they are not
+comparable across datasets with different scale/units, or across a
+preprocessed vs. an unpreprocessed run.
+
+**2. path_smoothness is a distance-based metric too, but not spatial.**
+It is the variance of DTW-path curvature computed over *index* pairs
+``(i, j)``, not over point coordinates, so it is dimensionless and
+independent of point-cloud scale or ``data_preprocessing``.  Its magnitude
+instead scales with the DTW path length / number of frames (a longer,
+noisier warp path produces a larger raw value).  The same ``1 / (1 + x)``
+saturating map is applied for consistency of range, but the "1 unit"
+reference point here means "one unit of path curvature," unrelated to
+spatial scale.
+
+**3. Fraction-based metrics — f1, knn_consistency.**
+These are already bounded in ``[0, 1]`` by construction (F1 is an
+F-measure over label counts; kNN consistency is literally a fraction of
+matching neighbours) — ``normalize()`` passes them through unchanged.
+Unlike the distance-based family, these ARE directly comparable across
+datasets and runs, since "1.0" always means the same thing (perfect label
+agreement) regardless of point-cloud scale.
+
+**What the normalized scores are for.**  Because of the scale-dependence
+above, treat the six ``normalized`` values as being most reliable for:
+
+- feeding ``compute_score``'s weighted sum for hyperparameter search /
+  ranking trials *within* one dataset and preprocessing configuration;
+- eyeballing which of the six metrics is comparatively weak or strong for
+  a single run.
+
+Do not use them for absolute claims across runs ("chamfer went from 0.6 to
+0.8, so alignment improved by 0.2") without also checking the corresponding
+raw values (``StageMetrics.chamfer_distance`` etc., or
+``MetricsEngine.aggregate``'s per-field ``mean``/``std``) in their native
+units — the raw values are what actually carries physical meaning.
 """
 
 # stdlib first
+import logging
 import math
 import statistics
+from collections.abc import Mapping
+from typing import NamedTuple
 
-# zreg.metrics MUST precede import torch (libomp SIGABRT lesson from Phase 12;
+# zreg.evaluation MUST precede import torch (libomp SIGABRT lesson from Phase 12;
 # enforced in tests/conftest.py:20-24 and eval/data_factory.py:18-35).
-# zreg.metrics transitively pulls in zreg.dataset and sklearn so it must
+# zreg.evaluation transitively pulls in zreg.core.dataset and sklearn so it must
 # precede torch on macOS-ARM.
-from zreg.metrics import (
-    chamfer,
+from zreg.evaluation import (
+    chamfer_hausdorff,
     compute_f1,
-    hausdorff,
     knn_consistency,
     path_smoothness,
     temporal_stability,
 )
+from zreg.core.dataset import zRegPointCloud
 
 # torch AFTER zreg.* imports
 import torch
@@ -70,11 +144,40 @@ import torch
 from eval.config import EvalConfig
 from eval.types import AlignResult, LabelResult, StageMetrics
 
-__all__ = ["MetricsEngine"]
+__all__ = ["FrameAverage", "MetricsEngine"]
+
+_log = logging.getLogger(__name__)
+
+
+class FrameAverage(NamedTuple):
+    """Frame-averaged chamfer/hausdorff plus frame-coverage information.
+
+    Returned by ``MetricsEngine._frame_averaged_chamfer_hausdorff``.
+
+    Parameters
+    ----------
+    chamfer : float
+        Mean per-frame Chamfer distance over the scored frames, or
+        ``+inf`` when no frame could be scored.
+    hausdorff : float
+        Mean per-frame Hausdorff distance over the scored frames, or
+        ``+inf`` when no frame could be scored.
+    n_scored : int
+        Number of frames that contributed to the means.
+    flags : list[str]
+        Frame-coverage problems (each starting with ``"frame coverage:"``):
+        non-dict inputs, no shared frame keys, partial key overlap, or
+        skipped degenerate frames.  Empty for fully healthy input.
+    """
+
+    chamfer: float
+    hausdorff: float
+    n_scored: int
+    flags: list[str]
 
 
 class MetricsEngine:
-    """Stateless engine wrapping all six ``zreg.metrics.*`` primitives.
+    """Stateless engine wrapping the ``zreg.evaluation`` metric primitives.
 
     Constructed from a validated ``EvalConfig``.  No I/O is performed during
     construction.  Mirrors the engine-with-config shape of
@@ -143,6 +246,13 @@ class MetricsEngine:
         - ``"temporal_stability"``  ``1 / (1 + temporal_stability)``
         - ``"f1"``                  ``f1_score`` (pass-through)
         - ``"knn_consistency"``     ``knn_consistency`` (pass-through)
+
+        See the module docstring's "Interpreting normalized metrics" section
+        for what each raw value is normalized *against* (point-cloud scale
+        for chamfer/hausdorff/temporal_stability vs. DTW path index space for
+        path_smoothness vs. already-bounded fractions for f1/knn_consistency)
+        and why normalized scores from different datasets or preprocessing
+        configs are not directly comparable for the distance-based metrics.
         """
         return {
             "chamfer": 1.0 / (1.0 + metrics.chamfer_distance),
@@ -281,6 +391,11 @@ class MetricsEngine:
            → ``"all-sentinel labels: compute_f1 returns 0"`` (first occurrence)
         5. ``metrics`` field is NaN or Inf
            → ``"non-finite metric: {field}={value}"`` (per field)
+        6. ``metrics.coverage_flags`` (frame-coverage problems recorded by
+           ``compute_stage_metrics``) are appended verbatim; each starts
+           with ``"frame coverage:"``.
+        7. ``label.flags`` (label-transfer problems handled locally, e.g. a
+           ``cpd_weighted`` zero-mass fallback) are appended verbatim.
         """
         flags: list[str] = []
         if align is not None:
@@ -311,6 +426,7 @@ class MetricsEngine:
                     same_flagged = True
                 if same_flagged and sentinel_flagged:
                     break
+            flags.extend(label.flags)
         if metrics is not None:
             for name in (
                 "chamfer_distance",
@@ -323,12 +439,150 @@ class MetricsEngine:
                 value = getattr(metrics, name)
                 if not math.isfinite(value):
                     flags.append(f"non-finite metric: {name}={value}")
+            flags.extend(metrics.coverage_flags)
         return flags
+
+    def _frame_averaged_chamfer_hausdorff(
+        self,
+        aligned_cloud: dict[int, zRegPointCloud],
+        target: dict[int, zRegPointCloud],
+    ) -> FrameAverage:
+        """Mean Chamfer and Hausdorff distance across every shared frame.
+
+        Computes ``chamfer``/``hausdorff`` once per frame key present in
+        *both* ``aligned_cloud`` and ``target`` and averages each metric
+        across the frames that could be scored.  Every coverage problem is
+        recorded as a flag instead of being silently absorbed (NUM-05).
+
+        Parameters
+        ----------
+        aligned_cloud : dict[int, zRegPointCloud]
+            Per-frame aligned source point clouds, e.g.
+            ``AlignResult.aligned_cloud`` (or raw ``source`` when the
+            alignment stage was skipped — the caller is responsible for that
+            fallback).
+        target : dict[int, zRegPointCloud]
+            Per-frame target point clouds, keyed the same way.
+
+        Returns
+        -------
+        FrameAverage
+            ``chamfer`` / ``hausdorff``: means over the scored frames, or
+            ``+inf`` when no frame could be scored (non-dict inputs, no
+            shared keys, every shared frame degenerate).
+            ``n_scored``: number of frames that contributed to the means.
+            ``flags``: one ``"frame coverage: ..."`` string per problem —
+            non-dict inputs, no shared frame keys, partial key overlap
+            (also logged as a warning), or a skipped degenerate frame
+            (empty / non-finite / otherwise rejected by ``chamfer`` or
+            ``hausdorff``, or a non-finite result).
+
+        Notes
+        -----
+        ``+inf`` rather than ``nan`` is the "no score" sentinel because
+        ``StageMetrics.chamfer_distance`` / ``hausdorff_distance`` are
+        ``Field(ge=0)`` and pydantic rejects ``nan``, whereas ``inf`` is
+        accepted, reported by ``sanity_check`` as a non-finite metric and
+        normalises to ``1 / (1 + inf) = 0.0`` (worst).  The former ``0.0``
+        fallback normalised to ``1.0`` — a fake perfect score.
+        """
+        inf = float("inf")
+        flags: list[str] = []
+        if not isinstance(aligned_cloud, Mapping) or not isinstance(
+            target, Mapping
+        ):
+            flags.append(
+                "frame coverage: inputs are not per-frame dicts (got "
+                f"{type(aligned_cloud).__name__}, {type(target).__name__}); "
+                "chamfer/hausdorff set to inf"
+            )
+            return FrameAverage(inf, inf, 0, flags)
+
+        aligned_keys = set(aligned_cloud)
+        target_keys = set(target)
+        shared = sorted(aligned_keys & target_keys)
+        if not shared:
+            flags.append(
+                "frame coverage: no shared frame keys between aligned cloud "
+                "and target; chamfer/hausdorff set to inf"
+            )
+            return FrameAverage(inf, inf, 0, flags)
+
+        aligned_only = sorted(aligned_keys - target_keys)
+        target_only = sorted(target_keys - aligned_keys)
+        if aligned_only or target_only:
+            msg = (
+                f"frame coverage: partial overlap — scored {len(shared)} of "
+                f"{len(aligned_keys | target_keys)} frames (aligned-only keys: "
+                f"{aligned_only}, target-only keys: {target_only})"
+            )
+            flags.append(msg)
+            _log.warning(msg)
+
+        # Pass 1 (DIST-05): one cdist per frame via chamfer_hausdorff; keep a
+        # structured entry (key, error_or_none, c, h) per frame, still on
+        # device, so flags can be emitted in original key order in pass 2.
+        entries: list[
+            tuple[int, ValueError | None, torch.Tensor | None, torch.Tensor | None]
+        ] = []
+        for key in shared:
+            src_pos = aligned_cloud[key]["pos"]
+            tgt_pos = target[key]["pos"]
+            try:
+                c_t, h_t = chamfer_hausdorff(src_pos, tgt_pos)
+            except ValueError as exc:
+                entries.append((key, exc, None, None))
+                continue
+            entries.append((key, None, c_t, h_t))
+
+        # One device-to-host transfer (Pitfall 5): stack every scored pair
+        # into a [F_ok, 2] float64 tensor and read it with a single list
+        # conversion.  float32 -> float64 is exact, so each value equals the
+        # former per-metric scalar read.  Mixed devices (stack raises) fall
+        # back to per-frame host reads.
+        ok = [(c_t, h_t) for _, err, c_t, h_t in entries if err is None]
+        rows: list[list[float]] = []
+        if ok:
+            try:
+                rows = torch.stack(
+                    [torch.stack([c_t, h_t]).to(torch.float64) for c_t, h_t in ok]
+                ).tolist()
+            except RuntimeError:
+                rows = [[c_t.item(), h_t.item()] for c_t, h_t in ok]
+
+        # Pass 2: emit flags / collect values in original key order.
+        chamfer_vals: list[float] = []
+        hausdorff_vals: list[float] = []
+        row_iter = iter(rows)
+        for key, err, _, _ in entries:
+            if err is not None:
+                flags.append(
+                    f"frame coverage: skipped degenerate frame {key}: {err}"
+                )
+                continue
+            c, h = next(row_iter)
+            if not (math.isfinite(c) and math.isfinite(h)):
+                flags.append(
+                    f"frame coverage: skipped degenerate frame {key}: "
+                    f"non-finite result (chamfer={c}, hausdorff={h})"
+                )
+                continue
+            chamfer_vals.append(c)
+            hausdorff_vals.append(h)
+
+        if not chamfer_vals:
+            return FrameAverage(inf, inf, 0, flags)
+        return FrameAverage(
+            statistics.mean(chamfer_vals),
+            statistics.mean(hausdorff_vals),
+            len(chamfer_vals),
+            flags,
+        )
 
     def compute_stage_metrics(
         self,
-        source: torch.Tensor,
-        target: torch.Tensor,
+        aligned_cloud: dict[int, zRegPointCloud],
+        target: dict[int, zRegPointCloud],
         warp_path: list[tuple[int, int]],
         transforms: list,
         y_true: torch.Tensor,
@@ -339,21 +593,25 @@ class MetricsEngine:
     ) -> StageMetrics:
         """Run all six raw metrics and return a fully-populated ``StageMetrics``.
 
-        Convenience wrapper (A1) for Phase 21 ``EvaluationRunner``.  Applies
-        Pitfall 5 ``.item()`` coercion to the scalar ``torch.Tensor`` returns
-        from ``chamfer``, ``hausdorff``, and ``temporal_stability`` before
-        packing them into ``StageMetrics`` (whose fields are typed ``float``).
-        Then populates ``StageMetrics.normalized`` via ``self.normalize``
-        and ``model_copy``.
+        Convenience wrapper (A1) for Phase 21 ``EvaluationRunner``.  Packs
+        the six raw metric values into ``StageMetrics`` (whose fields are
+        typed ``float``), then populates ``StageMetrics.normalized`` via
+        ``self.normalize`` and ``model_copy``.
 
         Parameters
         ----------
-        source : torch.Tensor
-            Source point cloud, shape ``(N, 3)``.  Passed to ``chamfer``
-            and ``hausdorff`` as the first argument.
-        target : torch.Tensor
-            Target point cloud, shape ``(M, 3)``.  Passed to ``chamfer``
-            and ``hausdorff`` as the second argument.
+        aligned_cloud : dict[int, zRegPointCloud]
+            Per-frame aligned source point clouds — typically
+            ``AlignResult.aligned_cloud`` (spatially registered per frame
+            when CPD/ICP/SWD ran, temporally resampled only when
+            ``cpd_penalty=None``), or the raw ``source`` dict when the
+            alignment stage was skipped.  ``chamfer`` and ``hausdorff`` are
+            computed once per frame key shared with ``target`` and then
+            averaged (see ``_frame_averaged_chamfer_hausdorff``) — not on a
+            single frame pair.
+        target : dict[int, zRegPointCloud]
+            Per-frame target point clouds, keyed the same way as
+            ``aligned_cloud``.
         warp_path : list[tuple[int, int]]
             DTW alignment path passed to ``path_smoothness``.
         transforms : list
@@ -373,21 +631,42 @@ class MetricsEngine:
         Returns
         -------
         StageMetrics
-            A new ``StageMetrics`` instance with all six raw fields populated
-            and ``normalized`` pre-computed via ``self.normalize``.
+            A new ``StageMetrics`` instance with all six raw fields populated,
+            ``normalized`` pre-computed via ``self.normalize`` and
+            ``coverage_flags`` carrying the ``FrameAverage.flags`` of the
+            chamfer/hausdorff computation.  When no frame could be scored,
+            ``chamfer_distance`` / ``hausdorff_distance`` are ``+inf``
+            (normalised ``0.0``), never ``0.0``.  When ``transforms`` is
+            empty, ``temporal_stability`` is ``+inf`` (normalised ``0.0``)
+            and a ``"metric unavailable: temporal_stability ..."`` flag is
+            added (WR-06) instead of the former fake-perfect ``0.0``.
 
         Notes
         -----
-        Called by ``EvaluationRunner._run_single`` (Phase 21).
+        Called by ``EvaluationRunner._run_single`` (Phase 21) and
+        ``HyperparamOptimizer._objective`` (Phase 22).
         """
+        fa = self._frame_averaged_chamfer_hausdorff(aligned_cloud, target)
+        flags = list(fa.flags)
+        if len(transforms) == 0:
+            # WR-06: temporal_stability([]) is 0.0, which normalises to 1.0
+            # ("perfect") although nothing was measured.  Report it as
+            # unavailable (+inf -> normalised 0.0) with an explicit flag.
+            ts = float("inf")
+            flags.append(
+                "metric unavailable: temporal_stability (no per-frame transforms)"
+            )
+        else:
+            ts = temporal_stability(transforms).item()  # Pitfall 5
         sm = StageMetrics(
-            chamfer_distance=chamfer(source, target).item(),  # Pitfall 5: .item()
-            hausdorff_distance=hausdorff(source, target).item(),  # Pitfall 5
+            chamfer_distance=fa.chamfer,
+            hausdorff_distance=fa.hausdorff,
             path_smoothness=path_smoothness(warp_path),  # already float
-            temporal_stability=temporal_stability(transforms).item(),  # Pitfall 5
+            temporal_stability=ts,
             f1_score=compute_f1(y_true, y_pred),  # already float
             knn_consistency=knn_consistency(
                 points_for_knn, labels_for_knn, k=k_neighbours
             ),
+            coverage_flags=flags,
         )
         return sm.model_copy(update={"normalized": self.normalize(sm)})

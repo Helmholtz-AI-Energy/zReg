@@ -1,0 +1,637 @@
+"""Abstract base class for Coherent Point Drift algorithm."""
+
+from abc import ABC, abstractmethod
+from collections import deque
+from collections.abc import Callable
+import logging
+import math
+
+import torch
+
+from ._types import EstepResult, MstepResult
+from ...utils.validation import _validate_tensors
+from ...utils import squared_kernel_sum
+
+__all__ = ["CoherentPointDrift"]
+
+log = logging.getLogger(__name__)
+
+
+def _mstep_accumulation_dtype(dtype: torch.dtype) -> torch.dtype:
+    """Return the dtype the rigid/affine M-step reductions run in.
+
+    The rigid and affine sigma2 is a small difference of large trace terms
+    (``tr(X'P1X) - s*tr(A'R)``); the ratio is the signal-to-noise variance,
+    often 1e3 or more. Reduced in float32, that cancellation leaves a relative
+    error of about 1e-3 in sigma2 and a q that jitters by several units at
+    the fixed point, so no realistic ``tol`` is ever met. Reducing in float64
+    and casting the results back costs O(N * D^2), negligible next to the
+    O(N * M) E-step, and makes float32 inputs converge like float64 ones.
+
+    Parameters
+    ----------
+    dtype : torch.dtype
+        Dtype of the source point cloud.
+
+    Returns
+    -------
+    torch.dtype
+        ``torch.float64`` for floating dtypes narrower than float64, else
+        ``dtype`` unchanged.
+    """
+    if dtype.is_floating_point and torch.finfo(dtype).bits < 64:
+        return torch.float64
+    return dtype
+
+
+def _upcast_estep(estep_res: EstepResult, dtype: torch.dtype) -> EstepResult:
+    """Cast the vector fields of an E-step result to ``dtype``.
+
+    The dense posterior matrix (last field) is not used by the rigid/affine
+    M-step and is passed through uncast to avoid an O(N * M) copy.
+    """
+    pt1, p1, px, n_p, pmat = estep_res
+
+    def cast(x):
+        return x.to(dtype) if isinstance(x, torch.Tensor) else x
+
+    return EstepResult(cast(pt1), cast(p1), cast(px), cast(n_p), pmat)
+
+
+def _q_window_converged(
+    q_window: deque, tol: float, scale: float | None = None
+) -> bool:
+    """Return True if a full window of q values has converged.
+
+    The window is chronological (a ``deque`` with ``maxlen``; the oldest value
+    is at the left). The criterion is the mean absolute successive change,
+    relative to the magnitude of the newest q:
+    ``mean(|q_k - q_(k-1)|) < tol * max(|q_last|, 1)``. Taking the absolute
+    value of each delta makes the statistic non-cancelling: an oscillation
+    such as ``[0, 10, -10, 0]`` is not converged, although its signed endpoint
+    difference is 0. Only the deltas are made absolute, never the q values
+    themselves, because the M&S objective q may cross zero.
+
+    The threshold is scale-aware because the rigid and affine objective is
+    extensive in the number of source points (about
+    ``N_P * D / 2 * (1 + log sigma2)`` at convergence, e.g. -2.5e4 for
+    N_P = 2000). An absolute ``tol`` such as 1e-5 is then below one float32
+    ulp of q, so round-off jitter alone kept the absolute deltas above
+    ``tol`` and EM ran to ``maxiter``. Relative to ``|q|`` this matches the
+    ``|dL| / |L|`` test of Myronenko & Song's reference implementation. The
+    floor of 1 keeps ``tol`` absolute for ``|q| <= 1`` (for example the
+    non-rigid variants, whose q is sigma2) and avoids dividing by a q that
+    crosses zero.
+
+    ``|q_last|`` alone is not a usable magnitude for the rigid/affine q: it
+    passes through zero at sigma2 = e^-1, where the threshold would collapse
+    to an absolute ``tol`` on an extensive quantity and float32 E-step jitter
+    kept EM at ``maxiter``, depending only on the units of the data. Callers
+    therefore pass ``scale`` explicitly (``CoherentPointDrift._q_scale``);
+    rigid/affine use ``max(|q_last|, N_P * D / 2, 1)``.
+
+    Non-finite q never counts as converged, so a NaN or Inf run proceeds to
+    ``maxiter`` (as before) instead of stopping or raising.
+
+    Parameters
+    ----------
+    q_window : collections.deque
+        Chronological q values with ``maxlen`` set (4 in ``registration``).
+    tol : float
+        Relative convergence tolerance on the mean absolute successive change
+        (absolute when the scale is 1).
+    scale : float | None
+        Magnitude the tolerance is relative to. ``None`` (default) uses
+        ``max(|q_last|, 1)``. Non-finite or values below 1 are floored at 1.
+
+    Returns
+    -------
+    bool
+        True only if the window is full, every value is finite and the mean
+        absolute successive change is below ``tol * scale``.
+    """
+    if q_window.maxlen is None or len(q_window) != q_window.maxlen:
+        return False
+    values = list(q_window)
+    if len(values) < 2 or not all(math.isfinite(v) for v in values):
+        return False
+    total = sum(abs(b - a) for a, b in zip(values[:-1], values[1:]))
+    if scale is None:
+        scale = abs(values[-1])
+    if not math.isfinite(scale):
+        scale = abs(values[-1])
+    scale = max(scale, 1.0)
+    return total / (len(values) - 1) < tol * scale
+
+
+class CoherentPointDrift(ABC):
+    """Abstract base class for Coherent Point Drift algorithm.
+
+    This class provides a common framework for different types of transformations
+    (rigid, affine, nonrigid). Subclasses must implement the initialization and
+    maximization step methods.
+
+    Parameters
+    ----------
+    source : torch.Tensor | None
+        Source point cloud data with shape (N, D).
+    source_colors : torch.Tensor | None
+        Color information for source points with shape (N, C).
+    use_color : bool
+        Use color information in registration if True.
+    use_cuda : bool
+        Use CUDA for computations if True.
+    log_freq : int
+        Log frequency during registration. Set to -1 to disable logging.
+
+    Attributes
+    ----------
+    _N_DIM : int
+        Number of spatial dimensions (default: 3).
+    _N_COLOR : int
+        Number of color channels (default: 3).
+    """
+
+    _N_DIM = 3
+    _N_COLOR = 3
+    # True means "3 or more columns" (never "any column count"): variants whose
+    # M-step only uses the xyz columns and whose transformation passes extra
+    # columns through set it (NonRigidCPD, ConstrainedNonRigidCPD). Fewer than
+    # 3 columns are rejected for every variant by _check_point_shape.
+    _ACCEPTS_EXTRA_COLUMNS: bool = False
+
+    transformation: object | None  # Set to a Transformation instance after registration
+
+    def __init__(
+        self,
+        source: torch.Tensor | None = None,
+        source_colors: torch.Tensor | None = None,
+        use_color: bool = False,
+        use_cuda: bool = False,
+        log_freq: int = 100,
+    ) -> None:
+        """Initialize CPD object."""
+        self._source = source
+        self._source_colors = None
+        self._tf_type = None  # Transformation type (set in subclasses)
+        self._callbacks: list[Callable] = []
+        self._use_color = use_color
+        self._use_cuda = use_cuda
+        if use_color:
+            if source_colors is None:
+                raise ValueError(
+                    "use_color=True requires source_colors to be provided. "
+                    "Got source_colors=None."
+                )
+            self._source_colors = source_colors
+        self.transformation = None
+        self.log_freq = log_freq
+
+    def _check_point_shape(self, points: torch.Tensor, name: str) -> None:
+        """Check that a point tensor has a shape this CPD variant supports.
+
+        Every variant needs a 2-D tensor with at least ``_N_DIM`` (xyz)
+        columns, because the E-step and every M-step normalise with D = 3.
+        Variants with ``_ACCEPTS_EXTRA_COLUMNS = False`` (RigidCPD, AffineCPD)
+        need exactly ``_N_DIM`` columns.
+
+        Parameters
+        ----------
+        points : torch.Tensor
+            Point tensor to check, expected shape (N, D).
+        name : str
+            Name used in the error message.
+
+        Raises
+        ------
+        ValueError
+            If ``points`` is not 2-D, has fewer than ``_N_DIM`` columns, or
+            has more than ``_N_DIM`` columns while the variant does not accept
+            extra columns.
+        """
+        if points.ndim != 2:
+            raise ValueError(
+                f"{type(self).__name__}: {name} must be a 2-D tensor of shape (N, D); "
+                f"got shape {tuple(points.shape)}"
+            )
+        if points.shape[1] < self._N_DIM:
+            raise ValueError(
+                f"{type(self).__name__}: {name} needs at least {self._N_DIM} columns "
+                f"(xyz); got shape {tuple(points.shape)}"
+            )
+        if not self._ACCEPTS_EXTRA_COLUMNS and points.shape[1] != self._N_DIM:
+            raise ValueError(
+                f"{type(self).__name__} requires {name} with exactly {self._N_DIM} "
+                f"columns (xyz); got shape {tuple(points.shape)}. Only NonRigidCPD "
+                "and ConstrainedNonRigidCPD accept extra columns."
+            )
+
+    def set_source(
+        self, source: torch.Tensor, source_colors: torch.Tensor | None = None
+    ) -> None:
+        """Set or update the source point cloud.
+
+        Parameters
+        ----------
+        source : torch.Tensor
+            Source point cloud data.
+        source_colors : torch.Tensor | None
+            Color information for source points.
+
+        Raises
+        ------
+        ValueError
+            If ``source`` is not a 2-D tensor with a column count this variant
+            supports (see ``_check_point_shape``).
+        """
+        self._check_point_shape(source, "source")
+        _validate_tensors(source, names=["source"])
+        if source_colors is not None:
+            _validate_tensors(source, source_colors, names=["source", "source_colors"])
+        self._source = source
+        if self._use_color and source_colors is not None:
+            self._source_colors = source_colors
+
+    def set_callbacks(self, callbacks: list[Callable]) -> None:
+        """Add callbacks to be called after each iteration.
+
+        Parameters
+        ----------
+        callbacks : list[Callable]
+            List of callback functions accepting a transformation object.
+        """
+        self._callbacks.extend(callbacks)
+
+    @abstractmethod
+    def _initialize(self, target: torch.Tensor) -> MstepResult:
+        """Initialize parameters for the registration process.
+
+        This method must be implemented by subclasses to set up
+        transformation-specific initial parameters.
+
+        Parameters
+        ----------
+        target : torch.Tensor
+            Target point cloud data.
+
+        Returns
+        -------
+        MstepResult
+            Initial parameters including transformation and sigma2.
+        """
+        ...
+
+    def _compute_pmat_numerator(
+        self, t_source: torch.Tensor, target: torch.Tensor, sigma2: float
+    ) -> torch.Tensor:
+        """Compute the numerator of the probability matrix.
+
+        Parameters
+        ----------
+        t_source : torch.Tensor
+            Transformed source point cloud.
+        target : torch.Tensor
+            Target point cloud.
+        sigma2 : float
+            Variance of the Gaussian kernel.
+
+        Returns
+        -------
+        torch.Tensor
+            Numerator of the probability matrix.
+        """
+        pmat = torch.cdist(t_source, target, p=2).pow(2)
+        pmat = torch.exp(-pmat / (2.0 * sigma2))
+        return pmat
+
+    def expectation_step(
+        self,
+        t_source: torch.Tensor,
+        target: torch.Tensor,
+        sigma2: float,
+        sigma2_c: float,
+        w: float = 0.0,
+        target_colors: torch.Tensor | None = None,
+        source_colors: torch.Tensor | None = None,
+    ) -> EstepResult:
+        """Perform the Expectation step of the EM algorithm.
+
+        Calculates posterior probabilities of correspondence between
+        transformed source points and target points. Correspondences are
+        computed from the first three (xyz) columns only; extra columns are
+        ignored by the E-step, so ``px`` has shape (N, 3).
+
+        Parameters
+        ----------
+        t_source : torch.Tensor
+            Transformed source point cloud.
+        target : torch.Tensor
+            Target point cloud.
+        sigma2 : float
+            Variance of Gaussian kernel for coordinates.
+        sigma2_c : float
+            Variance of Gaussian kernel for color.
+        w : float
+            Weight of uniform distribution for outlier handling.
+        target_colors : torch.Tensor | None
+            Target color information.
+        source_colors : torch.Tensor | None
+            Source color information.
+
+        Returns
+        -------
+        EstepResult
+            Posterior probabilities and intermediate results.
+
+        Raises
+        ------
+        ValueError
+            If ``t_source`` or ``target`` is not a 2-D tensor with a column
+            count this variant supports (see ``_check_point_shape``).
+        """
+        self._check_point_shape(t_source, "t_source")
+        self._check_point_shape(target, "target")
+        # Correspondences use xyz only (CPD-09): extra columns (labels,
+        # metadata) must not change the probabilities, and px is (N, 3).
+        spatial_source = t_source[:, : self._N_DIM]
+        spatial_target = target[:, : self._N_DIM]
+        posdims = self._N_DIM
+        pmat = self._compute_pmat_numerator(spatial_source, spatial_target, sigma2)
+
+        c = (2.0 * torch.pi * sigma2) ** (posdims * 0.5)
+        c *= w / (1.0 - w) * spatial_source.shape[0] / spatial_target.shape[0]
+        den = torch.sum(pmat, dim=0)
+        den[den == 0] = torch.finfo(target.dtype).eps
+
+        if self._use_color:
+            ncolors = source_colors.shape[1]
+            pmat_c = self._compute_pmat_numerator(source_colors, target_colors, sigma2_c)
+            den_c = torch.sum(pmat_c, dim=0)
+            den_c[den_c == 0] = torch.finfo(pmat_c.dtype).eps
+            den = torch.multiply(den, den_c)
+
+            o_c = t_source.shape[0] * (2 * torch.pi * sigma2_c) ** (
+                0.5 * (posdims + ncolors - 1)
+            )
+            o_c = o_c * torch.exp(
+                -1.0
+                / t_source.shape[0]
+                * torch.square(torch.sum(pmat_c, dim=0))
+                / (2.0 * sigma2_c)
+            )
+            den += o_c
+            c *= (2.0 * torch.pi * sigma2_c) ** (ncolors * 0.5)
+            pmat = torch.multiply(pmat, pmat_c)
+
+        den += c
+        pmat = torch.divide(pmat, den)
+
+        pt1 = torch.sum(pmat, dim=0)
+        p1 = torch.sum(pmat, dim=1)
+        px = torch.matmul(pmat, spatial_target)
+        return EstepResult(pt1, p1, px, torch.sum(p1), pmat)
+
+    def maximization_step(
+        self,
+        target: torch.Tensor,
+        estep_res: EstepResult,
+        sigma2_p: float | None = None,
+        source_colors: torch.Tensor | None = None,
+        target_colors: torch.Tensor | None = None,
+    ) -> MstepResult:
+        """Perform the Maximization step of the EM algorithm.
+
+        This default implementation calls _maximization_step and updates
+        the transformation. Subclasses may override for custom behavior.
+
+        Parameters
+        ----------
+        target : torch.Tensor
+            Target point cloud.
+        estep_res : EstepResult
+            Result from expectation step.
+        sigma2_p : float | None
+            Previous variance.
+        source_colors : torch.Tensor | None
+            Source color information.
+        target_colors : torch.Tensor | None
+            Target color information.
+
+        Returns
+        -------
+        MstepResult
+            Updated transformation parameters.
+        """
+        ret = self._maximization_step(
+            self._source,
+            target,
+            estep_res,
+            sigma2_p,
+            source_colors=source_colors,
+            target_colors=target_colors,
+        )
+        self.transformation = ret.transformation
+        return ret
+
+    @staticmethod
+    @abstractmethod
+    def _maximization_step(
+        source: torch.Tensor,
+        target: torch.Tensor,
+        estep_res: EstepResult,
+        sigma2_p: float | None = None,
+        source_colors: torch.Tensor | None = None,
+        target_colors: torch.Tensor | None = None,
+    ) -> MstepResult:
+        """Internal maximization step implementation.
+
+        Must be implemented by subclasses for specific transformation types.
+
+        Parameters
+        ----------
+        source : torch.Tensor
+            Source point cloud.
+        target : torch.Tensor
+            Target point cloud.
+        estep_res : EstepResult
+            Result from expectation step.
+        sigma2_p : float | None
+            Previous variance.
+        source_colors : torch.Tensor | None
+            Source color information.
+        target_colors : torch.Tensor | None
+            Target color information.
+
+        Returns
+        -------
+        MstepResult
+            Updated transformation parameters.
+        """
+        ...
+
+    def _q_scale(self, q_last: float, n_p: float) -> float:
+        """Return the magnitude the convergence ``tol`` is relative to.
+
+        The default is ``max(|q_last|, 1)``: for the non-rigid variants q is
+        sigma2, so ``tol`` stays absolute while sigma2 <= 1. Rigid and affine
+        override this with the natural magnitude of their extensive objective
+        (see ``_q_window_converged``).
+
+        Parameters
+        ----------
+        q_last : float
+            Newest q value.
+        n_p : float
+            Total posterior mass ``N_P`` of the newest E-step.
+
+        Returns
+        -------
+        float
+            Scale passed to ``_q_window_converged``.
+        """
+        return max(abs(q_last), 1.0)
+
+    def registration(
+        self,
+        target: torch.Tensor,
+        w: float = 0.0,
+        maxiter: int = 50,
+        tol: float = 0.001,
+        target_colors: torch.Tensor | None = None,
+    ) -> MstepResult:
+        """Perform the CPD registration process.
+
+        Iteratively executes E-step and M-step until convergence or
+        maximum iterations reached.
+
+        Parameters
+        ----------
+        target : torch.Tensor
+            Target point cloud.
+        w : float
+            Weight of uniform distribution for outlier handling.
+        maxiter : int
+            Maximum number of iterations.
+        tol : float
+            Convergence tolerance: stop once the mean absolute change of the
+            last four q values is below ``tol * scale``. For rigid/affine the
+            scale is ``max(|q|, N_P * D / 2, 1)``, the natural magnitude of
+            the extensive objective, so convergence does not depend on the
+            units of the data even where q crosses zero (sigma2 = e^-1). For
+            the non-rigid variants (q = sigma2) the scale is ``max(|q|, 1)``:
+            ``tol`` is absolute while sigma2 <= 1 and relative above (see
+            ``_q_scale`` and ``_q_window_converged``).
+        target_colors : torch.Tensor | None
+            Target color information.
+
+        Returns
+        -------
+        MstepResult
+            Final transformation and convergence diagnostics.
+
+        Raises
+        ------
+        ValueError
+            If ``use_color=True`` and ``target_colors`` is None, or if
+            ``target_colors`` is on another device than ``target``, contains
+            non-finite values, or does not have one row per target point.
+            Also if the source or ``target`` is not a 2-D tensor with a column
+            count this variant supports (see ``_check_point_shape``).
+        """
+        assert self._tf_type is not None, "transformation type is None."
+        if self._source is not None:
+            _validate_tensors(self._source, target, names=["source", "target"])
+            self._check_point_shape(self._source, "source")
+        else:
+            _validate_tensors(target, names=["target"])
+        self._check_point_shape(target, "target")
+        if self._use_color:
+            if target_colors is None:
+                raise ValueError(
+                    "use_color=True requires target_colors in registration()"
+                )
+            _validate_tensors(target, target_colors, names=["target", "target_colors"])
+            if target_colors.shape[0] != target.shape[0]:
+                raise ValueError(
+                    "target_colors must have one row per target point: "
+                    f"got {target_colors.shape[0]} rows for "
+                    f"{target.shape[0]} target points."
+                )
+        res = self._initialize(target)
+        sigma2_c = 0.0
+        if self._use_color:
+            sigma2_c = squared_kernel_sum(self._source_colors, target_colors)
+
+        sigma2_history: list[float] = []
+        sigma2_clamped = False
+        eps = torch.finfo(target.dtype).eps
+        n_iters = 0
+
+        # Chronological window of the last four real q values (D-01); the
+        # convergence check is skipped until it is full.
+        q_window: deque[float] = deque(maxlen=4)
+        for i in range(maxiter):
+            t_source = res.transformation.transform(self._source)
+            estep_res = self.expectation_step(
+                t_source,
+                target,
+                res.sigma2,
+                sigma2_c,
+                w,
+                target_colors=target_colors,
+                source_colors=self._source_colors,
+            )
+            res = self.maximization_step(
+                target,
+                estep_res,
+                res.sigma2,
+                target_colors=target_colors,
+                source_colors=self._source_colors,
+            )
+
+            # Clamp sigma2 to safe lower bound
+            clamped_sigma2 = torch.clamp(res.sigma2, min=eps)
+            if clamped_sigma2 != res.sigma2 and not sigma2_clamped:
+                log.warning(
+                    "CPD: sigma2 clamped to dtype.eps during registration"
+                    " - numerical instability possible."
+                )
+                sigma2_clamped = True
+            res = MstepResult(
+                transformation=res.transformation,
+                sigma2=clamped_sigma2,
+                q=res.q,
+            )
+            sigma2_history.append(
+                res.sigma2.item()
+                if isinstance(res.sigma2, torch.Tensor)
+                else float(res.sigma2)
+            )
+
+            for c in self._callbacks:
+                c(res.transformation)
+
+            if self.log_freq > 0 and i % self.log_freq == self.log_freq - 1:
+                log.info(f"Registering: iteration {i}/{maxiter}, criteria: {res.q:.4f}")
+
+            q_window.append(float(res.q))
+
+            q_scale = self._q_scale(float(res.q), float(estep_res.n_p))
+            if _q_window_converged(q_window, tol, q_scale):
+                if self.log_freq > 0:
+                    log.info(
+                        f"Hit tolerance in iteration {i} (criteria: {res.q:.4f}), exiting."
+                    )
+                break
+
+        n_iters = (i + 1) if maxiter > 0 else 0
+        if self.log_freq > 0 and maxiter > 0:
+            log.info(f"End registration at step {i} (criteria: {res.q:.5f})")
+
+        return MstepResult(
+            transformation=res.transformation,
+            sigma2=res.sigma2,
+            q=res.q,
+            n_iters=n_iters,
+            sigma2_history=sigma2_history,
+        )

@@ -11,11 +11,11 @@ Covers Phase 20 FRAME-06 gate criteria:
 import pytest
 
 # zreg.* before torch — macOS-ARM libomp SIGABRT rule
-from zreg.cpd import RigidCPD
-from zreg.dataset import zRegPointCloud
-from zreg.generators import generate_trajectory, generate_labels
-from zreg.generators import add_gaussian_noise
-from zreg.metrics.label_transfer import compute_f1
+from zreg.algorithms.cpd import RigidCPD
+from zreg.core.dataset import zRegPointCloud
+from zreg.data_generation import generate_trajectory, generate_labels
+from zreg.data_generation import add_gaussian_noise
+from zreg.evaluation.label_transfer import compute_f1
 from zreg.models import PointNet2LabelTransfer, EGNNLabelTransfer
 import zreg.utils as utils
 
@@ -65,7 +65,7 @@ def synthetic_dataset() -> dict[int, zRegPointCloud]:
     so transfer_colors KNN_VOTING has valid source_colors to unsqueeze.
     """
     traj = generate_trajectory(n_points=20, n_frames=3, seed=0)
-    return generate_labels(traj, n_classes=4, seed=0)
+    return generate_labels(traj, n_labels=4, seed=0)
 
 
 # ---------------------------------------------------------------------------
@@ -370,7 +370,7 @@ class TestRunOutput:
 def synthetic_dataset_d09() -> dict[int, zRegPointCloud]:
     """2-frame dataset: labeled frame 0 + noisy frame 1 per D-09."""
     seed_traj = generate_trajectory(n_points=50, n_frames=1, seed=0)
-    labeled_traj = generate_labels(seed_traj, n_classes=3, seed=0)
+    labeled_traj = generate_labels(seed_traj, n_labels=3, seed=0)
     noisy_frame = add_gaussian_noise(labeled_traj, sigma=0.01, seed=1)[0]
     return {0: labeled_traj[0], 1: noisy_frame}
 
@@ -413,7 +413,7 @@ class TestLabelTransferStageLabelAccuracy:
         """compute_f1(transferred) > compute_f1(shuffled) on D-09 fixture."""
         # D-09: 1-frame generate then manual frame 1
         seed_traj = generate_trajectory(n_points=50, n_frames=1, seed=0)
-        labeled_traj = generate_labels(seed_traj, n_classes=3, seed=0)
+        labeled_traj = generate_labels(seed_traj, n_labels=3, seed=0)
         ground_truth_labels = labeled_traj[0]["label"]  # shape (50,), torch.long
         noisy_frame = add_gaussian_noise(labeled_traj, sigma=0.01, seed=1)[0]
         dataset = {0: labeled_traj[0], 1: noisy_frame}
@@ -553,7 +553,7 @@ def cpd_weighted_source_target():
     deliberately have different point counts.
     """
     source_traj = generate_labels(
-        generate_trajectory(n_points=12, n_frames=1, seed=500), n_classes=3, seed=500
+        generate_trajectory(n_points=12, n_frames=1, seed=500), n_labels=3, seed=500
     )
     target_traj = generate_trajectory(n_points=9, n_frames=1, seed=501)
     source_pos = source_traj[0]["pos"]
@@ -672,7 +672,7 @@ def learned_smoke_checkpoint(tmp_path):
     phase's tests prove the load->infer->LabelResult *wiring* is correct, not
     model quality.
 
-    n_classes=4 MATCHES synthetic_dataset's generate_labels(..., n_classes=4)
+    n_classes=4 MATCHES synthetic_dataset's generate_labels(..., n_labels=4)
     label vocabulary (Pitfall 1 — a mismatch makes one_hot raise a RuntimeError
     unrelated to wiring).
     """
@@ -864,7 +864,7 @@ class TestLabelTransferStageCoverageGaps:
 
     def test_k_neighbours_exceeds_n_src_raises(self, eval_config):
         """label_transfer.py — ValueError when k_neighbours > n_src."""
-        labeled = generate_labels(generate_trajectory(n_points=5, n_frames=1, seed=0), n_classes=2, seed=0)
+        labeled = generate_labels(generate_trajectory(n_points=5, n_frames=1, seed=0), n_labels=2, seed=0)
         stage = LabelTransferStage(eval_config)
         params = {"k_neighbours": 100, "dist_metric": "euclidean", "smoothing": 0.0, "threshold": 0.0}
         with pytest.raises(ValueError, match="k_neighbours=100 exceeds"):
@@ -1001,3 +1001,47 @@ class TestLabelTransferStageCorruptedCheckpoint:
         stage = LabelTransferStage(config)
         with pytest.raises(ValueError, match="failed to load"):
             stage.run(synthetic_dataset, synthetic_dataset, {**good_params, "method": "pointnet2"})
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required (run once on HoreKa)")
+@pytest.mark.parametrize("method,path_field", [("pointnet2", "pointnet2_checkpoint_path"), ("egnn", "egnn_checkpoint_path")])
+def test_learned_stage_runs_on_cuda_frames(
+    method, path_field, tmp_path, good_params, synthetic_dataset, learned_smoke_checkpoint
+) -> None:
+    """Phase 62 (Research Open Q2): CUDA frames + CPU-loaded checkpoint -> no device mismatch."""
+    ckpt_path = learned_smoke_checkpoint(method)
+    config = EvalConfig(data_path=str(tmp_path / "unused.mat"), **{path_field: ckpt_path})
+    cuda_frames = {k: zRegPointCloud(**dict(v)).to("cuda") for k, v in synthetic_dataset.items()}
+    result = LabelTransferStage(config).run(cuda_frames, cuda_frames, {**good_params, "method": method})
+    for tk, frame in cuda_frames.items():
+        labels = result.transferred_labels[tk]
+        assert labels.device.type == "cuda"
+        assert labels.shape == (frame["pos"].shape[0],)
+
+
+@pytest.mark.parametrize("method,path_field", [("pointnet2", "pointnet2_checkpoint_path"), ("egnn", "egnn_checkpoint_path")])
+def test_learned_stage_moves_model_once(
+    method, path_field, tmp_path, good_params, synthetic_dataset, learned_smoke_checkpoint, monkeypatch
+) -> None:
+    """62-REVIEW WR-08: the shared model is moved once before the frame loop, not per frame."""
+    assert len(synthetic_dataset) > 1
+    ckpt_path = learned_smoke_checkpoint(method)
+    config = EvalConfig(data_path=str(tmp_path / "unused.mat"), **{path_field: ckpt_path})
+    original = LabelTransferStage._load_learned_model
+    to_calls: list = []
+
+    def _counting_load(m, path):
+        model = original(m, path)
+        real_to = model.to
+
+        def _to(*args, **kwargs):
+            to_calls.append(args)
+            return real_to(*args, **kwargs)
+
+        model.to = _to
+        return model
+
+    monkeypatch.setattr(LabelTransferStage, "_load_learned_model", staticmethod(_counting_load))
+    result = LabelTransferStage(config).run(synthetic_dataset, synthetic_dataset, {**good_params, "method": method})
+    assert len(to_calls) == 1
+    assert set(result.transferred_labels) == set(synthetic_dataset)

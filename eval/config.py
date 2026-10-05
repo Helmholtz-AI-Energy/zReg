@@ -13,7 +13,84 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
-__all__ = ["EvalConfig", "EvalConfigError", "AlignmentPreprocessingConfig", "DataPreprocessingConfig"]
+# import-order guard: scipy-before-torch, see eval/data_factory.py:20-21
+# (zreg.core.dataset imports scipy internally; it MUST be imported before any
+# module that imports torch, to avoid the documented macOS-ARM libomp SIGABRT)
+from zreg.core.dataset import zRegPointCloud  # noqa: F401
+from zreg.data_generation import LabelComponentSpec, LabelSpec  # noqa: F401
+
+__all__ = [
+    "EvalConfig",
+    "EvalConfigError",
+    "AlignmentPreprocessingConfig",
+    "DataPreprocessingConfig",
+    "LabelGenerationConfig",
+    "SUPPORTED_DTW_DIST_FNS",
+]
+
+# DTW distances runnable through AlignmentStage (downsample_method=None). The
+# SWD family (swd, aswd, oswd, gswd, pswd, maxswd) requires downsampling and
+# raises there; cosine is not a DTW distance. Kept in sync with zreg's dispatch
+# by tests/test_dtw_dist_fn_validation.py (Phase 63 D-08).
+SUPPORTED_DTW_DIST_FNS: tuple[str, ...] = ("euclidean", "manhattan", "minkowski", "cpd")
+
+
+class _UniqueKeyLoader(yaml.SafeLoader):
+    """``yaml.SafeLoader`` that rejects duplicate mapping keys.
+
+    PyYAML silently keeps the last value when a key repeats in one mapping,
+    which let a config carry two conflicting ``label_source`` keys unnoticed
+    (Phase 59 RUN-01).  This loader raises
+    ``yaml.constructor.ConstructorError`` (a ``yaml.YAMLError``) instead, which
+    ``EvalConfig.from_yaml`` wraps into ``EvalConfigError``.  It subclasses
+    ``SafeLoader`` only, never ``yaml.Loader``, so no arbitrary Python objects
+    can be constructed.
+    """
+
+
+def _construct_unique_mapping(loader: _UniqueKeyLoader, node: yaml.MappingNode, deep: bool = False) -> dict:
+    """Construct a mapping, raising on the first repeated key.
+
+    Parameters
+    ----------
+    loader : _UniqueKeyLoader
+        The active loader.
+    node : yaml.MappingNode
+        The mapping node being constructed.
+    deep : bool
+        Passed through to ``construct_object``.
+
+    Returns
+    -------
+    dict
+        The constructed mapping.
+
+    Raises
+    ------
+    yaml.constructor.ConstructorError
+        If a key occurs more than once in the same mapping.
+    """
+    seen: dict = {}
+    for key_node, _value_node in node.value:
+        if key_node.tag == "tag:yaml.org,2002:merge":
+            continue  # ``<<:`` merge keys may legitimately be overridden by explicit keys
+        key = loader.construct_object(key_node, deep=deep)
+        try:
+            hash(key)
+        except TypeError:
+            continue  # SafeConstructor.construct_mapping raises its own "unhashable key" error
+        if key in seen:
+            raise yaml.constructor.ConstructorError(
+                "while constructing a mapping",
+                node.start_mark,
+                f"found duplicate key {key!r} (first defined on line {seen[key] + 1})",
+                key_node.start_mark,
+            )
+        seen[key] = key_node.start_mark.line
+    return loader.construct_mapping(node, deep=deep)
+
+
+_UniqueKeyLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _construct_unique_mapping)
 
 
 class EvalConfigError(ValueError):
@@ -95,6 +172,53 @@ class DataPreprocessingConfig(BaseModel):
     robust_outlier_threshold: float = 3.0
 
 
+class LabelGenerationConfig(BaseModel):
+    """Declarative label-generation spec for scenario YAML (D-13, Phase 56).
+
+    Wraps the two mutually-exclusive paths exposed by
+    ``zreg.data_generation.generate_labels``: a simple path (``n_labels``,
+    auto-random Voronoi centers) and a full path (``label_specs``, explicit
+    ``LabelSpec`` mixtures of voronoi/blob/cone components). Exactly one of
+    ``n_labels``/``label_specs`` must be set — mirrors ``generate_labels``'s
+    own validation so a bad config fails fast at ``EvalConfig`` construction
+    time rather than only at ``generate_labels()`` call time. Unknown keys
+    are rejected with ``extra='forbid'`` so config typos are caught at parse
+    time.
+
+    Parameters
+    ----------
+    n_labels : int or None
+        Number of auto-random Voronoi labels (simple path). Exactly one of
+        ``n_labels``/``label_specs`` must be given. Must be ``>= 1`` when
+        set (Phase 62 U4-7). Default ``None``.
+    label_specs : list[LabelSpec] or None
+        Explicit label specs (full path). Exactly one of
+        ``n_labels``/``label_specs`` must be given. Must be non-empty when
+        set (Phase 62 U4-7). Default ``None``.
+    mode : {"deterministic", "probabilistic"}
+        Assignment mode forwarded to ``generate_labels`` (D-12). Default
+        ``"deterministic"``.
+    seed : int or None
+        Seed forwarded to ``generate_labels``. Default ``42``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    n_labels: int | None = Field(default=None, ge=1)
+    label_specs: list[LabelSpec] | None = Field(default=None, min_length=1)
+    mode: Literal["deterministic", "probabilistic"] = "deterministic"
+    seed: int | None = 42
+
+    @model_validator(mode="after")
+    def _validate_mutual_exclusivity(self) -> "LabelGenerationConfig":
+        if (self.n_labels is None) == (self.label_specs is None):
+            raise ValueError(
+                "exactly one of n_labels or label_specs must be provided "
+                f"(got n_labels={self.n_labels!r}, label_specs={self.label_specs!r})"
+            )
+        return self
+
+
 class EvalConfig(BaseModel):
     """Typed, validated evaluation-framework configuration.
 
@@ -118,6 +242,18 @@ class EvalConfig(BaseModel):
     ground_truth_path : str or None
         Optional external ground-truth file.  ``None`` means extract from
         the dataset's ``id`` field (D-10).
+    ground_truth_field : str
+        Which ``zRegPointCloud`` field ``DataFactory.get_ground_truth()`` and
+        ``get_synthetic_ground_truth()`` read as the F1 ground-truth source:
+        ``"label"`` (default, Phase 56 D-01) or ``"id"`` (escape hatch, D-02).
+        The default matches ``generate_labels()``'s documented F1-compatible
+        convention and the field ``LabelTransferStage.run()``
+        (``eval/stages/label_transfer.py:434``) actually transfers — prior to
+        Phase 56 this was hardcoded to ``"id"``, a per-point tracking identity
+        rather than a class label, making F1 scores meaningless by default.
+        Only ``"id"`` and ``"label"`` are valid (no free-form field name);
+        set to ``"id"`` for datasets whose real class labels happen to live
+        in the ``id`` field instead.
     n_synthetic : int
         Number of synthetic frames to generate (default 100).
     transform_degree : float
@@ -177,6 +313,13 @@ class EvalConfig(BaseModel):
         Optional mapping of integer label IDs to descriptive names (e.g.
         ``{0: 'T cell', 1: 'B cell'}``).  Used by ``plot_trajectory`` for
         legend labels in the label-trajectory figure.  Default ``None``.
+    label_generation : LabelGenerationConfig or None
+        Declarative label-generation spec (D-13) consulted by
+        ``DataFactory.generate_training_triple``/``generate_training_set``
+        and ``HyperparamOptimizer``'s sanity tier when the caller does not
+        pass an explicit ``n_labels`` override. ``None`` (default) preserves
+        every existing hardcoded fallback (``n_labels=6``/``n_labels=4``)
+        unchanged — fully backward compatible.
     pipeline_mode : str
         Pipeline mode: ``'paired'`` loads ``target_data_path`` via
         ``DataFactory.load_target()``; ``'synthetic'`` is reserved for Phase 31
@@ -196,7 +339,11 @@ class EvalConfig(BaseModel):
         Dict must contain at least one recognised augmentation key beyond the
         ``"type"`` discriminator (e.g. ``{"type": "rigid", "rotation_deg":
         30.0, "rotation_axis": [0, 0, 1]}`` or ``{"type": "noise", "sigma":
-        0.1}``).  Default ``None``.
+        0.1}``).  A third recognised ``"type"`` value, ``"subsample_pair"``
+        (Phase 57 GT-04), drives ``DataFactory.generate_subsample_pair()``
+        instead of ``generate_target()`` — see that method's docstring for
+        its own key set (``source_fraction``, ``target_fraction``,
+        ``synthesize``, ``seed``, etc.).  Default ``None``.
     target_data_format : str or None
         Format override for the target dataset loader.  Accepted values:
         ``"tracklets"`` or ``"csv"``.  ``None`` (default) inherits
@@ -223,6 +370,15 @@ class EvalConfig(BaseModel):
         majority vote, existing default behaviour) or ``'cpd_weighted'``
         (CPD E-step posterior-weighted average, requires ``AlignResult.estep_results``
         for the frame pair being processed). Default ``'knn_voting'``.
+    label_source : {"source", "target"}
+        Which cloud provides the class labels that ``LabelTransferStage``
+        transfers.  ``"source"`` (default) transfers labels from the aligned
+        source onto the target (synthetic/selfcal behaviour).  ``"target"`` is
+        for Kobitski->Shah paired runs, where the target (Shah) carries the
+        3-class germ-layer labels and the unlabeled source (Kobitski) receives
+        them.  ``"target"`` is rejected when ``pipeline_mode='synthetic'``
+        (the ground truth is source-side there, so a swap would silently score
+        the wrong cloud).  Phase 59 D-01.
     data_preprocessing : DataPreprocessingConfig or None
         Per-trajectory data scaling applied after subsampling in
         ``DataFactory.load_real()`` and ``DataFactory.load_target()``.  Only
@@ -245,6 +401,7 @@ class EvalConfig(BaseModel):
     data_path: str
     data_format: str = "tracklets"
     ground_truth_path: str | None = None
+    ground_truth_field: Literal["id", "label"] = "label"
     n_synthetic: int = 100
     transform_degree: float = 0.1
     augmentation_params: dict = Field(default_factory=dict)
@@ -272,6 +429,7 @@ class EvalConfig(BaseModel):
         }
     )
     label_names: dict[int, str] | None = None
+    label_generation: LabelGenerationConfig | None = None
     pipeline_mode: Literal["paired", "synthetic"] = "paired"
     target_data_path: str | None = None
     transform_spec: dict | None = None
@@ -285,6 +443,25 @@ class EvalConfig(BaseModel):
     label_transfer_method: str = Field(
         default="knn_voting",
         description="Label transfer method: 'knn_voting', 'cpd_weighted', 'pointnet2', or 'egnn'"
+    )
+    label_source: Literal["source", "target"] = Field(
+        default="source",
+        description=(
+            "Which dataset provides the class labels for transfer. "
+            "'source' (default): labels come from the source trajectory (correct for synthetic/selfcal). "
+            "'target': labels come from the target trajectory (use for paired mode where the target "
+            "dataset — e.g. Shah — carries the ground-truth class labels and source — e.g. Kobitski — "
+            "is unlabeled and should receive them)."
+        ),
+    )
+    label_field: str = Field(
+        default="label",
+        description=(
+            "Which field in the label-source point cloud holds the class labels to transfer. "
+            "Defaults to 'label' (correct for Shah, where load_shah_from_csv puts the 3-class "
+            "layer column into pc['label']). Override to 'id' if a dataset stores class info "
+            "in the id field instead."
+        ),
     )
     device: str = Field(
         default="cpu",
@@ -329,7 +506,9 @@ class EvalConfig(BaseModel):
         ------
         EvalConfigError
             If the file is not found (``"EvalConfig: file not found: ..."``),
-            if the file contains invalid YAML syntax, if a required field
+            if the file contains invalid YAML syntax or a duplicate mapping
+            key (rejected by ``_UniqueKeyLoader`` instead of silently keeping
+            the last value), if a required field
             (``data_path``) is missing, if an unknown field is present, or if
             a field value cannot be coerced to the declared type.  In all
             cases the raw ``pydantic.ValidationError`` is never allowed to
@@ -337,7 +516,7 @@ class EvalConfig(BaseModel):
         """
         try:
             with open(path) as f:
-                data = yaml.safe_load(f) or {}
+                data = yaml.load(f, Loader=_UniqueKeyLoader) or {}
             return cls(**data)
         except FileNotFoundError as e:
             raise EvalConfigError(f"EvalConfig: file not found: {path}") from e
@@ -482,4 +661,74 @@ class EvalConfig(BaseModel):
                 "Open3D ICP requires CPU-resident tensors "
                 "(explicit .cpu().numpy() round-trips in icp.py:114-115, 196-197)"
             )
+        return self
+
+    @model_validator(mode="after")
+    def validate_label_source_pipeline_mode(self) -> "EvalConfig":
+        """Reject ``label_source='target'`` outside paired mode (Phase 59 D-01, D-05).
+
+        The provider/receiver swap is only defined for paired real data.  In
+        synthetic mode the ground truth is source-side, so swapping would
+        silently score the wrong cloud; fail loudly instead.
+
+        Returns
+        -------
+        EvalConfig
+            The validated model instance (self).
+
+        Raises
+        ------
+        ValueError
+            If ``label_source == 'target'`` and ``pipeline_mode == 'synthetic'``.
+        """
+        if self.label_source == "target" and self.pipeline_mode == "synthetic":
+            raise ValueError(
+                "label_source='target' is only supported for pipeline_mode='paired': "
+                "in synthetic mode the ground truth lives on the source side, so taking "
+                "labels from the target would score the wrong cloud"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_dtw_dist_fn(self) -> "EvalConfig":
+        """Reject a ``dtw_dist_fn`` the alignment stage cannot run (Phase 63 D-08).
+
+        Checks ``default_params['dtw_dist_fn']`` (when present) and every
+        element of ``search_space['dtw_dist_fn']`` (a scalar is treated as a
+        one-element list) against ``SUPPORTED_DTW_DIST_FNS``.  Without this
+        check an unsupported value such as ``cosine`` only failed inside each
+        HPO trial, which was then scored ``-inf``.
+
+        Returns
+        -------
+        EvalConfig
+            The validated model instance (self).
+
+        Raises
+        ------
+        ValueError
+            If a ``dtw_dist_fn`` value is not in ``SUPPORTED_DTW_DIST_FNS``.
+            The message names the key path (``default_params.dtw_dist_fn`` or
+            ``search_space.dtw_dist_fn``), the bad value and the allowed set.
+
+        Notes
+        -----
+        Runs on construction, ``model_validate`` and ``from_yaml``; NOT on
+        ``model_copy(update=...)``, so callers that merge params must
+        re-validate (see baseline_experiments/scripts/run_all.py, Phase 63-07).
+        """
+        checks: list[tuple[str, object]] = []
+        if "dtw_dist_fn" in self.default_params:
+            checks.append(("default_params.dtw_dist_fn", self.default_params["dtw_dist_fn"]))
+        if "dtw_dist_fn" in self.search_space:
+            values = self.search_space["dtw_dist_fn"]
+            if not isinstance(values, (list, tuple)):
+                values = [values]
+            checks.extend(("search_space.dtw_dist_fn", v) for v in values)
+        for key_path, value in checks:
+            if value not in SUPPORTED_DTW_DIST_FNS:
+                raise ValueError(
+                    f"{key_path}={value!r} is not a supported DTW distance; "
+                    f"allowed: {SUPPORTED_DTW_DIST_FNS}"
+                )
         return self

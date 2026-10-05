@@ -12,8 +12,8 @@ import torch
 from copy import deepcopy
 from unittest.mock import patch, MagicMock
 
-from zreg.dataset import zRegPointCloud
-from zreg.generators import generate_trajectory
+from zreg.core.dataset import zRegPointCloud
+from zreg.data_generation import generate_trajectory
 
 from eval.config import EvalConfig
 from eval.stages.alignment import AlignmentStage
@@ -296,7 +296,7 @@ class TestSWDAlignmentIntegration:
     # Test 6: All Methods Parametrized (cpd, icp, swd)
     # =====================
 
-    @pytest.mark.parametrize("alignment_method", ["cpd", "icp", "swd"])
+    @pytest.mark.parametrize("alignment_method", ["cpd", pytest.param("icp", marks=pytest.mark.open3d), "swd"])
     def test_alignment_stage_all_methods_parametrized(
         self,
         alignment_method,
@@ -385,6 +385,7 @@ class TestSWDAlignmentIntegration:
     # Test 8: DTW Distance Independence (Pitfall 1)
     # =====================
 
+    @pytest.mark.open3d
     def test_swd_alignment_with_dtw_distance_comparison(
         self,
         synthetic_paired_dataset,

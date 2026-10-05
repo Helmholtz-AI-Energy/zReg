@@ -44,13 +44,14 @@ from typing import Any
 # zreg.* MUST precede torch on macOS-ARM (libomp SIGABRT).
 # Enforced in tests/conftest.py:20-24, eval/data_factory.py:18-35,
 # eval/metrics.py:53-67, eval/types.py:48-53.
-from zreg.metrics import compute_f1, knn_consistency
+from zreg.evaluation import compute_f1, knn_consistency
 
 import torch  # noqa: F401 — ensures consistent import order for downstream callers
 
 from eval.config import EvalConfig
 from eval.data_factory import DataFactory
 from eval.stages import AlignmentStage, LabelTransferStage
+from eval.strict_json import sanitize_non_finite
 from eval.types import BenchmarkReport, MethodBenchmarkResult
 
 __all__ = ["LabelTransferBenchmark"]
@@ -265,7 +266,7 @@ class LabelTransferBenchmark:
             seed value) for contiguous ``LabelTransferStage`` pairing
             (49-RESEARCH.md Pattern 3).
         """
-        triples = DataFactory(self.config).generate_training_set(held_out_seeds, n_classes=n_classes)
+        triples = DataFactory(self.config).generate_training_set(held_out_seeds, n_labels=n_classes)
         source = {i: t.source_cloud for i, t in enumerate(triples)}
         target = {i: t.target_cloud for i, t in enumerate(triples)}
         return self.compare_methods(source, target, params, dataset_source, has_ground_truth=True)
@@ -274,9 +275,11 @@ class LabelTransferBenchmark:
         """Write the benchmark report to ``benchmark_report.json`` in ``output_dir``.
 
         Mirrors ``EvaluationRunner.save_report`` exactly (D-11 fixed
-        filename convention, ``model_dump()`` + ``json.dump()`` — the
+        filename convention, ``model_dump()`` + strict ``json.dump`` — the
         tensor-serializing alternative pydantic method is deliberately
-        avoided here, T-49-04).
+        avoided here, T-49-04).  Strict JSON (Phase 63 IN-01): non-finite
+        values are written as ``null`` and listed in a top-level
+        ``non_finite_fields``; ``allow_nan=False``.
 
         Parameters
         ----------
@@ -294,6 +297,8 @@ class LabelTransferBenchmark:
         """
         out_path = Path(output_dir) / "benchmark_report.json"
         data = report.model_dump()  # D-11 — never the tensor-serializing alternative
+        clean, non_finite = sanitize_non_finite(data)  # Phase 63 IN-01
+        clean["non_finite_fields"] = non_finite
         with open(out_path, "w") as f:
-            json.dump(data, f, indent=2)
+            json.dump(clean, f, indent=2, allow_nan=False)
         return out_path

@@ -16,8 +16,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-# zreg.dataset before torch — macOS-ARM SIGABRT rule
-from zreg.dataset import zRegPointCloud
+# zreg.core.dataset before torch — macOS-ARM SIGABRT rule
+from zreg.core.dataset import zRegPointCloud
 
 import torch
 
@@ -484,3 +484,55 @@ class TestSobolSearch:
         # 1 deduped warm_start + 8 Sobol = 9 evaluations (not 10 = 2 + 8)
         assert len(call_order) == 9
         assert call_order[0]["a"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Phase 59 NUM-05: every strategy accepts the -inf failed-trial sentinel
+# ---------------------------------------------------------------------------
+
+
+def _neg_inf_obj(params):
+    """Objective that "fails" (-inf) for a == 1 and scores 0.5 otherwise."""
+    return float("-inf") if params["a"] == 1 else 0.5
+
+
+def _assert_neg_inf_tolerated(results):
+    scores = [s for _, s in results]
+    assert float("-inf") in scores
+    assert max(scores) == 0.5
+
+
+def test_neg_inf_objective_grid():
+    results = GridSearch().search({"a": [1, 2, 3]}, _neg_inf_obj)
+    _assert_neg_inf_tolerated(results)
+
+
+def test_neg_inf_objective_random():
+    random.seed(0)
+    results = RandomSearch().search(
+        {"a": [1, 2, 3]}, _neg_inf_obj, n_trials=4, warm_start=[{"a": 1}, {"a": 2}]
+    )
+    _assert_neg_inf_tolerated(results)
+
+
+def test_neg_inf_objective_sobol():
+    results = SobolSearch().search(
+        {"a": [1, 2, 3]}, _neg_inf_obj, n_trials=8, seed=0, warm_start=[{"a": 1}, {"a": 2}]
+    )
+    _assert_neg_inf_tolerated(results)
+
+
+def test_neg_inf_objective_bayesian(tmp_path):
+    import optuna
+
+    results = BayesianSearch().search(
+        {"a": [1, 2, 3]},
+        _neg_inf_obj,
+        n_trials=5,
+        output_dir=str(tmp_path),
+        warm_start=[{"a": 1}, {"a": 2}],
+    )
+    _assert_neg_inf_tolerated(results)
+    study = optuna.load_study(study_name="zreg-hpo", storage=f"sqlite:///{tmp_path / 'optuna.db'}")
+    assert math.isfinite(study.best_value)
+    assert study.best_value == 0.5

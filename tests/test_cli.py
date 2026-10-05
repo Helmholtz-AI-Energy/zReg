@@ -21,7 +21,7 @@ _FIXED_STAMP = "2026-01-01_00-00-00"
 import pytest
 
 # zreg.* before torch — macOS-ARM libomp SIGABRT rule
-from zreg.dataset import zRegPointCloud
+from zreg.core.dataset import zRegPointCloud
 
 import torch
 

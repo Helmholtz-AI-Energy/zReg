@@ -63,7 +63,7 @@ if str(_src_root) not in sys.path:  # pragma: no cover
 # on macOS ARM to avoid a duplicate libomp initialisation SIGABRT
 # (47-RESEARCH.md Pitfall 1) — mirrors eval/data_factory.py and
 # src/zreg/models/{pointnet2,egnn}.py's own import-order guard.
-from zreg.dataset import zRegPointCloud  # noqa: F401
+from zreg.core.dataset import zRegPointCloud  # noqa: F401
 
 import argparse
 from datetime import datetime
@@ -309,7 +309,7 @@ def main(argv=None) -> int:
     epoch = 0
     for epoch in range(args.epochs):
         seeds = range(epoch * args.n_seeds, (epoch + 1) * args.n_seeds)
-        triples = factory.generate_training_set(seeds, n_classes=args.n_classes)
+        triples = factory.generate_training_set(seeds, n_labels=args.n_classes)
         for triple in triples:
             train_step(model, triple, optimizer, device, args.n_classes)
 

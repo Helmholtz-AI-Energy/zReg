@@ -2,20 +2,21 @@
 
 ## Current State
 
-**Shipped:** v1.0 Consolidation — 2026-04-09 | v1.1 Code Quality & Refactoring — 2026-05-13 | v1.2 Evaluation Framework & Debt Resolution — 2026-06-26 | **v1.4 Trajectory Alignment & Optimization Enhancements — 2026-07-08**
+**Shipped:** v1.0 Consolidation — 2026-04-09 | v1.1 Code Quality & Refactoring — 2026-05-13 | v1.2 Evaluation Framework & Debt Resolution — 2026-06-26 | v1.4 Trajectory Alignment & Optimization Enhancements — 2026-07-08 | v1.5/v1.6/v1.7 (complete, not formally archived) | **v1.8 Code Review Remediation — 2026-10-05**
+
+**v1.8 (Phases 59–64, 37 plans, 2026-10-02 → 2026-10-05)** fixed all 77 findings of the 8-unit external code review of `feature/evaluation_framework` @ `6c1c37f`, each pinned by a contract-level regression test that fails on `6c1c37f` and does not mock the unit under test: HoreKa suite and scripts runnable again, no silently corrupted numbers (ICP/SWD `D_inv`, HPO scoring, paired transfer direction), degenerate metrics/failed trials fail loudly instead of scoring `1.0`, CPD/DTW numerics per Myronenko & Song, MPI/dtype/device-correct distances and aligners, a CUDA-correct data/label-transfer path, HPC warm start/resume/shared output dir, correct figures/exports, and whole-package doctests. **Local suite: 2575 passed, 50 skipped, 1 xpassed, 0 failed; JUPITER GH200: 2464 passed, 0 failed.**
 
 zReg is a Python library for GPU-accelerated 3D point cloud registration, temporal alignment, and label (celltype) transfer using PyTorch — paired with a complete, config-driven **evaluation framework** at the repo root (`eval/`). v1.4 (5 phases, 11 plans, 2026-06-29 → 2026-07-08) expanded the alignment and optimization pipeline: ICP (Open3D point-to-point) and SWD variants (SWD/ASWD/OSWD/GSWD/PSWD) as registration alternatives; preprocessing via `compute_pca_rotation` + `detect_velocity_landmarks`; Sobol quasi-random search as default HPO (`SOBOL_MIN_TRIALS=8` fallback); and per-trajectory z-score standardization as default data preprocessing — all config-driven and backward compatible. **1,156 tests pass, 18 skipped.**
 
-## Current Milestone: v1.5 HoreKa Cluster Execution
+## Next Milestone Goals
 
-**Goal:** Run the `baseline_experiments` evaluation suite on the HoreKa HPC cluster with GPU support, replacing the current laptop-constrained (CPU-only, subsampled) execution.
+No milestone is active. Candidates carried forward from v1.8 Future Requirements (to be scoped by `/gsd:new-milestone`, phase numbering continues at 65):
+- Audit of `tests/` (~23k LOC): which tests mock the unit under test vs. assert a contract
+- Consistency sweep of `configs/` + `baseline_experiments/configs*/` beyond the RUN-01 load test
+- Merge-gate review of the full `main...feature/evaluation_framework` diff
+- Re-running baseline/HPO results that were produced with the defective CPD/ICP/SWD code (first HoreKa resubmission needs `ZREG_CLEAR_CHECKPOINTS=1`; pre-D-08 `best_params.json` regenerated with `--force`)
 
-**Target features:**
-- Multi-trial parallelism via the already-built `propulate`/MPI search backend (`eval/runners/optimizer.py`, `eval/search_strategies.py`)
-- `baseline_experiments/scripts/run_all.py` made MPI-rank-aware
-- HoreKa job script + environment setup + data transfer
-- Real per-operation GPU acceleration (`device` field on `EvalConfig`, threaded through `DataFactory`)
-- Subsampling stays the default on the cluster (not full point density) — suite is budgeted to a **3-hour GPU time cap**, validated on a short test job before any full allocation
+**Previous milestones:** v1.8 shipped 2026-10-05 (archive: `.planning/milestones/v1.8-ROADMAP.md`). v1.5, v1.6 and v1.7 are complete (not formally archived).
 
 ## What This Is
 
@@ -52,7 +53,27 @@ Every existing capability works correctly, fails informatively, and is covered b
 
 ### Active
 
-v1.5 HoreKa Cluster Execution — requirements being defined, see `.planning/REQUIREMENTS.md`.
+(None — next milestone not yet defined; see "Next Milestone Goals" above.)
+
+### Validated in v1.8 (2026-10-05 — Phases 59–64)
+
+Source findings: `.planning/reviews/00-INDEX.md` + `unit-01..08`; full requirement text in `.planning/milestones/v1.8-REQUIREMENTS.md`.
+
+- ✓ RUN-01/02: every config YAML loads (glob test, duplicate keys rejected, `label_source` restored); `zreg.dtw` shim and example scripts import — v1.8 (Phase 59)
+- ✓ NUM-01…05: exact ICP/SWD `D_inv`; multi-seed HPO scores aligned dicts; list seeds run every tier; paired transfer takes Shah labels; degenerate metrics/failed trials never normalise to `1.0` — v1.8 (Phase 59)
+- ✓ CPD-01…09: CPD convergence window, rigid `q`/`sigma2`, identity defaults, ConstrainedNonRigidCPD transformation, `use_color` rejection, AffineCPD warm start, DTW callable save/load, wide sources, stale paths — v1.8 (Phase 60)
+- ✓ DIST-01…05: no MPI deadlock, dtype/device-correct SW variants, non-zero-based frame keys, SWD proper rotations + degenerate-cloud rejection, one `cdist` per frame — v1.8 (Phase 61)
+- ✓ DATA-01…04, LT-01…04: CUDA-correct GT gather/label ids, correspondence-safe augment, config-time label validation, all-frame RGB remap, model `n_classes`, NaN-safe `pmat`, bounded `sample_bowl`, correct kNN self-exclusion — v1.8 (Phase 62)
+- ✓ HPC-01…04, VIZ-01…03, DOC-01: real warm start, calibrated-only merge, resume by default, shared rank-0 output dir; complete figures, mirrored source panel, consistent label metadata; restructure leftovers and whole-package doctests — v1.8 (Phases 63–64)
+
+### Validated in v1.7 (2026-08-04, complete — Phases 56 and 57)
+
+- ✓ GT-01: `EvalConfig.ground_truth_field: Literal["id","label"]="label"` — GT extraction now reads the field `LabelTransferStage` actually transfers — Phase 56
+- ✓ GT-02: correspondence-tracked `y_true`/`y_pred` pairing (`_correspondence_idx` through `drop_points`/`sample_new_points`) replacing positional truncation — Phase 56
+- ✓ GT-03: Shah/Kobitski ground-truth config comments corrected; fully-synthetic label-transfer configs' degenerate placeholder documented — Phase 56
+- ✓ GT-04: `transform_spec: {type: "subsample_pair"}` — YAML-configurable synthetic dataset pair generation via subsampling — Phase 57
+- ✓ GT-05: `DataFactory.generate_subsample_pair()` — generalizes beyond `generate_training_triple()` to accept any already-loaded dataset (real or synthetic) — Phase 57
+- ✓ GT-06: `EvaluationRunner`/`HyperparamOptimizer` (all three `pipeline_mode=="synthetic"` call sites) run label-transfer HPO against subsample-pair ground truth, with D-07's opt-in tier-gated multi-seed averaging — Phase 57
 
 ### Validated in v1.4 (2026-07-08)
 
@@ -105,7 +126,7 @@ v1.5 HoreKa Cluster Execution — requirements being defined, see `.planning/REQ
 
 ### Out of Scope
 
-- Alignment quality metrics (TRE, chamfer distance) — new feature, not consolidation
+- Retroactive correction of numbers produced before v1.8 — the mechanisms are fixed; re-runs are a next-milestone candidate, not an in-place correction
 - Uncertainty quantification for transformations — new feature, not consolidation
 - Color transfer occlusion handling — new feature, not consolidation
 - Full MPI refactoring (hierarchical communication) — beyond quick wins
@@ -122,7 +143,9 @@ v1.5 HoreKa Cluster Execution — requirements being defined, see `.planning/REQ
 - Shipped v1.0 with ~10,270 net insertions across 48 files; v1.1 added +11,953 / −1,890 lines across 85 files
 - ~6,195 LOC Python in src/; 391 passing regression tests at 94% coverage after v1.1
 - CPD, DTW, distances, transforms all restructured as packages with explicit `__all__` exports
-- Known tech debt: `typing.Callable` retained in cpd/ (valid 3.12, minor inconsistency); `DistanceMetric` Protocol documentary only; `color_transfer.py` uses absolute intra-package import; `config` not top-level; no VALIDATION.md for any v1.1 phase
+- Known tech debt (v1.1, largely closed by v1.2 CARRY-01…05): `typing.Callable` retained in cpd/; `DistanceMetric` Protocol documentary only
+- After v1.8 (2026-10-05): 2575 passed / 50 skipped locally, 2464 passed on JUPITER GH200 (aarch64, Open3D-optional via pure-torch geometry ops, srun MPI launcher); whole-package doctests gated by `tests/test_doctests.py` and `tox -e doctests`; stale module/path references gated by `tests/test_doc_hygiene.py`
+- Known tech debt after v1.8: AffineCPD `torch.linalg.solve` singular on ~2% of tiny random inputs (regularise vs report undecided); `tox -e doctests` not installable on JUPITER aarch64 (open3d in `install_requires`); no production `baseline_with_combined` run with real Propulate warm start yet; pre-Phase-63 HPO results not comparable with new runs
 
 ## Constraints
 
@@ -151,7 +174,14 @@ v1.5 HoreKa Cluster Execution — requirements being defined, see `.planning/REQ
 | Two-input stage signatures `run(source, target, params)` | DTW must never self-align (`x=y`) | ✓ Good — enabled paired + heterogeneous modes |
 | Stored CPD transform reuse (normalise→apply→denormalise) | Re-running CPD from identity fails at 8× scale difference | ✓ Good — fixed Shah/Kobitski convergence (ALIGN-03) |
 | `color`→`label` rename with loud failure (no `id` fallback) | Silent fallback masked missing labels | ✓ Good — errors are now informative (CLN-02) |
-| Propulate as optional lazy-imported MPI extra | Heavy MPI dep; Optuna is the default backend | ⚠️ Revisit — live mpirun path unverified (missing GPy in dev env) |
+| Propulate as optional lazy-imported MPI extra | Heavy MPI dep; Optuna is the default backend | ✓ Good — live multi-rank Propulate verified on HoreKa (v1.6) and under srun on JUPITER (v1.8) |
+| v1.8: every fix pinned by a regression test that fails on `6c1c37f` and does not mock the unit under test | Review found "100% coverage is line coverage over mocks" | ✓ Good — 77/77 findings closed with contract-level tests |
+| v1.8: degenerate metrics/failed trials → non-finite or raise, never `0.0` | `normalize()` mapped `0.0` to the best possible score | ✓ Good — failures now visible in HPO and `sanity_check` |
+| v1.8: paired transfer takes Shah (target) labels onto aligned Kobitski via one shared helper | `c68c63c` cleanup had silently inverted the direction | ✓ Good — all 27 Kobitski→Shah configs consistent |
+| v1.8: `RigidCPD` identity default; empirical Shah/Kobitski pose opt-in | Non-orthogonal dataset-specific pose was a hidden default | ✓ Good |
+| v1.8: HoreKa HPO resumes from checkpoints by default (`ZREG_CLEAR_CHECKPOINTS=1` opt-in) | Unconditional `--clear-checkpoints` discarded work on resubmission | ✓ Good — first post-D-08 resubmission must clear once |
+| v1.8: strict JSON for non-finite metrics (`null` + marker) | Literal `Infinity` is invalid JSON | ✓ Good |
+| v1.8: AffineCPD near-singular `solve` on tiny inputs | Regularise vs report needs a numerics decision | — Pending |
 
 ## Evolution
 
@@ -171,4 +201,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-15 — v1.5 HoreKa Cluster Execution milestone started*
+*Last updated: 2026-10-05 after v1.8 milestone*

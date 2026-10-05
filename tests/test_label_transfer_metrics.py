@@ -1,11 +1,11 @@
-"""Tests for zreg.metrics.label_transfer module (compute_f1)."""
+"""Tests for zreg.evaluation.label_transfer module (compute_f1)."""
 
 import inspect
 
 import pytest
 import torch
 
-from zreg.metrics.label_transfer import compute_f1
+from zreg.evaluation.label_transfer import compute_f1, knn_consistency
 
 
 class TestComputeF1Signature:
@@ -145,8 +145,8 @@ class TestComputeF1PackageImport:
     """Tests for compute_f1 package-level re-export."""
 
     def test_importable_from_package(self):
-        """compute_f1 is importable from zreg.metrics package."""
-        from zreg.metrics import compute_f1 as cf  # noqa: F401
+        """compute_f1 is importable from zreg.evaluation package."""
+        from zreg.evaluation import compute_f1 as cf  # noqa: F401
         assert cf is compute_f1
 
 
@@ -155,6 +155,154 @@ class TestToMatrixUnsupportedType:
 
     def test_unsupported_type_raises_type_error(self):
         """_to_matrix(obj) where obj is not Rigid/Affine raises TypeError."""
-        from zreg.metrics.label_transfer import _to_matrix
+        from zreg.evaluation.label_transfer import _to_matrix
         with pytest.raises(TypeError, match="Unsupported"):
             _to_matrix("not_a_transform")
+
+
+class TestKnnConsistencySelfExclusion:
+    """knn_consistency excludes the query point by index (LT-04 U1-8)."""
+
+    def test_coincident_pairs_with_different_labels(self):
+        """Coincident points with different labels are each other's neighbour."""
+        points = torch.tensor(
+            [
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+                [5.0, 5.0, 5.0],
+                [5.0, 5.0, 5.1],
+                [9.0, 9.0, 9.0],
+                [9.0, 9.0, 9.1],
+            ],
+            dtype=torch.float64,
+        )
+        labels = torch.tensor([0, 1, 2, 2, 3, 3])
+        # Points 0/1 see each other (different labels -> 0); the other four
+        # points see their partner with the same label -> 1. Mean = 4/6.
+        assert knn_consistency(points, labels, k=1) == pytest.approx(4 / 6, abs=1e-12)
+
+    def test_more_than_k_plus_one_coincident_points_use_exactly_k(self):
+        """When self is not among the k+1 returned neighbours, k neighbours are still used."""
+        points = torch.tensor(
+            [
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+                [9.0, 9.0, 9.0],
+                [9.0, 9.0, 9.1],
+            ],
+            dtype=torch.float64,
+        )
+        labels = torch.tensor([0, 1, 2, 3, 4, 4])
+        # Each origin point: 2 other origin points, all labels distinct -> 0.
+        # Each far point: its partner (match) and one origin point (no match)
+        # -> 1/2. Mean = (0 * 4 + 0.5 + 0.5) / 6.
+        expected = (0.0 * 4 + 0.5 + 0.5) / 6
+        assert knn_consistency(points, labels, k=2) == pytest.approx(expected, abs=1e-12)
+
+    def test_well_separated_points_unchanged(self):
+        """Without ties the result equals the definition."""
+        points = torch.tensor(
+            [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 12.0, 0.0]]
+        )
+        labels = torch.tensor([0, 0, 1, 2])
+        # 0<->1 match, 2<->3 do not match -> 2/4.
+        result = knn_consistency(points, labels, k=1)
+        assert isinstance(result, float)
+        assert result == pytest.approx(0.5, abs=1e-12)
+
+
+class TestTemporalStabilityMixedInputs:
+    """temporal_stability raises TypeError for mixed device/dtype lists (LT-04 U1-9)."""
+
+    def test_mixed_device_raises_type_error(self):
+        from zreg.core.transforms import RigidTransformation
+        from zreg.evaluation.label_transfer import temporal_stability
+
+        transforms = [
+            RigidTransformation(),
+            RigidTransformation(device=torch.device("meta")),
+        ]
+        with pytest.raises(TypeError, match="device"):
+            temporal_stability(transforms)
+
+    def test_mixed_dtype_raises_type_error(self):
+        from zreg.core.transforms import RigidTransformation
+        from zreg.evaluation.label_transfer import temporal_stability
+
+        transforms = [
+            RigidTransformation(dtype=torch.float32),
+            RigidTransformation(dtype=torch.float64),
+        ]
+        with pytest.raises(TypeError, match="dtype"):
+            temporal_stability(transforms)
+
+    def test_homogeneous_rigid_and_affine_unchanged(self):
+        from zreg.core.transforms import AffineTransformation, RigidTransformation
+        from zreg.evaluation.label_transfer import temporal_stability
+
+        rigid = RigidTransformation(dtype=torch.float32)
+        affine = AffineTransformation(
+            b=2.0 * torch.eye(3, dtype=torch.float32),
+            t=torch.zeros(3, dtype=torch.float32),
+        )
+        result = temporal_stability([rigid, affine])
+        # Difference of the 4x4 matrices is diag(1, 1, 1, 0) -> Frobenius sqrt(3).
+        assert result.dtype == torch.float32
+        assert result.item() == pytest.approx(3.0 ** 0.5, abs=1e-6)
+
+    def test_single_and_empty_lists_unchanged(self):
+        from zreg.core.transforms import RigidTransformation
+        from zreg.evaluation.label_transfer import temporal_stability
+
+        assert temporal_stability([]).item() == 0.0
+        single = temporal_stability([RigidTransformation(dtype=torch.float64)])
+        assert single.item() == 0.0
+        assert single.dtype == torch.float64
+
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+    def test_cpu_and_cuda_mix_raises_type_error(self):
+        from zreg.core.transforms import RigidTransformation
+        from zreg.evaluation.label_transfer import temporal_stability
+
+        transforms = [
+            RigidTransformation(),
+            RigidTransformation(device=torch.device("cuda")),
+        ]
+        with pytest.raises(TypeError, match="device"):
+            temporal_stability(transforms)
+
+
+class TestKnnConsistencySentinel:
+    """62-REVIEW WR-06: -1 ("no label") is masked like in compute_f1."""
+
+    _POINTS = torch.tensor(
+        [[0.0, 0.0, 0.0], [0.1, 0.0, 0.0], [0.2, 0.0, 0.0],
+         [10.0, 0.0, 0.0], [10.1, 0.0, 0.0], [10.2, 0.0, 0.0]],
+        dtype=torch.float64,
+    )
+
+    def test_unlabelled_points_neither_scored_nor_neighbours(self):
+        # Cluster A: 0, 0, -1; cluster B: 1, 1, 1 (k=2, neighbours stay in-cluster).
+        labels = torch.tensor([0, 0, -1, 1, 1, 1])
+        # Point 0: neighbours {1, 2} -> labelled {1} matches -> 1.0
+        # Point 1: neighbours {0, 2} -> labelled {0} matches -> 1.0
+        # Point 2: unlabelled -> not scored; cluster B: 1.0 each.
+        assert knn_consistency(self._POINTS, labels, k=2) == pytest.approx(1.0, abs=1e-12)
+
+    def test_unlabelled_cluster_does_not_count_as_agreement(self):
+        labels = torch.tensor([-1, -1, -1, 1, 2, 1])
+        # Only cluster B is scored: point 3 sees {4, 5} -> 1/2, point 4 sees {3, 5} -> 0,
+        # point 5 sees {4, 3} -> 1/2.  Mean = 1/3.  Unmasked, the -1 cluster would score 1.0.
+        assert knn_consistency(self._POINTS, labels, k=2) == pytest.approx(1 / 3, abs=1e-12)
+
+    def test_all_unlabelled_returns_zero(self):
+        labels = torch.full((6,), -1)
+        assert knn_consistency(self._POINTS, labels, k=2) == 0.0
+
+    def test_without_sentinel_unchanged(self):
+        labels = torch.tensor([0, 0, 1, 1, 1, 2])
+        # Point 0: {1,2} -> 1/2; 1: {0,2} -> 1/2; 2: {1,0} -> 0;
+        # 3: {4,5} -> 1/2; 4: {3,5} -> 1/2; 5: {4,3} -> 0. Mean = 2/6.
+        assert knn_consistency(self._POINTS, labels, k=2) == pytest.approx(2 / 6, abs=1e-12)

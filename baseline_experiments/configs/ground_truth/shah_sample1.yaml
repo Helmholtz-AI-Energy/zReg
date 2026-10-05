@@ -7,6 +7,11 @@
 # Random transform generated once with `random.Random(456)` (documented here
 # for reproducibility — see baseline_experiments/README.md):
 #   rotation_deg = 28.71, rotation_axis = [0.933, -0.13, 0.589], sigma = 0.0883
+#
+# GT field note (Phase 56, D-05): Shah's real cell-type classes live in
+# pc["label"] (populated from the CSV "layer" column by load_shah_from_csv).
+# The default ground_truth_field="label" (EvalConfig, Phase 56 D-01) reads
+# this correctly; no override needed here.
 
 data_path: data/external/sample/shah_data/sample-1/sample-1-cell-tracks.csv
 data_format: csv
@@ -31,7 +36,8 @@ search_space:
   cpd_penalty: ["rigid"]  # fixed to rigid — null/affine excluded; see README.md Runtime section for nonrigid exclusion reason
   window_size: [5, 10, 20]
   step: [8]  # single-value list, not a real search - see README.md Runtime section: HyperparamOptimizer._objective merges its own hardcoded _default_params (step=1) with the trial's sampled params, so default_params.step alone is silently ignored unless step is also a search_space key
-  dtw_dist_fn: [euclidean, cosine]
+  # single-value list; cosine is not a DTW distance (Phase 63 D-08)
+  dtw_dist_fn: [euclidean]
   k_neighbours: [3, 5, 10]
   dist_metric: [euclidean, cosine]
   smoothing: [0.0, 0.1, 0.3]

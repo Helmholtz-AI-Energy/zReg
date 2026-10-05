@@ -44,6 +44,8 @@ class RigidTransformation(TransformBase):
 
     Examples
     --------
+    >>> import torch
+    >>> from zreg.core.transforms import RigidTransformation
     >>> # Create identity transformation
     >>> tf = RigidTransformation()
     >>> points = torch.randn(100, 3)
@@ -152,6 +154,8 @@ class RigidTransformation(TransformBase):
 
         Examples
         --------
+        >>> import torch
+        >>> from zreg.core.transforms import RigidTransformation
         >>> tf1 = RigidTransformation(t=torch.tensor([1., 0., 0.]))
         >>> tf2 = RigidTransformation(t=torch.tensor([0., 1., 0.]))
         >>> tf_composed = tf1 * tf2

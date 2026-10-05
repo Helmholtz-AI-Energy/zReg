@@ -47,6 +47,8 @@ class NonRigidTransformation(TransformBase):
 
     Examples
     --------
+    >>> import torch
+    >>> from zreg.core.transforms import NonRigidTransformation
     >>> points = torch.randn(50, 3)
     >>> w = torch.zeros(50, 3)
     >>> tf = NonRigidTransformation(w=w, points=points, beta=2.0)

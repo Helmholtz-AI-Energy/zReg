@@ -69,6 +69,7 @@ def transform_points_homogeneous(
 
     Examples
     --------
+    >>> from zreg.core.transforms import transform_points_homogeneous
     >>> from zreg.core.dataset import zRegPointCloud
     >>> import torch
     >>> pc = zRegPointCloud(pos=torch.randn(10, 3))

@@ -1,13 +1,13 @@
 """DataFactory: lazy, cached orchestrator for real and synthetic point cloud trajectories.
 
 Wraps the four existing data primitives (``load_data_from_tracklets``,
-``load_shah_from_csv``, the ``zreg.generators`` package, and the two corruption
+``load_shah_from_csv``, the ``zreg.data_generation`` package, and the two corruption
 functions) behind a single class driven by an ``EvalConfig``.  All five public
 methods return ``dict[int, zRegPointCloud]`` (or a split tuple).  Construction
 is cheap (no I/O) per D-08; data is loaded/generated lazily on first method
 call per D-09.  The returned dicts must not be mutated in place — downstream
 phases should treat them as read-only (copy.deepcopy them first if mutation is
-required).  The generators in ``zreg.generators`` already deep-copy their
+required).  The generators in ``zreg.data_generation`` already deep-copy their
 inputs, so chaining ``augment(load_real())`` is inherently safe.
 """
 
@@ -98,8 +98,8 @@ class DataFactory:
 
     **DO NOT mutate** the returned dicts in place — downstream phases must treat
     them as immutable.  If mutation is required, ``copy.deepcopy`` the returned
-    dict before modifying it.  The generators in ``zreg.generators`` already
-    deep-copy their inputs (verified in ``src/zreg/generators/corruption.py``),
+    dict before modifying it.  The generators in ``zreg.data_generation`` already
+    deep-copy their inputs (verified in ``src/zreg/data_generation/corruption.py``),
     so the common pattern ``augment(load_real())`` is inherently safe: augment()
     returns a new dict whose frames are deep-copies of the originals.
 
@@ -805,7 +805,7 @@ class DataFactory:
         dataset unchanged.
 
         Both ``add_gaussian_noise`` and ``add_outliers`` deep-copy their inputs
-        (verified in ``src/zreg/generators/corruption.py``), so the input
+        (verified in ``src/zreg/data_generation/corruption.py``), so the input
         ``dataset`` is never mutated.
 
         Parameters
@@ -1328,7 +1328,7 @@ class DataFactory:
         the loop would make all frames receive identical points.
 
         Sentinel fill convention (mirrors ``add_outliers`` in
-        ``src/zreg/generators/corruption.py``):
+        ``src/zreg/data_generation/corruption.py``):
         - 1-D fields (``id``, 1-D ``color``, ``fps-idx``): sentinel -1
         - 2-D fields (RGB ``color``): zero rows
 

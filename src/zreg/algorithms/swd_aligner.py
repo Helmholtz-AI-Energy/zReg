@@ -53,6 +53,7 @@ def _nearest_rotation(m: torch.Tensor) -> torch.Tensor:
     Examples
     --------
     >>> import torch
+    >>> from zreg.algorithms.swd_aligner import _nearest_rotation
     >>> r = _nearest_rotation(torch.diag(torch.tensor([1.0, 1.0, -1.0])))
     >>> round(torch.det(r).item(), 6)
     1.0

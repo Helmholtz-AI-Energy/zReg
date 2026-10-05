@@ -41,6 +41,8 @@ def rbf_kernel_matrix(points: torch.Tensor, beta: float) -> torch.Tensor:
 
     Examples
     --------
+    >>> import torch
+    >>> from zreg.algorithms.cpd.kernels import rbf_kernel_matrix
     >>> points = torch.randn(100, 3)
     >>> G = rbf_kernel_matrix(points, beta=2.0)
     >>> G.shape

@@ -3,7 +3,7 @@
 Provides ``farthest_point_sample``, ``ball_query``, and ``build_radius_graph`` —
 the shared indexing layer both point-cloud model architectures consume. Follows
 the same extract-positions -> build Open3D structure -> call native op -> convert
-back to ``torch.Tensor`` wrapper pattern as ``src/zreg/registration/icp.py``.
+back to ``torch.Tensor`` wrapper pattern as ``src/zreg/algorithms/icp.py``.
 
 All three functions read ``pos.device`` and place their outputs there via
 ``torch.as_tensor(..., device=pos.device)`` — no ``device`` kwarg, no bare CUDA

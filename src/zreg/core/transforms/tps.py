@@ -47,6 +47,8 @@ class TPSTransformation(TransformBase):
 
     Examples
     --------
+    >>> import torch
+    >>> from zreg.core.transforms import TPSTransformation
     >>> a = torch.randn(4, 3)  # Affine parameters
     >>> v = torch.randn(6, 3)  # Kernel weights, (n_control - d - 1, d) = (10 - 3 - 1, 3)
     >>> control_pts = torch.randn(10, 3)  # Control points

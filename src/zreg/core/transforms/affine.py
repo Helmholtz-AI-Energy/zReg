@@ -36,6 +36,8 @@ class AffineTransformation(TransformBase):
 
     Examples
     --------
+    >>> import torch
+    >>> from zreg.core.transforms import AffineTransformation
     >>> # Create identity affine transformation
     >>> tf = AffineTransformation()
     >>> points = torch.randn(100, 3)

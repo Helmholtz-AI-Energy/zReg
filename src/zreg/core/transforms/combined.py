@@ -38,6 +38,8 @@ class CombinedTransformation(TransformBase):
 
     Examples
     --------
+    >>> import torch
+    >>> from zreg.core.transforms import CombinedTransformation
     >>> # Create rigid + deformation transformation
     >>> t = torch.tensor([1.0, 0.0, 0.0])
     >>> v = torch.randn(100, 3) * 0.01  # Small deformations

@@ -38,6 +38,7 @@ def compose_constraints(
 
     Examples
     --------
+    >>> from zreg.algorithms.dtw.constraints import compose_constraints
     >>> # Sakoe-Chiba band constraint
     >>> def sakoe_chiba(i, j, n, m, window=2):
     ...     return abs(i - j) <= window

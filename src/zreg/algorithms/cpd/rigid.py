@@ -61,6 +61,8 @@ class RigidCPD(CoherentPointDrift):
 
     Examples
     --------
+    >>> import torch
+    >>> from zreg.algorithms.cpd import RigidCPD
     >>> source = torch.randn(100, 3)
     >>> target = torch.randn(100, 3)
     >>> cpd = RigidCPD(source, update_scale=True)

@@ -91,6 +91,47 @@ _discover()
 
 _MISSING = object()
 
+# Private torch internals the device-state helpers below rely on (checked
+# against torch 2.9).  torch is not version-pinned, so they are probed once
+# and a rename fails with one clear message naming the torch version instead
+# of an opaque AttributeError/ImportError in every fixture setup.
+_TORCH_DEVICE_INTERNALS = (
+    ("torch", "_GLOBAL_DEVICE_CONTEXT"),
+    ("torch._C", "_len_torch_function_stack"),
+    ("torch.overrides", "_get_current_function_mode_stack"),
+    ("torch.overrides", "_pop_mode"),
+    ("torch.overrides", "_push_mode"),
+    ("torch.utils._device", "CURRENT_DEVICE"),
+    ("torch.utils._device", "DeviceContext"),
+)
+
+
+def _missing_torch_device_internals() -> list[str]:
+    """Return the dotted names from ``_TORCH_DEVICE_INTERNALS`` this torch lacks."""
+    missing = []
+    for module_name, attr in _TORCH_DEVICE_INTERNALS:
+        try:
+            module = importlib.import_module(module_name)
+        except ImportError:
+            missing.append(f"{module_name} (module)")
+            continue
+        if not hasattr(module, attr):
+            missing.append(f"{module_name}.{attr}")
+    return missing
+
+
+def _require_torch_device_internals() -> None:
+    missing = _missing_torch_device_internals()
+    if missing:
+        import torch
+
+        pytest.fail(
+            f"tests/test_doctests.py device-state helpers rely on private torch internals that "
+            f"torch {torch.__version__} no longer provides: {', '.join(missing)}. "
+            f"Update _device_state / _restore_device_state for this torch version.",
+            pytrace=False,
+        )
+
 
 def _device_state():
     """Return the raw default-device state: the global slot and the mode stack.
@@ -101,6 +142,7 @@ def _device_state():
     So the fixture compares the actual ``DeviceContext`` object and the mode
     stack, not the reported device.
     """
+    _require_torch_device_internals()
     import torch
     from torch.overrides import _get_current_function_mode_stack
 
@@ -299,6 +341,16 @@ def test_config_docstrings_leave_no_device_context() -> None:
             )
     finally:
         _restore_device_state(slot_before, stack_before)
+
+
+def test_torch_device_internals_available() -> None:
+    """The private torch names the device-state helpers use still exist in this torch."""
+    import torch
+
+    missing = _missing_torch_device_internals()
+    assert missing == [], (
+        f"torch {torch.__version__} lacks private internals used by restore_torch_state: {missing}"
+    )
 
 
 def test_restore_detects_and_removes_leaked_device_context() -> None:

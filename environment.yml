@@ -24,7 +24,7 @@ dependencies:
   # - yellowbrick
   # ML, STATS & DEEP LEARNING
   # - statsmodels
-  # - scikit-learn
+  - scikit-learn
   # - sktime
   # - tslearn
   # - xgboost

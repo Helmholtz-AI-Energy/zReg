@@ -23,7 +23,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from ._ops import ball_query, farthest_point_sample
+from ._ops import ball_query, farthest_point_sample, knn
 
 __all__ = ["SetAbstraction", "FeaturePropagation", "PointNet2LabelTransfer"]
 
@@ -112,7 +112,7 @@ class FeaturePropagation(nn.Module):
     Interpolates ``feat_sparse`` (defined at ``pos_sparse``, a coarser
     resolution) back up to ``pos_dense``'s full resolution via standard
     PointNet++ three-nearest-neighbor inverse-distance weighting
-    (``open3d.geometry.KDTreeFlann.search_knn_vector_3d(p, 3)``, weights
+    (``_ops.knn``: Open3D KDTreeFlann, or a torch fallback without Open3D; weights
     ``1/dist`` normalized -- Don't Hand-Roll table, 47-RESEARCH.md), then
     concatenates the corresponding dense-resolution skip feature
     (``feat_dense_skip``) before a shared per-point MLP.
@@ -162,20 +162,11 @@ class FeaturePropagation(nn.Module):
         torch.Tensor
             [N, hidden_dim] fused, propagated features.
         """
-        import open3d as o3d  # lazy import to avoid libomp conflict on macOS ARM
-        pcd = o3d.geometry.PointCloud()
-        pcd.points = o3d.utility.Vector3dVector(
-            pos_sparse.detach().cpu().numpy().astype(np.float64)
-        )
-        tree = o3d.geometry.KDTreeFlann(pcd)
-
         k = min(3, pos_sparse.shape[0])
-        pos_dense_np = pos_dense.detach().cpu().numpy().astype(np.float64)
+        neighbour_idx, neighbour_dist2 = knn(pos_sparse, pos_dense, k)
 
         interpolated = []
-        for p in pos_dense_np:
-            _, idx, dist2 = tree.search_knn_vector_3d(p, k)
-            idx = list(idx)
+        for idx, dist2 in zip(neighbour_idx, neighbour_dist2):
             dist = torch.as_tensor(
                 np.sqrt(np.maximum(dist2, 1e-10)),
                 dtype=feat_sparse.dtype,

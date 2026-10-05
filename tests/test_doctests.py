@@ -324,23 +324,30 @@ def test_open3d_docstring_example_runs_when_available(restore_torch_state) -> No
 
 def test_config_docstrings_leave_no_device_context() -> None:
     """The ``zreg.config`` examples leave the device slot and mode stack untouched."""
+    import torch
+
     config_tests = [test for test in DOCTESTS if test.name.startswith("zreg.config")]
     assert config_tests, "no zreg.config docstrings discovered"
     slot_before, stack_before = _device_state()
+    # Not using restore_torch_state (it would mask the leak this test checks),
+    # so restore matmul precision and RNG here in case an example fails early.
+    precision = torch.get_float32_matmul_precision()
     if slot_before is None:
         _set_device_slot(_MISSING)
     pristine_slot, pristine_stack = _device_state()
     try:
-        for test in config_tests:
-            result, output = _run(test)
-            assert result.failed == 0, output
-            slot_after, stack_after = _device_state()
-            assert slot_after is pristine_slot, f"{test.name} changed the default-device slot"
-            assert [id(m) for m in stack_after] == [id(m) for m in pristine_stack], (
-                f"{test.name} left a torch-function mode on the stack: {stack_after!r}"
-            )
+        with torch.random.fork_rng(devices=[]):
+            for test in config_tests:
+                result, output = _run(test)
+                assert result.failed == 0, output
+                slot_after, stack_after = _device_state()
+                assert slot_after is pristine_slot, f"{test.name} changed the default-device slot"
+                assert [id(m) for m in stack_after] == [id(m) for m in pristine_stack], (
+                    f"{test.name} left a torch-function mode on the stack: {stack_after!r}"
+                )
     finally:
         _restore_device_state(slot_before, stack_before)
+        torch.set_float32_matmul_precision(precision)
 
 
 def test_torch_device_internals_available() -> None:

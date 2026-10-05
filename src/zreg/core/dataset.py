@@ -302,14 +302,19 @@ def zreg_to_open3d(pc: zRegPointCloud) -> "o3dtgeo.PointCloud":
     map_to_tensors = {}
     if from_torch:
         map_to_tensors["positions"] = o3c.Tensor.from_dlpack(torch.utils.dlpack.to_dlpack(pc["pos"]))
-        map_to_tensors["colors"] = o3c.Tensor.from_dlpack(torch.utils.dlpack.to_dlpack(pc["label"]))
-        map_to_tensors["labels"] = o3c.Tensor.from_dlpack(torch.utils.dlpack.to_dlpack(pc["id"]))
+        # label and id are optional (open3d_to_zreg returns id=None for clouds without labels)
+        if pc["label"] is not None:
+            map_to_tensors["colors"] = o3c.Tensor.from_dlpack(torch.utils.dlpack.to_dlpack(pc["label"]))
+        if pc["id"] is not None:
+            map_to_tensors["labels"] = o3c.Tensor.from_dlpack(torch.utils.dlpack.to_dlpack(pc["id"]))
         if pc["fps-idx"] is not None:
             map_to_tensors["fps_idx"] = o3c.Tensor.from_dlpack(torch.utils.dlpack.to_dlpack(pc["fps-idx"]))
     else:
         map_to_tensors["positions"] = pc["pos"]
-        map_to_tensors["colors"] = pc["label"]
-        map_to_tensors["labels"] = pc["id"]
+        if pc["label"] is not None:
+            map_to_tensors["colors"] = pc["label"]
+        if pc["id"] is not None:
+            map_to_tensors["labels"] = pc["id"]
         if pc["fps-idx"] is not None:
             map_to_tensors["fps_idx"] = pc["fps-idx"]
     return o3dtgeo.PointCloud(map_to_tensors)

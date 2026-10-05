@@ -629,6 +629,36 @@ class TestIdNoneDownsampling:
         assert x_ds["id"] is None
         assert y_ds["id"] is None
 
+    def test_random_id_none_return_o3d(self):
+        """return_o3d=True converts id=None clouds without a TypeError (no "labels" attribute)."""
+        pytest.importorskip("open3d")
+        x, y = _fresh_pair_id_none()
+        x_o3d, y_o3d = downsampling.random_down_sample(x, y, return_o3d=True)
+        assert x_o3d.point.positions.shape[0] == y_o3d.point.positions.shape[0] == 30
+        assert "labels" not in x_o3d.point
+        assert "labels" not in y_o3d.point
+        assert x_o3d.point.colors.shape[0] == 30
+
+    def test_zreg_to_open3d_id_and_label_none(self):
+        """zreg_to_open3d only maps optional fields that are present (torch and numpy input)."""
+        pytest.importorskip("open3d")
+        from zreg.core.dataset import zreg_to_open3d
+
+        pc = zRegPointCloud(pos=torch.randn(5, 3), label=None, id=None)
+        pc["fps-idx"] = None
+        out = zreg_to_open3d(pc)
+        assert out.point.positions.shape[0] == 5
+        assert "colors" not in out.point
+        assert "labels" not in out.point
+
+        import open3d as o3d
+
+        pc_np = zRegPointCloud(pos=o3d.core.Tensor(pc["pos"].numpy()), label=None, id=None)
+        pc_np["fps-idx"] = None
+        out_np = zreg_to_open3d(pc_np)
+        assert out_np.point.positions.shape[0] == 5
+        assert "labels" not in out_np.point
+
     @pytest.mark.parametrize("points", [-1, 20])
     def test_random_ids_follow_positions(self, points):
         """With ids present, returned ids still index the returned positions row-for-row."""

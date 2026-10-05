@@ -180,6 +180,10 @@ class DynamicTimeWarping:
 
     Examples
     --------
+    >>> from zreg.algorithms.dtw import DynamicTimeWarping
+    >>> from zreg.data_generation import generate_trajectory
+    >>> trajectory_x = generate_trajectory(n_points=30, n_frames=4, seed=0)
+    >>> trajectory_y = generate_trajectory(n_points=30, n_frames=5, seed=1)
     >>> dtw = DynamicTimeWarping(
     ...     x=trajectory_x,
     ...     y=trajectory_y,
@@ -190,7 +194,10 @@ class DynamicTimeWarping:
     ... )
     >>> result = dtw.compute()
     >>> path = result.warping_path
-    >>> print(f"DTW distance: {result.distance:.4f}")
+    >>> path[0], path[-1]  # the path joins the first and the last frame pairs
+    ((0, 0), (3, 4))
+    >>> result.distance >= 0
+    True
     """
 
     def __init__(

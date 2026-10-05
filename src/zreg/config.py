@@ -6,9 +6,18 @@ users must call configure_pytorch() explicitly if they want these defaults.
 
 Examples
 --------
+>>> import torch
 >>> from zreg.config import configure_pytorch
+>>> previous_device = torch.get_default_device()
+>>> previous = torch.get_float32_matmul_precision()
 >>> configure_pytorch()  # Apply recommended settings
 >>> configure_pytorch(matmul_precision="highest")  # Custom precision
+>>> configure_pytorch(default_device="cpu")  # or a GPU device such as "cuda" for a GPU default
+>>> torch.get_default_device()
+device(type='cpu')
+>>> # restore the saved state; passing None instead breaks get_default_device() in torch 2.9
+>>> torch.set_default_device(previous_device)
+>>> torch.set_float32_matmul_precision(previous)
 """
 
 import logging
@@ -43,16 +52,24 @@ def configure_pytorch(
 
     Examples
     --------
+    >>> import torch
     >>> from zreg.config import configure_pytorch
+    >>> previous_device = torch.get_default_device()
+    >>> previous = torch.get_float32_matmul_precision()
     >>> configure_pytorch()  # Use recommended defaults
     >>> configure_pytorch(matmul_precision="highest")  # Maximum precision
-    >>> configure_pytorch(default_device="cuda:0")  # GPU default (use carefully)
+    >>> configure_pytorch(default_device="cpu")  # or a GPU device such as "cuda" for a GPU default (use carefully)
+    >>> torch.get_default_device()
+    device(type='cpu')
+    >>> # restore the saved state; passing None instead breaks get_default_device() in torch 2.9
+    >>> torch.set_default_device(previous_device)
+    >>> torch.set_float32_matmul_precision(previous)
 
     Notes
     -----
     Previously, zReg set these configurations at import time:
-    - torch.set_float32_matmul_precision("high") in cpd/base.py
-    - torch.set_default_device(device) in distances/sw_varients.py
+    - torch.set_float32_matmul_precision("high") in ``zreg.algorithms.cpd``
+    - torch.set_default_device(device) in ``zreg.distance_metrics``
 
     This was problematic because:
     1. Users embedding zReg had these settings silently applied

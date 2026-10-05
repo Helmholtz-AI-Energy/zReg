@@ -92,10 +92,16 @@ def cpd_registration(
 
     Examples
     --------
-    >>> source_pc = {"pos": torch.randn(100, 3)}
-    >>> target_pc = {"pos": torch.randn(100, 3)}
-    >>> result = cpd_registration(source_pc, target_pc, tf_type_name="rigid")
+    >>> import torch
+    >>> from zreg.algorithms.cpd import cpd_registration
+    >>> from zreg.core.dataset import zRegPointCloud
+    >>> gen = torch.Generator().manual_seed(0)
+    >>> source_pc = zRegPointCloud(pos=torch.randn(100, 3, generator=gen))
+    >>> target_pc = zRegPointCloud(pos=source_pc["pos"] + torch.tensor([0.1, 0.0, 0.0]))
+    >>> result = cpd_registration(source_pc, target_pc, tf_type_name="rigid", log_freq=-1)
     >>> transformed = result.transformation.transform(source_pc["pos"])
+    >>> transformed.shape
+    torch.Size([100, 3])
     """
     if callbacks is None:
         callbacks = []
@@ -188,9 +194,18 @@ def init_cpd_from_existing(
 
     Examples
     --------
-    >>> tf = transforms.RigidTransformation(device="cpu", dtype=torch.float32)
-    >>> cpd = init_cpd_from_existing(tf, source_pc, target_pc)
+    >>> import torch
+    >>> from zreg.algorithms.cpd import init_cpd_from_existing
+    >>> from zreg.core.transforms import RigidTransformation
+    >>> from zreg.core.dataset import zRegPointCloud
+    >>> gen = torch.Generator().manual_seed(0)
+    >>> source_pc = zRegPointCloud(pos=torch.randn(100, 3, generator=gen))
+    >>> target_pc = zRegPointCloud(pos=source_pc["pos"] + torch.tensor([0.1, 0.0, 0.0]))
+    >>> init_tf = RigidTransformation(device="cpu", dtype=torch.float32)
+    >>> cpd = init_cpd_from_existing(init_tf, source_pc, target_pc, log_freq=-1)
     >>> result = cpd.registration(target_pc["pos"])
+    >>> result.transformation.transform(source_pc["pos"]).shape
+    torch.Size([100, 3])
     """
     if callbacks is None:
         callbacks = []

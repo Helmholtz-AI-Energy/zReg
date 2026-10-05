@@ -166,21 +166,32 @@ def load_data_from_tracklets(
 
     Examples
     --------
-    >>> pc, tracklets = load_data_from_tracklets('tracklets.mat')
-    >>> pc[0]  # Get the point cloud at the first time point
-    array([[1.0, 2.0, 3.0, 1],
-           [4.0, 5.0, 6.0, 2]])
-    >>> tracklets[0]['id']  # Access the ID of the first tracklet
+    Write a small two-tracklet file and load it:
+
+    >>> import tempfile
+    >>> from pathlib import Path
+    >>> import numpy as np
+    >>> import scipy.io as sio
+    >>> from zreg.core.dataset import load_data_from_tracklets
+    >>> tracklets = np.empty(2, dtype=object)
+    >>> tracklets[0] = {"startTime": 1, "endTime": 2, "id": 1, "color": 3,
+    ...                 "pos": np.array([[1.0, 2.0, 3.0], [1.5, 2.5, 3.5]])}
+    >>> tracklets[1] = {"startTime": 1, "endTime": 2, "id": 2, "color": 5,
+    ...                 "pos": np.array([[4.0, 5.0, 6.0], [4.5, 5.5, 6.5]])}
+    >>> with tempfile.TemporaryDirectory() as tmp:
+    ...     path = Path(tmp) / "tracklets.mat"
+    ...     sio.savemat(path, {"tracklets": tracklets, "trackletsPerTimePoint": np.zeros(2)})
+    ...     pc, raw = load_data_from_tracklets(str(path))
+    >>> pc[0]["pos"]  # positions at the first time point
+    tensor([[1., 2., 3.],
+            [4., 5., 6.]])
+    >>> pc[0]["label"], pc[0]["id"]
+    (tensor([3, 5]), tensor([1, 2]))
+    >>> pc[1]["pos"]
+    tensor([[1.5000, 2.5000, 3.5000],
+            [4.5000, 5.5000, 6.5000]])
+    >>> int(raw[0]["id"])  # raw MATLAB tracklet data
     1
-    >>> pc, tracklets = load_data_from_tracklets('tracklets.mat', return_pandas=True)
-    >>> pc[0]  # Get the point cloud at the first time point as a pandas DataFrame
-            0    1    2
-    1  1.0  2.0  3.0
-    2  4.0  5.0  6.0
-    >>> pc, tracklets = load_data_from_tracklets('tracklets.mat', return_torch=True, device='cuda')
-    >>> pc[0]  # Get the point cloud at the first time point as a PyTorch tensor on the GPU
-    tensor([[1.0, 2.0, 3.0, 1],
-            [4.0, 5.0, 6.0, 2]], device='cuda:0')
     """
     if device is not None and device != "cpu" and not torch.cuda.is_available():
         log.info("CUDA/GPUs not available, defaulting to cpu loading")
@@ -332,21 +343,34 @@ def open3d_to_zreg(
         "pos", "label", and "id", and the values are either Torch tensors
         or NumPy arrays.
 
+    Raises
+    ------
+    RuntimeError
+        If open3d is not available.
+
     Examples
     --------
-    >>> import open3d as o3d
-    >>> import torch
-    >>> pc = o3d.t.geometry.PointCloud()
-    >>> # ... populate the point cloud ...
-    >>> data = open3d_to_torch(pc, device=torch.device('cuda:0'))
-    >>> print(data['pos'].device)
-    cuda:0
-    >>> data = open3d_to_torch(pc, to_torch=False)
-    >>> print(type(data['pos']))
-    <class 'numpy.ndarray'>
+    This example needs the optional Open3D package, which is not installable
+    on every platform (for example aarch64 JUPITER), so its lines are marked
+    ``+SKIP``; ``tests/test_doctests.py`` runs it whenever Open3D is
+    importable.
 
-    Raises:
-        RuntimeError: If open3d is not available.
+    >>> import open3d as o3d  # doctest: +SKIP
+    >>> import torch  # doctest: +SKIP
+    >>> from zreg.core.dataset import open3d_to_zreg  # doctest: +SKIP
+    >>> pc = o3d.t.geometry.PointCloud()  # doctest: +SKIP
+    >>> f32 = o3d.core.float32  # doctest: +SKIP
+    >>> pc.point.positions = o3d.core.Tensor([[0.0, 0.0, 0.0], [1.0, 2.0, 3.0]], dtype=f32)  # doctest: +SKIP
+    >>> pc.point.colors = o3d.core.Tensor([[1.0], [2.0]], dtype=f32)  # doctest: +SKIP
+    >>> data = open3d_to_zreg(pc, device=torch.device("cpu"))  # doctest: +SKIP
+    >>> data["pos"]  # doctest: +SKIP
+    tensor([[0., 0., 0.],
+            [1., 2., 3.]])
+    >>> data["id"] is None  # doctest: +SKIP
+    True
+    >>> data = open3d_to_zreg(pc, to_torch=False)  # doctest: +SKIP
+    >>> type(data["pos"])  # doctest: +SKIP
+    <class 'numpy.ndarray'>
     """
     o3dtgeo, o3c, has_open3d = _import_open3d()
     if not has_open3d:

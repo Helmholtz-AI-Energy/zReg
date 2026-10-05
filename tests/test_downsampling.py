@@ -586,3 +586,73 @@ class TestGetOpen3DDownsampling:
         with patch("zreg.preprocessing.downsampling.HAS_OPEN3D", False):
             with pytest.raises(AttributeError, match="open3d not installed"):
                 _ = zreg.preprocessing.downsampling.o3d
+
+
+def _fresh_pair_id_none(n_x=40, n_y=30):
+    """Two fresh clouds of different sizes without ids (the functions mutate inputs)."""
+    x = zRegPointCloud(pos=torch.randn(n_x, 3), label=torch.randn(n_x, 3), id=None)
+    y = zRegPointCloud(pos=torch.randn(n_y, 3), label=torch.randn(n_y, 3), id=None)
+    return x, y
+
+
+class TestIdNoneDownsampling:
+    """id=None must survive downsampling (Phase 64, D-01) instead of raising TypeError."""
+
+    def test_random_id_none_size_match(self):
+        x, y = _fresh_pair_id_none()
+        x_ds, y_ds = downsampling.random_down_sample(x, y)
+        assert x_ds["pos"].shape[0] == 30
+        assert y_ds["pos"].shape[0] == 30
+        assert x_ds["id"] is None
+        assert y_ds["id"] is None
+        assert x_ds["label"].shape[0] == 30
+
+    def test_random_id_none_points_branch(self):
+        x, y = _fresh_pair_id_none()
+        x_ds, y_ds = downsampling.random_down_sample(x, y, points=20)
+        assert x_ds["pos"].shape[0] == 20
+        assert y_ds["pos"].shape[0] == 20
+        assert x_ds["id"] is None
+        assert y_ds["id"] is None
+
+    def test_uniform_id_none(self):
+        x, y = _fresh_pair_id_none()
+        x_ds, y_ds = downsampling.uniform_down_sample(x, y)
+        assert x_ds["pos"].shape[0] == y_ds["pos"].shape[0] == 30
+        assert x_ds["id"] is None
+        assert y_ds["id"] is None
+
+    def test_fps_id_none(self):
+        x, y = _fresh_pair_id_none()
+        x_ds, y_ds = downsampling.farthest_point_down_sample(x, y)
+        assert x_ds["pos"].shape[0] == y_ds["pos"].shape[0] == 30
+        assert x_ds["id"] is None
+        assert y_ds["id"] is None
+
+    @pytest.mark.parametrize("points", [-1, 20])
+    def test_random_ids_follow_positions(self, points):
+        """With ids present, returned ids still index the returned positions row-for-row."""
+        orig_x = torch.randn(40, 3)
+        orig_y = torch.randn(30, 3)
+        x = zRegPointCloud(pos=orig_x.clone(), label=None, id=torch.arange(40))
+        y = zRegPointCloud(pos=orig_y.clone(), label=None, id=torch.arange(30))
+        x_ds, y_ds = downsampling.random_down_sample(x, y, points=points)
+        assert torch.equal(x_ds["pos"], orig_x[x_ds["id"]])
+        assert torch.equal(y_ds["pos"], orig_y[y_ds["id"]])
+
+    def test_dtw_random_downsample_id_none(self):
+        from zreg.algorithms.dtw import DynamicTimeWarping
+        from zreg.data_generation import generate_trajectory
+
+        traj_x = generate_trajectory(n_points=30, n_frames=4, seed=0)
+        traj_y = generate_trajectory(n_points=30, n_frames=5, seed=1)
+        dtw = DynamicTimeWarping(
+            x=traj_x,
+            y=traj_y,
+            distance_metric="swd",
+            downsample_method="random",
+            cpd_type="rigid",
+            window=10,
+        )
+        result = dtw.compute()
+        assert result.distance >= 0

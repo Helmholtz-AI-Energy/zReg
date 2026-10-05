@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.8
 milestone_name: Code Review Remediation
-status: verifying
-stopped_at: Completed 60-02-PLAN.md
-last_updated: "2026-10-03T18:18:49.328Z"
-last_activity: 2026-10-03
+status: completed
+stopped_at: "Phase 64 complete (plans, code review, verification passed); v1.8 ready for /gsd:complete-milestone"
+last_updated: "2026-10-05T15:50:00.000Z"
+last_activity: 2026-10-05
 progress:
-  total_phases: 20
-  completed_phases: 17
-  total_plans: 70
-  completed_plans: 63
-  percent: 85
+  total_phases: 6
+  completed_phases: 6
+  total_plans: 37
+  completed_plans: 37
+  percent: 100
 ---
 
 # Project State
@@ -21,17 +21,17 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-02 at v1.8 milestone start)
 
 **Core value:** Every existing capability works correctly, fails informatively, and is covered by tests.
-**Current focus:** Phase 62 — data-label-transfer-gpu-path
+**Current focus:** Phase 64 — tech-debt-cleanup-doctests-stale-refs-validation-bookkeeping
 
 ## Current Position
 
-Milestone: v1.8 Code Review Remediation (Phases 59–63)
-Phase: 62 (data-label-transfer-gpu-path) — EXECUTING
-Plan: 6 of 6
-Status: Phase complete — ready for verification
-Last activity: 2026-10-03
+Milestone: v1.8 Code Review Remediation (Phases 59–64)
+Phase: 64 (tech-debt-cleanup-doctests-stale-refs-validation-bookkeeping) — Complete (5/5 plans)
+Plan: 5 of 5
+Status: Milestone ready to complete (audit passed, Nyquist compliant 59–64; next: /gsd:complete-milestone v1.8)
+Last activity: 2026-10-05 — 64-05 audit finalization (status passed), Phase 64 recorded complete
 
-Progress: [█████████░] 90%
+Progress: [██████████] 100%
 
 ## Shipped Milestones
 
@@ -44,15 +44,16 @@ Progress: [█████████░] 90%
 
 Full history: .planning/MILESTONES.md · Retrospective: .planning/RETROSPECTIVE.md
 
-## v1.8 Phases — Code Review Remediation (Phases 59–63, current milestone)
+## v1.8 Phases — Code Review Remediation (Phases 59–64, current milestone)
 
 | Phase | Name | Requirements | Status |
 |-------|------|---------------|--------|
-| 59 | P0 Runnability & Silent Number Corruption | RUN-01, RUN-02, NUM-01..NUM-05 | Not started |
-| 60 | CPD/DTW Numerics | CPD-01..CPD-09 | Not started |
-| 61 | Distances, Aligners & MPI | DIST-01..DIST-05 | Not started |
-| 62 | Data, Label Transfer & GPU Path | DATA-01..DATA-04, LT-01..LT-04 | Not started |
-| 63 | HPC Orchestration, Viz/Export & Docs | HPC-01..HPC-04, VIZ-01..VIZ-03, DOC-01 | Not started |
+| 59 | P0 Runnability & Silent Number Corruption | RUN-01, RUN-02, NUM-01..NUM-05 | Complete |
+| 60 | CPD/DTW Numerics | CPD-01..CPD-09 | Complete |
+| 61 | Distances, Aligners & MPI | DIST-01..DIST-05 | Complete |
+| 62 | Data, Label Transfer & GPU Path | DATA-01..DATA-04, LT-01..LT-04 | Complete |
+| 63 | HPC Orchestration, Viz/Export & Docs | HPC-01..HPC-04, VIZ-01..VIZ-03, DOC-01 | Complete |
+| 64 | Tech debt cleanup | DOC-01 (residual), audit tech debt | Complete |
 
 Source: `.planning/reviews/00-INDEX.md` + `unit-01..08` (review of `feature/evaluation_framework` @ `6c1c37f`).
 
@@ -123,6 +124,8 @@ Note: v1.7 was originally planned as Phases 56–57. Phase 55 was already consum
 | Phase 62 P04 | 6min | 2 tasks | 2 files |
 | Phase 62 P05 | 19 min | 2 tasks | 4 files |
 | Phase 62 P06 | 40 min | 2 tasks | 4 files |
+| Phase 64 P04 | 25min | 3 tasks | 37 files |
+| Phase 64 P05 | 10min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -132,6 +135,7 @@ Note: v1.7 was originally planned as Phases 56–57. Phase 55 was already consum
 - Phase 56 completed (5/5 plans, verified) and merged into feature/evaluation_framework on 2026-07-31, alongside this branch's own concurrent Phase 50/51 progress
 - v1.7 Minor Adjustments (Phases 57-58, originally planned as 56-57 on a separate branch before this merge — renumbered to resolve the Phase 56 collision with the entry above) added and completed: Phase 57 Ground-Truth Field Consistency (GT-01/02/03) and Phase 58 Synthetic Labeled Subsample-Pair Generation (GT-04/05/06), merged into feature/evaluation_framework on 2026-08-05
 - v1.8 Code Review Remediation (Phases 59–63) roadmap created 2026-10-02 from the 8-unit external review; 37 requirements, user-approved 5-phase structure
+- Phase 64 added (tech-debt cleanup: doctests, stale refs, validation bookkeeping) after the first v1.8 audit; completed 2026-10-05 (5/5 plans), v1.8 now spans Phases 59–64 (37 plans)
 
 ### v1.8 Design Decisions
 
@@ -140,6 +144,8 @@ Note: v1.7 was originally planned as Phases 56–57. Phase 55 was already consum
 - **63 depends on 59** (RUN-01 makes the HoreKa configs loadable)
 - **Cross-cutting test rule**: every fix ships with a regression test that fails on `6c1c37f`, passes after, and does not mock the unit under test (review pattern 3)
 - CUDA-only regression tests (DATA-01, DIST-02 CUDA leg) skip without a GPU and must be exercised once on a CUDA host
+- Phase 64 Plan 05: audit status flipped to `passed` / Nyquist `overall: compliant` only via the gate script (`nyq_gate_64.py` → COMPLIANT: 62/63 `nyquist_compliant: true`, `PENDING_ROWS=0`) agreeing with the orchestrator's `VALIDATE_62_63: compliant`; 59-61 unflipped per-task rows accepted as cosmetic
+- Phase 64 Plan 05: STATE progress frontmatter scoped to the v1.8 milestone (6/6 phases, 37/37 plans) to match the ROADMAP milestone row; the all-phase disk count (75 plans / 77 summaries) is skewed by summary-only legacy phases 51 and 55
 
 ### v1.6 Design Decisions
 
@@ -206,6 +212,6 @@ None open. v1.5, v1.6, and v1.7 are all complete; none are formally closed via /
 
 ## Session Continuity
 
-Last session: 2026-10-03T18:18:44.297Z
-Stopped at: Completed 60-02-PLAN.md
-Next action: `/gsd:plan-phase 59` — P0 Runnability & Silent Number Corruption
+Last session: 2026-10-05T14:40:25.000Z
+Stopped at: Completed 64-05-PLAN.md
+Next action: Phase 64 code review / verification, then /gsd:complete-milestone v1.8

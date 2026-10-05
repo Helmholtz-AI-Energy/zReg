@@ -10,16 +10,16 @@
 
 ### P0 — Runnability (HoreKa suite and scripts start at all)
 
-- [ ] **RUN-01**: All 5 `configs_horeka/*/ew06_vs_shah.yaml` load through `EvalConfig.from_yaml` (`label_source` restored as a validated `EvalConfig` field — see NUM-04 — so the existing keys are valid again; mid-comment key insertion + duplicate key in `hpo_paired` fixed) and a test loads every YAML under `configs/` and `baseline_experiments/configs*/` (U4-1, U7-2, U4-6)
-- [ ] **RUN-02**: `scripts/generate_real_previews.py`, `scripts/label_transfer_example.py`, `example_plots.py`, `dtw_testing.py` import and resolve every `zreg.*` name they use; `from zreg.dtw import X` works via a real `sys.modules` shim (U7-5, U7-6, U8-5)
+- [x] **RUN-01**: All 5 `configs_horeka/*/ew06_vs_shah.yaml` load through `EvalConfig.from_yaml` (`label_source` restored as a validated `EvalConfig` field — see NUM-04 — so the existing keys are valid again; mid-comment key insertion + duplicate key in `hpo_paired` fixed) and a test loads every YAML under `configs/` and `baseline_experiments/configs*/` (U4-1, U7-2, U4-6)
+- [x] **RUN-02**: `scripts/generate_real_previews.py`, `scripts/label_transfer_example.py`, `example_plots.py`, `dtw_testing.py` import and resolve every `zreg.*` name they use; `from zreg.dtw import X` works via a real `sys.modules` shim (U7-5, U7-6, U8-5)
 
 ### P0 — Silent number corruption
 
-- [ ] **NUM-01**: ICP and SWD aligners' `D_inv` is the exact inverse of `D` (identity registration round-trips input coordinates), and denormalisation uses the bounds of the frame the result lives in (U3-1, U3-2, U3-5)
-- [ ] **NUM-02**: Multi-seed subsample-pair HPO scores the *aligned* per-frame dicts (not raw tensors / unaligned source view), so chamfer/hausdorff reflect actual alignment quality (U1-1, U5-1)
-- [ ] **NUM-03**: List-valued `seed` in `subsample_pair` mode runs sanity and dev tiers on `seed[0]` (pre-populate happens; no swallowed `ValueError`/`TypeError`) (U5-2, U4-4)
-- [ ] **NUM-04**: Paired-mode label transfer again takes labels from Shah (target) and transfers them onto the aligned Kobitski source, as `c60a943` intended — the `c68c63c` cleanup reverted this and left an inverted comment (U4-2)
-- [ ] **NUM-05**: Degenerate metric/trial outcomes can no longer masquerade as perfect scores: empty frame-key intersection returns non-finite or raises, partial overlap is flagged, a failed trial is recorded as failed (not `0.0` → normalised `1.0`), and `sanity_check` catches it (U1-2, U1-3, U1-5, U1-6; index cross-cutting pattern 1)
+- [x] **NUM-01**: ICP and SWD aligners' `D_inv` is the exact inverse of `D` (identity registration round-trips input coordinates), and denormalisation uses the bounds of the frame the result lives in (U3-1, U3-2, U3-5)
+- [x] **NUM-02**: Multi-seed subsample-pair HPO scores the *aligned* per-frame dicts (not raw tensors / unaligned source view), so chamfer/hausdorff reflect actual alignment quality (U1-1, U5-1)
+- [x] **NUM-03**: List-valued `seed` in `subsample_pair` mode runs sanity and dev tiers on `seed[0]` (pre-populate happens; no swallowed `ValueError`/`TypeError`) (U5-2, U4-4)
+- [x] **NUM-04**: Paired-mode label transfer again takes labels from Shah (target) and transfers them onto the aligned Kobitski source, as `c60a943` intended — the `c68c63c` cleanup reverted this and left an inverted comment (U4-2)
+- [x] **NUM-05**: Degenerate metric/trial outcomes can no longer masquerade as perfect scores: empty frame-key intersection returns non-finite or raises, partial overlap is flagged, a failed trial is recorded as failed (not `0.0` → normalised `1.0`), and `sanity_check` catches it (U1-2, U1-3, U1-5, U1-6; index cross-cutting pattern 1)
 
 ### CPD / DTW numerics
 
@@ -35,11 +35,11 @@
 
 ### Distances, aligners & MPI
 
-- [ ] **DIST-01**: Pairwise distance matrix never deadlocks when a rank owns no pair in a row (both code paths) — verified with a multi-rank test or a rank-simulating test (U3-3)
-- [ ] **DIST-02**: MaxSWD/GSWD/PSWD projections follow input dtype and device (float64 and CUDA work); `max_sw_num_iters`/`max_sw_lr` are honoured (U3-4, U3-7)
-- [ ] **DIST-03**: Pairwise sweep works with non-zero-based frame keys; cpd-branch `fn is None` and leading-`None` `distance_kwargs` handled consistently (U3-6, U3-11, U3-12)
-- [ ] **DIST-04**: SWD aligner handles unequal point counts, returns a proper rotation (`det=+1`, orthogonalised at return), and ICP/SWD reject degenerate/empty clouds with an informative error (U3-8, U3-9, U3-10)
-- [ ] **DIST-05**: Frame-averaged chamfer/hausdorff computes one `cdist` per frame and derives both metrics from it (U1-4)
+- [x] **DIST-01**: Pairwise distance matrix never deadlocks when a rank owns no pair in a row (both code paths) — verified with a multi-rank test or a rank-simulating test (U3-3)
+- [x] **DIST-02**: MaxSWD/GSWD/PSWD projections follow input dtype and device (float64 and CUDA work); `max_sw_num_iters`/`max_sw_lr` are honoured (U3-4, U3-7)
+- [x] **DIST-03**: Pairwise sweep works with non-zero-based frame keys; cpd-branch `fn is None` and leading-`None` `distance_kwargs` handled consistently (U3-6, U3-11, U3-12)
+- [x] **DIST-04**: SWD aligner handles unequal point counts, returns a proper rotation (`det=+1`, orthogonalised at return), and ICP/SWD reject degenerate/empty clouds with an informative error (U3-8, U3-9, U3-10)
+- [x] **DIST-05**: Frame-averaged chamfer/hausdorff computes one `cdist` per frame and derives both metrics from it (U1-4)
 
 ### Data, label transfer & GPU path
 
@@ -54,17 +54,17 @@
 
 ### HPC orchestration
 
-- [ ] **HPC-01**: `baseline_with_combined` warm-start actually seeds the HPO (optimizer reads injected defaults / `warm_start` is passed and supported by the active search strategy, or the limitation fails loudly) (U7-1)
-- [ ] **HPC-02**: `merge_combined_params` merges only calibrated values (no defaults dilution) (U7-3)
-- [ ] **HPC-03**: Resubmitting the HoreKa baseline job resumes HPO from checkpoints (no unconditional `--clear-checkpoints`) (U7-4)
-- [ ] **HPC-04**: All MPI ranks share one timestamped output directory (rank-0 broadcast); eval jobs run a single rank; SLURM log directory exists before submission; `test_propulate_interactive.sh` empty-dir guard; partition comment fixed (U7-7, U7-8, U7-9, U7-10, U7-11)
+- [x] **HPC-01**: `baseline_with_combined` warm-start actually seeds the HPO (optimizer reads injected defaults / `warm_start` is passed and supported by the active search strategy, or the limitation fails loudly) (U7-1)
+- [x] **HPC-02**: `merge_combined_params` merges only calibrated values (no defaults dilution) (U7-3)
+- [x] **HPC-03**: Resubmitting the HoreKa baseline job resumes HPO from checkpoints (no unconditional `--clear-checkpoints`) (U7-4)
+- [x] **HPC-04**: All MPI ranks share one timestamped output directory (rank-0 broadcast); eval jobs run a single rank; SLURM log directory exists before submission; `test_propulate_interactive.sh` empty-dir guard; partition comment fixed (U7-7, U7-8, U7-9, U7-10, U7-11)
 
 ### Viz, export & docs
 
-- [ ] **VIZ-01**: Superposed-trajectory and label-trajectory figures contain their legends, and dataset-preview titles are not clipped (U8-1, U8-2, U8-3)
-- [ ] **VIZ-02**: Source panel frame selection mirrors `_build_aligned_cloud` (`source_sorted[::step]`) (U8-4)
-- [ ] **VIZ-03**: `label_metadata.json` frame count/indices describe the same frames as `label_trajectory.csv` (U8-6)
-- [ ] **DOC-01**: Restructure leftovers cleaned: doctest in `evaluation/label_transfer.py` imports a live module (and `tox -e doctests` passes), stale `zreg.metrics`/`zreg.distances`/`zreg.dataset` references in docstrings, contradictory frame-convention docstrings in `eval_runner.py`, `path_smoothness` module header, `pyproject.toml` coverage `omit` path (U1-7, U1-10, U1-11, U1-12, U5-4, U3 non-findings)
+- [x] **VIZ-01**: Superposed-trajectory and label-trajectory figures contain their legends, and dataset-preview titles are not clipped (U8-1, U8-2, U8-3)
+- [x] **VIZ-02**: Source panel frame selection mirrors `_build_aligned_cloud` (`source_sorted[::step]`) (U8-4)
+- [x] **VIZ-03**: `label_metadata.json` frame count/indices describe the same frames as `label_trajectory.csv` (U8-6)
+- [x] **DOC-01**: Restructure leftovers cleaned: doctest in `evaluation/label_transfer.py` imports a live module (and `tox -e doctests` passes), stale `zreg.metrics`/`zreg.distances`/`zreg.dataset` references in docstrings, contradictory frame-convention docstrings in `eval_runner.py`, `path_smoothness` module header, `pyproject.toml` coverage `omit` path (U1-7, U1-10, U1-11, U1-12, U5-4, U3 non-findings)
 
 ## Future Requirements
 
@@ -85,13 +85,13 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| RUN-01 | Phase 59 | Pending |
-| RUN-02 | Phase 59 | Pending |
-| NUM-01 | Phase 59 | Pending |
-| NUM-02 | Phase 59 | Pending |
-| NUM-03 | Phase 59 | Pending |
-| NUM-04 | Phase 59 | Pending |
-| NUM-05 | Phase 59 | Pending |
+| RUN-01 | Phase 59 | Complete |
+| RUN-02 | Phase 59 | Complete |
+| NUM-01 | Phase 59 | Complete |
+| NUM-02 | Phase 59 | Complete |
+| NUM-03 | Phase 59 | Complete |
+| NUM-04 | Phase 59 | Complete |
+| NUM-05 | Phase 59 | Complete |
 | CPD-01 | Phase 60 | Complete |
 | CPD-02 | Phase 60 | Complete |
 | CPD-03 | Phase 60 | Complete |
@@ -101,11 +101,11 @@
 | CPD-07 | Phase 60 | Complete |
 | CPD-08 | Phase 60 | Complete |
 | CPD-09 | Phase 60 | Complete |
-| DIST-01 | Phase 61 | Pending |
-| DIST-02 | Phase 61 | Pending |
-| DIST-03 | Phase 61 | Pending |
-| DIST-04 | Phase 61 | Pending |
-| DIST-05 | Phase 61 | Pending |
+| DIST-01 | Phase 61 | Complete |
+| DIST-02 | Phase 61 | Complete |
+| DIST-03 | Phase 61 | Complete |
+| DIST-04 | Phase 61 | Complete |
+| DIST-05 | Phase 61 | Complete |
 | DATA-01 | Phase 62 | Complete |
 | DATA-02 | Phase 62 | Complete |
 | DATA-03 | Phase 62 | Complete |
@@ -114,14 +114,14 @@
 | LT-02 | Phase 62 | Complete |
 | LT-03 | Phase 62 | Complete |
 | LT-04 | Phase 62 | Complete |
-| HPC-01 | Phase 63 | Pending |
-| HPC-02 | Phase 63 | Pending |
-| HPC-03 | Phase 63 | Pending |
-| HPC-04 | Phase 63 | Pending |
-| VIZ-01 | Phase 63 | Pending |
-| VIZ-02 | Phase 63 | Pending |
-| VIZ-03 | Phase 63 | Pending |
-| DOC-01 | Phase 63 | Pending |
+| HPC-01 | Phase 63 | Complete |
+| HPC-02 | Phase 63 | Complete |
+| HPC-03 | Phase 63 | Complete |
+| HPC-04 | Phase 63 | Complete |
+| VIZ-01 | Phase 63 | Complete |
+| VIZ-02 | Phase 63 | Complete |
+| VIZ-03 | Phase 63 | Complete |
+| DOC-01 | Phase 63 | Complete |
 
 **Coverage:** 37/37 v1 requirements mapped, no orphans, no duplicates.
 

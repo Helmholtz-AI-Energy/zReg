@@ -345,8 +345,9 @@ def open3d_to_zreg(
     -------
     dict
         A dictionary containing the point cloud data. The keys are
-        "pos", "label", and "id", and the values are either Torch tensors
-        or NumPy arrays.
+        "pos", "label", "id" and "fps-idx", and the values are either Torch
+        tensors or NumPy arrays.  "label", "id" and "fps-idx" are None when
+        the cloud has no "colors", "labels" or "fps_idx" attribute.
 
     Raises
     ------
@@ -384,7 +385,10 @@ def open3d_to_zreg(
     # Extract positions, colors, and labels as NumPy arrays
     if isinstance(pc, o3dtgeo.PointCloud):
         pos = pc.point.positions.cpu().numpy()
-        col = pc.point.colors.cpu().numpy()
+        try:
+            col = pc.point.colors.cpu().numpy()
+        except KeyError:  # zreg_to_open3d leaves colors out for label=None
+            col = None
         try:
             ids = pc.point.labels.cpu().numpy()
         except KeyError:
@@ -395,7 +399,10 @@ def open3d_to_zreg(
             fps_idx = None
     else:
         pos = pc.positions.cpu().numpy()
-        col = pc.colors.cpu().numpy()
+        try:
+            col = pc.colors.cpu().numpy()
+        except KeyError:  # zreg_to_open3d leaves colors out for label=None
+            col = None
         try:
             ids = pc.labels.cpu().numpy()
         except KeyError:
@@ -409,7 +416,7 @@ def open3d_to_zreg(
     if to_torch:
         # Convert to PyTorch tensors and move to the specified device
         ret["pos"] = torch.tensor(pos, device=device)
-        ret["label"] = torch.tensor(col, device=device)
+        ret["label"] = torch.tensor(col, device=device) if col is not None else None
         ret["id"] = torch.tensor(ids, device=device) if ids is not None else None
         ret["fps-idx"] = torch.tensor(fps_idx, device=device) if fps_idx is not None else None
     else:

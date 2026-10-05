@@ -659,6 +659,27 @@ class TestIdNoneDownsampling:
         assert out_np.point.positions.shape[0] == 5
         assert "labels" not in out_np.point
 
+    @pytest.mark.parametrize("to_torch", [True, False])
+    def test_open3d_round_trip_label_and_id_none(self, to_torch):
+        """A label=None / id=None cloud survives zreg_to_open3d -> open3d_to_zreg (no KeyError on colors)."""
+        pytest.importorskip("open3d")
+        from zreg.core.dataset import open3d_to_zreg, zreg_to_open3d
+
+        pos = torch.randn(5, 3)
+        pc = zRegPointCloud(pos=pos.clone(), label=None, id=None)
+        pc["fps-idx"] = None
+        back = open3d_to_zreg(zreg_to_open3d(pc), to_torch=to_torch)
+        assert back["label"] is None
+        assert back["id"] is None
+        assert back["fps-idx"] is None
+        back_pos = back["pos"] if to_torch else torch.from_numpy(back["pos"])
+        assert torch.equal(back_pos, pos)
+
+        # the point-attribute TensorMap branch tolerates the missing colors too
+        back_map = open3d_to_zreg(zreg_to_open3d(pc).point, to_torch=to_torch)
+        assert back_map["label"] is None
+        assert back_map["id"] is None
+
     @pytest.mark.parametrize("points", [-1, 20])
     def test_random_ids_follow_positions(self, points):
         """With ids present, returned ids still index the returned positions row-for-row."""

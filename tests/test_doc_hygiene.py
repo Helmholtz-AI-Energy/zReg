@@ -107,9 +107,13 @@ def _zreg_ref_resolves(dotted: str) -> bool:
                 continue
             raise
         for attr in parts[cut:]:
-            if not hasattr(obj, attr):
-                return False
-            obj = getattr(obj, attr)
+            try:
+                obj = getattr(obj, attr)
+            except AttributeError as exc:
+                # An optional-dependency accessor (module ``__getattr__`` such as
+                # ``downsampling.o3d``) exists but raises "... not installed" when
+                # the dependency is missing (e.g. no Open3D on JUPITER aarch64).
+                return "not installed" in str(exc)
         return True
     return False
 

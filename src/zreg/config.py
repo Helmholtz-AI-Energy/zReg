@@ -15,8 +15,10 @@ Examples
 'highest'
 >>> torch.set_float32_matmul_precision(previous)  # restore
 
-A global default device cannot be undone without leaving a device context
-behind, so prefer a scoped ``torch.device`` block where possible:
+Setting a global default device is process-wide. Restoring it with
+``torch.set_default_device(previous)`` leaves a ``DeviceContext`` active, and
+``torch.set_default_device(None)`` breaks ``torch.get_default_device()`` on
+torch 2.9, so prefer a scoped ``torch.device`` block where possible:
 
 >>> configure_pytorch(default_device="cuda")  # doctest: +SKIP
 >>> with torch.device("cpu"):  # scoped, no global state changes
@@ -65,8 +67,10 @@ def configure_pytorch(
     'highest'
     >>> torch.set_float32_matmul_precision(previous)  # restore
 
-    Setting a global default device is process-wide and cannot be undone
-    without leaving a device context behind (use carefully). A scoped
+    Setting a global default device is process-wide. Restoring it with
+    ``torch.set_default_device(previous)`` leaves a ``DeviceContext`` active,
+    and ``torch.set_default_device(None)`` breaks
+    ``torch.get_default_device()`` on torch 2.9 (use carefully). A scoped
     ``torch.device`` block leaves no global state:
 
     >>> configure_pytorch(default_device="cuda")  # doctest: +SKIP

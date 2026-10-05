@@ -44,7 +44,7 @@ def generate_trajectory(
     Each frame is an independent sample from a 3-D isotropic Gaussian
     distribution ``N(0, I)``.  The ``color`` and ``id`` fields of every
     returned ``zRegPointCloud`` are ``None``; use ``generate_labels`` from
-    ``zreg.generators.labels`` to assign integer class labels afterwards.
+    ``zreg.data_generation.labels`` to assign integer class labels afterwards.
 
     Parameters
     ----------
@@ -71,6 +71,7 @@ def generate_trajectory(
 
     Examples
     --------
+    >>> from zreg.data_generation import generate_trajectory
     >>> traj = generate_trajectory(n_points=100, n_frames=5, seed=0)
     >>> len(traj)
     5
@@ -154,6 +155,7 @@ def sample_ball(
 
     Examples
     --------
+    >>> from zreg.data_generation import sample_ball
     >>> pos = sample_ball(n_points=100, seed=0)
     >>> pos.shape
     torch.Size([100, 3])
@@ -250,6 +252,7 @@ def sample_bowl(
 
     Examples
     --------
+    >>> from zreg.data_generation import sample_bowl
     >>> pos = sample_bowl(n_points=100, seed=0)
     >>> pos.shape
     torch.Size([100, 3])

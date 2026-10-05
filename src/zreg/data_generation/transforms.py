@@ -5,13 +5,14 @@ transformation applied to each frame's ``pos`` field.  The input dict is
 never mutated (D-03 immutability contract: deep-copy before modifying).
 
 4×4 homogeneous matrix construction follows the pattern established in
-``src/zreg/metrics/alignment.py`` (Phase 13):
+``zreg.evaluation.label_transfer._rigid_to_matrix`` /
+``_affine_to_matrix``:
 
   Rigid:  M[:3, :3] = scale * rot;  M[:3, 3] = t;  M[3, 3] = 1.0
   Affine: M[:3, :3] = b;            M[:3, 3] = t;  M[3, 3] = 1.0
 
 The w-coordinate defensive divide pattern from
-``src/zreg/transforms/homogeneous.py`` is applied to guard against
+``zreg.core.transforms.homogeneous`` is applied to guard against
 near-zero w values (clamped to ``torch.finfo(dtype).eps``).
 """
 
@@ -136,9 +137,13 @@ def apply_rigid(
 
     Examples
     --------
+    >>> import torch
     >>> from zreg.core.transforms import RigidTransformation
+    >>> from zreg.data_generation import apply_rigid, generate_trajectory
     >>> traj = generate_trajectory(50, 3, seed=0)
     >>> result = apply_rigid(traj, RigidTransformation())  # identity
+    >>> torch.allclose(result[0]["pos"], traj[0]["pos"])
+    True
     """
     M = _rigid_to_matrix(tf)
     return _apply_matrix(trajectory, M)
@@ -170,9 +175,12 @@ def apply_affine(
     --------
     >>> import torch
     >>> from zreg.core.transforms import AffineTransformation
+    >>> from zreg.data_generation import apply_affine, generate_trajectory
     >>> traj = generate_trajectory(50, 3, seed=0)
     >>> tf = AffineTransformation(t=torch.zeros(3))  # identity (also the default)
     >>> result = apply_affine(traj, tf)
+    >>> torch.allclose(result[0]["pos"], traj[0]["pos"])
+    True
     """
     M = _affine_to_matrix(tf)
     return _apply_matrix(trajectory, M)

@@ -253,7 +253,7 @@ def normalize_to_pc_w_most_points(
         - **(minv, maxv)** : tuple[torch.Tensor, torch.Tensor]
             A tuple containing the minimum and maximum values used for normalization. These
             values are determined from the point cloud with the most points. `minv` and `maxv` are
-            tensors with shape (D,).
+            0-d tensors (one scalar bound over all axes).
 
     Raises
     ------
@@ -262,51 +262,31 @@ def normalize_to_pc_w_most_points(
     ValueError
         If `pointx` or `pointy` is not 2-dimensional.
 
-    Notes
-    -----
-    - The function assumes that `normalize_point_cloud` function is available and used for the actual normalization.
-      A placeholder definition is included in the example for completeness.
-    - The `TODO` comment in the original code is not addressed in the docstring as it's an internal implementation detail.
-
     Examples
     --------
     >>> import torch
-    >>> def normalize_point_cloud(pc, min_vals=None, max_vals=None):
-    ...     if min_vals is None:
-    ...         min_vals = pc.min(dim=0, keepdim=True).values
-    ...     if max_vals is None:
-    ...         max_vals = pc.max(dim=0, keepdim=True).values
-    ...     return (pc - min_vals) / (max_vals - min_vals) * 2 - 1, (min_vals.squeeze(0), max_vals.squeeze(0))
-    ...
+    >>> from zreg.utils import normalize_to_pc_w_most_points
     >>> pointx = torch.tensor([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])
     >>> pointy = torch.tensor([[0.5, 1.5], [2.5, 3.5]])
     >>> xi, yi, (minv, maxv) = normalize_to_pc_w_most_points(pointx, pointy)
     >>> xi
-    tensor([[-1.0000, -1.0000],
-            [ 0.0000,  0.0000],
-            [ 1.0000,  1.0000]])
+    tensor([[-1.0000, -0.6000],
+            [-0.2000,  0.2000],
+            [ 0.6000,  1.0000]])
     >>> yi
-    tensor([[-1.2500, -1.2500],
-            [-0.2500, -0.2500]])
-    >>> minv
-    tensor([1., 2.])
-    >>> maxv
-    tensor([5., 6.])
+    tensor([[-1.2000, -0.8000],
+            [-0.4000,  0.0000]])
+    >>> minv, maxv  # scalar bounds of the larger cloud (pointx)
+    (tensor(1.), tensor(6.))
 
-    >>> pointx = torch.tensor([[0.5, 1.5], [2.5, 3.5]])
-    >>> pointy = torch.tensor([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])
-    >>> xi, yi, (minv, maxv) = normalize_to_pc_w_most_points(pointx, pointy)
+    The bounds always come from the larger cloud, whichever argument it is:
+
+    >>> xi, yi, (minv, maxv) = normalize_to_pc_w_most_points(pointy, pointx)
     >>> xi
-    tensor([[-1.0000, -1.0000],
-            [ 0.0000,  0.0000]])
-    >>> yi
-    tensor([[-0.7500, -0.7500],
-            [ 0.2500,  0.2500],
-            [ 1.2500,  1.2500]])
-    >>> minv
-    tensor([0.5000, 1.5000])
-    >>> maxv
-    tensor([2.5000, 3.5000])
+    tensor([[-1.2000, -0.8000],
+            [-0.4000,  0.0000]])
+    >>> minv, maxv
+    (tensor(1.), tensor(6.))
     """
     # TODO: fix normalize to use the points dicts not just the torch dicts
     if pointx.shape[0] > pointy.shape[0]:
@@ -350,19 +330,20 @@ def undo_normalize(points: "torch.Tensor", maxvals: "torch.Tensor", minvals: "to
     Examples
     --------
     >>> import torch
+    >>> from zreg.utils import undo_normalize
     >>> points = torch.tensor([[-1.0, 0.0, 1.0], [-0.5, 0.5, 0.25]])
     >>> maxvals = torch.tensor([10.0, 20.0, 30.0])
     >>> minvals = torch.tensor([0.0, 5.0, 10.0])
     >>> undo_normalize(points, maxvals, minvals)
-    tensor([[ 0.0000,  5.0000, 10.0000],
-            [ 2.5000, 12.5000, 13.7500]])
+    tensor([[ 0.0000, 12.5000, 30.0000],
+            [ 2.5000, 16.2500, 22.5000]])
 
     >>> points = torch.tensor([[-1.0, 0.0, 1.0], [-0.5, 0.5, 0.25]])
     >>> maxvals = torch.tensor(10.0)
     >>> minvals = torch.tensor(0.0)
     >>> undo_normalize(points, maxvals, minvals)
-    tensor([[0.0000, 5.0000, 10.0000],
-            [2.5000, 7.5000,  6.2500]])
+    tensor([[ 0.0000,  5.0000, 10.0000],
+            [ 2.5000,  7.5000,  6.2500]])
     """
     return (points + 1) * (maxvals - minvals) * 0.5 + minvals
 
@@ -388,6 +369,7 @@ def shared_bounds(*clouds: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     Examples
     --------
     >>> import torch
+    >>> from zreg.utils import shared_bounds
     >>> lo, hi = shared_bounds(torch.tensor([[0.0, 1.0]]), torch.tensor([[-2.0, 5.0]]))
     >>> lo.item(), hi.item()
     (-2.0, 5.0)
@@ -438,6 +420,7 @@ def registration_bounds(
     Examples
     --------
     >>> import torch
+    >>> from zreg.utils import registration_bounds
     >>> src = torch.tensor([[0.0, 1.0, 2.0], [1.0, 1.0, 2.0]])
     >>> tgt = torch.tensor([[-2.0, 5.0, 0.0], [0.0, 0.0, 0.0]])
     >>> lo, hi = registration_bounds(src, tgt)
@@ -505,6 +488,7 @@ def normalization_matrix(
     Examples
     --------
     >>> import torch
+    >>> from zreg.utils import normalization_matrix
     >>> D = normalization_matrix(2.0, 10.0)
     >>> (D @ torch.tensor([2.0, 6.0, 10.0, 1.0]))[:3]
     tensor([-1.,  0.,  1.])
@@ -542,6 +526,7 @@ def denormalization_matrix(
     Examples
     --------
     >>> import torch
+    >>> from zreg.utils import denormalization_matrix
     >>> D_inv = denormalization_matrix(2.0, 10.0)
     >>> (D_inv @ torch.tensor([-1.0, 0.0, 1.0, 1.0]))[:3]
     tensor([ 2.,  6., 10.])

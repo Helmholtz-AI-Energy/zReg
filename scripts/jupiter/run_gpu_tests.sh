@@ -8,6 +8,10 @@
 #
 # Requires a one-time scripts/jupiter/cluster_provision_jupiter.sh run on the login node.
 # Extra pytest arguments can be passed through ZREG_PYTEST_ARGS.
+#
+# The real multi-rank MPI tests start their ranks with srun (tests/_mpi_launch.py), so the job
+# needs at least two tasks; one task per GPU is requested here.
+#SBATCH --ntasks-per-node=4
 set -euo pipefail
 
 ROOT="${ZREG_CLUSTER_ROOT:-/e/project1/tissuetwin/herold2/jsc-mpc-runs}"
@@ -26,7 +30,11 @@ PY
 # so the next jsc-mpc sync does not refuse a dirty checkout.
 OUT="${SCRATCH:-/e/scratch/tissuetwin}/herold2/zreg-gpu-tests/${SLURM_JOB_ID:-local}"
 mkdir -p "$OUT"
-git archive HEAD | tar -x -C "$OUT"   # exact copy of the synced commit
+# Compute nodes have no git, so copy the work tree minus .git. The jsc-mpc sync keeps that checkout
+# clean, which makes this the exact synced commit.
+SRC="${SLURM_SUBMIT_DIR:-$PWD}"
+[ -d "$SRC/tests" ] || { echo "ERROR: $SRC is not a zReg checkout (submit from its root)" >&2; exit 1; }
+tar -C "$SRC" --exclude=.git -cf - . | tar -x -C "$OUT"
 cd "$OUT"
 export PYTHONPATH="$OUT/src:$OUT${PYTHONPATH:+:$PYTHONPATH}"   # APPEND: the module stack lives on PYTHONPATH
 

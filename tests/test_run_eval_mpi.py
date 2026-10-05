@@ -15,37 +15,29 @@ Skips when ``mpirun`` or ``mpi4py`` is unavailable.
 
 import json
 import os
-import shutil
 import stat
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+from _mpi_launch import mpi_launcher
 
 _WORKER = Path(__file__).parent / "_run_eval_mpi_worker.py"
 _TIMEOUT_S = 600
 
 
-def _require_mpi() -> str:
-    mpirun = shutil.which("mpirun")
-    if mpirun is None:
-        pytest.skip("mpirun not found on PATH")
-    pytest.importorskip("mpi4py")
-    return mpirun
-
-
 def _run_worker(tmp_path: Path, scenario: str, timeout: float = _TIMEOUT_S) -> dict[int, dict]:
-    mpirun = _require_mpi()
+    launcher = mpi_launcher(2)
     assert _WORKER.exists(), f"MPI worker not found at {_WORKER}"
     proc = subprocess.run(
-        [mpirun, "-n", "2", sys.executable, str(_WORKER), scenario, str(tmp_path)],
+        [*launcher, sys.executable, str(_WORKER), scenario, str(tmp_path)],
         capture_output=True,
         timeout=timeout,
         env=dict(os.environ),
     )
     assert proc.returncode == 0, (
-        f"mpirun failed: stdout={proc.stdout.decode(errors='replace')!r} "
+        f"{launcher[0]} failed: stdout={proc.stdout.decode(errors='replace')!r} "
         f"stderr={proc.stderr.decode(errors='replace')!r}"
     )
     ranks = {}

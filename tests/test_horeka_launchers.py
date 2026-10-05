@@ -72,6 +72,16 @@ def _stub_bin(tmp_path: Path, names: list[str]) -> Path:
     return bin_dir
 
 
+def _clean_env() -> dict[str, str]:
+    """os.environ without what makes bash bypass the PATH stubs.
+
+    Inside a Slurm job on JSC systems, BASH_ENV sources Lmod and ``module``/``ml`` are
+    exported as functions (BASH_FUNC_*); both win over the stub executables, so the
+    launchers would run real (slow) ``module load`` calls.
+    """
+    return {k: v for k, v in os.environ.items() if k != "BASH_ENV" and not k.startswith("BASH_FUNC_")}
+
+
 def _read_log(log: Path) -> list[str]:
     return log.read_text().splitlines() if log.exists() else []
 
@@ -88,7 +98,7 @@ def _run_launcher(tmp_path: Path, script: str, clear: str | None) -> tuple[subpr
     shutil.copy(SCRIPTS_DIR / script, script_copy)
 
     log = tmp_path / "stub.log"
-    env = dict(os.environ)
+    env = _clean_env()
     env.pop("ZREG_CLEAR_CHECKPOINTS", None)
     env.update(
         PATH=f"{bin_dir}:{os.environ['PATH']}",
@@ -173,7 +183,7 @@ def _run_propulate_interactive(tmp_path: Path, write_best: bool) -> tuple[subpro
     _write_exec(tmp_path / "regvenv_horeka" / "bin" / "python", _LOGGING_STUB.format(name="python"))
 
     log = tmp_path / "stub.log"
-    env = dict(os.environ)
+    env = _clean_env()
     env.pop("ZREG_VENV", None)
     env.update(
         PATH=f"{bin_dir}:{os.environ['PATH']}",

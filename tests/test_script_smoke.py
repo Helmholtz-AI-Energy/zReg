@@ -27,6 +27,7 @@ matplotlib.use("Agg")
 from zreg.core.dataset import zRegPointCloud
 from zreg.data_generation import generate_labels, generate_trajectory
 
+import pytest
 import torch
 
 from test_script_imports import REPO_ROOT, _load_script
@@ -75,6 +76,7 @@ def _repo_untouched_snapshot() -> dict[str, bool]:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.open3d
 def test_example_plots_main_runs(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     module = _load_script("example_plots.py")

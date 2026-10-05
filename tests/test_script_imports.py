@@ -30,6 +30,8 @@ SCRIPTS = [
     "example_plots.py",
     "dtw_testing.py",
 ]
+# Scripts that import Open3D at module level; importing them is skipped where it is missing.
+_OPEN3D_SCRIPTS = {"example_plots.py"}
 
 
 def _load_script(name: str) -> ModuleType:
@@ -76,7 +78,10 @@ def test_zreg_dtw_result_class_identity():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("script", SCRIPTS, ids=SCRIPTS)
+@pytest.mark.parametrize(
+    "script",
+    [pytest.param(s, id=s, marks=[pytest.mark.open3d] if s in _OPEN3D_SCRIPTS else []) for s in SCRIPTS],
+)
 def test_script_imports_cleanly(script, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("SLURM_PROCID", raising=False)

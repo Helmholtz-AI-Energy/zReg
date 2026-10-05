@@ -17,36 +17,28 @@ additionally skips when ``propulate`` cannot be imported.
 import json
 import math
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+from _mpi_launch import mpi_launcher
 
 _WORKER = Path(__file__).parent / "_failed_trials_mpi_worker.py"
 _TIMEOUT_S = 600
 
 
-def _require_mpi() -> str:
-    mpirun = shutil.which("mpirun")
-    if mpirun is None:
-        pytest.skip("mpirun not found on PATH")
-    pytest.importorskip("mpi4py")
-    return mpirun
-
-
 def _run_worker(tmp_path: Path, scenario: str, strategy: str) -> tuple[dict, dict]:
-    mpirun = _require_mpi()
+    launcher = mpi_launcher(2)
     assert _WORKER.exists(), f"MPI worker not found at {_WORKER}"
     proc = subprocess.run(
-        [mpirun, "-n", "2", sys.executable, str(_WORKER), scenario, strategy, str(tmp_path)],
+        [*launcher, sys.executable, str(_WORKER), scenario, strategy, str(tmp_path)],
         capture_output=True,
         timeout=_TIMEOUT_S,
         env=dict(os.environ),
     )
     assert proc.returncode == 0, (
-        f"mpirun failed: stdout={proc.stdout.decode(errors='replace')!r} "
+        f"{launcher[0]} failed: stdout={proc.stdout.decode(errors='replace')!r} "
         f"stderr={proc.stderr.decode(errors='replace')!r}"
     )
     ranks = {}
@@ -102,7 +94,7 @@ def test_mpirun_all_fail_raises_on_every_rank(tmp_path) -> None:
 
 def test_mpirun_propulate_rank0_fails_rank1_succeeds(tmp_path) -> None:
     """Optional real-Propulate variant of the cycle-2 HIGH inverse case."""
-    _require_mpi()
+    mpi_launcher(2)  # skip early when no MPI launcher is available
     pytest.importorskip("propulate")
     r0, r1 = _run_worker(tmp_path, "rank0_fails", "propulate")
     assert r0["raised"] is False, r0

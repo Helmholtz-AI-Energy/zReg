@@ -657,7 +657,7 @@ class TestAlignmentStageICPIntegration:
         """Minimal EvalConfig for ICP tests."""
         return EvalConfig(data_path=str(tmp_path / "unused.mat"))
 
-    @pytest.mark.parametrize("alignment_method", ["cpd", "icp", "swd"])
+    @pytest.mark.parametrize("alignment_method", ["cpd", pytest.param("icp", marks=pytest.mark.open3d), "swd"])
     def test_alignment_stage_run_with_both_methods(
         self,
         alignment_method,
@@ -695,6 +695,7 @@ class TestAlignmentStageICPIntegration:
             assert not torch.isnan(frame["pos"]).any()
             assert not torch.isinf(frame["pos"]).any()
 
+    @pytest.mark.open3d
     def test_alignment_stage_icp_specific_behavior(
         self,
         eval_config,
@@ -763,6 +764,7 @@ class TestAlignmentStageICPIntegration:
         # params_used should have alignment_method filled in from config
         assert result.params_used["alignment_method"] == eval_config.alignment_method
 
+    @pytest.mark.open3d
     def test_cpd_and_icp_produce_different_results(
         self,
         eval_config,
@@ -800,6 +802,7 @@ class TestAlignmentStageICPIntegration:
         assert set(result_cpd.aligned_cloud.keys()) == set(target.keys())
         assert set(result_icp.aligned_cloud.keys()) == set(target.keys())
 
+    @pytest.mark.open3d
     def test_icp_with_rigid_cpd_penalty_ignored(
         self,
         eval_config,
@@ -826,6 +829,7 @@ class TestAlignmentStageICPIntegration:
         assert isinstance(result, AlignResult)
         assert len(result.aligned_cloud) == len(target)
 
+    @pytest.mark.open3d
     def test_alignment_method_in_params_used(
         self,
         eval_config,
@@ -1238,6 +1242,7 @@ class TestEstepResultsCapture:
 
         assert result.estep_results == {}
 
+    @pytest.mark.open3d
     def test_icp_estep_results_empty(
         self, eval_config, synthetic_dataset_a, synthetic_dataset_b
     ):
@@ -1277,7 +1282,7 @@ class TestEstepResultsCapture:
 class TestBuildAlignedCloudDegenerateFrames:
     """61 WR-04: a degenerate frame skips ICP/SWD registration instead of aborting the stage."""
 
-    @pytest.mark.parametrize("method", ["icp", "swd"])
+    @pytest.mark.parametrize("method", [pytest.param("icp", marks=pytest.mark.open3d), "swd"])
     def test_single_point_frame_kept_unregistered(self, method, caplog):
         torch.manual_seed(0)
         source_sub = {0: zRegPointCloud(pos=torch.rand(10, 3)), 1: zRegPointCloud(pos=torch.rand(1, 3))}

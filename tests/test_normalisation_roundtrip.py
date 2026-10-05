@@ -114,6 +114,7 @@ def test_helpers_follow_requested_device_cpu():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.open3d
 def test_icp_identity_roundtrip_points():
     pts = _anchor_cloud()
     result = ICPRegistration().register(zRegPointCloud(pos=pts), zRegPointCloud(pos=pts.clone()))
@@ -121,6 +122,7 @@ def test_icp_identity_roundtrip_points():
     assert torch.allclose(out[0], torch.tensor(ANCHOR, dtype=torch.float64), atol=1e-4), out[0]
 
 
+@pytest.mark.open3d
 def test_icp_recovers_rigid_transform_with_different_bounds():
     torch.manual_seed(1)
     src = torch.randn(30, 3)
@@ -133,6 +135,7 @@ def test_icp_recovers_rigid_transform_with_different_bounds():
     assert abs(det - 1.0) < 1e-3, det
 
 
+@pytest.mark.open3d
 def test_icp_uniform_translation():
     torch.manual_seed(2)
     src = torch.randn(30, 3)
@@ -185,6 +188,7 @@ def test_swd_result_is_rigid():
 
 
 @requires_cuda
+@pytest.mark.open3d
 def test_icp_cuda_input_returns_cpu_float32():
     pts = _anchor_cloud()
     result = ICPRegistration().register(

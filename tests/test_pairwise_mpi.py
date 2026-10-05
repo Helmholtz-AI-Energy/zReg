@@ -21,7 +21,6 @@ Two layers of evidence:
 import copy
 import json
 import os
-import shutil
 import subprocess
 import sys
 import threading
@@ -34,6 +33,7 @@ from zreg.core.dataset import zRegPointCloud
 
 import numpy as np
 import pytest
+from _mpi_launch import mpi_launcher
 import torch
 
 _WORKER = Path(__file__).parent / "_pairwise_mpi_worker.py"
@@ -137,22 +137,14 @@ def test_thread_ranks_equal_serial(which, nx, ny, window, size):
         assert torch.equal(res, serial), f"rank {r} matrix {res} != serial {serial}"
 
 
-def _require_mpi() -> str:
-    mpirun = shutil.which("mpirun")
-    if mpirun is None:
-        pytest.skip("mpirun not found on PATH")
-    pytest.importorskip("mpi4py")
-    return mpirun
-
-
 @pytest.mark.parametrize("which", ["create", "given_rigid_rot"])
 def test_mpirun_two_ranks(which, tmp_path):
     """Real ``mpirun -n 2`` with x=3, y=1: no deadlock, both ranks equal the serial matrix."""
-    mpirun = _require_mpi()
+    launcher = mpi_launcher(2)
     assert _WORKER.exists(), f"MPI worker not found at {_WORKER}"
     try:
         proc = subprocess.run(
-            [mpirun, "-n", "2", sys.executable, str(_WORKER), which, "3", str(tmp_path)],
+            [*launcher, sys.executable, str(_WORKER), which, "3", str(tmp_path)],
             capture_output=True,
             timeout=_MPIRUN_TIMEOUT_S,
             env=dict(os.environ),
@@ -163,7 +155,7 @@ def test_mpirun_two_ranks(which, tmp_path):
             f"did not finish within {_MPIRUN_TIMEOUT_S} s"
         )
     assert proc.returncode == 0, (
-        f"mpirun failed: stdout={proc.stdout.decode(errors='replace')!r} "
+        f"{launcher[0]} failed: stdout={proc.stdout.decode(errors='replace')!r} "
         f"stderr={proc.stderr.decode(errors='replace')!r}"
     )
     for r in (0, 1):
@@ -233,17 +225,17 @@ def test_serial_pair_failure_raises_original_exception(which):
 
 def test_mpirun_two_ranks_pair_failure(tmp_path):
     """Real ``mpirun -n 2``: a pair failing on rank 1 makes both ranks raise, no deadlock (WR-01)."""
-    mpirun = _require_mpi()
+    launcher = mpi_launcher(2)
     try:
         proc = subprocess.run(
-            [mpirun, "-n", "2", sys.executable, str(_WORKER), "create_fail", "3", str(tmp_path)],
+            [*launcher, sys.executable, str(_WORKER), "create_fail", "3", str(tmp_path)],
             capture_output=True,
             timeout=_MPIRUN_TIMEOUT_S,
             env=dict(os.environ),
         )
     except subprocess.TimeoutExpired:
         pytest.fail(f"pair failure on one rank deadlocked mpirun -n 2 (WR-01) within {_MPIRUN_TIMEOUT_S} s")
-    assert proc.returncode == 0, f"mpirun failed: stderr={proc.stderr.decode(errors='replace')!r}"
+    assert proc.returncode == 0, f"{launcher[0]} failed: stderr={proc.stderr.decode(errors='replace')!r}"
     for r in (0, 1):
         report = json.loads((tmp_path / f"rank_{r}.json").read_text())
         assert report["raised"] == "RuntimeError", f"rank {r}: {report}"

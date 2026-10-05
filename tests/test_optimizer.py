@@ -1005,6 +1005,9 @@ class TestHyperparamOptimizerCoverageGaps:
         # re-import builds duplicate ORM mappings and breaks every subsequent
         # sqlite study that enqueues trials (found by the Phase 59 NUM-05 tests).
         monkeypatch.setitem(sys.modules, "mpi4py", None)
+        # Inside a Slurm job (e.g. the JUPITER GPU suite) SLURM_JOB_ID would resolve
+        # "auto" to propulate, which needs the mpi4py hidden above; test the fallback.
+        monkeypatch.delenv("SLURM_JOB_ID", raising=False)
         result = HyperparamOptimizer(cfg).run()
         assert isinstance(result, SearchResult)
 

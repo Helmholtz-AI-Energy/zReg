@@ -27,6 +27,7 @@ from zreg.data_generation import generate_labels, generate_trajectory
 import torch
 
 import matplotlib.image as mpimg
+from matplotlib.backends.backend_agg import FigureCanvasAgg
 import numpy as np
 import pandas as pd
 
@@ -66,6 +67,15 @@ def _assert_inside(fig, bb, what: str) -> None:
 
 def _legend_figures(figs: list) -> list:
     return [f for f in figs if f is not None and f.legends]
+
+
+def _renderer(fig):
+    """Agg renderer for a figure ``viz`` already closed.
+
+    matplotlib >= 3.11 swaps a closed figure's canvas for a bare ``FigureCanvasBase``
+    without ``get_renderer``, so re-attach an Agg canvas first.
+    """
+    return FigureCanvasAgg(fig).get_renderer()
 
 
 @pytest.fixture
@@ -166,7 +176,7 @@ def test_superposed_legend_inside_canvas(dataset_3, captured, tmp_path: Path) ->
     figs = _legend_figures(captured)
     assert len(figs) == 1
     fig = figs[0]
-    r = fig.canvas.get_renderer()
+    r = _renderer(fig)
     _assert_inside(fig, fig.legends[0].get_window_extent(r), "superposed legend")
 
 
@@ -182,7 +192,7 @@ def test_label_legend_inside_canvas(
     assert len(figs) == 2  # label_source + label_target
     for fig in figs:
         assert len(fig.legends[0].get_texts()) == n_expected
-        r = fig.canvas.get_renderer()
+        r = _renderer(fig)
         _assert_inside(fig, fig.legends[0].get_window_extent(r), f"label legend ({which})")
 
 
@@ -219,7 +229,7 @@ def test_triptych_suptitle_inside_canvas(triptych_csv, captured, tmp_path: Path)
     """The triptych suptitle is not clipped at the top of the saved PNG."""
     out = viz.render_dataset_triptych(triptych_csv, "My Dataset", tmp_path / "out")
     fig = captured[-1]
-    r = fig.canvas.get_renderer()
+    r = _renderer(fig)
     _assert_inside(fig, fig._suptitle.get_window_extent(r), "triptych suptitle")
     img = mpimg.imread(out)
     assert img.shape[:2] == (round(4.2 * 150), round(13 * 150))

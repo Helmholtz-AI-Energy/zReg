@@ -30,6 +30,7 @@ class TestICPRegistration:
         assert icp.max_iterations == 100
         assert icp.tolerance == 1e-4
 
+    @pytest.mark.open3d
     def test_icp_register_returns_stored_transform(self):
         """Test that ICPRegistration.register() returns a StoredTransform."""
         icp = ICPRegistration()
@@ -45,6 +46,7 @@ class TestICPRegistration:
         assert hasattr(result, "tgt_min")
         assert hasattr(result, "tgt_max")
 
+    @pytest.mark.open3d
     def test_icp_stored_transform_matrix_shape_and_type(self):
         """Test that StoredTransform contains 4x4 matrix in denormalised space."""
         icp = ICPRegistration()
@@ -59,6 +61,7 @@ class TestICPRegistration:
         assert matrix.shape == (4, 4)
         assert matrix.dtype == np.float32
 
+    @pytest.mark.open3d
     def test_icp_denorm_context_completeness(self):
         """Test that denorm_context contains all required normalisation bounds."""
         icp = ICPRegistration()
@@ -73,6 +76,7 @@ class TestICPRegistration:
         assert result.tgt_min is not None
         assert result.tgt_max is not None
 
+    @pytest.mark.open3d
     def test_icp_identity_transform(self):
         """Test ICP on identical source and target clouds.
 
@@ -98,6 +102,7 @@ class TestICPRegistration:
             f"Rotation matrix for identical clouds not close to identity:\n{R}"
         )
 
+    @pytest.mark.open3d
     def test_icp_translation_recovery(self):
         """Test ICP on source and translated target.
 
@@ -127,6 +132,7 @@ class TestICPRegistration:
             f"Rotation matrix for translated clouds not close to identity:\n{R}"
         )
 
+    @pytest.mark.open3d
     def test_icp_rotation_recovery(self):
         """Test ICP recovery of known rotation.
 
@@ -167,6 +173,7 @@ class TestICPRegistration:
             f"Expected:\n{rotation_matrix}\nGot:\n{R}"
         )
 
+    @pytest.mark.open3d
     def test_icp_on_synthetic_data_no_errors(self):
         """Test ICP on synthetic tracklet-like data (smoke test)."""
         icp = ICPRegistration()
@@ -181,6 +188,7 @@ class TestICPRegistration:
         assert not np.any(np.isnan(result.transform.matrix))
         assert not np.any(np.isinf(result.transform.matrix))
 
+    @pytest.mark.open3d
     def test_icp_matrix_not_degenerate(self):
         """Test that ICP produces non-degenerate transformation matrix.
 
@@ -201,6 +209,7 @@ class TestICPRegistration:
             f"Determinant {det} not close to ±1 for rigid ICP"
         )
 
+    @pytest.mark.open3d
     def test_icp_max_iterations_parameter_respected(self):
         """Test that max_iterations parameter affects registration."""
         source = zRegPointCloud(pos=torch.randn(20, 3))
@@ -223,6 +232,7 @@ class TestICPRegistration:
         assert not np.isclose(det_few, 0.0)
         assert not np.isclose(det_many, 0.0)
 
+    @pytest.mark.open3d
     def test_icp_small_cloud(self):
         """Test ICP on very small point clouds (edge case)."""
         icp = ICPRegistration()
@@ -236,6 +246,7 @@ class TestICPRegistration:
         assert isinstance(result, StoredTransform)
         assert result.transform.matrix.shape == (4, 4)
 
+    @pytest.mark.open3d
     def test_icp_large_cloud(self):
         """Test ICP on larger point clouds."""
         icp = ICPRegistration()

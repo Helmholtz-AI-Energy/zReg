@@ -19,12 +19,12 @@ needs ``propulate`` and is listed with the HoreKa / real-Propulate checks.
 import json
 import math
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+from _mpi_launch import mpi_launcher
 
 _WORKER = Path(__file__).parent / "_propulate_payload_mpi_worker.py"
 _TIMEOUT_S = 600
@@ -32,18 +32,15 @@ _PLACEHOLDER_FLAG_PREFIX = "propulate: individual returned without an evaluation
 
 
 def _run_worker(tmp_path: Path, strategy: str) -> list[dict]:
-    mpirun = shutil.which("mpirun")
-    if mpirun is None:
-        pytest.skip("mpirun not found on PATH")
-    pytest.importorskip("mpi4py")
+    launcher = mpi_launcher(2)
     proc = subprocess.run(
-        [mpirun, "-n", "2", sys.executable, str(_WORKER), strategy, str(tmp_path)],
+        [*launcher, sys.executable, str(_WORKER), strategy, str(tmp_path)],
         capture_output=True,
         timeout=_TIMEOUT_S,
         env=dict(os.environ),
     )
     assert proc.returncode == 0, (
-        f"mpirun failed: stdout={proc.stdout.decode(errors='replace')!r} "
+        f"{launcher[0]} failed: stdout={proc.stdout.decode(errors='replace')!r} "
         f"stderr={proc.stderr.decode(errors='replace')!r}"
     )
     for r in (0, 1):

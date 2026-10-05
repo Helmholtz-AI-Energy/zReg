@@ -7,6 +7,7 @@ Read more about conftest.py under:
 - https://docs.pytest.org/en/stable/writing_plugins.html
 """
 
+import importlib.util
 import sys
 from pathlib import Path
 
@@ -82,16 +83,25 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "slow: marks tests as slow (deselect with '-m \"not slow\"')"
     )
+    config.addinivalue_line(
+        "markers", "open3d: needs Open3D (e.g. ICP); skipped where it is not installed"
+    )
 
 
-# Skip CUDA tests if CUDA is not available
+# Skip CUDA tests if CUDA is not available, and Open3D tests if Open3D is not installed
+# (it has no wheel for some platforms, e.g. aarch64 on JUPITER).
 def pytest_collection_modifyitems(config, items):  # pragma: no cover
-    """Modify test collection to skip CUDA tests when unavailable."""
+    """Modify test collection to skip CUDA / Open3D tests when unavailable."""
     if not torch.cuda.is_available():
         skip_cuda = pytest.mark.skip(reason="CUDA not available")
         for item in items:
             if "cuda" in item.keywords:
                 item.add_marker(skip_cuda)
+    if importlib.util.find_spec("open3d") is None:
+        skip_o3d = pytest.mark.skip(reason="Open3D not available")
+        for item in items:
+            if item.get_closest_marker("open3d") is not None:
+                item.add_marker(skip_o3d)
 
 
 # Phase 39: ICP Registration fixtures

@@ -99,7 +99,9 @@ def _run_orchestrator(tmp_path: Path, script: str, log_dir_override: str | None)
 
     stub_log = tmp_path / "stub.log"
     stub_log.touch()
-    env = dict(os.environ)
+    # Drop BASH_ENV and exported shell functions (Lmod's module/ml inside JSC Slurm jobs),
+    # which would otherwise run instead of / before the stubbed commands.
+    env = {k: v for k, v in os.environ.items() if k != "BASH_ENV" and not k.startswith("BASH_FUNC_")}
     env.pop("ZREG_SLURM_LOG_DIR", None)
     env.update(
         PATH=f"{bindir}{os.pathsep}{env.get('PATH', '')}",

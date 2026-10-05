@@ -47,7 +47,7 @@ def _matrix_finite(m):
 
 def _aligners():
     return [
-        pytest.param(lambda: ICPRegistration(), id="icp"),
+        pytest.param(lambda: ICPRegistration(), id="icp", marks=pytest.mark.open3d),
         pytest.param(lambda: SlicedWassersteinAligner(variant="swd", num_iterations=5), id="swd"),
     ]
 

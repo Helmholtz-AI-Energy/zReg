@@ -10,13 +10,13 @@ Covers decisions:
 
 import json
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from _mpi_launch import mpi_launcher
 
 # zreg.* before torch — macOS-ARM libomp SIGABRT rule
 from zreg.core.dataset import zRegPointCloud  # noqa: F401
@@ -211,20 +211,22 @@ class TestPropulateMPIIntegration:
         helper = Path(__file__).parent / "_propulate_mwe.py"
         assert helper.exists(), f"MPI helper script not found at {helper}"
 
-        mpirun = shutil.which("mpirun")
-        if mpirun is None:
-            pytest.skip("mpirun not found on PATH")
+        launcher = mpi_launcher(2)
 
         out_file = tmp_path / "mpi_result.json"
 
         result = subprocess.run(
-            [mpirun, "-n", "2", sys.executable, str(helper), str(out_file)],
+            [*launcher, sys.executable, str(helper), str(out_file)],
             capture_output=True,
             timeout=60,  # T-26-06: bounded subprocess prevents DoS from runaway MPI
+            # Python's startup snapshot of the environment: importing zreg initialises MPI as
+            # a singleton, which adds OMPI_* variables to the C-level environment that a
+            # nested Open MPI mpirun would inherit and then fail on without output.
+            env=dict(os.environ),
         )
 
         assert result.returncode == 0, (
-            f"mpirun failed: stdout={result.stdout!r} stderr={result.stderr!r}"
+            f"{launcher[0]} failed: stdout={result.stdout!r} stderr={result.stderr!r}"
         )
         assert out_file.exists(), "rank 0 did not write results.json"
 

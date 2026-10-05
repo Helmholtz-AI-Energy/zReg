@@ -14,6 +14,8 @@ from zreg.core.dataset import zRegPointCloud
 from zreg.distance_metrics import sw_varients
 from zreg.algorithms.pairwise_distance_matrix import _sanitize_pairwise_distance_matrix
 
+import platform
+
 import pytest
 import torch
 
@@ -106,12 +108,20 @@ def test_bit_identical_cpu_float32(name):
     """Guard: projections are generated on CPU exactly as before, then moved.
 
     Seeded CPU float32 results must equal the values recorded before the fix.
+    The values were recorded on x86_64; other CPU architectures (e.g. aarch64 on
+    JUPITER) round float32 reductions differently in the last bits, so there they
+    must agree to 1e-6 relative -- still far tighter than a changed projection
+    stream would give.
     """
     x, y = _clouds()
     torch.manual_seed(7)
     metric = _make(name)
     value = metric(x, y).item()
-    assert value == float.fromhex(BIT_IDENTICAL[name])
+    expected = float.fromhex(BIT_IDENTICAL[name])
+    if platform.machine() in ("x86_64", "AMD64"):
+        assert value == expected
+    else:
+        assert value == pytest.approx(expected, rel=1e-6, abs=0.0)
 
 
 # ---------------------------------------------------------------------------

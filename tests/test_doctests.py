@@ -84,33 +84,76 @@ def _discover() -> None:
 _discover()
 
 
-@pytest.fixture
-def restore_torch_state():
-    """Snapshot and restore torch global state touched by docstring examples."""
+_MISSING = object()
+
+
+def _device_state():
+    """Return the raw default-device state: the global slot and the mode stack.
+
+    ``torch.get_default_device()`` cannot tell "no device context" from "a cpu
+    ``DeviceContext`` on the torch-function mode stack" (both report ``cpu``),
+    yet the latter forces every factory call without ``device=`` onto cpu.
+    So the fixture compares the actual ``DeviceContext`` object and the mode
+    stack, not the reported device.
+    """
+    import torch
+    from torch.overrides import _get_current_function_mode_stack
+
+    slot = getattr(torch._GLOBAL_DEVICE_CONTEXT, "device_context", _MISSING)
+    return slot, list(_get_current_function_mode_stack())
+
+
+def _set_device_slot(slot) -> None:
     import torch
 
+    if slot is _MISSING:
+        torch._GLOBAL_DEVICE_CONTEXT.__dict__.pop("device_context", None)
+    else:
+        torch._GLOBAL_DEVICE_CONTEXT.device_context = slot
+
+
+def _restore_device_state(slot_before, stack_before) -> bool:
+    """Put back the snapshotted device context; return True if it had leaked."""
+    current, _ = _device_state()
+    current_ctx = None if current is _MISSING else current
+    before_ctx = None if slot_before is _MISSING else slot_before
+    leaked = current_ctx is not before_ctx
+    if leaked:
+        if current_ctx is not None:
+            current_ctx.__exit__(None, None, None)
+        if before_ctx is not None:
+            # set_default_device() exited the original context when it
+            # installed a new one, so it has to be entered again.
+            before_ctx.__enter__()
+    _set_device_slot(slot_before)
+    _, stack_after = _device_state()
+    leaked = leaked or [id(mode) for mode in stack_after] != [id(mode) for mode in stack_before]
+    return leaked
+
+
+@pytest.fixture
+def restore_torch_state():
+    """Snapshot and restore torch global state touched by docstring examples.
+
+    Fails the test if an example leaves a ``DeviceContext`` (or any other
+    torch-function mode) behind, after removing it again.
+    """
+    import torch
+
+    slot_before, stack_before = _device_state()
     # In torch 2.9 an earlier ``set_default_device(None)`` (tests/test_config.py
-    # resets that way) leaves ``get_default_device()`` raising AttributeError.
-    # Examples then run with an explicit cpu default, which is what torch uses
-    # without a device context, and the prior None state is put back afterwards.
-    try:
-        device = torch.get_default_device()
-    except AttributeError:
-        device = None
-        torch.set_default_device("cpu")
+    # resets that way) leaves the slot set to None, which makes
+    # ``get_default_device()`` raise AttributeError.  Examples run in the
+    # pristine state (no slot, no context) and the None slot is put back after.
+    if slot_before is None:
+        _set_device_slot(_MISSING)
     precision = torch.get_float32_matmul_precision()
     with torch.random.fork_rng(devices=[]):
         yield
-    if device is None:
-        torch.set_default_device(None)
-    else:
-        try:
-            changed = torch.get_default_device() != device
-        except AttributeError:
-            changed = True
-        if changed:
-            torch.set_default_device(device)
+    leaked = _restore_device_state(slot_before, stack_before)
     torch.set_float32_matmul_precision(precision)
+    if leaked:
+        pytest.fail("docstring example leaked a torch default-device context / function mode")
 
 
 def _run(test: doctest.DocTest) -> tuple[doctest.TestResults, str]:
@@ -194,3 +237,40 @@ def test_open3d_docstring_example_runs_when_available(restore_torch_state) -> No
     result, output = _run(test)
     assert result.failed == 0, output
     assert result.attempted >= 5, f"only {result.attempted} Open3D examples attempted"
+
+
+def test_config_docstrings_leave_no_device_context() -> None:
+    """The ``zreg.config`` examples leave the device slot and mode stack untouched."""
+    config_tests = [test for test in DOCTESTS if test.name.startswith("zreg.config")]
+    assert config_tests, "no zreg.config docstrings discovered"
+    slot_before, stack_before = _device_state()
+    if slot_before is None:
+        _set_device_slot(_MISSING)
+    pristine_slot, pristine_stack = _device_state()
+    try:
+        for test in config_tests:
+            result, output = _run(test)
+            assert result.failed == 0, output
+            slot_after, stack_after = _device_state()
+            assert slot_after is pristine_slot, f"{test.name} changed the default-device slot"
+            assert [id(m) for m in stack_after] == [id(m) for m in pristine_stack], (
+                f"{test.name} left a torch-function mode on the stack: {stack_after!r}"
+            )
+    finally:
+        _restore_device_state(slot_before, stack_before)
+
+
+def test_restore_detects_and_removes_leaked_device_context() -> None:
+    """``set_default_device(previous)`` reports cpu again but leaks a DeviceContext; the fixture catches it."""
+    import torch
+
+    slot_before, stack_before = _device_state()
+    try:
+        torch.set_default_device("cpu")
+        assert _restore_device_state(slot_before, stack_before) is True
+        slot_after, stack_after = _device_state()
+        assert slot_after is slot_before
+        assert [id(m) for m in stack_after] == [id(m) for m in stack_before]
+        assert _restore_device_state(slot_before, stack_before) is False
+    finally:
+        _restore_device_state(slot_before, stack_before)

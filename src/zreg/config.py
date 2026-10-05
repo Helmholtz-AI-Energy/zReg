@@ -8,16 +8,20 @@ Examples
 --------
 >>> import torch
 >>> from zreg.config import configure_pytorch
->>> previous_device = torch.get_default_device()
 >>> previous = torch.get_float32_matmul_precision()
 >>> configure_pytorch()  # Apply recommended settings
 >>> configure_pytorch(matmul_precision="highest")  # Custom precision
->>> configure_pytorch(default_device="cpu")  # or a GPU device such as "cuda" for a GPU default
->>> torch.get_default_device()
+>>> torch.get_float32_matmul_precision()
+'highest'
+>>> torch.set_float32_matmul_precision(previous)  # restore
+
+A global default device cannot be undone without leaving a device context
+behind, so prefer a scoped ``torch.device`` block where possible:
+
+>>> configure_pytorch(default_device="cuda")  # doctest: +SKIP
+>>> with torch.device("cpu"):  # scoped, no global state changes
+...     torch.zeros(1).device
 device(type='cpu')
->>> # restore the saved state; passing None instead breaks get_default_device() in torch 2.9
->>> torch.set_default_device(previous_device)
->>> torch.set_float32_matmul_precision(previous)
 """
 
 import logging
@@ -54,16 +58,21 @@ def configure_pytorch(
     --------
     >>> import torch
     >>> from zreg.config import configure_pytorch
-    >>> previous_device = torch.get_default_device()
     >>> previous = torch.get_float32_matmul_precision()
     >>> configure_pytorch()  # Use recommended defaults
     >>> configure_pytorch(matmul_precision="highest")  # Maximum precision
-    >>> configure_pytorch(default_device="cpu")  # or a GPU device such as "cuda" for a GPU default (use carefully)
-    >>> torch.get_default_device()
+    >>> torch.get_float32_matmul_precision()
+    'highest'
+    >>> torch.set_float32_matmul_precision(previous)  # restore
+
+    Setting a global default device is process-wide and cannot be undone
+    without leaving a device context behind (use carefully). A scoped
+    ``torch.device`` block leaves no global state:
+
+    >>> configure_pytorch(default_device="cuda")  # doctest: +SKIP
+    >>> with torch.device("cpu"):
+    ...     torch.zeros(1).device
     device(type='cpu')
-    >>> # restore the saved state; passing None instead breaks get_default_device() in torch 2.9
-    >>> torch.set_default_device(previous_device)
-    >>> torch.set_float32_matmul_precision(previous)
 
     Notes
     -----

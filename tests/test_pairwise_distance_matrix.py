@@ -1,4 +1,4 @@
-"""Tests for zreg.pairwise_distance_matrix module."""
+"""Tests for zreg.algorithms.pairwise_distance_matrix module."""
 
 import pytest
 import torch

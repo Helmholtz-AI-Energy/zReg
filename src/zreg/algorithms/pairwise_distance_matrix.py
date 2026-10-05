@@ -268,10 +268,10 @@ def create_pairwise_distance_matrix(
                     # normalisation that was never done in Step 1, corrupting the output (CR-02).
                     #
                     # cpd_type == "nonrigid" is excluded from caching: NonRigidTransformation
-                    # retains a dense (n_points, n_points) RBF kernel matrix (see
-                    # zreg.core.transforms.nonrigid.NonRigidTransformation.g). With real, full-resolution
-                    # point clouds (tens of thousands of points/frame) and a windowed sweep touching
-                    # thousands of (i, j) pairs, retaining one of these per pair grows this dict
+                    # retains a dense (n_points, n_points) RBF kernel matrix (the ``g``
+                    # attribute of zreg.core.transforms.nonrigid.NonRigidTransformation). With
+                    # real, full-resolution point clouds (tens of thousands of points/frame)
+                    # and a windowed sweep touching thousands of (i, j) pairs, retaining one of these per pair grows this dict
                     # unboundedly into the hundreds of GB, exhausting memory/swap well before the
                     # sweep completes. _build_aligned_cloud already has a tested, correctness-
                     # preserving fallback for missing cache entries (D-10: fresh CPD from raw data,

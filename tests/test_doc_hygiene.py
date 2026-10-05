@@ -21,16 +21,15 @@ Checks:
   no stale "first frame" claim.
 - ``test_path_smoothness_header_matches_implementation``: ``path_smoothness``
   is described as implemented (cross-product based), not by slope changes.
-- ``test_no_stale_zreg_module_references``: no ``*.py`` file under the scan
-  roots (``src/``, ``eval/``, ``scripts/``, ``baseline_experiments/scripts/``,
-  ``run_eval.py``, ``tests/``) names a removed top-level module, i.e. the
-  package ``zreg`` followed by ``metrics``, ``distances``, ``dataset``,
-  ``transforms``, ``generators`` or ``registration``.  The live
-  ``zreg.core.transforms``, ``zreg.data_generation.transforms``,
-  ``zreg.data_generation.generators`` and ``zreg.dtw`` do not match.  There is
-  no per-file exclusion list: ``STALE_LINE_ALLOWLIST`` exempts single lines
-  (file + exact line substring) that hold deliberate negative-test literals,
-  and ``test_stale_allowlist_entries_are_live`` rejects dead entries.
+- ``test_no_stale_zreg_module_references``: every dotted ``zreg.<...>`` name
+  in a ``*.py`` file under the scan roots (``src/``, ``eval/``, ``scripts/``,
+  ``baseline_experiments/scripts/``, ``run_eval.py``, ``tests/``) resolves:
+  the longest importable prefix is imported with ``importlib`` and the rest
+  is looked up with ``getattr``.  This catches every removed or renamed
+  module (and attribute), not just a fixed denylist.  There is no per-file
+  exclusion list: ``STALE_LINE_ALLOWLIST`` exempts single lines (file + exact
+  line substring) that hold deliberate negative-test literals or logger
+  names, and ``test_stale_allowlist_entries_are_live`` rejects dead entries.
   ``test_stale_reference_scan_has_no_exclusions`` pins the scan roots.
 - ``test_src_zreg_slash_paths_exist``: every ``src/zreg/<...>.py`` path named
   in a scanned file exists.
@@ -48,6 +47,7 @@ broken module produces an assertion-level failure, never a collection error.
 from __future__ import annotations
 
 import doctest
+import functools
 import importlib
 import inspect
 import pkgutil
@@ -63,27 +63,59 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # recursively for *.py, files are scanned as-is).  No per-file exclusions.
 STALE_SCAN_ROOTS = ("src", "eval", "scripts", "baseline_experiments/scripts", "run_eval.py", "tests")
 
-# Removed modules; the lookbehind keeps zreg.core.transforms and
-# zreg.data_generation.transforms (preceded by a word/dot) from matching.
-STALE_MODULE_RE = re.compile(
-    r"(?<![\w.])zreg\.(metrics|distances|dataset|transforms|generators|registration)\b"
-)
+# Dotted references into the package; the lookbehind skips names such as
+# ``foo.zreg.x`` or ``myzreg.x``.
+ZREG_REF_RE = re.compile(r"(?<![\w.])zreg(?:\.\w+)+")
 
-# Line-level exemptions for deliberate negative-test literals.  A stale match
-# is exempt only if the file matches AND the matching line contains one of
-# that file's substrings; there are no whole-file exemptions.
+# Line-level exemptions for deliberate negative-test literals and logger
+# names.  An unresolved match is exempt only if the file matches AND the
+# matching line contains one of that file's substrings; there are no
+# whole-file exemptions.
 STALE_LINE_ALLOWLIST: dict[str, tuple[str, ...]] = {
-    "tests/test_doc_hygiene.py": ("STALE_MODULE_RE.search(",),
+    "tests/test_doc_hygiene.py": ('_zreg_ref_resolves("zreg.',),
     "tests/test_script_imports.py": (
         "The package restructure moved ``",
-        "``zreg.downsampling``, ``",
+        "downsampling``, ``",
+        "pairwise_distance_matrix`` under",
+        "Keep only maximal chains:",
         'assert not _resolves("zreg.',
     ),
     "tests/test_dtw_cpd_cost.py": ('distances" not in text',),
+    "tests/test_validation.py": ('test_no_colors")',),
 }
 
 # src/zreg/<...>.py slash paths named in docstrings/comments must exist.
 SRC_ZREG_PATH_RE = re.compile(r"src/zreg/[A-Za-z0-9_/]+\.py")
+
+
+@functools.lru_cache(maxsize=None)
+def _zreg_ref_resolves(dotted: str) -> bool:
+    """True if ``dotted`` names an existing zreg module or attribute.
+
+    The longest importable module prefix is imported, the remaining parts are
+    looked up with ``getattr``.  Only a ``ModuleNotFoundError`` for the name
+    being tried moves on to a shorter prefix; any other import error is raised
+    so a broken module is not reported as a stale reference.
+    """
+    parts = dotted.split(".")
+    for cut in range(len(parts), 0, -1):
+        candidate = ".".join(parts[:cut])
+        try:
+            obj = importlib.import_module(candidate)
+        except ModuleNotFoundError as exc:
+            if exc.name is not None and (candidate == exc.name or candidate.startswith(exc.name + ".")):
+                continue
+            raise
+        for attr in parts[cut:]:
+            if not hasattr(obj, attr):
+                return False
+            obj = getattr(obj, attr)
+        return True
+    return False
+
+
+def _unresolved_refs(line: str) -> list[str]:
+    return [ref for ref in ZREG_REF_RE.findall(line) if not _zreg_ref_resolves(ref)]
 
 
 def _stale_scan_files() -> list[Path]:
@@ -200,15 +232,15 @@ def test_path_smoothness_header_matches_implementation() -> None:
     "path", _SCAN_FILES, ids=[p.relative_to(REPO_ROOT).as_posix() for p in _SCAN_FILES]
 )
 def test_no_stale_zreg_module_references(path: Path) -> None:
-    """No docstring/comment/code line names a removed zreg module."""
+    """Every dotted ``zreg.<...>`` name in a docstring/comment/code line resolves."""
     rel = path.relative_to(REPO_ROOT).as_posix()
     allowed = STALE_LINE_ALLOWLIST.get(rel, ())
     hits = [
-        f"{rel}:{lineno}: {line.strip()}"
+        f"{rel}:{lineno}: {', '.join(refs)} :: {line.strip()}"
         for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1)
-        if STALE_MODULE_RE.search(line) and not any(sub in line for sub in allowed)
+        if (refs := _unresolved_refs(line)) and not any(sub in line for sub in allowed)
     ]
-    assert not hits, "stale zreg module references:\n" + "\n".join(hits)
+    assert not hits, "unresolvable zreg references (removed or renamed modules/attributes):\n" + "\n".join(hits)
 
 
 def test_stale_allowlist_entries_are_live() -> None:
@@ -217,7 +249,7 @@ def test_stale_allowlist_entries_are_live() -> None:
     for rel, substrings in STALE_LINE_ALLOWLIST.items():
         path = REPO_ROOT / rel
         lines = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
-        stale_lines = [line for line in lines if STALE_MODULE_RE.search(line)]
+        stale_lines = [line for line in lines if _unresolved_refs(line)]
         for sub in substrings:
             if not any(sub in line for line in stale_lines):
                 dead.append(f"{rel}: {sub!r}")
@@ -248,10 +280,18 @@ def test_stale_reference_scan_has_no_exclusions() -> None:
         "tests/test_generators.py",
     ):
         assert required in rel, f"{required} missing from the stale-reference scan"
-    assert STALE_MODULE_RE.search("from zreg.metrics import chamfer")
-    assert not STALE_MODULE_RE.search("from zreg.core.transforms import Affine")
-    assert not STALE_MODULE_RE.search("zreg.data_generation.transforms")
-    assert not STALE_MODULE_RE.search("import zreg.dtw")
-    assert STALE_MODULE_RE.search("from zreg.generators.labels import generate_labels")
-    assert STALE_MODULE_RE.search("zreg.registration")
-    assert not STALE_MODULE_RE.search("zreg.data_generation.generators")
+    assert ZREG_REF_RE.findall("from zreg.core.transforms import Affine") == ["zreg.core.transforms"]
+    assert not ZREG_REF_RE.findall("myzreg.metrics or foo.zreg.metrics")
+    assert _zreg_ref_resolves("zreg.core.transforms")
+    assert _zreg_ref_resolves("zreg.data_generation.transforms")
+    assert _zreg_ref_resolves("zreg.data_generation.generators")
+    assert _zreg_ref_resolves("zreg.algorithms.dtw.DTWResult")
+    assert not _zreg_ref_resolves("zreg.metrics")
+    assert not _zreg_ref_resolves("zreg.generators.labels")
+    assert not _zreg_ref_resolves("zreg.registration")
+    # zreg.dtw is a live backward-compatibility alias of zreg.algorithms.dtw.
+    assert _zreg_ref_resolves("zreg.dtw.DTWResult")
+    assert not _zreg_ref_resolves("zreg.color_transfer")
+    assert not _zreg_ref_resolves("zreg.cpd.base")
+    assert not _zreg_ref_resolves("zreg.downsampling")
+    assert not _zreg_ref_resolves("zreg.algorithms.dtw.NoSuchName")

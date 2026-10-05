@@ -90,10 +90,10 @@ class AlignResult(BaseModel):
         ``Keys == set(target.keys())``.
     warp_path : list[tuple[int, int]]
         Optimal DTW alignment path as ``(source_idx, target_idx)`` pairs.
-        Matches ``zreg.dtw.DTWResult.warping_path`` exactly.
+        Matches the ``warping_path`` field of ``zreg.algorithms.dtw.DTWResult`` exactly.
     dtw_distance : float
         Total DTW accumulated cost at the end of the path.  Matches
-        ``zreg.dtw.DTWResult.distance``.
+        the ``distance`` field of ``zreg.algorithms.dtw.DTWResult``.
     n_changepoints : int
         Number of change-points detected by the CPD stage of the pipeline.
     params_used : dict[str, Any]

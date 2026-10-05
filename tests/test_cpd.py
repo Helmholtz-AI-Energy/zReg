@@ -1,4 +1,4 @@
-"""Tests for zreg.cpd module."""
+"""Tests for zreg.algorithms.cpd module."""
 
 import logging
 import pytest
@@ -532,7 +532,7 @@ class TestMstepResultDiagnostics:
         target = source.clone()
         cpd_obj = cpd.RigidCPD(source=source, log_freq=-1)
 
-        with caplog.at_level(logging.WARNING, logger="zreg.cpd"):
+        with caplog.at_level(logging.WARNING, logger="zreg.algorithms.cpd.base"):
             result = cpd_obj.registration(target, maxiter=20, tol=1e-10)
 
         # If clamping occurred, warning must have been emitted
@@ -751,7 +751,7 @@ class TestCPDBaseRegistrationPaths:
         source = torch.randn(20, 3)
         target = source + torch.randn(20, 3) * 0.1
         cpd_obj = cpd.RigidCPD(source=source, log_freq=1)
-        with caplog.at_level(logging.INFO, logger="zreg.cpd.base"):
+        with caplog.at_level(logging.INFO, logger="zreg.algorithms.cpd.base"):
             cpd_obj.registration(target, maxiter=3, tol=0.0)
         msgs = [r.message for r in caplog.records]
         assert any("Registering:" in str(m) for m in msgs)
@@ -763,7 +763,7 @@ class TestCPDBaseRegistrationPaths:
         source = torch.randn(20, 3)
         target = source.clone()  # identical → fast convergence
         cpd_obj = cpd.RigidCPD(source=source, log_freq=1)
-        with caplog.at_level(logging.INFO, logger="zreg.cpd.base"):
+        with caplog.at_level(logging.INFO, logger="zreg.algorithms.cpd.base"):
             result = cpd_obj.registration(target, maxiter=50, tol=1.0)
         msgs = [r.message for r in caplog.records]
         assert any("Hit tolerance" in str(m) for m in msgs)

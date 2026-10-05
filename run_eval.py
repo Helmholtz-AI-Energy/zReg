@@ -77,7 +77,7 @@ _repo_root = Path(__file__).parent
 if str(_repo_root) not in sys.path:  # pragma: no cover
     sys.path.insert(0, str(_repo_root))
 
-# src/ insertion — makes `from zreg.X import ...` work when zreg is not
+# src/ insertion — makes `from zreg.<module> import ...` work when zreg is not
 # installed as a package (src layout convention, mirrors conftest.py).
 _src_root = _repo_root / "src"
 if str(_src_root) not in sys.path:  # pragma: no cover

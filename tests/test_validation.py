@@ -1,4 +1,4 @@
-"""Tests for zreg.validation module and logging configuration."""
+"""Tests for zreg.utils.validation module and logging configuration."""
 
 import os
 import subprocess

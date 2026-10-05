@@ -38,7 +38,7 @@ def main(cfg_path: Path, log_level: int):
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
     # YOUR CODE GOES HERE! Keep the main functionality in src/zreg
-    # est = zreg.models.Estimator()
+    # model = zreg.models.PointNet2LabelTransfer(...)
 
 
 if __name__ == "__main__":

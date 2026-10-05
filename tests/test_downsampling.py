@@ -1,4 +1,4 @@
-"""Tests for zreg.downsampling module."""
+"""Tests for zreg.preprocessing.downsampling module."""
 
 import pytest
 import torch
@@ -257,7 +257,7 @@ class TestFPSAndKNNExplicitMode:
         import logging
         pos = torch.randn(20, 3)
         batch = torch.tensor([0] * 10 + [1] * 10)
-        with caplog.at_level(logging.WARNING, logger="zreg.downsampling"):
+        with caplog.at_level(logging.WARNING, logger="zreg.preprocessing.downsampling"):
             edge_index = downsampling.knn_graph(pos, k=2, batch=batch, use_torch_cluster=False)
         assert any("single batch" in str(r.message) for r in caplog.records)
 

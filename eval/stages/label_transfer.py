@@ -1,9 +1,9 @@
 """LabelTransferStage: thin color-transfer wrapper for FRAME-06 evaluation framework.
 
 This module implements ``LabelTransferStage(PipelineStage)``, a thin orchestration
-layer over ``zreg.color_transfer.transfer_colors()``.  No kNN or distance logic is
+layer over ``zreg.label_transfer.transfer_labels()`` (imported as ``transfer_colors``).  No kNN or distance logic is
 reimplemented here — all numerical computation delegates to the existing
-``zreg.color_transfer.*`` package via KNN_VOTING or CPD_WEIGHTED (Phase 44).
+``zreg.label_transfer`` package via KNN_VOTING or CPD_WEIGHTED (Phase 44).
 
 Hyperparam mapping:
 
@@ -36,9 +36,9 @@ Phase 19.  ``isinstance(x, bool)`` must be tested before ``isinstance(x, int)``
 because ``bool`` is a subclass of ``int`` in Python.
 
 **CPD-weighted label transfer (Phase 44):**
-``method='cpd_weighted'`` reuses ``zreg.color_transfer``'s existing
+``method='cpd_weighted'`` reuses ``zreg.label_transfer``'s existing
 CPD-posterior-weighted-average math, fixing two call-site bugs so
-``zreg.color_transfer`` itself never needs to change:
+``zreg.label_transfer`` itself never needs to change:
 
 - **pmat orientation (D-04, Phase 59 NUM-04):** ``EstepResult.pmat`` from
   ``expectation_step()`` is shaped ``(n_aligned_source, n_target)``, while

@@ -118,21 +118,39 @@ def _set_device_slot(slot) -> None:
 
 
 def _restore_device_state(slot_before, stack_before) -> bool:
-    """Put back the snapshotted device context; return True if it had leaked."""
-    current, _ = _device_state()
-    current_ctx = None if current is _MISSING else current
+    """Put back the snapshotted slot and mode stack; return True if anything had leaked.
+
+    The torch-function mode stack is rebuilt from the snapshot: every mode is
+    popped and the snapshotted modes are pushed back in order.  That removes a
+    leaked ``set_default_device`` context, an un-exited ``torch.device(...)``
+    block and any other leaked ``TorchFunctionMode`` alike.  A leaked
+    ``DeviceContext`` sits at the BOTTOM of the stack (``DeviceContext.__enter__``
+    inserts it there), so popping only the extra top entries would remove the
+    wrong mode.  ``torch.utils._device.CURRENT_DEVICE`` is reset to match the
+    ``DeviceContext`` left on the rebuilt stack (``None`` if there is none).
+    """
+    import torch.utils._device as torch_device
+    from torch._C import _len_torch_function_stack
+    from torch.overrides import _pop_mode, _push_mode
+
+    current_slot, current_stack = _device_state()
+    # A missing slot and a None slot both mean "no default-device context"
+    # (the fixture swaps a None slot for a missing one while examples run).
+    current_ctx = None if current_slot is _MISSING else current_slot
     before_ctx = None if slot_before is _MISSING else slot_before
-    leaked = current_ctx is not before_ctx
+    leaked = current_ctx is not before_ctx or [id(mode) for mode in current_stack] != [
+        id(mode) for mode in stack_before
+    ]
     if leaked:
-        if current_ctx is not None:
-            current_ctx.__exit__(None, None, None)
-        if before_ctx is not None:
-            # set_default_device() exited the original context when it
-            # installed a new one, so it has to be entered again.
-            before_ctx.__enter__()
+        while _len_torch_function_stack() > 0:
+            _pop_mode()
+        for mode in stack_before:
+            _push_mode(mode)
+        torch_device.CURRENT_DEVICE = next(
+            (mode.device for mode in stack_before if isinstance(mode, torch_device.DeviceContext)),
+            None,
+        )
     _set_device_slot(slot_before)
-    _, stack_after = _device_state()
-    leaked = leaked or [id(mode) for mode in stack_after] != [id(mode) for mode in stack_before]
     return leaked
 
 
@@ -140,8 +158,10 @@ def _restore_device_state(slot_before, stack_before) -> bool:
 def restore_torch_state():
     """Snapshot and restore torch global state touched by docstring examples.
 
-    Fails the test if an example leaves a ``DeviceContext`` (or any other
-    torch-function mode) behind, after removing it again.
+    If an example leaves a ``DeviceContext`` (in the default-device slot or
+    from an un-exited ``torch.device(...)`` block) or any other torch-function
+    mode behind, the slot and the whole mode stack are first restored to the
+    snapshot, so later tests do not inherit the mode, and then the test fails.
     """
     import torch
 
@@ -293,5 +313,42 @@ def test_restore_detects_and_removes_leaked_device_context() -> None:
         assert slot_after is slot_before
         assert [id(m) for m in stack_after] == [id(m) for m in stack_before]
         assert _restore_device_state(slot_before, stack_before) is False
+    finally:
+        _restore_device_state(slot_before, stack_before)
+
+
+def test_restore_removes_leaked_scoped_device_context() -> None:
+    """An un-exited ``torch.device(...)`` block (not in the slot) is detected AND removed."""
+    import torch
+    import torch.utils._device as torch_device
+
+    slot_before, stack_before = _device_state()
+    current_device_before = torch_device.CURRENT_DEVICE
+    try:
+        torch.device("meta").__enter__()
+        assert torch.zeros(1).device.type == "meta"
+        assert _restore_device_state(slot_before, stack_before) is True
+        slot_after, stack_after = _device_state()
+        assert slot_after is slot_before
+        assert [id(m) for m in stack_after] == [id(m) for m in stack_before]
+        assert torch_device.CURRENT_DEVICE == current_device_before
+        assert torch.zeros(1).device.type != "meta"
+        assert _restore_device_state(slot_before, stack_before) is False
+    finally:
+        _restore_device_state(slot_before, stack_before)
+
+
+def test_restore_removes_leaked_function_mode() -> None:
+    """A leaked non-device ``TorchFunctionMode`` is detected AND removed."""
+    import torch
+    from torch.overrides import TorchFunctionMode
+
+    slot_before, stack_before = _device_state()
+    try:
+        TorchFunctionMode().__enter__()
+        assert _restore_device_state(slot_before, stack_before) is True
+        _, stack_after = _device_state()
+        assert [id(m) for m in stack_after] == [id(m) for m in stack_before]
+        assert torch.zeros(1).device.type == "cpu"
     finally:
         _restore_device_state(slot_before, stack_before)

@@ -89,14 +89,27 @@ def restore_torch_state():
     """Snapshot and restore torch global state touched by docstring examples."""
     import torch
 
-    device = torch.get_default_device()
+    # In torch 2.9 an earlier ``set_default_device(None)`` (tests/test_config.py
+    # resets that way) leaves ``get_default_device()`` raising AttributeError.
+    # Examples then run with an explicit cpu default, which is what torch uses
+    # without a device context, and the prior None state is put back afterwards.
+    try:
+        device = torch.get_default_device()
+    except AttributeError:
+        device = None
+        torch.set_default_device("cpu")
     precision = torch.get_float32_matmul_precision()
     with torch.random.fork_rng(devices=[]):
         yield
-    # Never restore with ``set_default_device(None)``: in torch 2.9 that leaves
-    # ``get_default_device()`` raising AttributeError.
-    if torch.get_default_device() != device:
-        torch.set_default_device(device)
+    if device is None:
+        torch.set_default_device(None)
+    else:
+        try:
+            changed = torch.get_default_device() != device
+        except AttributeError:
+            changed = True
+        if changed:
+            torch.set_default_device(device)
     torch.set_float32_matmul_precision(precision)
 
 

@@ -278,20 +278,24 @@ def zreg_to_open3d(pc: zRegPointCloud) -> "o3dtgeo.PointCloud":
     """Converts a point cloud from a PyTorch dictionary to an Open3D point cloud.
 
     This function takes a dictionary representing a point cloud, where the keys are
-    'pos', 'label', and 'id', and the values are either PyTorch tensors or Open3D
-    tensors. It converts the dictionary to an Open3D point cloud object.
+    'pos', 'label', 'id' and 'fps-idx', and the values are either PyTorch tensors
+    or Open3D tensors. It converts the dictionary to an Open3D point cloud object.
 
     Args:
-        pc: A dictionary representing the point cloud. The keys should be 'pos',
-            'label', and 'id', and the values should be either PyTorch tensors or
-            Open3D tensors.
+        pc: A dictionary representing the point cloud. It must contain the keys
+            'pos', 'label', 'id' and 'fps-idx'; the values should be either
+            PyTorch tensors or Open3D tensors. 'pos' is required; 'label', 'id'
+            and 'fps-idx' may be None, in which case the matching Open3D
+            attribute ('colors', 'labels', 'fps_idx') is left out.
+            ``zRegPointCloud`` fills missing keys with None; a plain dict
+            needs all four keys.
 
     Returns:
         An Open3D point cloud object.
 
     Raises:
-        KeyError: If the input dictionary does not contain the keys 'pos', 'label',
-                  and 'id'.
+        KeyError: If the input dictionary lacks one of the keys 'pos', 'label',
+                  'id' or 'fps-idx' (a None value is fine).
         RuntimeError: If open3d is not available.
     """
     o3dtgeo, o3c, has_open3d = _import_open3d()
